@@ -90,14 +90,19 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </SitePasswordGate>
         {/* Weglot Translation - FR, DE, EN */}
         <Script
-          src="https://cdn.weglot.com/weglot.min.js"
-          strategy="afterInteractive"
-        />
-        <Script
           id="weglot-init"
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
-            __html: `Weglot.initialize({ api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7' });`,
+            __html: `
+              (function() {
+                var s = document.createElement('script');
+                s.src = 'https://cdn.weglot.com/weglot.min.js';
+                s.onload = function() {
+                  Weglot.initialize({ api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7' });
+                };
+                document.head.appendChild(s);
+              })();
+            `,
           }}
         />
       </body>
