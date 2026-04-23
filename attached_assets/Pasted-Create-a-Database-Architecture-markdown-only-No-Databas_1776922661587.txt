@@ -1,0 +1,39 @@
+Create a Database Architecture markdown only (No Database Creation for now, I'll let you know when to Create Database with that structure and data Currently Static in the Project.) 
+based on the adminpanel Flow, Admin panel must have authentication, 
+First Analyse all pages in Admin Panel and Frontend And let me know How database structure should be, 
+Trips will be Synced from the 3rd party API Palisis, 
+But availability and booking won't be stored in our system it'll be direct on 3rd party platform, 
+Trips details will be stored on our database
+Some other details of site as below. 
+For the Admin Panel Handling Database Postgres needed (Replit : Optional)
+No Authentication for the frontend User. 
+Save trips in the Cookies
+Trips will be directly booked on Palisis platform and other things handled by Palisis (Mail to user)
+Trips Will be stored on our platform (Name Image Id), Availability will be directly from the API 
+Add new Trips to Palisis Option should be in Admin Panel, (Title and Description to be displayed on our platform will be from the stored information, Client can edit the information and title of the trips )
+Note : It should not make any changes on Palisis. (except Trip Booking no changes will be made on Palisis from our platform) 
+For Manual Sync : During New Import we'll check if title and Description are same or not ask the client for the confirmation for the change for each Trip. (for Single Trip), For bulk Imprt, Give a checkbox Override the Trips.
+ 
+For the WebHook Sync from the Palisis when Trip is updated: We don't need to do Confirmation. it'll override the Trip on our site.
+
+Main Tables
+Trips
+Blogs
+Jobs
+Help & FAQs (Import Current)
+Taxonomies (Searate Pages to Display : /experiences/private-tours) (AI generated Tagging Implementation for Trips) (PENDING Discussion)
+Pages Need to be stored in Database. (Future versions needed Widget Generation) 
+AI Sytems (Manage AI settings : API keys , Prompts and Models for the Usecases)
+Trip Planner (Already being working on Frontend but not linked with admin Panel) Link it So prompt can be Managed. 
+Trip Chat (Answer based on Current Open Trip Knowledgebase and Main Prompt should be manged from admin Panel)
+ and Help & FAQs (FaQ chat )
+Integrations
+It stores API keys for the 3rd party Integrations
+Header/Footer (Will do Separate Discussion , Google analsis and tracking Script adding on Pages Header and Footer)
+Palisis Import : Manual Import of Trips, (Availability will be directly displyed from API in Trips so no need of syncing it)
+
+
+
+
+
+Also review the Whole Project Flows and Create Markdown of database structure and what data will be contained in it and when will it get updated or edited. also we'll be using the 
