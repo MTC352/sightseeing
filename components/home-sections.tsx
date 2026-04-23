@@ -1,0 +1,417 @@
+"use client"
+
+import React from "react"
+
+import Link from "next/link"
+import { TripCard } from "./trip-card"
+import { tripSummaries as trips, categories, reviews } from "@/lib/data"
+import { useWeather } from "@/hooks/use-weather"
+import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, Calendar, MapPin, ArrowRight } from "lucide-react"
+import { EditableText } from "@/components/editable-text"
+
+/* ── Departures Soon data ─────────────────────────────────────── */
+const DEPARTURE_SLOTS: Record<string, { time: string; label: string; spots: number }> = {
+  "31898": { time: "09:30", label: "Today", spots: 4 },
+  "31876": { time: "10:00", label: "Today", spots: 8 },
+  "31855": { time: "09:00", label: "Tomorrow", spots: 2 },
+  "31861": { time: "15:00", label: "Tomorrow", spots: 3 },
+  "31318": { time: "09:00", label: "Sat", spots: 6 },
+  "31464": { time: "14:00", label: "Sun", spots: 14 },
+}
+
+/* Departures Soon Section */
+export function DeparturesSoonSection() {
+  const departingTrips = trips
+    .filter((t) => DEPARTURE_SLOTS[t.id])
+    .map((t) => ({ trip: t, slot: DEPARTURE_SLOTS[t.id]! }))
+    .sort((a, b) => {
+      const order = ["Today", "Tomorrow", "Sat", "Sun"]
+      return order.indexOf(a.slot.label) - order.indexOf(b.slot.label)
+    })
+
+  if (departingTrips.length === 0) return null
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
+            <Calendar className="h-5 w-5 text-primary" />
+            <EditableText id="home:departures:heading" defaultValue="Departing Soon" />
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <EditableText id="home:departures:subheading" defaultValue="Guaranteed slots — book your spot before they fill up." multiline />
+          </p>
+        </div>
+        <Link href="/departures" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">
+          All departures <ChevronRight className="h-4 w-4" />
+        </Link>
+      </div>
+
+      {/* Horizontal scroll carousel */}
+      <div className="mt-6 flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {departingTrips.map(({ trip, slot }) => (
+          <Link
+            key={trip.id}
+            href={`/trip/${trip.id}`}
+            className="group relative flex w-64 shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
+          >
+            {/* Image */}
+            <div className="relative h-36 w-full overflow-hidden">
+              <img
+                src={trip.image}
+                alt={trip.title}
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                loading="lazy"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
+              {/* Departure badge */}
+              <div className={`absolute left-3 top-3 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold shadow ${
+                slot.label === "Today"
+                  ? "bg-destructive text-white"
+                  : slot.label === "Tomorrow"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card text-foreground"
+              }`}>
+                <Clock className="h-3 w-3" />
+                {slot.label} {slot.time}
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex flex-1 flex-col gap-2 p-3">
+              <p className="text-[10px] font-medium text-primary">{trip.category}</p>
+              <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{trip.title}</h3>
+
+              <div className="mt-auto flex items-center justify-between pt-1">
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <MapPin className="h-3 w-3" />
+                  <span className="truncate">{trip.city ?? "Luxembourg"}</span>
+                </div>
+                {slot.spots <= 4 ? (
+                  <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
+                    {slot.spots} left
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold text-foreground">
+                    {trip.price > 0 ? `${trip.price} €` : "Free"}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1 text-[11px] font-medium text-primary">
+                Book now <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+              </div>
+            </div>
+          </Link>
+        ))}
+
+        {/* "See all" card */}
+        <Link
+          href="/departures"
+          className="flex w-48 shrink-0 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-background p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/5"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+            <ArrowRight className="h-5 w-5 text-primary" />
+          </div>
+          <p className="text-sm font-semibold text-foreground">All departure locations</p>
+          <p className="text-xs text-muted-foreground">View by city</p>
+        </Link>
+      </div>
+    </section>
+  )
+}
+
+const CATEGORY_ICONS: Record<string, React.ElementType> = { "Food & Events": Utensils, "Sports & Nature": Bike, Culture: Landmark, Tours: Map, "Gift Vouchers": Gift, "Private Tours": Users, Dinnerhopping: Wine, "LUGA Goodies": Sparkles }
+const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
+
+/* Trending Section */
+export function TrendingSection() {
+  const trending = trips.filter((t) => t.tags.includes("popular")).slice(0, 3)
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            <EditableText id="home:trending:heading" defaultValue="Trending this month" />
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <EditableText id="home:trending:subheading" defaultValue="Do not miss out on these trips." />
+          </p>
+        </div>
+        <Link href="/explore" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">See all <ChevronRight className="h-4 w-4" /></Link>
+      </div>
+      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{trending.map((t, i) => <TripCard key={t.id} trip={t} priority={i === 0} />)}</div>
+    </section>
+  )
+}
+
+/* Weather Widget Section */
+export function WeatherSection() {
+  const { weather, isLoading } = useWeather()
+
+  // Fallback skeleton icon while loading
+  const icon = weather?.current.icon ?? "cloud-sun"
+  const WeatherIcon = WEATHER_ICONS[icon] || CloudSun
+
+  const isRainy = weather?.current.condition.toLowerCase().includes("rain") ?? false
+  const suggestedTrips = trips
+    .filter((t) => isRainy ? t.tags.includes("indoor") : t.tags.includes("outdoor"))
+    .slice(0, 3)
+
+  // Minimal white background theme - no sky gradients
+  const BG_STYLES: Record<string, { bg: string; orb: string; text: string; subtext: string; badge: string; forecastBg: string; iconColor: string }> = {
+    "sun": {
+      bg: "bg-white",
+      orb: "hidden",
+      text: "text-foreground",
+      subtext: "text-muted-foreground",
+      badge: "bg-primary/10 text-primary border border-primary/20",
+      forecastBg: "bg-secondary hover:bg-secondary/80",
+      iconColor: "text-amber-500",
+    },
+    "cloud-sun": {
+      bg: "bg-white",
+      orb: "hidden",
+      text: "text-foreground",
+      subtext: "text-muted-foreground",
+      badge: "bg-primary/10 text-primary border border-primary/20",
+      forecastBg: "bg-secondary hover:bg-secondary/80",
+      iconColor: "text-slate-500",
+    },
+    "cloud-rain": {
+      bg: "bg-white",
+      orb: "hidden",
+      text: "text-foreground",
+      subtext: "text-muted-foreground",
+      badge: "bg-primary/10 text-primary border border-primary/20",
+      forecastBg: "bg-secondary hover:bg-secondary/80",
+      iconColor: "text-slate-600",
+    },
+  }
+
+  const theme = BG_STYLES[icon] ?? BG_STYLES["cloud-sun"]
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm lg:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
+          {/* Weather card — minimal white design */}
+          <div
+            className={`shrink-0 overflow-hidden rounded-2xl border border-border shadow-sm lg:w-72 ${theme.bg}`}
+          >
+            {/* Content */}
+            <div className="relative z-10 p-6">
+              <div className="flex items-center justify-between">
+                <h3 className={`text-lg font-bold ${theme.text}`}>{weather?.current.city ?? "Luxembourg"}</h3>
+                {!isLoading && weather && (
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${theme.badge}`}>Live</span>
+                )}
+              </div>
+
+              <div className="mt-5 flex items-end gap-4">
+                {isLoading ? (
+                  <div className="h-16 w-40 animate-pulse rounded-lg bg-secondary" />
+                ) : (
+                  <>
+                    <WeatherIcon className={`h-16 w-16 ${theme.iconColor}`} />
+                    <div>
+                      <span className={`text-6xl font-light tracking-tight ${theme.text}`}>
+                        {weather?.current.temp ?? "--"}&deg;
+                      </span>
+                      <p className={`text-sm font-medium ${theme.text}`}>{weather?.current.condition}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {isLoading ? (
+                <div className="mt-3 h-4 w-32 animate-pulse rounded bg-secondary" />
+              ) : (
+                <p className={`mt-2 text-xs ${theme.subtext}`}>Feels like {weather?.current.feelsLike}&deg;C</p>
+              )}
+
+              <div className={`mt-4 flex gap-4 text-xs font-medium ${theme.subtext}`}>
+                <span className="flex items-center gap-1">
+                  <Droplets className="h-3.5 w-3.5" />
+                  {isLoading ? "--" : `${weather?.current.humidity}%`}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Wind className="h-3.5 w-3.5" />
+                  {isLoading ? "--" : `${weather?.current.wind} km/h`}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Thermometer className="h-3.5 w-3.5" />
+                  {isLoading ? "--" : `${weather?.current.feelsLike}&deg;`}
+                </span>
+              </div>
+
+              {/* 4-day forecast grid */}
+              <div className="mt-6 grid grid-cols-2 gap-2">
+                {isLoading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex flex-col items-center gap-2 rounded-lg bg-secondary p-3">
+                      <div className="h-2.5 w-8 animate-pulse rounded bg-muted" />
+                      <div className="h-5 w-5 animate-pulse rounded-full bg-muted" />
+                      <div className="h-3 w-6 animate-pulse rounded bg-muted" />
+                    </div>
+                  ))
+                ) : (
+                  weather?.forecast.map((d) => {
+                    const DI = WEATHER_ICONS[d.icon] || Sun
+                    return (
+                      <div key={d.day} className={`flex flex-col items-center gap-1.5 rounded-lg border border-border px-2 py-3 text-xs transition-colors ${theme.forecastBg}`}>
+                        <span className={`font-medium ${theme.subtext}`}>{d.day}</span>
+                        <DI className={`h-5 w-5 ${theme.iconColor}`} />
+                        <span className={`font-bold ${theme.text}`}>{d.high}&deg;</span>
+                        <span className={`text-[10px] ${theme.subtext}`}>{d.low}&deg;</span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Suggested trips */}
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-foreground">
+                {isLoading ? "Trips for today's weather" : isRainy ? "Best indoor experiences today" : "Best outdoor experiences today"}
+              </h3>
+              <Link href="/explore" className="text-sm font-medium text-primary hover:underline">View all</Link>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {isLoading
+                ? "Loading recommendations based on current conditions..."
+                : `Based on ${weather?.current.condition.toLowerCase()} conditions, we recommend these experiences.`}
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {suggestedTrips.map((t) => <TripCard key={t.id} trip={t} />)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/* Categories Section */
+export function CategoriesSection() {
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <h2 className="text-xl font-bold text-foreground">
+        <EditableText id="home:categories:heading" defaultValue="Currently trending categories" />
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        <EditableText id="home:categories:subheading" defaultValue="From cultural tours to adventurous activities." />
+      </p>
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
+        {categories.map((c) => { const Icon = CATEGORY_ICONS[c.name] || Map; return (
+          <Link key={c.name} href={`/search?q=${encodeURIComponent(c.name)}`} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-primary/5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
+            <span className="text-xs font-semibold text-foreground">{c.name}</span>
+            <span className="text-[10px] text-muted-foreground">{c.count} experiences</span>
+          </Link>
+        )})}
+      </div>
+    </section>
+  )
+}
+
+/* Deals Section */
+export function DealsSection() {
+  const deals = trips.filter((t) => t.originalPrice).slice(0, 3)
+  if (deals.length === 0) return null
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <div className="rounded-2xl bg-primary/5 p-6 lg:p-8">
+        <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
+          <Zap className="h-5 w-5 text-primary" />
+          <EditableText id="home:deals:heading" defaultValue="Last Minute Deals" />
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          <EditableText id="home:deals:subheading" defaultValue="Grab these discounted experiences before they sell out!" />
+        </p>
+        <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{deals.map((t) => <TripCard key={t.id} trip={t} />)}</div>
+      </div>
+    </section>
+  )
+}
+
+/* Reviews Section */
+export function ReviewsSection() {
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <div className="flex flex-col gap-8 lg:flex-row">
+        <div className="flex-1">
+          <h2 className="text-xl font-bold text-foreground">
+            <EditableText id="home:reviews:heading" defaultValue="Travelers love Sightseeing.lu" />
+          </h2>
+          <div className="mt-2 flex items-center gap-3">
+            <span className="text-3xl font-bold text-foreground">4.7</span>
+            <div className="flex gap-0.5">{[...Array(5)].map((_, i) => <Star key={i} className={`h-5 w-5 ${i < 4 ? "fill-amber-400 text-amber-400" : "fill-amber-400/30 text-amber-400/30"}`} />)}</div>
+            <span className="text-sm text-muted-foreground">285 reviews</span>
+          </div>
+          <div className="mt-6 flex flex-col gap-4">
+            {reviews.map((r) => (
+              <div key={r.id} className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-foreground">{r.author}</span>
+                  <span className="text-xs text-muted-foreground">{r.date}</span>
+                </div>
+                <div className="mt-1 flex gap-0.5">{[...Array(5)].map((_, i) => <Star key={i} className={`h-3 w-3 ${i < r.rating ? "fill-amber-400 text-amber-400" : "fill-muted text-muted"}`} />)}</div>
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{r.text}</p>
+                <p className="mt-1 text-xs text-primary">{r.tripTitle}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Bestseller sidebar */}
+        <div className="shrink-0 lg:w-80">
+          <h3 className="text-lg font-bold text-foreground">
+            <EditableText id="home:bestseller:heading" defaultValue="This week's bestseller" />
+          </h3>
+          <div className="mt-4"><TripCard trip={trips[0]} priority /></div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/* Recently Viewed (small card format) */
+export function RecentlyViewed() {
+  const recent = trips.slice(0, 4)
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+        <Clock className="h-5 w-5 text-primary" />
+        <EditableText id="home:recent:heading" defaultValue="Recently Viewed" />
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        <EditableText id="home:recent:subheading" defaultValue="Pick up where you left off." />
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{recent.map((t, i) => <TripCard key={t.id} trip={t} variant="small" priority={i === 0} />)}</div>
+    </section>
+  )
+}
+
+/* Stats Bar */
+export function StatsBar() {
+  const stats = [{ label: "Routes", value: "+100", sub: "Destinations near you" }, { label: "TripAdvisor Score", value: "4.5", sub: "4,500 on TripAdvisor" }, { label: "Seating Capacity", value: "1,920", sub: "Capacity of rides" }, { label: "E-Bikes", value: "76", sub: "An ecological way to discover" }]
+  return (
+    <section className="bg-primary/10">
+      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-8 lg:grid-cols-4 lg:px-8">
+        {stats.map((s) => (
+          <div key={s.label} className="text-center">
+            <p className="text-2xl font-bold text-primary">{s.value}</p>
+            <p className="text-sm font-semibold text-foreground">{s.label}</p>
+            <p className="text-xs text-muted-foreground">{s.sub}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}

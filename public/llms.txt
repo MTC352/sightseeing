@@ -1,0 +1,57 @@
+# sightseeing.lu
+
+> sightseeing.lu is Luxembourg's leading platform for handpicked tours, activities, and experiences. We connect travelers with local guides and unique experiences across Luxembourg, from wine tastings along the Moselle Valley to castle tours, dinner hopping buses, e-bike adventures, and cultural museum visits. All experiences are bookable online with instant confirmation.
+
+## Key Pages
+
+- [Homepage](https://sightseeing.lu): Overview of featured experiences, categories, and customer reviews
+- [Explore All Experiences](https://sightseeing.lu/explore): Full catalog of 45+ tours and activities with filters by category, price, duration, and location
+- [AI Trip Planner](https://sightseeing.lu/planner): AI-powered trip planning assistant for personalized Luxembourg itineraries
+- [ChatGPT Widgets](https://sightseeing.lu/widgets): Interactive components for displaying sightseeing.lu content in AI chat interfaces
+- [About Us](https://sightseeing.lu/about): Company information, team, and mission
+
+## Categories
+
+- **Food & Events** (12 experiences): Food tours, wine tastings, beer brewery visits, sunset concerts
+- **Tours** (14 experiences): City bus tours, walking tours, castle day trips, self-guided audio tours
+- **Sports & Nature** (6 experiences): E-bike tours, e-scooter adventures, climbing, cycling
+- **Culture** (9 experiences): Museum passes, cathedral tours, heritage trails, printing and playing card museums
+- **Dinnerhopping** (4 experiences): Multi-restaurant culinary journeys aboard a retro American School Bus
+- **Private Tours** (2 experiences): Customizable private castle and nature tours with personal driver-guide
+
+## Popular Experiences
+
+- Best Guided Walking Tour in Luxembourg City: 2.5 hours, 25 EUR, 4.7 stars (203 reviews)
+- 3-Hour Food Tour: Uncover the Tastes of Luxembourg: 3 hours, 34 EUR, 4.9 stars (127 reviews)
+- LOOK 360 Panorama at 71 Metres High: 30 minutes, 15 EUR, 4.9 stars (112 reviews)
+- City Train in the Old Town of Luxembourg: 50 minutes, 14.50 EUR, 4.4 stars (312 reviews)
+- Gourmet Food Journey on the Dinner Hopping Bus: 4 hours, 109 EUR, 4.8 stars (76 reviews)
+- Guided E-Bike Tour: The Best of Luxembourg in 3 Hours: 3 hours, 70 EUR, 4.8 stars (89 reviews)
+
+## Locations
+
+Luxembourg City, Grevenmacher, Beaufort, Echternach, Bascharage, Haut-Martelange, Esch-sur-Alzette, Diekirch, Ehnen, Wellenstein, Remerschen, Wormeldange, Bech-Kleinmacher
+
+## Pricing
+
+Prices range from free (sunset concerts) to 320 EUR (private tours). Most experiences are between 5 and 99 EUR per person.
+
+## Booking
+
+All experiences are bookable online via our Palisis booking system with instant confirmation. Free cancellation is available 24+ hours before most experiences.
+
+## Contact
+
+- Email: info@sightseeing.lu
+- Phone: +352 123 456
+- Location: Luxembourg City, Luxembourg
+
+## Structured API
+
+A public JSON API is available at `https://sightseeing.lu/api/trips` with CORS support. Accepts query params: `category`, `city`, `minPrice`, `maxPrice`, `limit`, `sort` (price|rating|reviews).
+
+Example: `https://sightseeing.lu/api/trips?category=Tours&sort=rating&limit=5`
+
+## Full Catalog
+
+For the complete list of all experiences with full details, see [llms-full.txt](https://sightseeing.lu/llms-full.txt).

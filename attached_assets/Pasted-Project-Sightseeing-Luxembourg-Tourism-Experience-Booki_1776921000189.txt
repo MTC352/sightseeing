@@ -1,0 +1,164 @@
+Project: Sightseeing Luxembourg — Tourism Experience Booking Platform
+
+Build a full-stack Next.js 14 (App Router) tourism booking and discovery web application for sightseeing.lu, the official sightseeing platform for Luxembourg. The app connects visitors with guided tours, cultural experiences, outdoor activities, food events, and private tours, and embeds the Palisis booking system for actual ticket purchases.
+
+---
+
+TECH STACK
+- Framework: Next.js 14, App Router, TypeScript
+- Styling: Tailwind CSS + shadcn/ui component library
+- State: React useState / useContext, SWR for data fetching
+- AI: Vercel AI SDK (anthropic/claude-opus-4.6) for chat and itinerary generation
+- Maps: Mapbox GL JS
+- Weather: OpenWeatherMap API
+- Translation: Weglot
+- Booking: Palisis iframe embed (https://sightseeingluxembourg.palisis.com)
+- In-memory store: module-level Map objects in lib/admin-store.ts (no external DB required)
+- Icons: lucide-react
+
+---
+
+DESIGN SYSTEM
+- Color palette: max 5 colors. Primary: teal/emerald (#5BBFB5 or similar). Neutrals: white, light grey (#f5f5f5), dark (#1a1a1a). Accent: amber for ratings/weather.
+- Typography: 2 fonts maximum. Inter for body, one display font for headings.
+- Mobile-first responsive design. 44px minimum touch targets. No emojis in UI.
+- Use semantic HTML, ARIA roles, sr-only text for screen readers.
+- Use Tailwind flexbox as primary layout method. Grid only for 2D layouts.
+- No gradients unless necessary. No decorative blobs or abstract shapes.
+- shadcn/ui components throughout: Button, Card, Badge, Dialog, Tabs, Select, Slider, Switch, Input, Textarea, Separator.
+
+---
+
+PUBLIC PAGES AND FEATURES
+
+1. Homepage (/):
+   - Hero section: full-screen background image with keyword search bar (text input, date & time filter, persons selector). Search navigates to /search?q=...
+   - Horizontal scrollable category pill bar (Food & Events, Sports & Nature, Culture, Tours, Dinnerhopping, Private Tours)
+   - "Departing Soon" section: trips with upcoming departure slots shown as colour-coded availability chips
+   - Weather widget: current Luxembourg weather via OpenWeatherMap, shows "good for today" badge on relevant trips
+   - Featured trips grid
+   - Trip Planner CTA section
+   - Blog/editorial section
+   - Footer with links, social icons, Weglot language switcher
+
+2. Explore page (/explore):
+   - Sticky filter bar: Filters pill (opens modal), Dates & Times pill (opens DateTimeModal), scrollable category pills
+   - Filter modal: price range slider, min rating, max duration, persons count, location radius
+   - DateTimeModal: From Time / To Time inputs (type="time") at top, single-date calendar picker below (Monday-first, teal today circle, teal selected fill, past dates disabled), teal "Apply" CTA button
+   - Results grid (default) and list view toggle (LayoutGrid / List icons)
+   - Grid view: card with image, badge, "Good for today" weather tag, rating, duration, price, "Add to Triplist" button
+   - List view: horizontal card with trip details + "Available Timeslots" section per trip showing Today/Tomorrow rows with colour-coded chips: emerald = plenty, amber = limited, red = sold out. Timeslot chips are informational only.
+
+3. Search/Results page (/search):
+   - Identical layout and filter UI as /explore
+   - Pre-filters by ?q= keyword from URL
+   - Shows result count with keyword subtitle
+
+4. Trip detail page (/trip/[id]):
+   - Hero image, title, rating, duration, city, price
+   - Highlights, description, itinerary, included/not-included, guides
+   - Gallery
+   - Palisis booking iframe embed with CSS to hide the Palisis native header via negative margin offset:
+     .booking-iframe-wrap { overflow: auto; height: 560px; scrollbar-width: none; }
+     .booking-iframe { width: 100%; height: calc(100% + 80px); margin-top: -80px; border: 0; }
+   - AI-powered trip chat assistant (Vercel AI SDK, streaming, context-aware of trip details)
+   - "Add to Triplist" button synced via context
+
+5. Trip Planner (/planner):
+   - Left panel: chat interface with AI assistant (Claude) that generates a day itinerary based on user preferences
+   - Right panel: itinerary timeline showing numbered steps, each step has:
+     - "Suggested: HH:MM" label (small muted prefix + bold teal time — makes clear the time is an AI suggestion, not a confirmed booking)
+     - Trip title and duration
+     - Transport connector between steps
+     - Available timeslot chips (Today/Tomorrow, colour-coded, clickable to select preferred slot)
+   - Tips section below itinerary
+   - No "Regenerate Itinerary" button
+   - Triplist sidebar: saved trips with "View Itinerary" option
+
+6. Checkout/Triplist (/checkout):
+   - List of saved trips with Palisis booking iframe per trip
+   - Remove trip option
+
+7. Blog (/blog, /blog/[slug])
+8. Careers (/careers)
+9. Help/FAQ (/help) with AI chat assistant
+
+---
+
+ADMIN PANEL (/admin)
+
+Protected by PIN gate (NEXT_PUBLIC_ADMIN_PIN env variable, stored in sessionStorage).
+
+Sidebar navigation: Dashboard, Trips, Departures, Blog, Jobs, Taxonomies, Pages, AI Systems, Integrations, Header/Footer.
+
+Admin sections:
+- Dashboard: stats cards (total trips, posts, jobs, AI requests), quick-action buttons
+- Trips list: table with edit/delete, "Import from Palisis" button, "Update Availability" button
+- Trip editor: all fields, featured toggle, badge toggle, featuredDeparture toggle
+- Departures (/admin/departures): all upcoming departures in one view, grouped by date, search + filter by status/category, spot fill progress bar, colour-coded availability, quick status actions (cancel/restore)
+- Blog: post list + markdown editor
+- Jobs: job list + editor
+- Taxonomies: key/value editor for category descriptions, FAQ items, hero text
+- Pages: list of managed pages (home, explore, search, planner, blog, careers, help, checkout). Each page links to itself with ?admin_edit=1 for inline content editing via hover-to-edit UI. No drag-and-drop builder.
+- AI Systems: per-AI settings (system prompt, model, temperature, max tokens) for: Trip Planner, Trip Chat, Help Chat
+- Integrations: API keys for OpenWeather, Mapbox, Anthropic, Palisis, Google Reviews, Weglot
+- Weglot sub-page: full config (languages, flag style, button position, exclusions)
+- Header/Footer: custom code injection page with named blocks (Announcement Banner, Head Scripts, Chat Widget, Analytics, Cookie Consent), each with enable/disable toggle, status badge, and a dark-themed code editor with line numbers
+
+---
+
+DATA LAYER
+
+All state lives in lib/admin-store.ts using module-level Map objects (simulating a DB). This is intentional — it is easily swappable for Neon/Supabase/Postgres later.
+
+Core interfaces:
+- AdminTrip: id, title, image, price, originalPrice, rating, reviewCount, duration, category, tags, badge, city, description, permalink, provider, highlights, featured, featuredDeparture, status
+- AdminPost: slug, title, excerpt, body, image, author, category, tags, status, publishedAt, readTime
+- AdminJob: title, department, location, type, description, requirements[], status
+- Departure: tripId, tripTitle, tripImage, category, city, date (ISO), time (HH:MM), spotsTotal, spotsBooked, guideName, status, price
+- AdminSettings: apiKeys, weglot config, AI system configs, header/footer customHtml
+
+Seed data: 43+ real trips from sightseeing.lu with actual titles, prices, durations, categories, providers.
+
+API routes (all under /api/admin/):
+- GET/PATCH /settings
+- GET/POST/PATCH/DELETE /trips
+- GET/POST/PATCH/DELETE /departures
+- GET/POST/PATCH/DELETE /blog
+- GET/POST/PATCH/DELETE /jobs
+- POST /palisis-import (mock, returns summary)
+- POST /palisis-availability (mock)
+
+---
+
+SHARED COMPONENTS
+
+- DateTimeModal (components/date-time-modal.tsx): From Time / To Time inputs (type="time") at top, single-date calendar, Apply button. Used by hero, explore, and search.
+- TimeslotChip + ItineraryTimeslots (components/timeslot-chips.tsx): generates deterministic dummy departure data per tripId, renders Today/Tomorrow rows with colour-coded chips. Used in list-view cards and itinerary steps.
+- ExploreCard: vertical trip card (grid view)
+- TripListCard: horizontal trip card with timeslot section (list view)
+- SmartItinerary / ItineraryPanel: trip planner AI chat + timeline
+
+---
+
+ENVIRONMENT VARIABLES REQUIRED
+- NEXT_PUBLIC_MAPBOX_TOKEN
+- OPENWEATHER_API_KEY
+- NEXT_PUBLIC_WEGLOT_KEY
+- NEXT_PUBLIC_ADMIN_PIN (e.g. "1234")
+- ANTHROPIC_API_KEY
+
+---
+
+BEST PRACTICES
+- Never use localStorage. All state goes through the in-memory store + API routes.
+- Never fetch inside useEffect. Use SWR (useSWR) for client-side data.
+- Split pages into multiple components. No single file over ~400 lines.
+- 44px minimum touch targets. 16px minimum font size on inputs (prevents iOS auto-zoom).
+- Use semantic HTML: <main>, <header>, <nav>, <article>, <section>.
+- All images need alt text. Use next/image throughout.
+- Await searchParams, headers, and cookies in Server Components (Next.js 15 requirement).
+- "use client" only where interactivity requires it. Prefer RSCs.
+- All API routes handle errors gracefully and return typed JSON.
+- Tailwind only — no CSS modules or inline styles unless unavoidable.
+- No emojis in code or UI.

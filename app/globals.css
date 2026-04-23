@@ -1,0 +1,157 @@
+@import "mapbox-gl/dist/mapbox-gl.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+}
+
+@layer base {
+  :root {
+    --background: 150 15% 97%;
+    --foreground: 200 20% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 200 20% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 20% 14%;
+    --primary: 163 40% 63%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 150 12% 93%;
+    --secondary-foreground: 200 20% 14%;
+    --muted: 150 10% 93%;
+    --muted-foreground: 200 10% 46%;
+    --accent: 163 40% 63%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 200 10% 90%;
+    --input: 200 10% 90%;
+    --ring: 163 40% 63%;
+    --radius: 0.625rem;
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --chart-1: 163 40% 63%;
+    --chart-2: 200 60% 50%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 163 40% 63%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 150 12% 95%;
+    --sidebar-accent-foreground: 200 20% 14%;
+    --sidebar-border: 200 10% 90%;
+    --sidebar-ring: 163 40% 63%;
+  }
+  .dark {
+    --background: 200 25% 8%;
+    --foreground: 150 15% 92%;
+    --card: 200 20% 12%;
+    --card-foreground: 150 15% 92%;
+    --popover: 200 20% 12%;
+    --popover-foreground: 150 15% 92%;
+    --primary: 163 40% 63%;
+    --primary-foreground: 200 20% 14%;
+    --secondary: 200 15% 18%;
+    --secondary-foreground: 150 15% 92%;
+    --muted: 200 15% 16%;
+    --muted-foreground: 150 10% 55%;
+    --accent: 163 40% 63%;
+    --accent-foreground: 200 20% 14%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 200 10% 20%;
+    --input: 200 10% 20%;
+    --ring: 163 40% 63%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* Booking iframe: hide Palisis header via negative margin + clip, scrollable but no visible scrollbar */
+.booking-iframe-wrap {
+  overflow: auto;
+  height: 560px;
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* IE/Edge */
+}
+
+.booking-iframe-wrap::-webkit-scrollbar {
+  display: none;                  /* Chrome / Safari */
+}
+
+.booking-iframe {
+  width: 100%;
+  height: calc(100% + 80px);
+  margin-top: -80px;
+  border: 0;
+}
+
+/* Mapbox custom pin markers */
+.sightseeing-map-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.18));
+  transition: transform 0.15s ease;
+}
+.sightseeing-map-pin:hover {
+  transform: scale(1.12);
+  z-index: 10;
+}
+.sightseeing-map-pin-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+/* Photo spot markers */
+.sightseeing-photo-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: #fef3c7;
+  border: 2px solid #f59e0b;
+  border-radius: 50%;
+  color: #b45309;
+  cursor: pointer;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.15));
+  transition: transform 0.15s ease;
+}
+.sightseeing-photo-pin:hover {
+  transform: scale(1.2);
+  z-index: 10;
+  background: #fde68a;
+}
+.sightseeing-map-pin-label::after {
+  content: "";
+  display: block;
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 5px;
+  background: hsl(var(--border));
+}

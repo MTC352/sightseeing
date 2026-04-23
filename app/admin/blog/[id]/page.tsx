@@ -1,0 +1,19 @@
+import { getPost } from "@/lib/admin-store"
+import { notFound } from "next/navigation"
+import { PostEditForm } from "./post-edit-form"
+
+export default async function PostEditPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const post = id === "new" ? null : getPost(id)
+  if (id !== "new" && !post) notFound()
+
+  return (
+    <div className="p-6 lg:p-10">
+      <div className="mb-6">
+        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Blog</p>
+        <h1 className="mt-1 text-2xl font-bold text-foreground">{post ? "Edit Post" : "New Post"}</h1>
+      </div>
+      <PostEditForm post={post} />
+    </div>
+  )
+}
