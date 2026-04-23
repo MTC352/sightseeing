@@ -1,6 +1,7 @@
 import React, { Suspense } from "react"
 import type { Metadata, Viewport } from "next"
 import { Instrument_Sans } from "next/font/google"
+import Script from "next/script"
 import { CartProvider } from "@/lib/cart-context"
 import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
@@ -76,14 +77,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <link rel="preconnect" href="https://sightseeingluxembourg.palisis.com" />
         <link rel="preconnect" href="https://api.mapbox.com" />
         <link rel="dns-prefetch" href="https://events.mapbox.com" />
-        
-        {/* Weglot Translation - FR, DE, EN */}
-        <script type="text/javascript" src="https://cdn.weglot.com/weglot.min.js" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `Weglot.initialize({ api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7' });`,
-          }}
-        />
       </head>
       <body className="font-sans antialiased">
         <SitePasswordGate>
@@ -95,7 +88,18 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </WeatherProvider>
           </CartProvider>
         </SitePasswordGate>
-        
+        {/* Weglot Translation - FR, DE, EN */}
+        <Script
+          src="https://cdn.weglot.com/weglot.min.js"
+          strategy="afterInteractive"
+        />
+        <Script
+          id="weglot-init"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `Weglot.initialize({ api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7' });`,
+          }}
+        />
       </body>
     </html>
   )
