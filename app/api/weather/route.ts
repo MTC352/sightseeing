@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { dbGetSettings } from "@/lib/db/queries"
 
 // Luxembourg City coordinates
 const LAT = 49.6116
@@ -52,7 +53,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const cityOverride = searchParams.get("city")
 
-  const apiKey = process.env.OPENWEATHER_API_KEY
+  let apiKey = process.env.OPENWEATHER_API_KEY
+  if (!apiKey) {
+    try {
+      const settings = await dbGetSettings()
+      apiKey = settings?.apiKeys?.openWeather ?? ""
+    } catch { /* ignore */ }
+  }
   if (!apiKey) {
     return NextResponse.json(buildFallback("OPENWEATHER_API_KEY not set"))
   }

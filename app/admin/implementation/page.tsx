@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CheckCircle2, Circle, AlertCircle, Database, Shield, Layers, Zap, Globe, Webhook } from "lucide-react"
+import { CheckCircle2, Circle, AlertCircle, Database, Shield, Layers, Zap, Globe, Webhook, Link2, RefreshCw } from "lucide-react"
 
 type Status = "done" | "pending" | "partial"
 
@@ -55,6 +55,7 @@ interface DbCounts {
   hf_blocks: string
   pages: string
   taxonomies: string
+  departures: string
 }
 
 interface RouteHealth {
@@ -63,12 +64,15 @@ interface RouteHealth {
   taxonomies: boolean | null
   pagesApi: boolean | null
   pageContent: boolean | null
+  departures: boolean | null
+  integrationsApi: boolean | null
 }
 
 export default function ImplementationPage() {
   const [dbCounts, setDbCounts] = useState<DbCounts | null>(null)
   const [health, setHealth] = useState<RouteHealth>({
-    auth: null, dashboard: null, taxonomies: null, pagesApi: null, pageContent: null,
+    auth: null, dashboard: null, taxonomies: null, pagesApi: null,
+    pageContent: null, departures: null, integrationsApi: null,
   })
 
   useEffect(() => {
@@ -83,6 +87,8 @@ export default function ImplementationPage() {
       ["taxonomies", "/api/admin/taxonomies"],
       ["pagesApi", "/api/admin/pages"],
       ["pageContent", "/api/admin/page-content?slug=home"],
+      ["departures", "/api/admin/departures"],
+      ["integrationsApi", "/api/admin/integrations"],
     ]
     checks.forEach(([key, url]) => {
       fetch(url)
@@ -123,7 +129,7 @@ export default function ImplementationPage() {
       ],
     },
     {
-      title: "T002 — Schema (16 tables)",
+      title: "T002 — Schema (17 tables)",
       icon: Layers,
       items: [
         { label: "admin_users", status: "done", source: "DB" },
@@ -142,8 +148,9 @@ export default function ImplementationPage() {
         { label: "ai_system_configs", status: "done", source: "DB" },
         { label: "integrations", status: "done", source: "DB" },
         { label: "header_footer_blocks", status: "done", source: "DB" },
+        { label: "departures (new — departure schedule table)", status: "done", source: "DB" },
         { label: "lib/db.ts — Pool singleton + query helpers", status: "done" },
-        { label: "lib/db/queries.ts — All CRUD helpers", status: "done" },
+        { label: "lib/db/queries.ts — All CRUD helpers (incl. departures + integrations)", status: "done" },
       ],
     },
     {
@@ -187,7 +194,7 @@ export default function ImplementationPage() {
           source: "DB",
         },
         {
-          label: "integrations (8 rows)",
+          label: "integrations (8 rows — keys empty until admin saves)",
           status: dbCounts ? countStatus("integrations", 8) : "pending",
           detail: dbCounts ? `${dbCounts.integrations} rows` : "checking…",
           source: "DB",
@@ -210,6 +217,12 @@ export default function ImplementationPage() {
           detail: dbCounts ? `${dbCounts.taxonomies ?? 0} rows` : "checking…",
           source: "DB",
         },
+        {
+          label: "departures (sample rows from featured trips)",
+          status: dbCounts ? countStatus("departures", 1) : "pending",
+          detail: dbCounts ? `${dbCounts.departures ?? 0} rows` : "checking…",
+          source: "DB",
+        },
       ],
     },
     {
@@ -228,67 +241,58 @@ export default function ImplementationPage() {
       title: "T005 — Core API Routes → DB",
       icon: Zap,
       items: [
-        { label: "GET/POST /api/admin/trips", status: "done", source: "DB" },
-        { label: "GET/PATCH/DELETE /api/admin/trips/[id]", status: "done", source: "DB" },
-        { label: "GET/POST /api/admin/posts", status: "done", source: "DB" },
-        { label: "GET/PATCH/DELETE /api/admin/posts/[id]", status: "done", source: "DB" },
-        { label: "GET/POST /api/admin/jobs", status: "done", source: "DB" },
-        { label: "GET/PATCH/DELETE /api/admin/jobs/[id]", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/trips + revalidatePath", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/trips/[id] + revalidatePath", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/posts + revalidatePath + auto-slug", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/posts/[id] + revalidatePath", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/jobs + revalidatePath", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/jobs/[id] + revalidatePath", status: "done", source: "DB" },
         { label: "GET/PATCH /api/admin/applications", status: "done", source: "DB" },
-        { label: "GET/POST /api/admin/help", status: "done", source: "DB" },
-        { label: "GET/PATCH/DELETE /api/admin/help/[id]", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/help + revalidatePath", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/help/[id] + revalidatePath", status: "done", source: "DB" },
         { label: "GET/POST /api/admin/tickets", status: "done", source: "DB" },
         { label: "GET/PATCH/DELETE /api/admin/tickets/[id]", status: "done", source: "DB" },
         { label: "POST /api/admin/tickets/[id]/replies", status: "done", source: "DB" },
-        { label: "GET/PATCH /api/admin/settings", status: "done", source: "DB" },
+        { label: "GET/PATCH /api/admin/settings (apiKeys, ai, weglot, header, footer)", status: "done", source: "DB" },
         { label: "GET/PUT /api/admin/planner-behavior", status: "done", source: "DB" },
         { label: "GET /api/admin/dashboard (live DB stats)", status: apiStatus("dashboard"), detail: apiDetail("dashboard"), source: "DB" },
       ],
     },
     {
-      title: "T007 — New API Routes",
+      title: "T007 — Extended API Routes",
       icon: Globe,
       items: [
-        {
-          label: "GET/POST/PATCH /api/admin/taxonomies",
-          status: apiStatus("taxonomies"),
-          detail: apiDetail("taxonomies"),
-          source: "DB",
-        },
+        { label: "GET/POST/PATCH /api/admin/taxonomies", status: apiStatus("taxonomies"), detail: apiDetail("taxonomies"), source: "DB" },
         { label: "GET/DELETE /api/admin/taxonomies/[key]", status: "done", source: "DB" },
-        {
-          label: "GET/POST /api/admin/pages",
-          status: apiStatus("pagesApi"),
-          detail: apiDetail("pagesApi"),
-          source: "DB",
-        },
+        { label: "GET/POST /api/admin/pages", status: apiStatus("pagesApi"), detail: apiDetail("pagesApi"), source: "DB" },
         { label: "GET/PATCH/DELETE /api/admin/pages/[id]", status: "done", source: "DB" },
         { label: "GET/POST /api/admin/pages/[id]/revisions", status: "done", source: "DB" },
         { label: "POST /api/admin/pages/[id]/revisions/[revisionId]/restore", status: "done", source: "DB" },
-        {
-          label: "GET/POST /api/admin/page-content",
-          status: apiStatus("pageContent"),
-          detail: apiDetail("pageContent"),
-          source: "DB",
-        },
+        { label: "GET/POST /api/admin/page-content", status: apiStatus("pageContent"), detail: apiDetail("pageContent"), source: "DB" },
         { label: "POST /api/webhooks/palisis (availability + booking events)", status: "done", source: "DB" },
+        { label: "GET/POST/PATCH /api/admin/departures → DB (was admin-store)", status: apiStatus("departures"), detail: apiDetail("departures"), source: "DB" },
+        { label: "GET/PATCH /api/admin/integrations → integrations table", status: apiStatus("integrationsApi"), detail: apiDetail("integrationsApi"), source: "DB" },
       ],
     },
     {
-      title: "T008 — Admin UI → DB (Server Components)",
+      title: "T008 — Admin UI → DB (auto-update + error handling)",
       icon: Layers,
       items: [
-        { label: "/admin (dashboard) — dbListTrips, dbListJobs, dbListPosts", status: "done", source: "DB" },
-        { label: "/admin/trips — dbListTrips (async server component)", status: "done", source: "DB" },
-        { label: "/admin/trips/[id] — dbGetTrip (async server component)", status: "done", source: "DB" },
-        { label: "/admin/blog — dbListPosts (async server component)", status: "done", source: "DB" },
-        { label: "/admin/blog/[id] — dbGetPost (async server component)", status: "done", source: "DB" },
-        { label: "/admin/jobs — dbListJobs + dbListApplications (async)", status: "done", source: "DB" },
-        { label: "/admin/jobs/[id] — dbGetJob (async server component)", status: "done", source: "DB" },
-        { label: "/admin/help — dbListHelpArticles (async server component)", status: "done", source: "DB" },
-        { label: "/admin/help/[id] — dbGetHelpArticle (async server component)", status: "done", source: "DB" },
-        { label: "/admin/ai-systems — dbGetSettings (async server component)", status: "done", source: "DB" },
-        { label: "/admin/taxonomies — fetch /api/admin/taxonomies (client)", status: "done", source: "DB" },
+        { label: "/admin (dashboard) — live DB stats", status: "done", source: "DB" },
+        { label: "/admin/trips — force-dynamic + revalidatePath", status: "done", source: "DB" },
+        { label: "/admin/trips/[id] — res.ok check + error banner", status: "done", source: "DB" },
+        { label: "/admin/blog — force-dynamic + revalidatePath", status: "done", source: "DB" },
+        { label: "/admin/blog/[id] — res.ok check + error banner + auto-slug", status: "done", source: "DB" },
+        { label: "/admin/jobs — force-dynamic + revalidatePath", status: "done", source: "DB" },
+        { label: "/admin/jobs/[id] — res.ok check + error banner", status: "done", source: "DB" },
+        { label: "/admin/help — force-dynamic + revalidatePath", status: "done", source: "DB" },
+        { label: "/admin/help/[id] — res.ok check + error banner", status: "done", source: "DB" },
+        { label: "/admin/ai-systems — DB settings", status: "done", source: "DB" },
+        { label: "/admin/taxonomies — DB via API", status: "done", source: "DB" },
+        { label: "/admin/tickets — DB via /api/admin/tickets", status: "done", source: "DB" },
+        { label: "/admin/departures — DB via /api/admin/departures (re-pointed)", status: "done", source: "DB" },
+        { label: "/admin/integrations — DB via /api/admin/integrations", status: "partial", detail: "Saves via settings; integrations route new", source: "DB" },
+        { label: "/admin/header-footer — DB via settings (header/footer sections)", status: "done", source: "DB" },
       ],
     },
     {
@@ -296,8 +300,39 @@ export default function ImplementationPage() {
       icon: Globe,
       items: [
         { label: "/blog — dbListPosts (async server component)", status: "done", source: "DB" },
-        { label: "/blog/[slug] — dbGetPostBySlug (async server component)", status: "done", source: "DB" },
-        { label: "Blog metadata via dbGetPostBySlug", status: "done", source: "DB" },
+        { label: "/blog/[slug] — dbGetPostBySlug", status: "done", source: "DB" },
+        { label: "/explore — ExploreClient still imports from lib/data.ts", status: "partial", detail: "Needs ExploreClient refactor" },
+        { label: "/careers — hardcoded JOBS array (client component)", status: "pending", detail: "Convert to server component + dbListJobs" },
+        { label: "/help — HelpClient uses hardcoded articles", status: "pending", detail: "Convert to server component + dbListHelpArticles" },
+        { label: "/departures — DeparturesClient still uses admin-store", status: "pending", detail: "Wire to /api/departures → DB" },
+        { label: "/trip/[id] — needs DB lookup", status: "pending", detail: "Currently uses lib/data.ts" },
+      ],
+    },
+    {
+      title: "T010 — 3rd-Party Integrations",
+      icon: Link2,
+      items: [
+        { label: "OpenWeather key: env var fallback → DB settings (apiKeys.openWeather)", status: "done", source: "DB" },
+        { label: "Mapbox token: env var fallback → DB settings (apiKeys.mapbox)", status: "done", source: "DB" },
+        { label: "Google Reviews key: reads from DB settings (apiKeys.googleReviews)", status: "done", source: "DB" },
+        { label: "Palisis API key: reads from DB settings (apiKeys.palisis)", status: "done", source: "DB" },
+        { label: "OpenWeather test button: validates key against real API", status: "pending", detail: "Currently only checks key length" },
+        { label: "Google Reviews test button: validates against Places API", status: "pending", detail: "Currently only checks key length" },
+        { label: "Palisis test button: validates against Palisis API endpoint", status: "pending", detail: "Currently only checks key length" },
+        { label: "Integrations page: save to /api/admin/integrations (DB table)", status: "partial", detail: "Currently saves via settings.apiKeys" },
+        { label: "Weglot full settings page at /admin/integrations/weglot", status: "pending" },
+      ],
+    },
+    {
+      title: "T011 — Palisis Booking Integration",
+      icon: RefreshCw,
+      items: [
+        { label: "POST /api/webhooks/palisis — webhook endpoint", status: "done", source: "DB" },
+        { label: "GET /api/admin/palisis-availability — reads from DB key", status: "done", source: "DB" },
+        { label: "POST /api/admin/palisis-import — reads from DB key", status: "done", source: "DB" },
+        { label: "/admin/palisis — import panel UI", status: "done" },
+        { label: "Live Palisis API calls (currently mock/commented out)", status: "pending", detail: "Needs real Palisis API key + endpoint" },
+        { label: "Palisis import: auto-create trips from catalog response", status: "pending", detail: "Mapping Palisis product → trips DB row" },
       ],
     },
     {
@@ -305,25 +340,27 @@ export default function ImplementationPage() {
       icon: CheckCircle2,
       items: [
         { label: "/admin/implementation page", status: "done" },
-        { label: "Live DB row counts from /api/admin/impl-check", status: dbCounts ? "done" : "pending", source: "DB" },
-        { label: "Live API health checks (auth, dashboard, taxonomies, pages, page-content)", status: "done" },
+        { label: "Live DB row counts (incl. departures)", status: dbCounts ? "done" : "pending", source: "DB" },
+        { label: "Live API health checks (auth, dashboard, taxonomies, pages, page-content, departures, integrations)", status: "done" },
         { label: "Data source badges (DB vs Mock)", status: "done" },
-        { label: "Added to admin sidebar nav as 'DB Tracker'", status: "done" },
+        { label: "New task sections: T010 (3rd-party), T011 (Palisis), T009 (public pages)", status: "done" },
+        { label: "Added to admin sidebar nav", status: "done" },
       ],
     },
   ]
 
   const allItems = sections.flatMap((s) => s.items)
   const doneCount = allItems.filter((i) => i.status === "done").length
+  const partialCount = allItems.filter((i) => i.status === "partial").length
   const totalCount = allItems.length
   const pct = Math.round((doneCount / totalCount) * 100)
 
   return (
     <div className="min-h-screen p-6">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground">DB Implementation Tracker</h1>
+        <h1 className="text-2xl font-bold text-foreground">Implementation Tracker</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Live status for all tasks: database, auth, seeding, API routes, admin UI, and public pages.
+          Full audit: database, auth, seeding, API routes, admin UI, public pages, 3rd-party integrations.
         </p>
 
         <div className="mt-4 flex items-center gap-4">
@@ -333,12 +370,19 @@ export default function ImplementationPage() {
           <span className="shrink-0 text-sm font-semibold text-foreground">{doneCount}/{totalCount} ({pct}%)</span>
         </div>
 
-        <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-full bg-blue-500/60" /> <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-blue-600">DB</span> = reads/writes from PostgreSQL
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> {doneCount} done
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-full bg-violet-500/60" /> <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-600">Mock</span> = static/in-memory data
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500" /> {partialCount} partial
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Circle className="h-3.5 w-3.5 text-muted-foreground/40" /> {totalCount - doneCount - partialCount} pending
+          </span>
+          <span className="ml-auto flex items-center gap-2">
+            <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-blue-600">DB</span>
+            <span className="text-[10px]">= reads/writes from PostgreSQL</span>
           </span>
         </div>
       </div>
@@ -347,6 +391,7 @@ export default function ImplementationPage() {
         {sections.map((section) => {
           const Icon = section.icon
           const sectionDone = section.items.filter((i) => i.status === "done").length
+          const sectionPartial = section.items.filter((i) => i.status === "partial").length
           return (
             <div key={section.title} className="rounded-xl border border-border bg-card">
               <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
@@ -354,7 +399,10 @@ export default function ImplementationPage() {
                   <Icon className="h-3.5 w-3.5 text-primary" />
                 </div>
                 <h2 className="flex-1 text-sm font-semibold text-foreground">{section.title}</h2>
-                <span className="text-xs text-muted-foreground">{sectionDone}/{section.items.length}</span>
+                <span className="text-xs text-muted-foreground">
+                  {sectionDone}/{section.items.length}
+                  {sectionPartial > 0 && <span className="ml-1 text-amber-500">+{sectionPartial}~</span>}
+                </span>
               </div>
               <ul className="divide-y divide-border/50">
                 {section.items.map((item, idx) => (
@@ -364,7 +412,7 @@ export default function ImplementationPage() {
                       {item.label}
                     </span>
                     {item.source && <SourceBadge source={item.source} />}
-                    {item.detail && <span className="text-[10px] text-muted-foreground">{item.detail}</span>}
+                    {item.detail && <span className="text-[10px] text-muted-foreground/70 max-w-[120px] text-right">{item.detail}</span>}
                     <StatusBadge status={item.status} />
                   </li>
                 ))}
@@ -372,6 +420,19 @@ export default function ImplementationPage() {
             </div>
           )
         })}
+      </div>
+
+      {/* Next steps */}
+      <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+        <h3 className="mb-2 text-sm font-semibold text-amber-900 dark:text-amber-300">Next Implementation Steps</h3>
+        <ol className="space-y-1 text-xs text-amber-800 dark:text-amber-400">
+          <li><strong>1.</strong> Wire public <code>/explore</code>, <code>/careers</code>, <code>/help</code> pages to DB (refactor ExploreClient / convert to server components)</li>
+          <li><strong>2.</strong> Wire public <code>/trip/[id]</code> page to DB (currently reads from lib/data.ts)</li>
+          <li><strong>3.</strong> Wire public <code>/departures</code> page to DB departures table via API</li>
+          <li><strong>4.</strong> Wire integrations page save to <code>/api/admin/integrations</code> (DB table) instead of settings.apiKeys</li>
+          <li><strong>5.</strong> Add real API key validation for OpenWeather, Google Reviews, Palisis</li>
+          <li><strong>6.</strong> Implement live Palisis catalog import + trip auto-creation</li>
+        </ol>
       </div>
 
       <div className="mt-6 rounded-xl border border-border bg-card p-5">

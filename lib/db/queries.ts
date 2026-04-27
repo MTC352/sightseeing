@@ -700,3 +700,100 @@ export async function dbGetDashboardStats() {
     helpArticles: { total: +r.totalHelpArticles },
   }
 }
+
+// ── Departures ─────────────────────────────────────────────────────────────
+
+export async function dbListDepartures() {
+  return query(`
+    SELECT id, trip_id as "tripId", trip_title as "tripTitle", trip_image as "tripImage",
+           category, city, to_char(date, 'YYYY-MM-DD') as date,
+           to_char(time, 'HH24:MI') as time,
+           spots_total as "spotsTotal", spots_booked as "spotsBooked",
+           guide_id as "guideId", guide_name as "guideName",
+           status, price::float, created_at as "createdAt"
+    FROM departures ORDER BY date ASC, time ASC
+  `)
+}
+
+export async function dbGetDeparture(id: string) {
+  return queryOne<Record<string, unknown>>(`
+    SELECT id, trip_id as "tripId", trip_title as "tripTitle", trip_image as "tripImage",
+           category, city, to_char(date, 'YYYY-MM-DD') as date,
+           to_char(time, 'HH24:MI') as time,
+           spots_total as "spotsTotal", spots_booked as "spotsBooked",
+           guide_id as "guideId", guide_name as "guideName",
+           status, price::float
+    FROM departures WHERE id = $1
+  `, [id])
+}
+
+export async function dbCreateDeparture(data: Record<string, unknown>) {
+  return queryOne<Record<string, unknown>>(`
+    INSERT INTO departures (trip_id, trip_title, trip_image, category, city, date, time,
+                            spots_total, spots_booked, guide_id, guide_name, status, price)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    RETURNING id, trip_id as "tripId", trip_title as "tripTitle", trip_image as "tripImage",
+              category, city, to_char(date, 'YYYY-MM-DD') as date,
+              to_char(time, 'HH24:MI') as time,
+              spots_total as "spotsTotal", spots_booked as "spotsBooked",
+              guide_id as "guideId", guide_name as "guideName",
+              status, price::float
+  `, [
+    data.tripId ?? "", data.tripTitle ?? "", data.tripImage ?? "",
+    data.category ?? "Tours", data.city ?? "Luxembourg",
+    data.date ?? new Date().toISOString().slice(0,10),
+    data.time ?? "09:00",
+    data.spotsTotal ?? 20, data.spotsBooked ?? 0,
+    data.guideId ?? "", data.guideName ?? "",
+    data.status ?? "scheduled",
+    data.price ?? 0,
+  ])
+}
+
+export async function dbUpdateDeparture(id: string, data: Record<string, unknown>) {
+  const fields: string[] = []
+  const values: unknown[] = []
+  let i = 1
+  const map: Record<string, string> = {
+    tripId: "trip_id", tripTitle: "trip_title", tripImage: "trip_image",
+    category: "category", city: "city", date: "date", time: "time",
+    spotsTotal: "spots_total", spotsBooked: "spots_booked",
+    guideId: "guide_id", guideName: "guide_name", status: "status", price: "price",
+  }
+  for (const [k, col] of Object.entries(map)) {
+    if (k in data) { fields.push(`${col} = $${i++}`); values.push(data[k]) }
+  }
+  if (!fields.length) return dbGetDeparture(id)
+  fields.push(`updated_at = NOW()`)
+  values.push(id)
+  return queryOne<Record<string, unknown>>(
+    `UPDATE departures SET ${fields.join(", ")} WHERE id = $${i} RETURNING id`,
+    values
+  )
+}
+
+export async function dbDeleteDeparture(id: string) {
+  return query(`DELETE FROM departures WHERE id = $1`, [id])
+}
+
+// ── Integrations (dedicated table) ────────────────────────────────────────
+
+export async function dbListIntegrations() {
+  return query(`SELECT key, label, value, enabled, updated_at FROM integrations ORDER BY label`)
+}
+
+export async function dbGetIntegration(key: string) {
+  return queryOne<{ key: string; label: string; value: string; enabled: boolean }>(
+    `SELECT key, label, value, enabled FROM integrations WHERE key = $1`, [key]
+  )
+}
+
+export async function dbUpsertIntegration(key: string, label: string, value: string, enabled = true) {
+  return queryOne<{ key: string }>(
+    `INSERT INTO integrations (key, label, value, enabled, updated_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, enabled = EXCLUDED.enabled, updated_at = NOW()
+     RETURNING key`,
+    [key, label, value, enabled]
+  )
+}
