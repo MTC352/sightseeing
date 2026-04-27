@@ -1,54 +1,38 @@
-import { NextRequest, NextResponse } from "next/server"
-import { getTicket, updateTicket, deleteTicket } from "@/lib/admin-store"
+import { NextResponse } from "next/server"
+import { dbGetTicket, dbUpdateTicket, dbDeleteTicket } from "@/lib/db/queries"
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params
-  const ticket = getTicket(id)
-  
-  if (!ticket) {
-    return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
-  }
-  
-  return NextResponse.json(ticket)
-}
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params
-  
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const data = await request.json()
-    const updated = updateTicket(id, data)
-    
-    if (!updated) {
-      return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
-    }
-    
-    return NextResponse.json(updated)
-  } catch (error) {
-    console.error("Error updating ticket:", error)
-    return NextResponse.json(
-      { error: "Failed to update ticket" },
-      { status: 500 }
-    )
+    const { id } = await params
+    const ticket = await dbGetTicket(id)
+    if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
+    return NextResponse.json(ticket)
+  } catch (err) {
+    console.error("[admin/tickets/:id] GET error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params
-  const deleted = deleteTicket(id)
-  
-  if (!deleted) {
-    return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params
+    const data = await req.json()
+    const updated = await dbUpdateTicket(id, data)
+    if (!updated) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
+    return NextResponse.json(updated)
+  } catch (err) {
+    console.error("[admin/tickets/:id] PATCH error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-  
-  return NextResponse.json({ success: true })
+}
+
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params
+    await dbDeleteTicket(id)
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error("[admin/tickets/:id] DELETE error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }

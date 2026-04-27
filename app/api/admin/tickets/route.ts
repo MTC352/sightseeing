@@ -1,42 +1,37 @@
-import { NextRequest, NextResponse } from "next/server"
-import { listTickets, createTicket } from "@/lib/admin-store"
+import { NextResponse } from "next/server"
+import { dbListTickets, dbCreateTicket } from "@/lib/db/queries"
+
+export const dynamic = "force-dynamic"
 
 export async function GET() {
-  const tickets = listTickets()
-  return NextResponse.json(tickets)
+  try {
+    return NextResponse.json(await dbListTickets())
+  } catch (err) {
+    console.error("[admin/tickets] GET error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const data = await request.json()
-    
-    // Validate required fields
+    const data = await req.json()
     if (!data.subject || !data.description || !data.category || !data.priority) {
-      return NextResponse.json(
-        { error: "Missing required fields: subject, description, category, priority" },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Missing required fields: subject, description, category, priority" }, { status: 400 })
     }
-
-    const ticket = createTicket({
+    const ticket = await dbCreateTicket({
       subject: data.subject,
       description: data.description,
       category: data.category,
       priority: data.priority,
       status: "open",
-      authorId: data.authorId || "admin_1",
-      authorName: data.authorName || "Admin User",
-      authorEmail: data.authorEmail || "admin@sightseeing.lu",
-      authorRole: data.authorRole || "admin",
-      assignedTo: data.assignedTo,
+      authorName: data.authorName ?? "Admin User",
+      authorEmail: data.authorEmail ?? "admin@sightseeing.lu",
+      authorRole: data.authorRole ?? "admin",
+      assignedTo: data.assignedTo ?? null,
     })
-
     return NextResponse.json(ticket, { status: 201 })
-  } catch (error) {
-    console.error("Error creating ticket:", error)
-    return NextResponse.json(
-      { error: "Failed to create ticket" },
-      { status: 500 }
-    )
+  } catch (err) {
+    console.error("[admin/tickets] POST error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

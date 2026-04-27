@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSettings } from "@/lib/admin-store"
+import { dbGetSettings } from "@/lib/db/queries"
 
 /* -----------------------------------------------------------------------
    Extracts a Place ID from a variety of Google Maps URL formats:
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const rawUrl = searchParams.get("url") ?? ""
 
-  const settings = getSettings()
+  const settings = await dbGetSettings()
   const apiKey = settings.apiKeys?.googleReviews || process.env.GOOGLE_PLACES_API_KEY
 
   if (!apiKey) {

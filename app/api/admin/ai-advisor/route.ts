@@ -1,14 +1,16 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
-import { getSettings, listTrips, listPosts } from "@/lib/admin-store"
+import { dbGetSettings, dbListTrips, dbListPosts } from "@/lib/db/queries"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
 
 // Current state of the app for context
-function getAppState() {
-  const settings = getSettings()
-  const trips = listTrips()
-  const posts = listPosts()
+async function getAppState() {
+  const settings = await dbGetSettings()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const trips: any[] = await dbListTrips()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const posts: any[] = await dbListPosts()
   
   const publishedTrips = trips.filter(t => t.status === "published")
   const draftTrips = trips.filter(t => t.status === "draft")
@@ -90,7 +92,7 @@ export async function POST(request: Request) {
       messages = body.messages ?? []
     }
     
-    const appState = getAppState()
+    const appState = await getAppState()
     const systemPrompt = SYSTEM_PROMPT.replace("{{APP_STATE}}", JSON.stringify(appState, null, 2))
 
     const result = streamText({
@@ -113,7 +115,7 @@ export async function POST(request: Request) {
 
 // GET endpoint to fetch current app state for widgets
 export async function GET() {
-  const appState = getAppState()
+  const appState = await getAppState()
   
   // Calculate roadmap items based on current state
   const roadmapItems = []

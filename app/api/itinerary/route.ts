@@ -1,6 +1,6 @@
 import { generateText, Output } from "ai"
 import { z } from "zod"
-import { getSettings } from "@/lib/admin-store"
+import { dbGetSettings } from "@/lib/db/queries"
 
 const itinerarySchema = z.object({
   steps: z.array(z.object({
@@ -48,8 +48,8 @@ function pickHotelForArea(area: string) {
   return match || dummyHotelListings[0]
 }
 
-function buildFallbackItinerary(trips: { id: string; title: string; city: string; duration: string; category: string }[]) {
-  const settings = getSettings().plannerBehavior
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildFallbackItinerary(trips: { id: string; title: string; city: string; duration: string; category: string }[], settings: Record<string, any>) {
   const [startHourStr] = settings.dayStartTime.split(":")
   const startHour = parseInt(startHourStr) || 9
   let currentMinute = 0
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     const tripList = trips.map((t, i) => `${i + 1}. "${t.title}" [${t.id}] in ${t.city} (${t.duration}, ${t.category})`).join("\n")
     
     // Get admin-configured planner behavior settings
-    const settings = getSettings().plannerBehavior
+    const settings = (await dbGetSettings()).plannerBehavior
     const travelMethodLabel = settings.travelTimeMethod === "walking" ? "walking" 
       : settings.travelTimeMethod === "driving" ? "car/driving" 
       : "bus/tram (free public transport)"
@@ -171,7 +171,7 @@ Also evaluate:
       return Response.json(output)
     } catch (aiErr) {
       console.error("[itinerary] AI failed, using fallback:", aiErr)
-      return Response.json(buildFallbackItinerary(trips))
+      return Response.json(buildFallbackItinerary(trips, settings))
     }
   } catch (err) {
     console.error("[itinerary] Error:", err)

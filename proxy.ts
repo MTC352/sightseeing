@@ -1,16 +1,44 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
+import { verifySession } from "@/lib/auth"
 
-export function proxy(request: NextRequest) {
+const PUBLIC_AUTH_PATHS = [
+  "/admin/login",
+  "/api/admin/auth/login",
+  "/api/admin/auth/logout",
+]
+
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // ── Admin auth guard ────────────────────────────────────────────────────
+  const isAdminPage = pathname.startsWith("/admin")
+  const isAdminApi = pathname.startsWith("/api/admin")
+
+  if (isAdminPage || isAdminApi) {
+    const isPublic = PUBLIC_AUTH_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
+
+    if (!isPublic) {
+      const token = request.cookies.get("admin_session")?.value
+      const session = token ? await verifySession(token) : null
+
+      if (!session) {
+        if (isAdminApi) {
+          return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        }
+        const loginUrl = new URL("/admin/login", request.url)
+        loginUrl.searchParams.set("redirect", pathname)
+        return NextResponse.redirect(loginUrl)
+      }
+    }
+  }
+
+  // ── AEO & AI crawler headers ────────────────────────────────────────────
   const response = NextResponse.next()
-
-  /* AEO: Allow AI crawlers to use maximum content from all pages */
   response.headers.set(
     "X-Robots-Tag",
     "all, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
   )
-
-  /* Point AI agents to our llms.txt for site context */
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
   response.headers.set(
     "Link",

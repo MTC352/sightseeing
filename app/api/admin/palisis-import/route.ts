@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { getSettings, createTrip } from "@/lib/admin-store"
+import { dbGetSettings, dbCreateTrip } from "@/lib/db/queries"
 
 // Mock Palisis catalog — replace with real API call when credentials are available
 const MOCK_PALISIS_CATALOG = [
@@ -36,7 +36,7 @@ const MOCK_PALISIS_CATALOG = [
 ]
 
 export async function POST() {
-  const settings = getSettings()
+  const settings = await dbGetSettings()
 
   // When real Palisis credentials are set, swap mock data for live API call:
   // const res = await fetch(`${settings.apiKeys.palisis}/catalog`, {
@@ -53,7 +53,7 @@ export async function POST() {
 
   for (const item of MOCK_PALISIS_CATALOG) {
     try {
-      createTrip({
+      await dbCreateTrip({
         title: item.title,
         description: item.description,
         price: item.price,
@@ -64,14 +64,14 @@ export async function POST() {
         provider: item.provider,
         image: item.image,
         highlights: item.highlights,
-        badge: undefined,
+        badge: null,
         rating: item.rating,
         reviewCount: item.reviewCount,
         featured: false,
         featuredDeparture: false,
         status: "draft",
-        permalink: undefined,
-        originalPrice: undefined,
+        permalink: null,
+        originalPrice: null,
       })
       imported++
     } catch {

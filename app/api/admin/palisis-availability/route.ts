@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { getSettings, listTrips } from "@/lib/admin-store"
+import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
 
 interface AvailabilitySlot {
   tripId: string
@@ -9,8 +9,9 @@ interface AvailabilitySlot {
   spotsTotal: number
 }
 
-function buildMockSlots(): AvailabilitySlot[] {
-  const trips = listTrips().slice(0, 5)
+async function buildMockSlots(): Promise<AvailabilitySlot[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const trips: any[] = (await dbListTrips()).slice(0, 5)
   const today = new Date()
   const slots: AvailabilitySlot[] = []
 
@@ -34,7 +35,7 @@ function buildMockSlots(): AvailabilitySlot[] {
 }
 
 export async function POST() {
-  const settings = getSettings()
+  const settings = await dbGetSettings()
 
   if (!settings.apiKeys.palisis) {
     console.warn("[palisis-availability] No API key set — returning mock availability data")
@@ -46,7 +47,7 @@ export async function POST() {
   // })
   // const data = await res.json()
 
-  const slots = buildMockSlots()
+  const slots = await buildMockSlots()
   const updated = slots.length
 
   return NextResponse.json({

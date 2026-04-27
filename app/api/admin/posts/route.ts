@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server"
-import { createPost, listPosts } from "@/lib/admin-store"
-import type { AdminPost } from "@/lib/admin-store"
+import { dbListPosts, dbCreatePost } from "@/lib/db/queries"
+
+export const dynamic = "force-dynamic"
 
 export async function GET() {
-  return NextResponse.json(listPosts())
+  try {
+    return NextResponse.json(await dbListPosts())
+  } catch (err) {
+    console.error("[admin/posts] GET error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }
 
 export async function POST(req: Request) {
-  const data: Omit<AdminPost, "id"> = await req.json()
-  const post = createPost(data)
-  return NextResponse.json(post, { status: 201 })
+  try {
+    const data = await req.json()
+    const post = await dbCreatePost(data)
+    return NextResponse.json(post, { status: 201 })
+  } catch (err) {
+    console.error("[admin/posts] POST error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }

@@ -9,7 +9,7 @@ import {
 } from "ai"
 import { z } from "zod"
 import { trips, weatherData as staticWeatherData, type Trip } from "@/lib/data"
-import { getSettings } from "@/lib/admin-store"
+import { dbGetSettings } from "@/lib/db/queries"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -417,8 +417,9 @@ export async function POST(req: Request) {
     ]
     
     // Append admin-configured custom system prompt if available
-    const settings = getSettings()
-    const adminPrompt = settings.ai?.planner?.systemPrompt
+    const settings = await dbGetSettings()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const adminPrompt = (settings.ai?.planner as any)?.systemPrompt
     if (adminPrompt && adminPrompt.trim()) {
       systemPromptParts.push("", "CUSTOM INSTRUCTIONS FROM ADMIN:", adminPrompt)
     }
@@ -426,7 +427,8 @@ export async function POST(req: Request) {
     const systemPrompt = systemPromptParts.join("\n")
 
     const result = streamText({
-      model: plannerBehavior?.model || settings.ai?.planner?.model || "openai/gpt-4o-mini",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      model: plannerBehavior?.model || (settings.ai?.planner as any)?.model || "openai/gpt-4o-mini",
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       tools,

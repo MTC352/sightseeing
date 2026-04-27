@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server"
-import { createTrip, listTrips } from "@/lib/admin-store"
-import type { AdminTrip } from "@/lib/admin-store"
+import { dbListTrips, dbCreateTrip } from "@/lib/db/queries"
+
+export const dynamic = "force-dynamic"
 
 export async function GET() {
-  return NextResponse.json(listTrips())
+  try {
+    return NextResponse.json(await dbListTrips())
+  } catch (err) {
+    console.error("[admin/trips] GET error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }
 
 export async function POST(req: Request) {
-  const data: Omit<AdminTrip, "id"> = await req.json()
-  const trip = createTrip(data)
-  return NextResponse.json(trip, { status: 201 })
+  try {
+    const data = await req.json()
+    const trip = await dbCreateTrip(data)
+    return NextResponse.json(trip, { status: 201 })
+  } catch (err) {
+    console.error("[admin/trips] POST error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }

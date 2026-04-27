@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { usePathname } from "next/navigation"
 import { Lock } from "lucide-react"
 
 const SITE_PIN = "3462"
@@ -17,6 +18,7 @@ function isGateValid(): boolean {
 }
 
 export function SitePasswordGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const [authed, setAuthed] = useState(false)
   const [pin, setPin] = useState("")
   const [error, setError] = useState(false)
@@ -28,6 +30,9 @@ export function SitePasswordGate({ children }: { children: React.ReactNode }) {
       setAuthed(true)
     }
   }, [])
+
+  // Admin routes have their own auth — bypass site gate entirely
+  if (pathname?.startsWith("/admin")) return <>{children}</>
 
   if (!mounted) return null
 

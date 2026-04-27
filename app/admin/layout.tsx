@@ -1,14 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Tag, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare,
 } from "lucide-react"
-
-const PIN = "1234"
 
 type NavItem = {
   href: string
@@ -38,72 +36,43 @@ const NAV: NavItem[] = [
   { href: "/admin/integrations", label: "Integrations", icon: Plug },
   { href: "/admin/header-footer", label: "Header / Footer", icon: Code2 },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw },
+  { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare },
 ]
 
-function PinGate({ onAuth }: { onAuth: () => void }) {
-  const [pin, setPin] = useState("")
-  const [error, setError] = useState(false)
-
-  function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (pin === PIN) {
-      sessionStorage.setItem("admin_auth", "true")
-      onAuth()
-    } else {
-      setError(true)
-      setPin("")
-      setTimeout(() => setError(false), 1800)
-    }
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <form onSubmit={submit} className="w-full max-w-xs rounded-2xl border border-border bg-card p-8 shadow-sm">
-        <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <LayoutDashboard className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-lg font-bold text-foreground">Admin Access</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Enter your PIN to continue</p>
-        </div>
-        <input
-          type="password"
-          inputMode="numeric"
-          maxLength={8}
-          value={pin}
-          onChange={(e) => setPin(e.target.value)}
-          placeholder="••••"
-          className={`w-full rounded-lg border bg-background px-4 py-3 text-center text-lg tracking-widest text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 ${
-            error ? "border-destructive focus:ring-destructive/20" : "border-border focus:ring-primary/30"
-          }`}
-          autoFocus
-        />
-        {error && <p className="mt-2 text-center text-xs text-destructive">Incorrect PIN</p>}
-        <button
-          type="submit"
-          className="mt-4 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          Unlock
-        </button>
-        <p className="mt-4 text-center text-[11px] text-muted-foreground/50">Default PIN: 1234</p>
-      </form>
-    </div>
-  )
-}
-
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const [authed, setAuthed] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
-  const [mounted, setMounted] = useState(false)
+  const router = useRouter()
   const pathname = usePathname()
+  const [collapsed, setCollapsed] = useState(false)
+  const [authed, setAuthed] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  const isLoginPage = pathname === "/admin/login" || pathname.startsWith("/admin/login/")
 
   useEffect(() => {
     setMounted(true)
-    if (sessionStorage.getItem("admin_auth") === "true") setAuthed(true)
-  }, [])
+    if (isLoginPage) return
+    fetch("/api/admin/auth/me")
+      .then((res) => {
+        if (res.ok) {
+          setAuthed(true)
+        } else {
+          router.replace(`/admin/login?redirect=${encodeURIComponent(pathname)}`)
+        }
+      })
+      .catch(() => {
+        router.replace("/admin/login")
+      })
+  }, [pathname, router, isLoginPage])
 
+  async function handleLogout() {
+    await fetch("/api/admin/auth/logout", { method: "POST" })
+    router.replace("/admin/login")
+  }
+
+  // Login page renders without the admin shell
   if (!mounted) return null
-  if (!authed) return <PinGate onAuth={() => setAuthed(true)} />
+  if (isLoginPage) return <>{children}</>
+  if (!authed) return null
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -211,10 +180,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </button>
           <button
             type="button"
-            onClick={() => {
-              sessionStorage.removeItem("admin_auth")
-              setAuthed(false)
-            }}
+            onClick={handleLogout}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive ${
               collapsed ? "justify-center" : ""
             }`}
