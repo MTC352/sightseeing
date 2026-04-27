@@ -3,6 +3,8 @@ import { dbListHelpArticles } from "@/lib/db/queries"
 import { Plus, Pencil, HelpCircle } from "lucide-react"
 import { HelpArticleDeleteButton } from "./help-delete-button"
 
+export const dynamic = "force-dynamic"
+
 type HelpArticle = {
   id: string; question: string; answer: string; category: string;
   status: string; order: number;

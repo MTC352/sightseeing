@@ -4,6 +4,8 @@ import { Plus, Pencil, ExternalLink } from "lucide-react"
 import { TripDeleteButton } from "./trip-delete-button"
 import { TripToggleButton } from "./trip-toggle-button"
 
+export const dynamic = "force-dynamic"
+
 export default async function AdminTripsPage() {
   const trips = await dbListTrips() as {
     id: string; title: string; city: string; category: string; price: number;

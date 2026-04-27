@@ -4,6 +4,8 @@ import { Plus, Pencil, Briefcase, Users } from "lucide-react"
 import { JobDeleteButton } from "./job-delete-button"
 import { JobStatusButton } from "./job-status-button"
 
+export const dynamic = "force-dynamic"
+
 export default async function AdminJobsPage() {
   const [jobs, applications] = await Promise.all([
     dbListJobs(),

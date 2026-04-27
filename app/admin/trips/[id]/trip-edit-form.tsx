@@ -3,7 +3,7 @@
 import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
-import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2 } from "lucide-react"
+import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { SEOAnalysisWidget } from "@/components/admin/seo-analysis-widget"
 
@@ -14,6 +14,7 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const [form, setForm] = useState<Partial<AdminTrip>>(
     trip ?? {
@@ -103,19 +104,38 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
   }
 
   async function handleSave() {
+    if (!form.title?.trim()) {
+      setSaveError("Title is required before saving.")
+      return
+    }
     setSaving(true)
-    const method = trip ? "PATCH" : "POST"
-    const url = trip ? `/api/admin/trips/${trip.id}` : `/api/admin/trips`
-    await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    })
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-    if (!trip) router.push("/admin/trips")
-    else router.refresh()
+    setSaveError(null)
+    try {
+      const method = trip ? "PATCH" : "POST"
+      const url = trip ? `/api/admin/trips/${trip.id}` : `/api/admin/trips`
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setSaveError(body.error ?? `Save failed (${res.status})`)
+        return
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+      if (!trip) {
+        router.push("/admin/trips")
+        router.refresh()
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setSaveError("Network error — please try again.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const inputClass = "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -123,6 +143,13 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
 
   return (
     <div className="mx-auto max-w-3xl">
+      {saveError && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex-1">{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)} className="shrink-0 opacity-60 hover:opacity-100"><X className="h-4 w-4" /></button>
+        </div>
+      )}
       {/* Top actions */}
       <div className="mb-6 flex items-center justify-between">
         <Link href="/admin/trips" className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import type { HelpArticle } from "@/lib/admin-store"
-import { Save, ArrowLeft, Check } from "lucide-react"
+import { Save, ArrowLeft, Check, AlertCircle, X } from "lucide-react"
 import Link from "next/link"
 
 const CATEGORIES = ["Booking", "Payments", "Cancellation", "Accessibility", "General"]
@@ -12,6 +12,7 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const [form, setForm] = useState<Partial<HelpArticle>>(
     article ?? {
@@ -28,19 +29,38 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
   }
 
   async function handleSave() {
+    if (!form.question?.trim() || !form.answer?.trim()) {
+      setSaveError("Question and answer are required before saving.")
+      return
+    }
     setSaving(true)
-    const method = article ? "PATCH" : "POST"
-    const url = article ? `/api/admin/help/${article.id}` : `/api/admin/help`
-    await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    })
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-    if (!article) router.push("/admin/help")
-    else router.refresh()
+    setSaveError(null)
+    try {
+      const method = article ? "PATCH" : "POST"
+      const url = article ? `/api/admin/help/${article.id}` : `/api/admin/help`
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setSaveError(body.error ?? `Save failed (${res.status})`)
+        return
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+      if (!article) {
+        router.push("/admin/help")
+        router.refresh()
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setSaveError("Network error — please try again.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const inputClass =
@@ -49,6 +69,13 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
 
   return (
     <div className="mx-auto max-w-2xl">
+      {saveError && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex-1">{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)} className="shrink-0 opacity-60 hover:opacity-100"><X className="h-4 w-4" /></button>
+        </div>
+      )}
       {/* Topbar */}
       <div className="mb-6 flex items-center justify-between">
         <Link
