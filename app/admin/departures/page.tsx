@@ -1,12 +1,17 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import {
   Calendar, Clock, MapPin, Users, Search, Filter,
-  ChevronDown, Plus, Pencil, Trash2, Check, X, ExternalLink
+  ChevronDown, Plus, Pencil, Trash2, Check, X, ExternalLink, Loader2
 } from "lucide-react"
-import type { Departure } from "@/lib/admin-store"
+import {
+  useGetDeparturesQuery,
+  useUpdateDepartureMutation,
+  useDeleteDepartureMutation,
+} from "@/store/admin/api"
+import type { Departure } from "@/store/admin/api"
 
 type StatusFilter = "all" | "scheduled" | "full" | "cancelled" | "completed"
 
@@ -44,23 +49,18 @@ function dayLabel(iso: string) {
   const diff = Math.round((d.getTime() - today.getTime()) / 86400000)
   if (diff === 0) return "Today"
   if (diff === 1) return "Tomorrow"
-  if (diff < 0) return null
   return null
 }
 
 export default function AdminDeparturesPage() {
-  const [departures, setDepartures] = useState<Departure[]>([])
+  const { data: departures = [], isLoading } = useGetDeparturesQuery()
+  const [updateDeparture] = useUpdateDepartureMutation()
+  const [deleteDeparture] = useDeleteDepartureMutation()
+
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [groupByDate, setGroupByDate] = useState(true)
-
-  const load = useCallback(async () => {
-    const res = await fetch("/api/admin/departures")
-    if (res.ok) setDepartures(await res.json())
-  }, [])
-
-  useEffect(() => { load() }, [load])
 
   const categories = ["all", ...Array.from(new Set(departures.map((d) => d.category))).sort()]
 
@@ -69,12 +69,15 @@ export default function AdminDeparturesPage() {
     if (categoryFilter !== "all" && d.category !== categoryFilter) return false
     if (search) {
       const q = search.toLowerCase()
-      if (!d.tripTitle.toLowerCase().includes(q) && !d.city.toLowerCase().includes(q) && !d.guideName.toLowerCase().includes(q)) return false
+      if (
+        !d.tripTitle.toLowerCase().includes(q) &&
+        !d.city.toLowerCase().includes(q) &&
+        !d.guideName.toLowerCase().includes(q)
+      ) return false
     }
     return true
   })
 
-  // Group by date
   const grouped: Record<string, Departure[]> = {}
   filtered.forEach((d) => {
     if (!grouped[d.date]) grouped[d.date] = []
@@ -82,24 +85,25 @@ export default function AdminDeparturesPage() {
   })
   const sortedDates = Object.keys(grouped).sort()
 
-  // Summary stats
   const totalSpots = filtered.reduce((s, d) => s + d.spotsTotal, 0)
   const bookedSpots = filtered.reduce((s, d) => s + d.spotsBooked, 0)
   const todayCount = filtered.filter((d) => dayLabel(d.date) === "Today").length
 
   async function handleStatusChange(id: string, status: Departure["status"]) {
-    await fetch("/api/admin/departures", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    })
-    load()
+    await updateDeparture({ id, status })
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this departure?")) return
-    await fetch(`/api/admin/departures?id=${id}`, { method: "DELETE" })
-    load()
+    await deleteDeparture(id)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center py-32">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/40" />
+      </div>
+    )
   }
 
   return (
@@ -203,7 +207,6 @@ export default function AdminDeparturesPage() {
             const label = dayLabel(date)
             return (
               <div key={date}>
-                {/* Date header */}
                 <div className="mb-3 flex items-center gap-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-foreground">{fmtDate(date)}</span>
@@ -216,8 +219,6 @@ export default function AdminDeparturesPage() {
                   <div className="flex-1 border-t border-border" />
                   <span className="text-xs text-muted-foreground">{grouped[date].length} departure{grouped[date].length !== 1 ? "s" : ""}</span>
                 </div>
-
-                {/* Cards for this date */}
                 <div className="overflow-hidden rounded-xl border border-border bg-card">
                   <table className="w-full text-sm">
                     <tbody className="divide-y divide-border">
@@ -270,12 +271,13 @@ function DepartureRow({
 
   return (
     <tr className="group transition-colors hover:bg-secondary/40">
-      {/* Trip info */}
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="hidden h-10 w-14 shrink-0 overflow-hidden rounded-lg bg-muted sm:block">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={dep.tripImage} alt="" className="h-full w-full object-cover" />
+            {dep.tripImage && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={dep.tripImage} alt="" className="h-full w-full object-cover" />
+            )}
           </div>
           <div className="min-w-0">
             <p className="max-w-[200px] truncate font-medium text-foreground">{dep.tripTitle}</p>
@@ -289,7 +291,6 @@ function DepartureRow({
         </div>
       </td>
 
-      {/* Date + time */}
       <td className="hidden px-4 py-3 sm:table-cell">
         <div className="flex items-center gap-2">
           <div>
@@ -310,7 +311,6 @@ function DepartureRow({
         </div>
       </td>
 
-      {/* Guide */}
       <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
@@ -320,13 +320,11 @@ function DepartureRow({
         </div>
       </td>
 
-      {/* Spots */}
       <td className="hidden px-4 py-3 lg:table-cell">
         <div className="flex flex-col items-center gap-1">
           <span className={`text-sm ${spotsColor(dep.spotsBooked, dep.spotsTotal)}`}>
             {dep.spotsBooked} / {dep.spotsTotal}
           </span>
-          {/* Progress bar */}
           <div className="h-1.5 w-20 overflow-hidden rounded-full bg-secondary">
             <div
               className={`h-full rounded-full transition-all ${dep.spotsBooked >= dep.spotsTotal ? "bg-destructive" : dep.spotsBooked / dep.spotsTotal >= 0.8 ? "bg-amber-500" : "bg-primary"}`}
@@ -337,22 +335,22 @@ function DepartureRow({
         </div>
       </td>
 
-      {/* Status */}
       <td className="px-4 py-3">
         <StatusBadge status={dep.status} />
       </td>
 
-      {/* Actions */}
       <td className="px-4 py-3">
         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <Link
-            href={`/trip/${dep.tripId}`}
-            target="_blank"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            title="View trip"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
+          {dep.tripId && (
+            <Link
+              href={`/trip/${dep.tripId}`}
+              target="_blank"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              title="View trip"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
+          )}
           {dep.status === "scheduled" && (
             <button
               type="button"

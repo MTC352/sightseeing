@@ -6,6 +6,7 @@ import { CartProvider } from "@/lib/cart-context"
 import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
 import { SitePasswordGate } from "@/components/site-password-gate"
+import { SiteStoreProvider } from "@/components/providers/site-store-provider"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -79,6 +80,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <link rel="dns-prefetch" href="https://events.mapbox.com" />
       </head>
       <body className="font-sans antialiased">
+        <SiteStoreProvider>
         <SitePasswordGate>
           <CartProvider>
             <WeatherProvider>
@@ -88,6 +90,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </WeatherProvider>
           </CartProvider>
         </SitePasswordGate>
+        </SiteStoreProvider>
         {/* Weglot Translation - FR, DE, EN */}
         <Script
           id="weglot-init"

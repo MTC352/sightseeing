@@ -19,6 +19,33 @@ Includes a full public frontend and a comprehensive admin panel at `/admin/*`.
 - **Booking:** Palisis (currently mock data — real API call commented out)
 - **Weather:** OpenWeatherMap
 - **Proxy/middleware:** `proxy.ts` (Next.js 16 format, not `middleware.ts`)
+- **State management:** Redux Toolkit + RTK Query — two separate stores (admin + site)
+
+## State Management (Redux + RTK Query)
+
+Implemented with `@reduxjs/toolkit` + `react-redux`. Two isolated stores to keep admin and frontend load completely separate.
+
+### Admin Store (`store/admin/`)
+- **`store/admin/api.ts`** — RTK Query API slice covering ALL `/api/admin/*` routes
+  - Full CRUD: trips, posts, jobs, applications, help, tickets, departures, taxonomies
+  - Settings, integrations, dashboard stats
+  - Cache tag invalidation: mutations auto-invalidate related queries (e.g. `deleteTrip` invalidates `['Trips', 'Dashboard']`)
+- **`store/admin/store.ts`** — Admin Redux store (only adminApi reducer)
+- **`components/providers/admin-store-provider.tsx`** — `"use client"` Provider, wraps `app/admin/layout.tsx`
+- **Usage:** Import hooks from `@/store/admin/api` — e.g. `useGetDeparturesQuery()`, `useDeleteDepartureMutation()`
+
+### Site Store (`store/site/`)
+- **`store/site/api.ts`** — RTK Query API slice for public site endpoints
+  - Weather (5-min cache), Google Reviews (30-min cache), Mapbox token (1-hr cache)
+  - Public trips + blog posts (5-min cache)
+- **`store/site/store.ts`** — Site Redux store (only siteApi reducer)
+- **`components/providers/site-store-provider.tsx`** — `"use client"` Provider, wraps `app/layout.tsx`
+- **Usage:** Import hooks from `@/store/site/api` — e.g. `useGetWeatherQuery()`, `useGetMapboxTokenQuery()`
+
+### Key Principle
+- **Server components** remain untouched — they call DB functions directly (best for SEO + performance)
+- **Client components** use RTK Query hooks — auto-deduplicates in-flight requests, caches responses
+- Pages already migrated: `departures`, `tickets`, `taxonomies`
 
 ## Auth
 

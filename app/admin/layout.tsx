@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
+import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Tag, Bot,
   Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare,
@@ -75,6 +76,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!authed) return null
 
   return (
+    <AdminStoreProvider>
     <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
       <aside
@@ -194,5 +196,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Main content */}
       <main className="flex min-w-0 flex-1 flex-col overflow-auto">{children}</main>
     </div>
+    </AdminStoreProvider>
   )
 }

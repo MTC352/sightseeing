@@ -1,9 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { Plus, Ticket, Eye, Trash2, AlertCircle, Clock, CheckCircle, XCircle, Loader2 } from "lucide-react"
-import type { SupportTicket } from "@/lib/admin-store"
+import {
+  useGetTicketsQuery,
+  useDeleteTicketMutation,
+  useCreateTicketMutation,
+} from "@/store/admin/api"
+import type { Ticket as TicketType } from "@/store/admin/api"
 
 const PRIORITY_STYLES = {
   low: "bg-slate-500/15 text-slate-600",
@@ -28,7 +33,7 @@ const STATUS_ICONS = {
   closed: XCircle,
 }
 
-const CATEGORY_LABELS = {
+const CATEGORY_LABELS: Record<string, string> = {
   bug: "Bug Report",
   feature: "Feature Request",
   question: "Question",
@@ -37,40 +42,18 @@ const CATEGORY_LABELS = {
 }
 
 export default function AdminTicketsPage() {
-  const [tickets, setTickets] = useState<SupportTicket[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: tickets = [], isLoading } = useGetTicketsQuery()
+  const [deleteTicket] = useDeleteTicketMutation()
   const [showNewForm, setShowNewForm] = useState(false)
   const [filter, setFilter] = useState<"all" | "open" | "in-progress" | "resolved">("all")
 
-  useEffect(() => {
-    fetchTickets()
-  }, [])
-
-  async function fetchTickets() {
-    try {
-      const res = await fetch("/api/admin/tickets")
-      const data = await res.json()
-      setTickets(data)
-    } catch (error) {
-      console.error("Failed to fetch tickets:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   async function handleDelete(id: string) {
     if (!confirm("Are you sure you want to delete this ticket?")) return
-    
-    try {
-      await fetch(`/api/admin/tickets/${id}`, { method: "DELETE" })
-      setTickets((prev) => prev.filter((t) => t.id !== id))
-    } catch (error) {
-      console.error("Failed to delete ticket:", error)
-    }
+    await deleteTicket(id)
   }
 
-  const filteredTickets = filter === "all" 
-    ? tickets 
+  const filteredTickets = filter === "all"
+    ? tickets
     : tickets.filter((t) => t.status === filter || (filter === "open" && t.status === "open"))
 
   const openCount = tickets.filter((t) => t.status === "open").length
@@ -114,17 +97,11 @@ export default function AdminTicketsPage() {
 
       {/* New Ticket Form Modal */}
       {showNewForm && (
-        <NewTicketForm
-          onClose={() => setShowNewForm(false)}
-          onCreated={(ticket) => {
-            setTickets((prev) => [ticket, ...prev])
-            setShowNewForm(false)
-          }}
-        />
+        <NewTicketForm onClose={() => setShowNewForm(false)} />
       )}
 
       {/* Tickets List */}
-      {loading ? (
+      {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -154,17 +131,17 @@ export default function AdminTicketsPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {filteredTickets.map((ticket) => {
-                const StatusIcon = STATUS_ICONS[ticket.status]
+                const StatusIcon = STATUS_ICONS[ticket.status] ?? AlertCircle
                 return (
                   <tr key={ticket.id} className="group transition-colors hover:bg-secondary/40">
                     <td className="px-4 py-3">
                       <p className="truncate font-medium text-foreground">{ticket.subject}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(ticket.createdAt).toLocaleDateString()} &middot; {ticket.replies.length} replies
+                        {new Date(ticket.createdAt).toLocaleDateString()} &middot; {ticket.replies?.length ?? 0} replies
                       </p>
                     </td>
                     <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                      {CATEGORY_LABELS[ticket.category]}
+                      {CATEGORY_LABELS[ticket.category] ?? ticket.category}
                     </td>
                     <td className="hidden px-4 py-3 md:table-cell">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_STYLES[ticket.priority]}`}>
@@ -210,41 +187,22 @@ export default function AdminTicketsPage() {
   )
 }
 
-function NewTicketForm({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void
-  onCreated: (ticket: SupportTicket) => void
-}) {
-  const [loading, setLoading] = useState(false)
+function NewTicketForm({ onClose }: { onClose: () => void }) {
+  const [createTicket, { isLoading }] = useCreateTicketMutation()
   const [form, setForm] = useState({
     subject: "",
     description: "",
-    category: "question" as SupportTicket["category"],
-    priority: "medium" as SupportTicket["priority"],
+    category: "question" as TicketType["category"],
+    priority: "medium" as TicketType["priority"],
   })
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
-
     try {
-      const res = await fetch("/api/admin/tickets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      })
-
-      if (!res.ok) throw new Error("Failed to create ticket")
-
-      const ticket = await res.json()
-      onCreated(ticket)
-    } catch (error) {
-      console.error("Error creating ticket:", error)
+      await createTicket(form).unwrap()
+      onClose()
+    } catch {
       alert("Failed to create ticket")
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -279,7 +237,7 @@ function NewTicketForm({
               <label className="mb-1 block text-sm font-medium text-foreground">Category</label>
               <select
                 value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value as SupportTicket["category"] })}
+                onChange={(e) => setForm({ ...form, category: e.target.value as TicketType["category"] })}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               >
                 <option value="bug">Bug Report</option>
@@ -293,7 +251,7 @@ function NewTicketForm({
               <label className="mb-1 block text-sm font-medium text-foreground">Priority</label>
               <select
                 value={form.priority}
-                onChange={(e) => setForm({ ...form, priority: e.target.value as SupportTicket["priority"] })}
+                onChange={(e) => setForm({ ...form, priority: e.target.value as TicketType["priority"] })}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               >
                 <option value="low">Low</option>
@@ -313,10 +271,10 @@ function NewTicketForm({
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={isLoading}
               className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               Create Ticket
             </button>
           </div>

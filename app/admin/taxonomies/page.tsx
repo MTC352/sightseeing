@@ -1,44 +1,37 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Save, Plus, X, Tag, RefreshCw, Loader2, AlertCircle } from "lucide-react"
+import {
+  useGetTaxonomiesQuery,
+  useCreateTaxonomyMutation,
+  useSaveTaxonomiesMutation,
+  useDeleteTaxonomyMutation,
+} from "@/store/admin/api"
+import type { TaxItem } from "@/store/admin/api"
 
-interface TaxItem {
+interface LocalTaxItem extends TaxItem {
   id?: string
-  key: string
-  label: string
   value: string
   groupKey?: string
 }
 
 export default function TaxonomiesPage() {
-  const [items, setItems] = useState<TaxItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const { data, isLoading, isFetching, refetch } = useGetTaxonomiesQuery()
+  const [createTaxonomy, { isLoading: isCreating }] = useCreateTaxonomyMutation()
+  const [saveTaxonomies, { isLoading: isSaving }] = useSaveTaxonomiesMutation()
+  const [deleteTaxonomy] = useDeleteTaxonomyMutation()
+
+  const [items, setItems] = useState<LocalTaxItem[]>([])
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [newKey, setNewKey] = useState("")
   const [newLabel, setNewLabel] = useState("")
   const [addingNew, setAddingNew] = useState(false)
 
-  const loadTaxonomies = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/admin/taxonomies")
-      if (!res.ok) throw new Error("Failed to load")
-      const data: TaxItem[] = await res.json()
-      setItems(data)
-    } catch {
-      setError("Failed to load taxonomies from database.")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    loadTaxonomies()
-  }, [loadTaxonomies])
+    if (data) setItems(data as LocalTaxItem[])
+  }, [data])
 
   function update(key: string, value: string) {
     setItems((prev) => prev.map((i) => (i.key === key ? { ...i, value } : i)))
@@ -46,8 +39,7 @@ export default function TaxonomiesPage() {
 
   async function remove(key: string) {
     try {
-      const res = await fetch(`/api/admin/taxonomies/${encodeURIComponent(key)}`, { method: "DELETE" })
-      if (!res.ok) throw new Error("Failed to delete")
+      await deleteTaxonomy(key).unwrap()
       setItems((prev) => prev.filter((i) => i.key !== key))
     } catch {
       alert("Failed to delete taxonomy entry.")
@@ -63,14 +55,8 @@ export default function TaxonomiesPage() {
     }
     setAddingNew(true)
     try {
-      const res = await fetch("/api/admin/taxonomies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, label: newLabel.trim(), value: "" }),
-      })
-      if (!res.ok) throw new Error("Failed to create")
-      const created: TaxItem = await res.json()
-      setItems((prev) => [...prev, created])
+      const created = await createTaxonomy({ key, label: newLabel.trim() }).unwrap()
+      setItems((prev) => [...prev, { ...created, value: "" }])
       setNewKey("")
       setNewLabel("")
     } catch {
@@ -81,28 +67,21 @@ export default function TaxonomiesPage() {
   }
 
   async function handleSave() {
-    setSaving(true)
+    setError(null)
     try {
-      const payload = items.map((i) => ({ key: i.key, value: i.value }))
-      const res = await fetch("/api/admin/taxonomies", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) throw new Error("Failed to save")
+      const payload = items.map((i) => ({ key: i.key, value: i.value ?? "" }))
+      await saveTaxonomies(payload).unwrap()
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch {
-      alert("Failed to save changes. Please try again.")
-    } finally {
-      setSaving(false)
+      setError("Failed to save changes. Please try again.")
     }
   }
 
   const inputClass = "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
   const labelClass = "mb-1 block text-xs font-medium text-muted-foreground"
 
-  const groups: Record<string, TaxItem[]> = {}
+  const groups: Record<string, LocalTaxItem[]> = {}
   for (const item of items) {
     const prefix = item.groupKey ?? item.key.split("_")[0]
     groups[prefix] = groups[prefix] ?? []
@@ -122,20 +101,20 @@ export default function TaxonomiesPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadTaxonomies}
-            disabled={loading}
+            onClick={() => refetch()}
+            disabled={isFetching}
             className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-secondary"
             title="Refresh from database"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </button>
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || loading}
+            disabled={isSaving || isLoading}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saved ? "Saved!" : "Save All"}
           </button>
         </div>
@@ -145,11 +124,11 @@ export default function TaxonomiesPage() {
         <div className="mb-6 flex items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
-          <button type="button" onClick={loadTaxonomies} className="ml-auto text-xs underline">Retry</button>
+          <button type="button" onClick={() => setError(null)} className="ml-auto text-xs underline">Dismiss</button>
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/40" />
         </div>
@@ -176,10 +155,10 @@ export default function TaxonomiesPage() {
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    {item.value.length > 80 ? (
-                      <textarea rows={2} className={inputClass} value={item.value} onChange={(e) => update(item.key, e.target.value)} />
+                    {(item.value?.length ?? 0) > 80 ? (
+                      <textarea rows={2} className={inputClass} value={item.value ?? ""} onChange={(e) => update(item.key, e.target.value)} />
                     ) : (
-                      <input type="text" className={inputClass} value={item.value} onChange={(e) => update(item.key, e.target.value)} />
+                      <input type="text" className={inputClass} value={item.value ?? ""} onChange={(e) => update(item.key, e.target.value)} />
                     )}
                     <p className="mt-1 text-[10px] text-muted-foreground/50">key: {item.key}</p>
                   </div>
@@ -188,7 +167,7 @@ export default function TaxonomiesPage() {
             </div>
           ))}
 
-          {items.length === 0 && !error && (
+          {items.length === 0 && (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-16 text-center">
               <Tag className="mb-3 h-10 w-10 text-muted-foreground/30" />
               <p className="text-sm font-medium text-muted-foreground">No taxonomy entries yet</p>
@@ -228,10 +207,10 @@ export default function TaxonomiesPage() {
         <button
           type="button"
           onClick={addItem}
-          disabled={addingNew || !newKey.trim() || !newLabel.trim()}
+          disabled={addingNew || isCreating || !newKey.trim() || !newLabel.trim()}
           className="mt-3 flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-secondary hover:text-foreground disabled:opacity-50"
         >
-          {addingNew ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {(addingNew || isCreating) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Add Entry
         </button>
       </div>
