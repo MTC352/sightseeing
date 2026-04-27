@@ -485,6 +485,166 @@ export async function dbUpdateHeaderFooter(section: 'header' | 'footer', customH
   `, [customHtml, blockName])
 }
 
+// ── Taxonomies ─────────────────────────────────────────────────────────────
+
+export async function dbListTaxonomies() {
+  return query(`
+    SELECT id, key, label, value, group_key as "groupKey", created_at, updated_at
+    FROM taxonomies ORDER BY group_key, key
+  `)
+}
+
+export async function dbGetTaxonomy(key: string) {
+  return queryOne(`SELECT id, key, label, value, group_key as "groupKey" FROM taxonomies WHERE key = $1`, [key])
+}
+
+export async function dbCreateTaxonomy(data: Record<string, unknown>) {
+  const rows = await query(`
+    INSERT INTO taxonomies (key, label, value, group_key)
+    VALUES ($1,$2,$3,$4) RETURNING *
+  `, [data.key, data.label ?? data.key, data.value ?? '', data.groupKey ?? (String(data.key).split('_')[0])])
+  return rows[0]
+}
+
+export async function dbUpsertTaxonomies(items: { key: string; value: string }[]) {
+  let count = 0
+  for (const item of items) {
+    await query(`
+      INSERT INTO taxonomies (key, label, value, group_key)
+      VALUES ($1,$1,$2,$3)
+      ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()
+    `, [item.key, item.value, item.key.split('_')[0]])
+    count++
+  }
+  return count
+}
+
+export async function dbDeleteTaxonomy(key: string) {
+  await query(`DELETE FROM taxonomies WHERE key = $1`, [key])
+}
+
+// ── Pages ──────────────────────────────────────────────────────────────────
+
+export async function dbListPages() {
+  return query(`
+    SELECT id, slug, title, description, url, status, is_system_page as "isSystemPage",
+           seo_title as "seoTitle", seo_description as "seoDescription",
+           created_at, updated_at
+    FROM pages ORDER BY is_system_page DESC, title
+  `)
+}
+
+export async function dbGetPage(id: string) {
+  return queryOne(`
+    SELECT id, slug, title, description, url, content, status, is_system_page as "isSystemPage",
+           seo_title as "seoTitle", seo_description as "seoDescription", og_image as "ogImage",
+           template, created_at, updated_at
+    FROM pages WHERE id = $1
+  `, [id])
+}
+
+export async function dbGetPageBySlug(slug: string) {
+  return queryOne(`
+    SELECT id, slug, title, description, url, content, status, is_system_page as "isSystemPage",
+           seo_title as "seoTitle", seo_description as "seoDescription"
+    FROM pages WHERE slug = $1
+  `, [slug])
+}
+
+export async function dbCreatePage(data: Record<string, unknown>) {
+  const rows = await query(`
+    INSERT INTO pages (slug, title, description, url, content, status, is_system_page, seo_title, seo_description)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
+  `, [
+    data.slug, data.title, data.description ?? null, data.url ?? ('/' + data.slug),
+    JSON.stringify(data.content ?? {}), data.status ?? 'draft',
+    data.isSystemPage ?? false, data.seoTitle ?? null, data.seoDescription ?? null,
+  ])
+  return rows[0]
+}
+
+export async function dbUpdatePage(id: string, data: Record<string, unknown>) {
+  const sets: string[] = []
+  const vals: unknown[] = []
+  let i = 1
+  const fieldMap: Record<string, string> = {
+    title: 'title', description: 'description', url: 'url', status: 'status',
+    content: 'content', seoTitle: 'seo_title', seoDescription: 'seo_description', ogImage: 'og_image',
+  }
+  for (const [key, col] of Object.entries(fieldMap)) {
+    if (key in data) {
+      sets.push(`${col} = $${i++}`)
+      vals.push(key === 'content' ? JSON.stringify(data[key]) : data[key])
+    }
+  }
+  if (sets.length === 0) return dbGetPage(id)
+  sets.push(`updated_at = NOW()`)
+  vals.push(id)
+  const rows = await query(`UPDATE pages SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, vals)
+  return rows[0] ?? null
+}
+
+export async function dbDeletePage(id: string) {
+  await query(`DELETE FROM pages WHERE id = $1`, [id])
+}
+
+export async function dbGetPageRevisions(pageId: string) {
+  return query(`
+    SELECT id, page_id as "pageId", revision_number as "revisionNumber",
+           title, label, status, created_at, created_by as "createdBy"
+    FROM page_revisions WHERE page_id = $1 ORDER BY revision_number DESC
+  `, [pageId])
+}
+
+export async function dbCreatePageRevision(pageId: string, data: Record<string, unknown>, label?: string) {
+  const maxRows = await query(`SELECT COALESCE(MAX(revision_number), 0) as max FROM page_revisions WHERE page_id = $1`, [pageId])
+  const nextNum = (parseInt((maxRows[0] as Record<string, string>).max, 10) || 0) + 1
+  const rows = await query(`
+    INSERT INTO page_revisions (page_id, revision_number, title, content, status, seo_title, seo_description, label)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *
+  `, [
+    pageId, nextNum, data.title ?? null,
+    JSON.stringify(data.content ?? {}), data.status ?? 'published',
+    data.seoTitle ?? null, data.seoDescription ?? null, label ?? 'Auto-save',
+  ])
+  return rows[0]
+}
+
+export async function dbRestorePageRevision(pageId: string, revisionId: string) {
+  const rev = await queryOne(`SELECT * FROM page_revisions WHERE id = $1 AND page_id = $2`, [revisionId, pageId])
+  if (!rev) return null
+  const r = rev as Record<string, unknown>
+  await dbUpdatePage(pageId, { title: r.title, content: r.content, status: r.status, seoTitle: r.seo_title, seoDescription: r.seo_description })
+  const newRev = await dbCreatePageRevision(pageId, r, `Restored from revision #${r.revision_number}`)
+  return newRev
+}
+
+// ── Page content ───────────────────────────────────────────────────────────
+
+export async function dbGetPageContent(slug: string) {
+  const rows = await query(`
+    SELECT element_id, content FROM page_content WHERE page_slug = $1
+  `, [slug])
+  const result: Record<string, string> = {}
+  for (const row of rows as { element_id: string; content: string }[]) {
+    result[row.element_id] = row.content
+  }
+  return result
+}
+
+export async function dbSavePageContent(pageSlug: string, changes: Record<string, string>) {
+  let saved = 0
+  for (const [elementId, content] of Object.entries(changes)) {
+    await query(`
+      INSERT INTO page_content (page_slug, element_id, content)
+      VALUES ($1,$2,$3)
+      ON CONFLICT (page_slug, element_id) DO UPDATE SET content = $3, updated_at = NOW()
+    `, [pageSlug, elementId, content])
+    saved++
+  }
+  return saved
+}
+
 // ── Dashboard stats ────────────────────────────────────────────────────────
 
 export async function dbGetDashboardStats() {

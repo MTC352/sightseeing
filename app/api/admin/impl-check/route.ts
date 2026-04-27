@@ -15,7 +15,8 @@ export async function GET() {
         (SELECT COUNT(*) FROM ai_system_configs)    AS ai_configs,
         (SELECT COUNT(*) FROM integrations)         AS integrations,
         (SELECT COUNT(*) FROM header_footer_blocks) AS hf_blocks,
-        (SELECT COUNT(*) FROM pages)                AS pages
+        (SELECT COUNT(*) FROM pages)                AS pages,
+        (SELECT COUNT(*) FROM taxonomies)           AS taxonomies
     `)
     return NextResponse.json(rows[0])
   } catch (err) {

@@ -1,10 +1,10 @@
-import { getTrip, listTrips } from "@/lib/admin-store"
+import { dbGetTrip } from "@/lib/db/queries"
 import { notFound } from "next/navigation"
 import { TripEditForm } from "./trip-edit-form"
 
 export default async function TripEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const trip = id === "new" ? null : getTrip(id)
+  const trip = id === "new" ? null : await dbGetTrip(id)
   if (id !== "new" && !trip) notFound()
 
   return (
@@ -12,9 +12,10 @@ export default async function TripEditPage({ params }: { params: Promise<{ id: s
       <div className="mb-6">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Trips</p>
         <h1 className="mt-1 text-2xl font-bold text-foreground">{trip ? "Edit Trip" : "New Trip"}</h1>
-        {trip && <p className="mt-0.5 text-sm text-muted-foreground">ID: {trip.id}</p>}
+        {trip && <p className="mt-0.5 text-sm text-muted-foreground">ID: {(trip as { id: string }).id}</p>}
       </div>
-      <TripEditForm trip={trip} />
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      <TripEditForm trip={trip as any} />
     </div>
   )
 }

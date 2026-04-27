@@ -1,10 +1,10 @@
-import { getPost } from "@/lib/admin-store"
+import { dbGetPost } from "@/lib/db/queries"
 import { notFound } from "next/navigation"
 import { PostEditForm } from "./post-edit-form"
 
 export default async function PostEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const post = id === "new" ? null : getPost(id)
+  const post = id === "new" ? null : await dbGetPost(id)
   if (id !== "new" && !post) notFound()
 
   return (
@@ -13,7 +13,8 @@ export default async function PostEditPage({ params }: { params: Promise<{ id: s
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Blog</p>
         <h1 className="mt-1 text-2xl font-bold text-foreground">{post ? "Edit Post" : "New Post"}</h1>
       </div>
-      <PostEditForm post={post} />
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      <PostEditForm post={post as any} />
     </div>
   )
 }

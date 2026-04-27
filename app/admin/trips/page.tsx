@@ -1,11 +1,15 @@
 import Link from "next/link"
-import { listTrips } from "@/lib/admin-store"
+import { dbListTrips } from "@/lib/db/queries"
 import { Plus, Pencil, ExternalLink } from "lucide-react"
 import { TripDeleteButton } from "./trip-delete-button"
 import { TripToggleButton } from "./trip-toggle-button"
 
-export default function AdminTripsPage() {
-  const trips = listTrips()
+export default async function AdminTripsPage() {
+  const trips = await dbListTrips() as {
+    id: string; title: string; city: string; category: string; price: number;
+    originalPrice: number | null; image: string; featured: boolean;
+    featuredDeparture: boolean; status: string;
+  }[]
 
   return (
     <div className="p-6 lg:p-10">

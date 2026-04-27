@@ -1,13 +1,17 @@
 import Link from "next/link"
-import { listHelpArticles } from "@/lib/admin-store"
+import { dbListHelpArticles } from "@/lib/db/queries"
 import { Plus, Pencil, HelpCircle } from "lucide-react"
 import { HelpArticleDeleteButton } from "./help-delete-button"
 
-export default function AdminHelpPage() {
-  const articles = listHelpArticles()
+type HelpArticle = {
+  id: string; question: string; answer: string; category: string;
+  status: string; order: number;
+}
 
-  // Group by category
-  const byCategory: Record<string, typeof articles> = {}
+export default async function AdminHelpPage() {
+  const articles = await dbListHelpArticles() as HelpArticle[]
+
+  const byCategory: Record<string, HelpArticle[]> = {}
   for (const a of articles) {
     if (!byCategory[a.category]) byCategory[a.category] = []
     byCategory[a.category].push(a)
@@ -19,7 +23,6 @@ export default function AdminHelpPage() {
 
   return (
     <div className="p-6 lg:p-10">
-      {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Knowledge Base</p>
@@ -48,16 +51,10 @@ export default function AdminHelpPage() {
         <div className="space-y-6">
           {categories.map((cat) => (
             <div key={cat} className="overflow-hidden rounded-xl border border-border bg-card">
-              {/* Category header */}
               <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-4 py-2.5">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {cat}
-                </span>
-                <span className="text-xs text-muted-foreground/60">
-                  {byCategory[cat].length} articles
-                </span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{cat}</span>
+                <span className="text-xs text-muted-foreground/60">{byCategory[cat].length} articles</span>
               </div>
-
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-border">
                   {byCategory[cat].map((article) => (
@@ -80,11 +77,8 @@ export default function AdminHelpPage() {
                       </td>
                       <td className="w-20 px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
-                          <Link
-                            href={`/admin/help/${article.id}`}
-                            className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
-                            title="Edit"
-                          >
+                          <Link href={`/admin/help/${article.id}`}
+                            className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground" title="Edit">
                             <Pencil className="h-3.5 w-3.5" />
                           </Link>
                           <HelpArticleDeleteButton articleId={article.id} question={article.question} />

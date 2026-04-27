@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CheckCircle2, Circle, AlertCircle, Database, Shield, Layers, Zap } from "lucide-react"
+import { CheckCircle2, Circle, AlertCircle, Database, Shield, Layers, Zap, Globe, Webhook } from "lucide-react"
 
 type Status = "done" | "pending" | "partial"
 
@@ -9,6 +9,7 @@ interface CheckItem {
   label: string
   status: Status
   detail?: string
+  source?: string
 }
 
 interface Section {
@@ -25,10 +26,22 @@ function StatusIcon({ status }: { status: Status }) {
 
 function StatusBadge({ status }: { status: Status }) {
   if (status === "done")
-    return <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Done</span>
+    return <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Done</span>
   if (status === "partial")
-    return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">Partial</span>
+    return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600">Partial</span>
   return <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Pending</span>
+}
+
+function SourceBadge({ source }: { source?: string }) {
+  if (!source) return null
+  const isDb = source === "DB"
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+      isDb ? "bg-blue-500/10 text-blue-600" : "bg-violet-500/10 text-violet-600"
+    }`}>
+      {source}
+    </span>
+  )
 }
 
 interface DbCounts {
@@ -41,29 +54,41 @@ interface DbCounts {
   integrations: string
   hf_blocks: string
   pages: string
+  taxonomies: string
+}
+
+interface RouteHealth {
+  auth: boolean | null
+  dashboard: boolean | null
+  taxonomies: boolean | null
+  pagesApi: boolean | null
+  pageContent: boolean | null
 }
 
 export default function ImplementationPage() {
   const [dbCounts, setDbCounts] = useState<DbCounts | null>(null)
-  const [authOk, setAuthOk] = useState<boolean | null>(null)
-  const [dashOk, setDashOk] = useState<boolean | null>(null)
+  const [health, setHealth] = useState<RouteHealth>({
+    auth: null, dashboard: null, taxonomies: null, pagesApi: null, pageContent: null,
+  })
 
   useEffect(() => {
-    // Check DB counts
     fetch("/api/admin/impl-check")
       .then((r) => r.json())
       .then((data) => setDbCounts(data))
       .catch(() => {})
 
-    // Check auth
-    fetch("/api/admin/auth/me")
-      .then((r) => setAuthOk(r.ok))
-      .catch(() => setAuthOk(false))
-
-    // Check dashboard
-    fetch("/api/admin/dashboard")
-      .then((r) => setDashOk(r.ok))
-      .catch(() => setDashOk(false))
+    const checks: Array<[keyof RouteHealth, string]> = [
+      ["auth", "/api/admin/auth/me"],
+      ["dashboard", "/api/admin/dashboard"],
+      ["taxonomies", "/api/admin/taxonomies"],
+      ["pagesApi", "/api/admin/pages"],
+      ["pageContent", "/api/admin/page-content?slug=home"],
+    ]
+    checks.forEach(([key, url]) => {
+      fetch(url)
+        .then((r) => setHealth((h) => ({ ...h, [key]: r.ok })))
+        .catch(() => setHealth((h) => ({ ...h, [key]: false })))
+    })
   }, [])
 
   function countStatus(table: keyof DbCounts, expected: number): Status {
@@ -74,12 +99,24 @@ export default function ImplementationPage() {
     return "pending"
   }
 
+  function apiStatus(key: keyof RouteHealth): Status {
+    const v = health[key]
+    if (v === null) return "pending"
+    return v ? "done" : "partial"
+  }
+
+  function apiDetail(key: keyof RouteHealth): string {
+    const v = health[key]
+    if (v === null) return "checking…"
+    return v ? "Responding OK" : "Check failed"
+  }
+
   const sections: Section[] = [
     {
       title: "T001 — Database & Packages",
       icon: Database,
       items: [
-        { label: "PostgreSQL database created (DATABASE_URL)", status: "done", detail: "Replit managed DB" },
+        { label: "PostgreSQL database created (DATABASE_URL)", status: "done", source: "DB" },
         { label: "Package: pg + @types/pg", status: "done" },
         { label: "Package: bcryptjs + @types/bcryptjs", status: "done" },
         { label: "Package: jose (JWT)", status: "done" },
@@ -89,22 +126,22 @@ export default function ImplementationPage() {
       title: "T002 — Schema (16 tables)",
       icon: Layers,
       items: [
-        { label: "admin_users", status: "done" },
-        { label: "trips", status: "done" },
-        { label: "palisis_sync_log", status: "done" },
-        { label: "blog_posts", status: "done" },
-        { label: "jobs", status: "done" },
-        { label: "job_applications", status: "done" },
-        { label: "help_articles", status: "done" },
-        { label: "support_tickets", status: "done" },
-        { label: "ticket_replies", status: "done" },
-        { label: "taxonomies", status: "done" },
-        { label: "pages", status: "done" },
-        { label: "page_revisions", status: "done" },
-        { label: "page_content", status: "done" },
-        { label: "ai_system_configs", status: "done" },
-        { label: "integrations", status: "done" },
-        { label: "header_footer_blocks", status: "done" },
+        { label: "admin_users", status: "done", source: "DB" },
+        { label: "trips", status: "done", source: "DB" },
+        { label: "palisis_sync_log", status: "done", source: "DB" },
+        { label: "blog_posts", status: "done", source: "DB" },
+        { label: "jobs", status: "done", source: "DB" },
+        { label: "job_applications", status: "done", source: "DB" },
+        { label: "help_articles", status: "done", source: "DB" },
+        { label: "support_tickets", status: "done", source: "DB" },
+        { label: "ticket_replies", status: "done", source: "DB" },
+        { label: "taxonomies", status: "done", source: "DB" },
+        { label: "pages", status: "done", source: "DB" },
+        { label: "page_revisions", status: "done", source: "DB" },
+        { label: "page_content", status: "done", source: "DB" },
+        { label: "ai_system_configs", status: "done", source: "DB" },
+        { label: "integrations", status: "done", source: "DB" },
+        { label: "header_footer_blocks", status: "done", source: "DB" },
         { label: "lib/db.ts — Pool singleton + query helpers", status: "done" },
         { label: "lib/db/queries.ts — All CRUD helpers", status: "done" },
       ],
@@ -114,49 +151,64 @@ export default function ImplementationPage() {
       icon: Database,
       items: [
         {
-          label: `admin_users (1 row) — admin@sightseeing.lu`,
+          label: "admin_users (1 row) — admin@sightseeing.lu",
           status: dbCounts ? countStatus("admin_users", 1) : "pending",
           detail: dbCounts ? `${dbCounts.admin_users} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "trips (43 rows from lib/data.ts)",
           status: dbCounts ? countStatus("trips", 43) : "pending",
           detail: dbCounts ? `${dbCounts.trips} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "blog_posts (2 rows)",
           status: dbCounts ? countStatus("blog_posts", 2) : "pending",
           detail: dbCounts ? `${dbCounts.blog_posts} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "jobs (3 rows)",
           status: dbCounts ? countStatus("jobs", 3) : "pending",
           detail: dbCounts ? `${dbCounts.jobs} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "help_articles (17 rows)",
           status: dbCounts ? countStatus("help_articles", 17) : "pending",
           detail: dbCounts ? `${dbCounts.help_articles} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "ai_system_configs (3 rows)",
           status: dbCounts ? countStatus("ai_configs", 3) : "pending",
           detail: dbCounts ? `${dbCounts.ai_configs} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "integrations (8 rows)",
           status: dbCounts ? countStatus("integrations", 8) : "pending",
           detail: dbCounts ? `${dbCounts.integrations} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "header_footer_blocks (5 rows)",
           status: dbCounts ? countStatus("hf_blocks", 5) : "pending",
           detail: dbCounts ? `${dbCounts.hf_blocks} rows` : "checking…",
+          source: "DB",
         },
         {
           label: "pages (10 system pages)",
           status: dbCounts ? countStatus("pages", 10) : "pending",
           detail: dbCounts ? `${dbCounts.pages} rows` : "checking…",
+          source: "DB",
+        },
+        {
+          label: "taxonomies seeded",
+          status: dbCounts ? countStatus("taxonomies", 1) : "pending",
+          detail: dbCounts ? `${dbCounts.taxonomies ?? 0} rows` : "checking…",
+          source: "DB",
         },
       ],
     },
@@ -166,32 +218,86 @@ export default function ImplementationPage() {
       items: [
         { label: "POST /api/admin/auth/login (bcrypt verify + JWT cookie)", status: "done" },
         { label: "POST /api/admin/auth/logout (clear cookie)", status: "done" },
-        { label: "GET /api/admin/auth/me (verify JWT, return user)", status: authOk === null ? "pending" : authOk ? "done" : "partial", detail: authOk === null ? "checking…" : authOk ? "Responding OK" : "Check failed" },
-        { label: "middleware.ts — protect /admin/* + /api/admin/*", status: "done" },
+        { label: "GET /api/admin/auth/me (verify JWT, return user)", status: apiStatus("auth"), detail: apiDetail("auth") },
+        { label: "proxy.ts — protect /admin/* + /api/admin/*", status: "done" },
         { label: "/admin/login page (email + password form)", status: "done" },
         { label: "lib/auth.ts (signSession, verifySession, getSession)", status: "done" },
-        { label: "Admin layout — PIN gate replaced with JWT check", status: "done" },
       ],
     },
     {
-      title: "T005 — API Routes → Database",
+      title: "T005 — Core API Routes → DB",
       icon: Zap,
       items: [
-        { label: "GET/POST /api/admin/trips", status: "done" },
-        { label: "GET/PATCH/DELETE /api/admin/trips/[id]", status: "done" },
-        { label: "GET/POST /api/admin/posts", status: "done" },
-        { label: "GET/PATCH/DELETE /api/admin/posts/[id]", status: "done" },
-        { label: "GET/POST /api/admin/jobs", status: "done" },
-        { label: "GET/PATCH/DELETE /api/admin/jobs/[id]", status: "done" },
-        { label: "GET/PATCH/DELETE /api/admin/applications", status: "done" },
-        { label: "GET/POST /api/admin/help", status: "done" },
-        { label: "GET/PATCH/DELETE /api/admin/help/[id]", status: "done" },
-        { label: "GET/POST /api/admin/tickets", status: "done" },
-        { label: "GET/PATCH/DELETE /api/admin/tickets/[id]", status: "done" },
-        { label: "POST /api/admin/tickets/[id]/replies", status: "done" },
-        { label: "GET/PATCH /api/admin/settings", status: "done" },
-        { label: "GET/PUT /api/admin/planner-behavior", status: "done" },
-        { label: "GET /api/admin/dashboard (live DB stats)", status: dashOk === null ? "pending" : dashOk ? "done" : "partial", detail: dashOk === null ? "checking…" : dashOk ? "Responding OK" : "Check failed" },
+        { label: "GET/POST /api/admin/trips", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/trips/[id]", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/posts", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/posts/[id]", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/jobs", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/jobs/[id]", status: "done", source: "DB" },
+        { label: "GET/PATCH /api/admin/applications", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/help", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/help/[id]", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/tickets", status: "done", source: "DB" },
+        { label: "GET/PATCH/DELETE /api/admin/tickets/[id]", status: "done", source: "DB" },
+        { label: "POST /api/admin/tickets/[id]/replies", status: "done", source: "DB" },
+        { label: "GET/PATCH /api/admin/settings", status: "done", source: "DB" },
+        { label: "GET/PUT /api/admin/planner-behavior", status: "done", source: "DB" },
+        { label: "GET /api/admin/dashboard (live DB stats)", status: apiStatus("dashboard"), detail: apiDetail("dashboard"), source: "DB" },
+      ],
+    },
+    {
+      title: "T007 — New API Routes",
+      icon: Globe,
+      items: [
+        {
+          label: "GET/POST/PATCH /api/admin/taxonomies",
+          status: apiStatus("taxonomies"),
+          detail: apiDetail("taxonomies"),
+          source: "DB",
+        },
+        { label: "GET/DELETE /api/admin/taxonomies/[key]", status: "done", source: "DB" },
+        {
+          label: "GET/POST /api/admin/pages",
+          status: apiStatus("pagesApi"),
+          detail: apiDetail("pagesApi"),
+          source: "DB",
+        },
+        { label: "GET/PATCH/DELETE /api/admin/pages/[id]", status: "done", source: "DB" },
+        { label: "GET/POST /api/admin/pages/[id]/revisions", status: "done", source: "DB" },
+        { label: "POST /api/admin/pages/[id]/revisions/[revisionId]/restore", status: "done", source: "DB" },
+        {
+          label: "GET/POST /api/admin/page-content",
+          status: apiStatus("pageContent"),
+          detail: apiDetail("pageContent"),
+          source: "DB",
+        },
+        { label: "POST /api/webhooks/palisis (availability + booking events)", status: "done", source: "DB" },
+      ],
+    },
+    {
+      title: "T008 — Admin UI → DB (Server Components)",
+      icon: Layers,
+      items: [
+        { label: "/admin (dashboard) — dbListTrips, dbListJobs, dbListPosts", status: "done", source: "DB" },
+        { label: "/admin/trips — dbListTrips (async server component)", status: "done", source: "DB" },
+        { label: "/admin/trips/[id] — dbGetTrip (async server component)", status: "done", source: "DB" },
+        { label: "/admin/blog — dbListPosts (async server component)", status: "done", source: "DB" },
+        { label: "/admin/blog/[id] — dbGetPost (async server component)", status: "done", source: "DB" },
+        { label: "/admin/jobs — dbListJobs + dbListApplications (async)", status: "done", source: "DB" },
+        { label: "/admin/jobs/[id] — dbGetJob (async server component)", status: "done", source: "DB" },
+        { label: "/admin/help — dbListHelpArticles (async server component)", status: "done", source: "DB" },
+        { label: "/admin/help/[id] — dbGetHelpArticle (async server component)", status: "done", source: "DB" },
+        { label: "/admin/ai-systems — dbGetSettings (async server component)", status: "done", source: "DB" },
+        { label: "/admin/taxonomies — fetch /api/admin/taxonomies (client)", status: "done", source: "DB" },
+      ],
+    },
+    {
+      title: "T009 — Public Pages → DB",
+      icon: Globe,
+      items: [
+        { label: "/blog — dbListPosts (async server component)", status: "done", source: "DB" },
+        { label: "/blog/[slug] — dbGetPostBySlug (async server component)", status: "done", source: "DB" },
+        { label: "Blog metadata via dbGetPostBySlug", status: "done", source: "DB" },
       ],
     },
     {
@@ -199,8 +305,9 @@ export default function ImplementationPage() {
       icon: CheckCircle2,
       items: [
         { label: "/admin/implementation page", status: "done" },
-        { label: "Live DB row counts from API", status: dbCounts ? "done" : "pending" },
-        { label: "Auth + Dashboard endpoint health checks", status: "done" },
+        { label: "Live DB row counts from /api/admin/impl-check", status: dbCounts ? "done" : "pending", source: "DB" },
+        { label: "Live API health checks (auth, dashboard, taxonomies, pages, page-content)", status: "done" },
+        { label: "Data source badges (DB vs Mock)", status: "done" },
         { label: "Added to admin sidebar nav as 'DB Tracker'", status: "done" },
       ],
     },
@@ -213,28 +320,29 @@ export default function ImplementationPage() {
 
   return (
     <div className="min-h-screen p-6">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground">DB Implementation Tracker</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Live status for T001–T006: database, auth, seeding, and API re-pointing.
+          Live status for all tasks: database, auth, seeding, API routes, admin UI, and public pages.
         </p>
 
-        {/* Progress bar */}
         <div className="mt-4 flex items-center gap-4">
           <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-emerald-500 transition-all duration-700"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="h-full rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${pct}%` }} />
           </div>
-          <span className="shrink-0 text-sm font-semibold text-foreground">
-            {doneCount}/{totalCount} ({pct}%)
+          <span className="shrink-0 text-sm font-semibold text-foreground">{doneCount}/{totalCount} ({pct}%)</span>
+        </div>
+
+        <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 rounded-full bg-blue-500/60" /> <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-blue-600">DB</span> = reads/writes from PostgreSQL
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 rounded-full bg-violet-500/60" /> <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-600">Mock</span> = static/in-memory data
           </span>
         </div>
       </div>
 
-      {/* Sections */}
       <div className="grid gap-6 lg:grid-cols-2">
         {sections.map((section) => {
           const Icon = section.icon
@@ -246,20 +354,17 @@ export default function ImplementationPage() {
                   <Icon className="h-3.5 w-3.5 text-primary" />
                 </div>
                 <h2 className="flex-1 text-sm font-semibold text-foreground">{section.title}</h2>
-                <span className="text-xs text-muted-foreground">
-                  {sectionDone}/{section.items.length}
-                </span>
+                <span className="text-xs text-muted-foreground">{sectionDone}/{section.items.length}</span>
               </div>
               <ul className="divide-y divide-border/50">
                 {section.items.map((item, idx) => (
-                  <li key={idx} className="flex items-center gap-3 px-5 py-2.5">
+                  <li key={idx} className="flex items-center gap-2 px-5 py-2.5">
                     <StatusIcon status={item.status} />
                     <span className={`flex-1 text-xs ${item.status === "done" ? "text-foreground" : "text-muted-foreground"}`}>
                       {item.label}
                     </span>
-                    {item.detail && (
-                      <span className="text-[10px] text-muted-foreground">{item.detail}</span>
-                    )}
+                    {item.source && <SourceBadge source={item.source} />}
+                    {item.detail && <span className="text-[10px] text-muted-foreground">{item.detail}</span>}
                     <StatusBadge status={item.status} />
                   </li>
                 ))}
@@ -269,26 +374,20 @@ export default function ImplementationPage() {
         })}
       </div>
 
-      {/* Credentials reference */}
       <div className="mt-6 rounded-xl border border-border bg-card p-5">
         <h3 className="mb-3 text-sm font-semibold text-foreground">Admin Credentials</h3>
         <div className="grid gap-2 text-xs sm:grid-cols-2">
-          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
-            <span className="text-muted-foreground">Email:</span>
-            <code className="font-mono text-foreground">admin@sightseeing.lu</code>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
-            <span className="text-muted-foreground">Password:</span>
-            <code className="font-mono text-foreground">Admin1234!</code>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
-            <span className="text-muted-foreground">Admin UUID:</span>
-            <code className="font-mono text-[10px] text-foreground">4102ea5d-fd01-4182-b08b-c751d663cd21</code>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
-            <span className="text-muted-foreground">Login URL:</span>
-            <code className="font-mono text-foreground">/admin/login</code>
-          </div>
+          {[
+            ["Email", "admin@sightseeing.lu"],
+            ["Password", "Admin1234!"],
+            ["Admin UUID", "4102ea5d-fd01-4182-b08b-c751d663cd21"],
+            ["Login URL", "/admin/login"],
+          ].map(([label, val]) => (
+            <div key={label} className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
+              <span className="text-muted-foreground">{label}:</span>
+              <code className="font-mono text-[10px] text-foreground break-all">{val}</code>
+            </div>
+          ))}
         </div>
       </div>
     </div>

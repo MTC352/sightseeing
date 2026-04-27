@@ -1,14 +1,20 @@
 import Link from "next/link"
-import { listJobs, listApplications } from "@/lib/admin-store"
+import { dbListJobs, dbListApplications } from "@/lib/db/queries"
 import { Plus, Pencil, Briefcase, Users } from "lucide-react"
 import { JobDeleteButton } from "./job-delete-button"
 import { JobStatusButton } from "./job-status-button"
 
-export default function AdminJobsPage() {
-  const jobs = listJobs()
-  const applications = listApplications()
-  const open = jobs.filter((j) => j.status === "open").length
-  const newApps = applications.filter((a) => a.status === "new").length
+export default async function AdminJobsPage() {
+  const [jobs, applications] = await Promise.all([
+    dbListJobs(),
+    dbListApplications(),
+  ])
+
+  const typedJobs = jobs as { id: string; title: string; department: string; type: string; location: string; status: string; createdAt: string }[]
+  const typedApps = applications as { status: string }[]
+
+  const open = typedJobs.filter((j) => j.status === "open").length
+  const newApps = typedApps.filter((a) => a.status === "new").length
 
   return (
     <div className="p-6 lg:p-10">
@@ -38,7 +44,7 @@ export default function AdminJobsPage() {
         </div>
       </div>
 
-      {jobs.length === 0 ? (
+      {typedJobs.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-16 text-center">
           <Briefcase className="mb-3 h-10 w-10 text-muted-foreground/30" />
           <p className="text-sm font-medium text-muted-foreground">No job listings yet</p>
@@ -58,11 +64,13 @@ export default function AdminJobsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {jobs.map((job) => (
+              {typedJobs.map((job) => (
                 <tr key={job.id} className="group transition-colors hover:bg-secondary/40">
                   <td className="px-4 py-3">
                     <p className="truncate font-medium text-foreground">{job.title}</p>
-                    <p className="text-xs text-muted-foreground">{job.createdAt}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {job.createdAt ? new Date(job.createdAt).toLocaleDateString() : ""}
+                    </p>
                   </td>
                   <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">{job.department}</td>
                   <td className="hidden px-4 py-3 md:table-cell">
@@ -74,7 +82,7 @@ export default function AdminJobsPage() {
                   </td>
                   <td className="hidden px-4 py-3 text-muted-foreground lg:table-cell">{job.location}</td>
                   <td className="px-4 py-3">
-                    <JobStatusButton jobId={job.id} status={job.status} />
+                    <JobStatusButton jobId={job.id} status={job.status as "open" | "closed"} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">

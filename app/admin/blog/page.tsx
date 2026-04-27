@@ -1,10 +1,14 @@
 import Link from "next/link"
-import { listPosts } from "@/lib/admin-store"
+import { dbListPosts } from "@/lib/db/queries"
 import { Plus, Pencil, ExternalLink, FileText } from "lucide-react"
 import { PostDeleteButton } from "./post-delete-button"
 
-export default function AdminBlogPage() {
-  const posts = listPosts()
+export default async function AdminBlogPage() {
+  const posts = await dbListPosts() as {
+    id: string; title: string; slug: string; category: string;
+    author: string; publishedAt: string | null; status: string;
+  }[]
+
   const published = posts.filter((p) => p.status === "published").length
   const drafts = posts.filter((p) => p.status === "draft").length
 
@@ -52,7 +56,9 @@ export default function AdminBlogPage() {
                   </td>
                   <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">{post.category}</td>
                   <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">{post.author}</td>
-                  <td className="hidden px-4 py-3 text-muted-foreground lg:table-cell">{post.publishedAt}</td>
+                  <td className="hidden px-4 py-3 text-muted-foreground lg:table-cell">
+                    {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString() : "—"}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                       post.status === "published" ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600"

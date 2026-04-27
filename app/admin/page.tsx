@@ -1,16 +1,18 @@
 import Link from "next/link"
-import { listTrips, listJobs, listPosts } from "@/lib/admin-store"
+import { dbListTrips, dbListJobs, dbListPosts } from "@/lib/db/queries"
 import { Map, FileText, Briefcase, Bot, Plug, ChevronRight, Star, Code2 } from "lucide-react"
 
-export default function AdminDashboard() {
-  const trips = listTrips()
-  const jobs = listJobs()
-  const posts = listPosts()
+export default async function AdminDashboard() {
+  const [trips, jobs, posts] = await Promise.all([
+    dbListTrips(),
+    dbListJobs(),
+    dbListPosts(),
+  ])
 
-  const publishedTrips = trips.filter((t) => t.status === "published").length
-  const openJobs = jobs.filter((j) => j.status === "open").length
-  const publishedPosts = posts.filter((p) => p.status === "published").length
-  const featuredTrips = trips.filter((t) => t.featured).length
+  const publishedTrips = (trips as { status: string }[]).filter((t) => t.status === "published").length
+  const openJobs = (jobs as { status: string }[]).filter((j) => j.status === "open").length
+  const publishedPosts = (posts as { status: string }[]).filter((p) => p.status === "published").length
+  const featuredTrips = (trips as { featured: boolean }[]).filter((t) => t.featured).length
 
   const stats = [
     { label: "Total Trips", value: trips.length, sub: `${publishedTrips} published`, icon: Map, href: "/admin/trips" },
@@ -98,7 +100,7 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {trips.slice(0, 8).map((trip) => (
+              {(trips as { id: string; title: string; category: string; price: number; status: string }[]).slice(0, 8).map((trip) => (
                 <tr key={trip.id} className="group transition-colors hover:bg-secondary/40">
                   <td className="px-4 py-3">
                     <Link href={`/admin/trips/${trip.id}`} className="font-medium text-foreground transition-colors line-clamp-1">
