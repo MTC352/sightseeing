@@ -113,13 +113,39 @@ export async function dbGetPostBySlug(slug: string) {
   )
 }
 
+function generateSlug(title: string): string {
+  return String(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 80)
+}
+
+async function uniqueSlug(base: string, excludeId?: string): Promise<string> {
+  let slug = base || `post-${Date.now()}`
+  let suffix = 0
+  while (true) {
+    const candidate = suffix === 0 ? slug : `${slug}-${suffix}`
+    const rows = await query(
+      `SELECT id FROM blog_posts WHERE slug = $1${excludeId ? ' AND id != $2' : ''}`,
+      excludeId ? [candidate, excludeId] : [candidate]
+    )
+    if (rows.length === 0) return candidate
+    suffix++
+  }
+}
+
 export async function dbCreatePost(data: Record<string, unknown>) {
+  const baseSlug = data.slug ? generateSlug(String(data.slug)) : generateSlug(String(data.title ?? ''))
+  const slug = await uniqueSlug(baseSlug)
   const rows = await query(`
     INSERT INTO blog_posts (slug, title, excerpt, body, image, author, category, tags,
       status, published_at, read_time, seo_title, seo_description)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *
   `, [
-    data.slug, data.title, data.excerpt ?? null, data.body ?? null,
+    slug, data.title, data.excerpt ?? null, data.body ?? null,
     data.image ?? null, data.author ?? null, data.category ?? null,
     data.tags ?? [], data.status ?? 'draft',
     data.publishedAt ?? null, data.readTime ?? null,

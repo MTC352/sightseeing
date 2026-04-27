@@ -3,8 +3,13 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminPost } from "@/lib/admin-store"
-import { Save, ArrowLeft, Sparkles, Loader2, Wand2, Upload, X } from "lucide-react"
+import { Save, ArrowLeft, Sparkles, Loader2, Wand2, Upload, X, AlertCircle } from "lucide-react"
+
 import Link from "next/link"
+
+function toSlug(text: string) {
+  return text.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 80)
+}
 
 const CATEGORIES = ["Travel Tips", "Food & Drink", "Outdoor & Nature", "Wine & Culture", "Family Travel", "Day Trips", "Photography", "Events"]
 
@@ -132,20 +137,44 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
     }
   }
 
+  const [saveError, setSaveError] = useState<string | null>(null)
+
   async function handleSave() {
+    if (!form.title?.trim()) {
+      setSaveError("Title is required before saving.")
+      return
+    }
     setSaving(true)
-    const method = post ? "PATCH" : "POST"
-    const url = post ? `/api/admin/posts/${post.id}` : `/api/admin/posts`
-    await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    })
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-    if (!post) router.push("/admin/blog")
-    else router.refresh()
+    setSaveError(null)
+    try {
+      const method = post ? "PATCH" : "POST"
+      const url = post ? `/api/admin/posts/${post.id}` : `/api/admin/posts`
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setSaveError(body.error ?? `Save failed (${res.status})`)
+        return
+      }
+      const saved = await res.json()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+      if (!post) {
+        router.push("/admin/blog")
+        router.refresh()
+      } else {
+        // Update slug in form state in case it was normalised server-side
+        if (saved.slug) setForm((f) => ({ ...f, slug: saved.slug }))
+        router.refresh()
+      }
+    } catch {
+      setSaveError("Network error — please try again.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const inputClass = "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -163,6 +192,16 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
           {saving ? "Saving…" : saved ? "Saved!" : "Save"}
         </button>
       </div>
+
+      {saveError && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {saveError}
+          <button type="button" onClick={() => setSaveError(null)} className="ml-auto rounded p-0.5 hover:bg-destructive/10">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-6">
         {/* AI Content Generator */}
@@ -236,12 +275,27 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
           <h2 className="mb-4 text-sm font-semibold text-foreground">Post Details</h2>
           <div className="flex flex-col gap-4">
             <div>
-              <label className={labelClass}>Title</label>
-              <input type="text" className={inputClass} placeholder="Post title" value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} />
+              <label className={labelClass}>Title <span className="text-destructive">*</span></label>
+              <input
+                type="text"
+                className={inputClass}
+                placeholder="Post title"
+                value={form.title ?? ""}
+                onChange={(e) => {
+                  const title = e.target.value
+                  setForm((f) => ({
+                    ...f,
+                    title,
+                    // Auto-generate slug from title only when no slug has been manually set
+                    slug: f.slug && f.slug !== toSlug(f.title ?? "") ? f.slug : toSlug(title),
+                  }))
+                }}
+              />
             </div>
             <div>
               <label className={labelClass}>Slug</label>
               <input type="text" className={inputClass} placeholder="my-post-slug" value={form.slug ?? ""} onChange={(e) => set("slug", e.target.value)} />
+              <p className="mt-1 text-[10px] text-muted-foreground/60">Auto-generated from title. You can customise it.</p>
             </div>
             <div>
               <label className={labelClass}>Excerpt</label>

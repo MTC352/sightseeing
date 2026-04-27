@@ -3,6 +3,8 @@ import { dbListPosts } from "@/lib/db/queries"
 import { Plus, Pencil, ExternalLink, FileText } from "lucide-react"
 import { PostDeleteButton } from "./post-delete-button"
 
+export const dynamic = "force-dynamic"
+
 export default async function AdminBlogPage() {
   const posts = await dbListPosts() as {
     id: string; title: string; slug: string; category: string;
