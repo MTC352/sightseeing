@@ -779,21 +779,21 @@ export async function dbDeleteDeparture(id: string) {
 // ── Integrations (dedicated table) ────────────────────────────────────────
 
 export async function dbListIntegrations() {
-  return query(`SELECT key, label, value, enabled, updated_at FROM integrations ORDER BY label`)
+  return query(`SELECT key, label, value, updated_at FROM integrations ORDER BY label`)
 }
 
 export async function dbGetIntegration(key: string) {
-  return queryOne<{ key: string; label: string; value: string; enabled: boolean }>(
-    `SELECT key, label, value, enabled FROM integrations WHERE key = $1`, [key]
+  return queryOne<{ key: string; label: string; value: string }>(
+    `SELECT key, label, value FROM integrations WHERE key = $1`, [key]
   )
 }
 
-export async function dbUpsertIntegration(key: string, label: string, value: string, enabled = true) {
+export async function dbUpsertIntegration(key: string, label: string, value: string) {
   return queryOne<{ key: string }>(
-    `INSERT INTO integrations (key, label, value, enabled, updated_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, enabled = EXCLUDED.enabled, updated_at = NOW()
+    `INSERT INTO integrations (key, label, value, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, label = EXCLUDED.label, updated_at = NOW()
      RETURNING key`,
-    [key, label, value, enabled]
+    [key, label, value]
   )
 }

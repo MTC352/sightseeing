@@ -16,7 +16,7 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    const body = await req.json() as { key: string; label?: string; value: string; enabled?: boolean } | Array<{ key: string; label?: string; value: string; enabled?: boolean }>
+    const body = await req.json() as { key: string; label?: string; value: string } | Array<{ key: string; label?: string; value: string }>
 
     const items = Array.isArray(body) ? body : [body]
 
@@ -26,8 +26,7 @@ export async function PATCH(req: Request) {
       await dbUpsertIntegration(
         item.key,
         item.label ?? existing?.label ?? item.key,
-        item.value ?? "",
-        item.enabled ?? true
+        item.value ?? ""
       )
     }
 

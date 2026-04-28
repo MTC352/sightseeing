@@ -702,7 +702,7 @@ export default function ImplementationPage() {
                 </span>
                 <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform ${isSectionOpen ? "rotate-180" : ""}`} />
               </button>
-              {isSectionOpen && <ul className="divide-y divide-border/50 border-t border-border">
+              {isSectionOpen && (<ul className="divide-y divide-border/50 border-t border-border">
                 {section.items.map((item, idx) => {
                   const key = `${section.title}-${idx}`
                   const isOpen = expanded.has(key)
@@ -747,7 +747,7 @@ export default function ImplementationPage() {
                     </li>
                   )
                 })}
-              </ul>}
+              </ul>)}
             </div>
           )
         })}
@@ -767,7 +767,7 @@ export default function ImplementationPage() {
           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Planned</span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform ${sectionsExpanded.has("T013") ? "rotate-180" : ""}`} />
         </button>
-        {sectionsExpanded.has("T013") && <div className="divide-y divide-border/50 border-t border-border">
+        {sectionsExpanded.has("T013") && (<div className="divide-y divide-border/50 border-t border-border">
           {[
             {
               priority: "High",
@@ -840,7 +840,7 @@ export default function ImplementationPage() {
               </div>
             </div>
           ))}
-        </div>}
+        </div>)}
       </div>
 
       {/* Admin Credentials */}
