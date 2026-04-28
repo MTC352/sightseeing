@@ -335,7 +335,7 @@ export default function PlannerPage() {
         addToolOutput({
           tool: "addToCart",
           toolCallId: toolCall.toolCallId,
-          output: trip ? `Added "${trip.title}" to your trip list.` : "Trip not found.",
+          output: undefined as never,
         })
       }
     },
@@ -574,7 +574,7 @@ export default function PlannerPage() {
                         }
                         case "tool-showWeather": {
                           if (part.state === "output-available") {
-                            const wxOut = part.output as { tip: string; current: typeof weatherData.current; forecast: typeof weatherData.forecast }
+                            const wxOut = part.output as unknown as { tip: string; current: typeof weatherData.current; forecast: typeof weatherData.forecast }
                             textParts.push(
                               <div key={idx} className="mt-2 rounded-xl border border-border bg-background/80 p-3">
                                 <div className="flex items-center gap-2">

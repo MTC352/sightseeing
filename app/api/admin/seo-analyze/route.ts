@@ -65,7 +65,7 @@ Provide SEO analysis and optimization suggestions. Return ONLY the JSON object, 
       system: SYSTEM_PROMPT,
       prompt: userMessage,
       temperature: 0.3,
-      maxTokens: 2000,
+      maxOutputTokens: 2000,
     })
 
     // Extract the text and try to parse as JSON

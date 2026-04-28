@@ -257,8 +257,10 @@ export function DateTimeModal({
           {/* Calendar */}
           <div className="px-5 pb-6 pt-3">
             <MiniCalendar
-              value={date}
-              onChange={setDate}
+              selectedFrom={date}
+              selectedTo=""
+              pickingField="from"
+              onSelect={setDate}
             />
           </div>
 

@@ -62,7 +62,7 @@ Then the full article content.`
     prompt: `Write a comprehensive, SEO and AEO optimized blog post about: "${topic}"${category ? ` for the category: ${category}` : ""}
 
 Focus on providing value to tourists visiting Luxembourg while following all SEO and AEO best practices.`,
-    maxTokens: 4000,
+    maxOutputTokens: 4000,
   })
 
   return result.toTextStreamResponse()

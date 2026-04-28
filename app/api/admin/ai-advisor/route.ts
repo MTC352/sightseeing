@@ -38,9 +38,12 @@ async function getAppState() {
       blob: !!process.env.BLOB_READ_WRITE_TOKEN,
     },
     aiSystems: {
-      planner: { model: settings.ai?.planner?.model || "openai/gpt-4o-mini", configured: true },
-      chat: { model: settings.ai?.chat?.model || "openai/gpt-4o-mini", configured: true },
-      help: { model: settings.ai?.help?.model || "openai/gpt-4o-mini", configured: true },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      planner: { model: (settings.ai as any)?.planner?.model || "openai/gpt-4o-mini", configured: true },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      chat: { model: (settings.ai as any)?.chat?.model || "openai/gpt-4o-mini", configured: true },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      help: { model: (settings.ai as any)?.help?.model || "openai/gpt-4o-mini", configured: true },
     },
     categories: [...new Set(trips.map(t => t.category))],
     cities: [...new Set(trips.map(t => t.city).filter(Boolean))],
@@ -100,7 +103,7 @@ export async function POST(request: Request) {
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       temperature: 0.7,
-      maxTokens: 2000,
+      maxOutputTokens: 2000,
     })
 
     return result.toUIMessageStreamResponse()

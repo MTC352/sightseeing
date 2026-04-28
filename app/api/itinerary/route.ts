@@ -131,7 +131,8 @@ export async function POST(req: Request) {
     const tripList = trips.map((t, i) => `${i + 1}. "${t.title}" [${t.id}] in ${t.city} (${t.duration}, ${t.category})`).join("\n")
     
     // Get admin-configured planner behavior settings
-    const settings = (await dbGetSettings()).plannerBehavior
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settings = (await dbGetSettings()).plannerBehavior as any
     const travelMethodLabel = settings.travelTimeMethod === "walking" ? "walking" 
       : settings.travelTimeMethod === "driving" ? "car/driving" 
       : "bus/tram (free public transport)"

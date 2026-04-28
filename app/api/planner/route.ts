@@ -348,8 +348,10 @@ export async function POST(req: Request) {
       ? "PROFILE: " + preferences.group + ", interests: [" + preferences.interests.join(", ") + "], time: " + preferences.duration + ", budget: " + preferences.budget
       : ""
 
-    // Get planner behavior settings
-    const plannerBehavior = settings.plannerBehavior
+    // Get planner behavior settings (must be fetched before use)
+    const settings = await dbGetSettings()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const plannerBehavior = (settings as any).plannerBehavior
     const optimizationHint = plannerBehavior?.optimizationPriority === "minimize_travel" 
       ? "Prioritize nearby activities to minimize travel time between stops."
       : plannerBehavior?.optimizationPriority === "maximize_activities"
@@ -417,7 +419,6 @@ export async function POST(req: Request) {
     ]
     
     // Append admin-configured custom system prompt if available
-    const settings = await dbGetSettings()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const adminPrompt = (settings.ai?.planner as any)?.systemPrompt
     if (adminPrompt && adminPrompt.trim()) {
