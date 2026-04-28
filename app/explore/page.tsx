@@ -1,22 +1,12 @@
 import type { Metadata } from "next"
-import { trips } from "@/lib/data"
+import { trips as staticTrips } from "@/lib/data"
+import type { Trip } from "@/lib/data"
 import ExploreClient from "./explore-client"
+import { dbListTrips } from "@/lib/db/queries"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
-const itemListLd = {
-  "@context": "https://schema.org",
-  "@type": "ItemList",
-  name: "All Experiences in Luxembourg",
-  numberOfItems: trips.length,
-  itemListElement: trips.map((trip, i) => ({
-    "@type": "ListItem",
-    position: i + 1,
-    url: `${BASE}/trip/${trip.id}`,
-    name: trip.title,
-    image: trip.image.startsWith("/") ? `${BASE}${trip.image}` : trip.image,
-  })),
-}
+export const dynamic = "force-dynamic"
 
 export const metadata: Metadata = {
   title: "Explore All Experiences in Luxembourg",
@@ -32,14 +22,54 @@ export const metadata: Metadata = {
   },
 }
 
-export default function ExplorePage() {
+export default async function ExplorePage() {
+  const rows = await dbListTrips().catch(() => [])
+
+  const dbTrips: Trip[] = rows
+    .filter((r) => (r.status as string) === "published")
+    .map((r) => ({
+      id: String(r.id),
+      title: String((r.title_override ?? r.title) ?? ""),
+      image: String(r.image ?? "/images/placeholder.jpg"),
+      price: Number(r.price ?? 0),
+      originalPrice: r.originalPrice != null ? Number(r.originalPrice) : undefined,
+      rating: Number(r.rating ?? 0),
+      reviewCount: Number(r.reviewCount ?? 0),
+      duration: String(r.duration ?? ""),
+      category: String(r.category ?? ""),
+      tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+      badge: r.badge != null ? String(r.badge) : undefined,
+      city: r.city != null ? String(r.city) : undefined,
+      description: r.description != null ? String(r.description) : undefined,
+      permalink: r.permalink != null ? String(r.permalink) : undefined,
+      provider: r.provider != null ? String(r.provider) : undefined,
+      highlights: Array.isArray(r.highlights) ? (r.highlights as string[]) : [],
+      googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
+    }))
+
+  const tripList = dbTrips.length > 0 ? dbTrips : staticTrips
+
+  const itemListLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "All Experiences in Luxembourg",
+    numberOfItems: tripList.length,
+    itemListElement: tripList.map((trip, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      url: `${BASE}/trip/${trip.id}`,
+      name: trip.title,
+      image: trip.image.startsWith("/") ? `${BASE}${trip.image}` : trip.image,
+    })),
+  }
+
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListLd) }}
       />
-      <ExploreClient />
+      <ExploreClient initialTrips={tripList} />
     </>
   )
 }

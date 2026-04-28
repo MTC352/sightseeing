@@ -1,6 +1,30 @@
 import type { Metadata } from "next"
 import { trips, getTripById, getTripDetail } from "@/lib/data"
+import type { Trip } from "@/lib/data"
 import TripDetailClient from "./trip-detail-view"
+import { dbGetTrip } from "@/lib/db/queries"
+
+function mapDbTrip(r: Record<string, unknown>): Trip {
+  return {
+    id: String(r.id),
+    title: String((r.title_override ?? r.title) ?? ""),
+    image: String(r.image ?? "/images/placeholder.jpg"),
+    price: Number(r.price ?? 0),
+    originalPrice: r.originalPrice != null ? Number(r.originalPrice) : undefined,
+    rating: Number(r.rating ?? 0),
+    reviewCount: Number(r.reviewCount ?? 0),
+    duration: String(r.duration ?? ""),
+    category: String(r.category ?? ""),
+    tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+    badge: r.badge != null ? String(r.badge) : undefined,
+    city: r.city != null ? String(r.city) : undefined,
+    description: r.description != null ? String(r.description) : undefined,
+    permalink: r.permalink != null ? String(r.permalink) : undefined,
+    provider: r.provider != null ? String(r.provider) : undefined,
+    highlights: Array.isArray(r.highlights) ? (r.highlights as string[]) : [],
+    googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
+  }
+}
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -8,7 +32,8 @@ export const dynamic = "force-dynamic"
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
-  const trip = getTripById(id)
+  const dbRow = await dbGetTrip(id).catch(() => null)
+  const trip = dbRow ? mapDbTrip(dbRow as Record<string, unknown>) : getTripById(id)
   const detail = getTripDetail(id)
 
   if (!trip) {
@@ -43,7 +68,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function TripPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const trip = getTripById(id)
+  const dbRow = await dbGetTrip(id).catch(() => null)
+  const trip = dbRow ? mapDbTrip(dbRow as Record<string, unknown>) : getTripById(id)
   const detail = getTripDetail(id)
 
   if (!trip) {

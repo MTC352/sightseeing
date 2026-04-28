@@ -573,7 +573,8 @@ const INSIDER_TIPS = [
 ]
 
 /* ── Main component ── */
-export default function ExplorePage() {
+export default function ExplorePage({ initialTrips }: { initialTrips?: Trip[] }) {
+  const tripList = initialTrips ?? trips
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [dateOpen, setDateOpen] = useState(false)
@@ -601,22 +602,21 @@ export default function ExplorePage() {
     return [datePart, timePart].filter(Boolean).join(" · ")
   })()
 
-  const filtered = trips.filter((t) => {
+  const filtered = tripList.filter((t) => {
     if (activeCategory && t.category !== activeCategory) return false
     if (t.price < activeFilters.priceMin || t.price > activeFilters.priceMax) return false
     if (t.rating < activeFilters.ratingMin) return false
     if (activeFilters.locationAddress && !t.title.toLowerCase().includes(activeFilters.locationAddress.toLowerCase()) &&
         !t.category.toLowerCase().includes(activeFilters.locationAddress.toLowerCase())) return false
-    // duration filter: parse "Xh" or "X hours" from trip.duration
     const dHours = parseFloat(t.duration?.replace(/[^\d.]/g, "") || "99")
     if (activeFilters.durationMax < 24 && dHours > activeFilters.durationMax) return false
     return true
   })
 
-  const topRated = trips.filter((t) => t.rating >= 4.7).slice(0, 8)
+  const topRated = tripList.filter((t) => t.rating >= 4.7).slice(0, 8)
   const byCategory = categories.map((c) => ({
     ...c,
-    trips: trips.filter((t) => t.category === c.name).slice(0, 4),
+    trips: tripList.filter((t) => t.category === c.name).slice(0, 4),
   }))
 
   return (

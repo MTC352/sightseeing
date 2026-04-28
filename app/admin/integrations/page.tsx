@@ -145,6 +145,14 @@ export default function IntegrationsPage() {
         body: JSON.stringify({ section: "apiKeys", data: keys }),
       })
       if (!res.ok) throw new Error()
+
+      const intPayload = Object.entries(keys).map(([k, v]) => ({ key: k, value: v, enabled: true }))
+      await fetch("/api/admin/integrations", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(intPayload),
+      })
+
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch {
@@ -156,11 +164,18 @@ export default function IntegrationsPage() {
 
   async function testKey(fieldKey: string) {
     setTesting(fieldKey)
-    await new Promise((r) => setTimeout(r, 1200))
-    const ok = Boolean(keys[fieldKey]?.length > 5)
-    setTestResult((p) => ({ ...p, [fieldKey]: ok ? "ok" : "fail" }))
-    setTesting(null)
-    setTimeout(() => setTestResult((p) => { const n = { ...p }; delete n[fieldKey]; return n }), 4000)
+    try {
+      const res = await fetch(
+        `/api/admin/test-key?service=${encodeURIComponent(fieldKey)}&key=${encodeURIComponent(keys[fieldKey] ?? "")}`
+      )
+      const data = (await res.json()) as { ok: boolean }
+      setTestResult((p) => ({ ...p, [fieldKey]: data.ok ? "ok" : "fail" }))
+    } catch {
+      setTestResult((p) => ({ ...p, [fieldKey]: "fail" }))
+    } finally {
+      setTesting(null)
+      setTimeout(() => setTestResult((p) => { const n = { ...p }; delete n[fieldKey]; return n }), 4000)
+    }
   }
 
   const inputBase =

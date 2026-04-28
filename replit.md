@@ -45,7 +45,7 @@ Implemented with `@reduxjs/toolkit` + `react-redux`. Two isolated stores to keep
 ### Key Principle
 - **Server components** remain untouched — they call DB functions directly (best for SEO + performance)
 - **Client components** use RTK Query hooks — auto-deduplicates in-flight requests, caches responses
-- Pages already migrated: `departures`, `tickets`, `taxonomies`
+- Pages already migrated to RTK Query: `departures`, `tickets`, `taxonomies`
 
 ## Auth
 
@@ -136,9 +136,41 @@ All admin API routes are now DB-backed. Auth required (JWT cookie).
 | `docs/database-architecture.md` | 16-table PostgreSQL schema |
 | `docs/api-reference.md` | Complete API reference — all routes |
 
-## Known Remaining Issues
-1. **Departures module** — `app/api/admin/departures/route.tsx` still uses in-memory store (no departures table in schema)
-2. **Taxonomies save** — `handleSave()` stub, no API call
-3. **Pages module** — No CRUD API, `?admin_edit=1` inline edits not persisted
-4. **Palisis mock data** — Real API import call commented out
-5. **Mapbox token** — `/api/mapbox-token` is a public unauthenticated endpoint
+## Public Pages → DB Status
+
+All public pages now read from DB (or have DB-first with fallback):
+
+| Page | Source | Notes |
+|---|---|---|
+| `/blog`, `/blog/[slug]` | DB | `dbListPosts`, `dbGetPostBySlug` |
+| `/careers` | DB | Server component + `dbListJobs`; `careers-client.tsx` is client |
+| `/explore` | DB | Server component fetches `dbListTrips`; passes to `ExploreClient` as `initialTrips` prop |
+| `/departures` | DB (trips) | Server component fetches trips from DB; `DeparturesClient` accepts `initialTrips` prop |
+| `/trip/[id]` | DB + fallback | `dbGetTrip` first, then `getTripById` from lib/data; `mapDbTrip()` converts to Trip type |
+| `/help` | Partial | DB has 17 articles but `HelpClient` still uses hardcoded `FAQ_DATA` (AI chat complexity) |
+
+## New API Routes (recent additions)
+
+| Route | Method | Description |
+|---|---|---|
+| `/api/admin/taxonomies` | GET, POST, PATCH | Taxonomy CRUD |
+| `/api/admin/taxonomies/[key]` | GET, DELETE | Single taxonomy |
+| `/api/admin/pages` | GET, POST | Pages CRUD |
+| `/api/admin/pages/[id]` | GET, PATCH, DELETE | Single page |
+| `/api/admin/pages/[id]/revisions` | GET, POST | Page revisions |
+| `/api/admin/departures` | GET, POST, PATCH | Departures schedule |
+| `/api/admin/integrations` | GET, PATCH | Integrations table (upsert by key) |
+| `/api/admin/test-key` | GET | Real API key validation (openWeather, googleReviews, palisis) |
+| `/api/admin/palisis-availability` | GET | Palisis availability from DB key |
+| `/api/admin/palisis-import` | POST | Palisis catalog import |
+| `/api/webhooks/palisis` | POST | Palisis booking webhooks |
+
+## Known Remaining Items (T013 planned)
+
+1. **HelpClient refactor** — Convert hardcoded `FAQ_DATA` to DB-driven categories (complex due to AI chat integration)
+2. **Live Palisis API** — Real API call commented out; needs valid Palisis key
+3. **Weglot settings page** — `/admin/integrations/weglot` full config page planned
+4. **Public forms** — Job application form and support ticket creation from public pages
+5. **Sitemap.xml** — Dynamic sitemap from DB trips for SEO
+6. **Image uploads** — Currently URL-only; file upload for trips/blog planned
+7. **Stripe booking** — Payment integration for direct booking from /trip/[id]

@@ -48,9 +48,11 @@ function cityStats(cityTrips: typeof trips) {
 function ProductSelector({
   selected,
   onSelect,
+  allTrips,
 }: {
   selected: string | null
   onSelect: (id: string | null) => void
+  allTrips: typeof trips
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -58,14 +60,14 @@ function ProductSelector({
 
   const filtered = useMemo(
     () =>
-      trips.filter((t) =>
+      allTrips.filter((t) =>
         t.title.toLowerCase().includes(search.toLowerCase()) ||
         (t.city ?? "").toLowerCase().includes(search.toLowerCase())
       ),
-    [search]
+    [search, allTrips]
   )
 
-  const selectedTrip = trips.find((t) => t.id === selected)
+  const selectedTrip = allTrips.find((t) => t.id === selected)
 
   // Close on outside click
   useEffect(() => {
@@ -166,19 +168,19 @@ function ProductSelector({
 }
 
 /* ── Main component ────────────────────────────────────────────── */
-export function DeparturesClient() {
+export function DeparturesClient({ initialTrips }: { initialTrips?: typeof trips }) {
+  const tripList = initialTrips ?? trips
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
 
   const grouped = useMemo(() => {
-    if (!selectedProductId) return groupByCity(trips)
-    const product = trips.find((t) => t.id === selectedProductId)
-    if (!product) return groupByCity(trips)
+    if (!selectedProductId) return groupByCity(tripList)
+    const product = tripList.find((t) => t.id === selectedProductId)
+    if (!product) return groupByCity(tripList)
     const city = product.city ?? "Luxembourg City"
-    // Show only the city that matches this product
-    return [[city, trips.filter((t) => (t.city ?? "Luxembourg City") === city)]] as [string, typeof trips][]
-  }, [selectedProductId])
+    return [[city, tripList.filter((t) => (t.city ?? "Luxembourg City") === city)]] as [string, typeof trips][]
+  }, [selectedProductId, tripList])
 
-  const selectedTrip = trips.find((t) => t.id === selectedProductId)
+  const selectedTrip = tripList.find((t) => t.id === selectedProductId)
 
   return (
     <>
@@ -200,11 +202,11 @@ export function DeparturesClient() {
           <div className="mt-5 flex flex-wrap gap-3 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5">
               <Users className="h-3.5 w-3.5 text-primary" />
-              {trips.length} experiences
+              {tripList.length} experiences
             </span>
             <span className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5">
               <MapPin className="h-3.5 w-3.5 text-primary" />
-              {groupByCity(trips).length} departure cities
+              {groupByCity(tripList).length} departure cities
             </span>
             <span className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5">
               <Clock className="h-3.5 w-3.5 text-primary" />
@@ -220,7 +222,7 @@ export function DeparturesClient() {
               Select your experience to see the exact departure location.
             </p>
             <div className="mt-3">
-              <ProductSelector selected={selectedProductId} onSelect={setSelectedProductId} />
+              <ProductSelector selected={selectedProductId} onSelect={setSelectedProductId} allTrips={tripList} />
             </div>
           </div>
         </div>
