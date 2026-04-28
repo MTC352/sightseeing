@@ -79,6 +79,16 @@ export default function ImplementationPage() {
     pageContent: null, departures: null, integrationsApi: null,
   })
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [sectionsExpanded, setSectionsExpanded] = useState<Set<string>>(new Set())
+
+  const toggleSection = useCallback((title: string) => {
+    setSectionsExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(title)) next.delete(title)
+      else next.add(title)
+      return next
+    })
+  }, [])
 
   const toggle = useCallback((key: string) => {
     setExpanded((prev) => {
@@ -674,9 +684,14 @@ export default function ImplementationPage() {
           const Icon = section.icon
           const sectionDone = section.items.filter((i) => i.status === "done").length
           const sectionPartial = section.items.filter((i) => i.status === "partial").length
+          const isSectionOpen = sectionsExpanded.has(section.title)
           return (
             <div key={section.title} className="rounded-xl border border-border bg-card">
-              <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
+              <button
+                type="button"
+                onClick={() => toggleSection(section.title)}
+                className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-muted/30 transition-colors rounded-xl"
+              >
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
                   <Icon className="h-3.5 w-3.5 text-primary" />
                 </div>
@@ -685,8 +700,9 @@ export default function ImplementationPage() {
                   {sectionDone}/{section.items.length}
                   {sectionPartial > 0 && <span className="ml-1 text-amber-500">+{sectionPartial}~</span>}
                 </span>
-              </div>
-              <ul className="divide-y divide-border/50">
+                <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform ${isSectionOpen ? "rotate-180" : ""}`} />
+              </button>
+              {isSectionOpen && <ul className="divide-y divide-border/50 border-t border-border">
                 {section.items.map((item, idx) => {
                   const key = `${section.title}-${idx}`
                   const isOpen = expanded.has(key)
@@ -731,7 +747,7 @@ export default function ImplementationPage() {
                     </li>
                   )
                 })}
-              </ul>
+              </ul>}
             </div>
           )
         })}
@@ -739,14 +755,19 @@ export default function ImplementationPage() {
 
       {/* T013 — Further Implementation Steps */}
       <div className="mt-6 rounded-xl border border-border bg-card">
-        <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
+        <button
+          type="button"
+          onClick={() => toggleSection("T013")}
+          className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-muted/30 transition-colors rounded-xl"
+        >
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
             <Webhook className="h-3.5 w-3.5 text-primary" />
           </div>
           <h2 className="flex-1 text-sm font-semibold text-foreground">T013 — Further Implementation Steps</h2>
           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Planned</span>
-        </div>
-        <div className="divide-y divide-border/50">
+          <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform ${sectionsExpanded.has("T013") ? "rotate-180" : ""}`} />
+        </button>
+        {sectionsExpanded.has("T013") && <div className="divide-y divide-border/50 border-t border-border">
           {[
             {
               priority: "High",
@@ -819,7 +840,7 @@ export default function ImplementationPage() {
               </div>
             </div>
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Admin Credentials */}
