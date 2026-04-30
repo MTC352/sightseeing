@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import {
   CheckCircle2, Circle, AlertCircle, Database, Shield, Layers, Zap,
   Globe, Webhook, Link2, RefreshCw, ChevronDown, FlaskConical, Store,
+  Calendar, Clock, Tag, ShoppingCart, ArrowRightLeft, Filter,
 } from "lucide-react"
 
 type Status = "done" | "pending" | "partial"
@@ -600,6 +601,267 @@ export default function ImplementationPage() {
       ],
     },
     {
+      title: "T014 — Palisis Trip Sync Architecture",
+      icon: ArrowRightLeft,
+      items: [
+        {
+          label: "DB: palisis_id (unique) + palisis_raw (jsonb) columns on trips table",
+          status: "done", source: "DB",
+          testNote: "Both columns exist in schema; trips_palisis_id_key unique constraint confirmed.",
+        },
+        {
+          label: "DB: palisis_sync_log table (trigger_type, palisis_id, action, changes jsonb)",
+          status: "done", source: "DB",
+          testNote: "Table exists; indexed on palisis_id and created_at.",
+        },
+        {
+          label: "One-way sync only: Palisis → Our Platform (no writes to Palisis from our side, except bookings)",
+          status: "pending",
+          detail: "Architecture constraint. Trip create/edit in admin must NEVER call Palisis write APIs. Only the booking flow (POST /api/book) may send data to Palisis.",
+        },
+        {
+          label: "Manual import — single trip: show diff confirmation if title/description differ",
+          status: "pending",
+          detail: "On import of a single Palisis product: if local trip with same palisis_id exists and title or description differs, show a confirmation modal with side-by-side diff before overriding.",
+        },
+        {
+          label: "Manual import — bulk mode: 'Override all' checkbox skips per-trip confirmation",
+          status: "pending",
+          detail: "Bulk import UI in /admin/palisis shows a master 'Override existing trips without confirmation' checkbox. When checked, all diffs are applied silently and logged to palisis_sync_log.",
+        },
+        {
+          label: "Admin: edit stored trip info (title, desc, banner) independently from Palisis data",
+          status: "pending",
+          detail: "Trip edit form in /admin/trips/[id] saves to our DB only. Fields: title_override, description_override, banner_override. These override Palisis data for display without touching Palisis.",
+        },
+        {
+          label: "Trip detail page: uses title_override / description_override if set, else Palisis data",
+          status: "partial",
+          detail: "mapDbTrip() helper already reads title_override. Need to apply same logic to description and banner on /trip/[id] page.",
+        },
+        {
+          label: "Webhook auto-sync: /api/webhooks/palisis — override without confirmation",
+          status: "done", source: "DB",
+          testNote: "Endpoint exists and logs to palisis_sync_log. Auto-override logic pending live Palisis key.",
+        },
+        {
+          label: "Webhook: verify Palisis signature header before processing",
+          status: "pending",
+          detail: "Palisis sends a signature in the request header. Verify HMAC-SHA256 against shared secret stored in integrations table.",
+        },
+        {
+          label: "Webhook: handle 'product.created', 'product.updated', 'product.deleted' event types",
+          status: "pending",
+          detail: "Map Palisis event payload to our trips schema. On 'deleted': mark trip as archived, do not hard-delete.",
+        },
+        {
+          label: "/admin/palisis: import panel UI with sync log display",
+          status: "done",
+          testNote: "Panel renders at /admin/palisis; shows import button and recent sync log entries.",
+        },
+        {
+          label: "Palisis API: map product fields → trips DB columns (title, description, duration, city, price, banner)",
+          status: "pending",
+          detail: "Mapping depends on live Palisis API response schema. Will be defined once API key is provided and catalog is inspected.",
+        },
+      ],
+    },
+    {
+      title: "T015 — Palisis Availability API (Frontend)",
+      icon: Calendar,
+      items: [
+        {
+          label: "GET /api/availability?tripId=&date= — server-side proxy to Palisis availability endpoint",
+          status: "pending",
+          detail: "Avoids exposing Palisis API key to browser. Reads key from DB integrations table. Returns available timeslots for a given trip and date.",
+        },
+        {
+          label: "5-minute server-side cache on /api/availability (prevent Palisis rate limits)",
+          status: "pending",
+          detail: "Use Next.js unstable_cache or in-memory Map with TTL. Cache key: tripId + date. Invalidated on webhook sync.",
+        },
+        {
+          label: "Trip detail page (/trip/[id]): live availability calendar widget",
+          status: "pending",
+          detail: "Calendar shows month view. User picks date → fetch /api/availability → display available timeslots. Highlight sold-out dates.",
+        },
+        {
+          label: "Trip detail page: time slot selector (available slots from Palisis for selected date)",
+          status: "pending",
+          detail: "Show slots as buttons (e.g. '10:00 — 5 slots left', '14:00 — 2 slots left'). Clicking a slot starts booking flow.",
+        },
+        {
+          label: "Trip detail page: loading state and graceful fallback if Palisis unavailable",
+          status: "pending",
+          detail: "Show skeleton loader during fetch. If Palisis API errors/times out, show 'Check availability by phone' fallback message.",
+        },
+        {
+          label: "Departures page: replace hardcoded DEPARTURE_TIMES with live slots from Palisis",
+          status: "pending",
+          detail: "Fetch today's + tomorrow's departures from /api/availability for each trip. Group by trip, show next available slot time.",
+        },
+        {
+          label: "Explore/Search page: show slot availability count badge on trip cards",
+          status: "pending",
+          detail: "Each trip card may show a badge like '3 slots left today' if live availability is fetched. Optional, depends on performance budget.",
+        },
+      ],
+    },
+    {
+      title: "T016 — Booking Flow via Palisis",
+      icon: ShoppingCart,
+      items: [
+        {
+          label: "Booking CTA on /trip/[id]: 'Book Now' button triggers booking flow",
+          status: "pending",
+          detail: "After user selects a date and timeslot from availability calendar, 'Book Now' is enabled. Shows party size selector (adults, children).",
+        },
+        {
+          label: "POST /api/book — server-side proxy to Palisis booking API",
+          status: "pending",
+          detail: "Accepts: tripId, palisisProductId, date, timeslot, partySize, guestName, guestEmail. Calls Palisis booking endpoint and returns booking reference.",
+        },
+        {
+          label: "Guest details form: name, email, party size (adults / children)",
+          status: "pending",
+          detail: "Modal or inline form before booking confirmation. Validation before Palisis API call.",
+        },
+        {
+          label: "Booking confirmation page (/booking/confirm?ref=): show Palisis booking reference",
+          status: "pending",
+          detail: "After successful POST /api/book, redirect to confirmation page with booking reference and trip summary. No local DB record — Palisis is source of truth.",
+        },
+        {
+          label: "Handle Palisis booking errors: sold out, invalid slot, API timeout",
+          status: "pending",
+          detail: "Map Palisis error codes to user-friendly messages. Re-fetch availability on 'sold out' response to show updated slots.",
+        },
+        {
+          label: "No local booking storage (Palisis holds all booking data)",
+          status: "pending",
+          detail: "Architecture constraint. Do not create a local bookings table. Only log the palisis booking reference in palisis_sync_log for audit trail.",
+        },
+        {
+          label: "Fallback strategy: embed Palisis booking widget if direct API integration not feasible",
+          status: "pending",
+          detail: "If Palisis does not expose a REST booking API, embed their iframe booking widget on /trip/[id]. Evaluate once API docs are received.",
+        },
+      ],
+    },
+    {
+      title: "T017 — Last Minute Deals Engine",
+      icon: Tag,
+      items: [
+        {
+          label: "Admin: configurable LMD rules in /admin/settings (threshold, time window)",
+          status: "pending",
+          detail: "Admin sets rules: e.g. 'Show as Last Minute Deal if: available slots ≤ N AND departing within X hours'. Rules stored in DB settings table.",
+        },
+        {
+          label: "Example rule: availability < 3 slots AND trip departing today",
+          status: "pending",
+          detail: "Default rule shipped with the system. Admin can adjust N (slot threshold) and X (departure window) from the settings panel.",
+        },
+        {
+          label: "GET /api/last-minute-deals — evaluates LMD rules against live Palisis availability",
+          status: "pending",
+          detail: "Fetches today's available trips from Palisis, applies configured rules, returns matching trips with slot count and departure time.",
+        },
+        {
+          label: "5-minute TTL cache on /api/last-minute-deals",
+          status: "pending",
+          detail: "Avoid hammering Palisis API on every page load. Cache is invalidated on webhook sync events.",
+        },
+        {
+          label: "Home page 'Last Minute Deals' section wired to /api/last-minute-deals",
+          status: "pending",
+          detail: "Replace current hardcoded DealsSection with live data. Show deal badge (e.g. 'Only 2 left!') on trip cards.",
+        },
+        {
+          label: "LMD badge on trip cards across Explore, Departures, and Home",
+          status: "pending",
+          detail: "When a trip qualifies as a Last Minute Deal, show a red 'Last Minute' badge on its card. Consistent across all listing pages.",
+        },
+      ],
+    },
+    {
+      title: "T018 — Departing Soon (Live from Palisis)",
+      icon: Clock,
+      items: [
+        {
+          label: "GET /api/departing-soon — today's trips with available slots from Palisis",
+          status: "pending",
+          detail: "Queries Palisis availability for all active trips for today. Returns trips with at least 1 available slot, sorted by next departure time.",
+        },
+        {
+          label: "Home page DeparturesSoonSection: replace hardcoded data with /api/departing-soon",
+          status: "pending",
+          detail: "Current DeparturesSoonSection uses hardcoded DEPARTURE_TIMES. Wire to live API endpoint after Palisis key is available.",
+        },
+        {
+          label: "Show next 2–4 departing trips with departure time and available slot count",
+          status: "pending",
+          detail: "Display: trip banner, title, departure time, '5 spots left' indicator. Link to /trip/[id] for booking.",
+        },
+        {
+          label: "Client-side auto-refresh every 5 minutes",
+          status: "pending",
+          detail: "Use setInterval or react-query refetchInterval on the DeparturesSoonSection to keep data fresh without full page reload.",
+        },
+        {
+          label: "Fallback: show DB trips sorted by hardcoded departure times if Palisis unavailable",
+          status: "pending",
+          detail: "If /api/departing-soon returns an error, fall back to DB trips with DEPARTURE_TIMES. Clearly indicate data may not be live.",
+        },
+      ],
+    },
+    {
+      title: "T019 — Date & Time Departure Filter",
+      icon: Filter,
+      items: [
+        {
+          label: "Date picker on Explore/Departures page (DateTimeModal — partially built)",
+          status: "partial",
+          detail: "DateTimeModal component exists with calendar and time inputs. Needs to be wired to filter logic on Explore and Departures pages.",
+        },
+        {
+          label: "Time range selector: 'from HH:MM → to HH:MM' for departure window",
+          status: "partial",
+          detail: "DateTimeModal has timeFrom/timeTo fields. Need to pass selected values to search query params.",
+        },
+        {
+          label: "GET /api/departures/search?date=&from=&to= — Palisis availability filtered by time",
+          status: "pending",
+          detail: "Queries Palisis for all trips on the given date. Returns only trips with at least one timeslot within the from–to time window.",
+        },
+        {
+          label: "When date filter active: replace 'Today / Tomorrow' view with filtered results only",
+          status: "pending",
+          detail: "Departures page shows today/tomorrow tabs by default. If date filter is set, hide tabs and show filtered-date results instead.",
+        },
+        {
+          label: "List view: show max 4 timeslots per trip card row",
+          status: "pending",
+          detail: "In filtered results, each trip card shows up to 4 matching timeslot buttons inline (e.g., 10:00, 11:30, 14:00, 16:30).",
+        },
+        {
+          label: "If more than 4 slots available: show 'See all' link → /trip/[id]#calendar",
+          status: "pending",
+          detail: "'See all' opens the trip detail page and scrolls to the availability calendar section. Passes selected date as query param (?date=YYYY-MM-DD).",
+        },
+        {
+          label: "Slot availability badge on trip cards (e.g., '3 slots left') during date-filter view",
+          status: "pending",
+          detail: "When filtering by date, each timeslot button shows remaining capacity from Palisis. Red if ≤ 3, green if > 3.",
+        },
+        {
+          label: "Clear filter: reset to default today/tomorrow view",
+          status: "pending",
+          detail: "A 'Clear' button in the date filter header resets the filter and restores the default view.",
+        },
+      ],
+    },
+    {
       title: "T006 — Implementation Tracker",
       icon: CheckCircle2,
       items: [
@@ -633,6 +895,36 @@ export default function ImplementationPage() {
           label: "Further Implementation Steps (T013 section)",
           status: "done",
           testNote: "T013 section below lists remaining planned features with priority order.",
+        },
+        {
+          label: "T014 — Palisis Trip Sync Architecture (12 items planned)",
+          status: "done",
+          testNote: "Covers one-way sync, manual import confirmation, bulk override, webhook events, admin title/desc overrides.",
+        },
+        {
+          label: "T015 — Palisis Availability API / Frontend (7 items planned)",
+          status: "done",
+          testNote: "Proxy endpoint, 5-min cache, trip detail calendar, slot picker, departures live wiring.",
+        },
+        {
+          label: "T016 — Booking Flow via Palisis (7 items planned)",
+          status: "done",
+          testNote: "Direct API booking, guest form, confirmation page, error handling, widget fallback.",
+        },
+        {
+          label: "T017 — Last Minute Deals Engine (6 items planned)",
+          status: "done",
+          testNote: "Admin-configurable rules, /api/last-minute-deals endpoint, home page section, LMD badges.",
+        },
+        {
+          label: "T018 — Departing Soon Live (5 items planned)",
+          status: "done",
+          testNote: "/api/departing-soon endpoint, home section live wiring, 5-min auto-refresh, fallback.",
+        },
+        {
+          label: "T019 — Date & Time Departure Filter (8 items planned)",
+          status: "done",
+          testNote: "Date+time range picker, /api/departures/search, max 4 slots per row, 'See all' link, slot badges.",
         },
       ],
     },
