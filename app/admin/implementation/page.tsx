@@ -5,6 +5,7 @@ import {
   CheckCircle2, Circle, AlertCircle, Database, Shield, Layers, Zap,
   Globe, Webhook, Link2, RefreshCw, ChevronDown, FlaskConical, Store,
   Calendar, Clock, Tag, ShoppingCart, ArrowRightLeft, Filter,
+  Server, Key, Cloud, MapPin, Star, Cpu, Upload,
 } from "lucide-react"
 
 type Status = "done" | "pending" | "partial"
@@ -858,6 +859,258 @@ export default function ImplementationPage() {
           label: "Clear filter: reset to default today/tomorrow view",
           status: "pending",
           detail: "A 'Clear' button in the date filter header resets the filter and restores the default view.",
+        },
+      ],
+    },
+    {
+      title: "T020 — API Integration Reference & Endpoint Catalog",
+      icon: Server,
+      items: [
+        // ── PALISIS ──────────────────────────────────────────────────────────
+        {
+          label: "PALISIS — [1] Product Catalog  |  Used by: T014 (import), /api/admin/palisis-import",
+          status: "pending",
+          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
+Current placeholder in code: GET {apiBase}/catalog (with header X-Api-Key: {key}).
+Connectivity test already calls: GET https://palisis.com/api/v1/products?apiKey={key}.
+
+Needed input params: apiKey (or Bearer token), optional: page, limit, updatedSince (for delta sync).
+Expected response fields we need to map → our trips DB:
+  palisis product id  → trips.palisis_id
+  title               → trips.title
+  description         → trips.description
+  price               → trips.price
+  duration            → trips.duration
+  city / location     → trips.city
+  category            → trips.category
+  banner / image URL  → trips.image
+  tags / keywords     → trips.tags
+  rating              → trips.rating (may not exist — we store our own)
+
+Used in: POST /api/admin/palisis-import (bulk import), /admin/palisis panel.
+Action needed: provide exact URL, auth method (API key header vs query param), and full response schema.`,
+        },
+        {
+          label: "PALISIS — [2] Single Product Detail  |  Used by: T014 (diff confirmation on re-import)",
+          status: "pending",
+          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
+Likely: GET {apiBase}/products/{palisis_product_id}?apiKey={key}  OR  GET {apiBase}/catalog/{id}
+
+Needed for: when admin manually re-imports a single trip that already exists locally, we fetch the live
+Palisis product, compare title/description/price to our stored data, and show a side-by-side diff modal
+before overriding. Without this endpoint we fall back to comparing against the full catalog response.
+
+Expected response: same schema as [1] but for a single product.
+Action needed: confirm if single-product fetch exists, or if we must filter from the full catalog list.`,
+        },
+        {
+          label: "PALISIS — [3] Availability by Product + Date  |  Used by: T015, T017, T018, T019",
+          status: "pending",
+          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
+Current placeholder in code: GET {apiBase}/availability (no params — returns all).
+
+This is the most-used Palisis endpoint across the platform. Every feature that shows live slot data calls it.
+
+Needed input params:
+  productId  (our trips.palisis_id)     — required for trip-specific queries
+  date       (YYYY-MM-DD)               — required for single-day queries
+  dateFrom / dateTo                     — optional range (for month-view calendar)
+
+Expected response fields we need:
+  time / departure_time  (HH:MM)        — slot start time
+  spotsAvailable         (integer)      — remaining capacity
+  spotsTotal             (integer)      — max capacity for this slot
+  slotId / departureId                  — unique ID needed to create a booking (T016)
+  status                                — e.g. "available", "sold_out", "cancelled"
+
+Used in:
+  GET /api/availability?tripId=&date=       → trip detail page calendar (T015)
+  GET /api/departing-soon                    → today's live departures (T018)
+  GET /api/last-minute-deals                 → low-capacity slots today (T017)
+  GET /api/departures/search?date=&from=&to= → date+time filter (T019)
+
+Cache strategy: 5-min TTL server-side. Cache key: palisisProductId + date.
+Action needed: exact URL, whether productId is required or optional, response array structure.`,
+        },
+        {
+          label: "PALISIS — [4] Available Dates for a Product (month view)  |  Used by: T015 trip calendar",
+          status: "pending",
+          detail: `Endpoint: UNKNOWN — may be the same as [3] with a date range, or a separate endpoint.
+
+Needed for: the trip detail page availability calendar. We need to know which dates in a given month
+have at least one available slot so we can highlight/grey-out calendar days before the user picks one.
+
+Option A: Call [3] with dateFrom=YYYY-MM-01 & dateTo=YYYY-MM-31 → returns all slots for the month.
+Option B: Separate endpoint, e.g. GET {apiBase}/products/{id}/available-dates?month=2025-06
+
+If Option A exists and is performant, no separate endpoint is needed.
+Action needed: confirm whether a date-range query on [3] is supported.`,
+        },
+        {
+          label: "PALISIS — [5] Create Booking  |  Used by: T016 booking flow, POST /api/book",
+          status: "pending",
+          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
+Likely: POST {apiBase}/bookings  OR  POST {apiBase}/orders
+
+This is a WRITE endpoint — the only endpoint where we send data TO Palisis (architecture rule: all others are read-only).
+
+Required input fields we expect to send:
+  slotId / departureId   — from availability response [3], identifies the exact timeslot
+  productId              — Palisis product ID
+  guestName              — full name of lead guest
+  guestEmail             — confirmation email
+  adults                 — adult count
+  children               — child count (if supported)
+  language               — preferred language (optional)
+
+Expected response:
+  bookingReference       — Palisis booking reference number (shown on confirmation page)
+  confirmationUrl        — optional link to Palisis confirmation page
+  status                 — "confirmed", "pending", "failed"
+
+Error cases to handle:
+  slot sold out between availability fetch and booking attempt → re-fetch + show updated slots
+  invalid slotId → show error + reset
+  payment required by Palisis → unclear, depends on whether Palisis handles payment or we do
+
+Action needed: confirm POST body schema, auth method, error response format, whether payment
+is handled on our side (Stripe) or redirected to Palisis.`,
+        },
+        {
+          label: "PALISIS — [6] Webhook: inbound events  |  Route: /api/webhooks/palisis (already built)",
+          status: "partial",
+          detail: `Our endpoint /api/webhooks/palisis is built and live. Current implementation handles:
+  availability.updated   → dbUpdateTrip()
+  booking.confirmed      → logged only (no business logic yet)
+  booking.cancelled      → logged only (no business logic yet)
+
+What we still need Palisis to confirm:
+  1. Exact event type names (are they "product.updated" or "catalog.changed"? "availability.updated" or different?)
+  2. Webhook payload schema — what fields does each event type send?
+  3. Signature method — current code checks x-palisis-secret header (plain string).
+     If Palisis uses HMAC-SHA256, we need to update verification logic.
+  4. How to register our webhook URL with Palisis (dashboard setting or API call?).
+
+Webhook URL to register: https://{your-domain}/api/webhooks/palisis
+Secret env var: PALISIS_WEBHOOK_SECRET (already read from process.env in code).
+
+Action needed: provide event type names, payload schemas, signature method, registration process.`,
+        },
+        {
+          label: "PALISIS — [7] Key Storage & Auth Method  |  Used by: all Palisis routes",
+          status: "pending",
+          detail: `Currently the Palisis API key is stored in the integrations DB table (key: 'palisis') and in
+process.env.PALISIS_API_KEY (fallback). All server-side Palisis calls read from dbGetSettings().apiKeys.palisis.
+
+Auth method is UNKNOWN — currently assumed to be either:
+  Option A: Query param  — ?apiKey={key}  (used in connectivity test in /api/admin/test-key)
+  Option B: Header       — X-Api-Key: {key}  (used in commented-out import route)
+  Option C: Bearer token — Authorization: Bearer {token}
+
+Action needed: confirm auth method. If it's a Bearer token with expiry, we also need a token-refresh flow.
+
+Base URL: also unknown — current code uses settings.apiKeys.palisis as the base URL itself (not a separate key).
+Clarify: is the stored key the API key only, or the full base URL + key combined?`,
+        },
+        // ── OPENWEATHERMAP ────────────────────────────────────────────────────
+        {
+          label: "OPENWEATHERMAP — [1] Current Weather  |  Implemented ✓  |  /api/weather",
+          status: "done",
+          testNote: `Endpoint: GET https://api.openweathermap.org/data/2.5/weather?lat=49.6116&lon=6.1319&units=metric&appid={key}
+Auth: appid query param.
+Key source: process.env.OPENWEATHER_API_KEY → fallback to DB integrations (key: 'openWeather').
+Response fields used: main.temp, main.feels_like, main.humidity, wind.speed, weather[0].description, weather[0].icon, sys.sunrise, sys.sunset.
+Fallback: returns hardcoded Luxembourg City data if key missing or API fails.`,
+        },
+        {
+          label: "OPENWEATHERMAP — [2] 5-Day / 3-Hour Forecast  |  Implemented ✓  |  /api/weather",
+          status: "done",
+          testNote: `Endpoint: GET https://api.openweathermap.org/data/2.5/forecast?lat=49.6116&lon=6.1319&units=metric&cnt=40&appid={key}
+Same key and auth as [1]. Returns 40 forecast entries (3-hour slots) covering ~5 days.
+We pick one representative noon slot per day, build a 4-day forecast array.
+Response fields used: list[].dt, list[].main.temp_max/min, list[].weather[0].icon/description.`,
+        },
+        // ── GOOGLE PLACES ─────────────────────────────────────────────────────
+        {
+          label: "GOOGLE PLACES — [1] Place Details + Reviews  |  Implemented ✓  |  /api/google-reviews",
+          status: "done",
+          testNote: `Endpoint: GET https://maps.googleapis.com/maps/api/place/details/json
+Params: place_id={id}&fields=name,rating,user_ratings_total,reviews&key={key}&language=en
+Auth: key query param.
+Key source: DB integrations (key: 'googleReviews') → fallback to process.env.GOOGLE_PLACES_API_KEY.
+Response fields used: result.name, result.rating, result.user_ratings_total, result.reviews[] (top 5).
+Review fields: author_name, profile_photo_url, rating, relative_time_description, text, author_url.`,
+        },
+        {
+          label: "GOOGLE PLACES — [2] Find Place by Name (text search)  |  Implemented ✓  |  /api/google-reviews",
+          status: "done",
+          testNote: `Endpoint: GET https://maps.googleapis.com/maps/api/place/findplacefromtext/json
+Params: input={business name}&inputtype=textquery&fields=place_id&key={key}
+Used as fallback when no Place ID can be extracted from the provided Google Maps URL.
+Returns candidates[0].place_id which is then passed to endpoint [1].`,
+        },
+        // ── MAPBOX ────────────────────────────────────────────────────────────
+        {
+          label: "MAPBOX — Token Proxy  |  Implemented ✓  |  /api/mapbox-token",
+          status: "done",
+          testNote: `Not a Mapbox API call — we just return the stored token to the browser.
+Endpoint: GET /api/mapbox-token (internal).
+Token source: multiple env var names checked (MAPBOX_TOKEN, MAPBOX_ACCESS_TOKEN, etc.) → DB integrations (key: 'mapbox').
+The Mapbox GL JS library runs entirely client-side using this token. No server-side Mapbox API calls.
+Token is used for: interactive maps on the explore/planner pages (tile rendering + geocoding via Mapbox GL JS).`,
+        },
+        {
+          label: "MAPBOX — Geocoding API  |  Client-side only, via Mapbox GL JS",
+          status: "done",
+          testNote: `Mapbox GL JS automatically calls https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json?access_token={token}
+client-side. We do not call this directly from our server routes.
+No changes needed — the token proxy in /api/mapbox-token is the only server-side piece.`,
+        },
+        // ── VERCEL AI SDK (Anthropic + OpenAI) ───────────────────────────────
+        {
+          label: "AI — Anthropic Claude (claude-sonnet-4-20250514)  |  Implemented ✓  |  Blog Generation",
+          status: "done",
+          testNote: `Route: POST /api/admin/generate-blog
+Called via Vercel AI SDK streamText() — model string: 'anthropic/claude-sonnet-4-20250514'.
+Auth: ANTHROPIC_API_KEY env var (managed via Vercel AI Gateway).
+Input: system prompt (SEO/AEO blog writer) + user message with trip title, category, target keywords.
+Output: streamed markdown blog post (title, excerpt, body, meta_description, tags).
+Uses: maxOutputTokens from ai_system_configs DB row (system: 'blog').`,
+        },
+        {
+          label: "AI — OpenAI GPT-4o-mini  |  Implemented ✓  |  SEO Analyze, AI Advisor, Planner, Chats",
+          status: "done",
+          testNote: `Model string: 'openai/gpt-4o-mini' (Vercel AI Gateway).
+Auth: OPENAI_API_KEY env var.
+Used in 5 routes:
+  POST /api/admin/seo-analyze    — analyzes trip content, returns structured SEO suggestions
+  POST /api/admin/ai-advisor     — strategic advisor, reads DB stats + settings for context
+  POST /api/planner              — trip planner chat with searchTrips + getWeather tools
+  POST /api/trip-chat            — per-trip concierge chat
+  POST /api/help-chat            — FAQ/help assistant using help articles from DB
+  POST /api/itinerary            — full itinerary generator
+Model is configurable per AI system via ai_system_configs DB table.`,
+        },
+        // ── VERCEL BLOB ───────────────────────────────────────────────────────
+        {
+          label: "VERCEL BLOB — Image Upload  |  Implemented ✓  |  /api/upload + /api/admin/trips/upload",
+          status: "done",
+          testNote: `Package: @vercel/blob — put() function.
+Auth: BLOB_READ_WRITE_TOKEN env var (auto-provided in Vercel deployments).
+Route 1: POST /api/upload — blog post images. Max 5MB, types: JPEG/PNG/WebP/GIF. Stored at path: blog/{timestamp}-{random}.{ext}.
+Route 2: POST /api/admin/trips/upload — trip banner images (same logic, stored at trips/ path).
+Response: { url: string } — public Vercel Blob CDN URL stored in DB.`,
+        },
+        // ── WEGLOT ───────────────────────────────────────────────────────────
+        {
+          label: "WEGLOT — Translation CDN  |  Implemented ✓  |  Client-side only",
+          status: "done",
+          testNote: `Script: https://cdn.weglot.com/weglot.min.js loaded by components/weglot-loader.tsx.
+Auth: NEXT_PUBLIC_WEGLOT_KEY env var passed to Weglot.initialize({ api_key }).
+Languages: EN (original), FR, DE.
+No server-side API calls — Weglot runs entirely in the browser.
+Admin settings: /admin/integrations/weglot page (full config UI planned in Known Remaining Items).
+Key stored in: DB integrations table (key: 'weglot') + NEXT_PUBLIC_WEGLOT_KEY env var.`,
         },
       ],
     },
