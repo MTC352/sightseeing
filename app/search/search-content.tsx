@@ -221,23 +221,29 @@ function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean
 }
 
 /* ── Timeslot skeleton (shown while availability is loading) ── */
-function TimeslotSkeleton() {
+// `rows` must match the number of date rows the real content will show
+// so card height stays identical and no reflow happens on load.
+function TimeslotSkeleton({ rows }: { rows: 1 | 2 }) {
   return (
     <div className="mt-4 border-t border-border pt-4">
-      {/* label */}
+      {/* section-label skeleton */}
       <div className="mb-2 h-3 w-28 animate-pulse rounded bg-muted" />
-      {/* chips row */}
-      <div className="flex items-center gap-2">
-        <div className="h-4 w-16 animate-pulse rounded bg-muted" />
-        <div className="flex gap-2">
-          {[72, 64, 68].map((w, i) => (
-            <div
-              key={i}
-              className="h-8 animate-pulse rounded-lg bg-muted"
-              style={{ width: w }}
-            />
-          ))}
-        </div>
+      {/* one skeleton chip-row per expected date row */}
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: rows }).map((_, ri) => (
+          <div key={ri} className="flex items-center gap-2">
+            <div className="h-4 w-[72px] animate-pulse rounded bg-muted shrink-0" />
+            <div className="flex gap-2">
+              {[76, 68, 72].map((w, ci) => (
+                <div
+                  key={ci}
+                  className="h-8 animate-pulse rounded-lg bg-muted"
+                  style={{ width: w }}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -356,7 +362,7 @@ function SearchListCard({
         </div>
 
         {showSkeleton ? (
-          <TimeslotSkeleton />
+          <TimeslotSkeleton rows={dateFilter?.date ? 1 : 2} />
         ) : hasEligibleSlots ? (
           <div className="mt-4 border-t border-border pt-4">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -512,6 +518,37 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
 
     return result
   }, [keywordMatched, activeCategory, activeFilters, dateFilterActive, availability, availLoading, persons])
+
+  /* ── Smooth exit animation state ── */
+  const [displayedTrips, setDisplayedTrips] = useState<Trip[]>(filtered)
+  const [exitingIds, setExitingIds]         = useState<Set<string>>(new Set())
+  const displayedRef = useRef<Trip[]>(filtered)
+  const exitTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep ref in sync so the filtered effect always reads latest displayed list
+  useEffect(() => { displayedRef.current = displayedTrips }, [displayedTrips])
+
+  useEffect(() => {
+    if (exitTimer.current) clearTimeout(exitTimer.current)
+
+    const newIds     = new Set(filtered.map((t) => t.id))
+    const currently  = displayedRef.current.filter((t) => !exitingIds.has(t.id))
+    const leaving    = currently.filter((t) => !newIds.has(t.id))
+
+    if (leaving.length > 0) {
+      // Start exit animation, then remove after transition completes
+      setExitingIds((prev) => new Set([...prev, ...leaving.map((t) => t.id)]))
+      exitTimer.current = setTimeout(() => {
+        setDisplayedTrips(filtered)
+        setExitingIds(new Set())
+        exitTimer.current = null
+      }, 320)
+    } else {
+      // Trips are entering or reordering — update immediately
+      setDisplayedTrips(filtered)
+    }
+    return () => { if (exitTimer.current) clearTimeout(exitTimer.current) }
+  }, [filtered]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearDate = () =>
     setActiveFilters((p) => ({ ...p, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "" }))
@@ -700,18 +737,36 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
             {filtered.map((t, i) => <SearchCard key={t.id} trip={t} priority={i < 8} />)}
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            {filtered.map((t, i) => (
-              <SearchListCard
-                key={t.id}
-                trip={t}
-                priority={i < 4}
-                availability={availability}
-                dateFilter={dateFilter}
-                persons={persons}
-                isLoading={availLoading}
-              />
-            ))}
+          <div className="flex flex-col">
+            {displayedTrips.map((t, i) => {
+              const exiting = exitingIds.has(t.id)
+              return (
+                // CSS Grid row-height trick: grid-rows-[1fr] → [0fr] collapses height
+                // smoothly without knowing the element's pixel height in advance.
+                <div
+                  key={t.id}
+                  className={`grid transition-all duration-300 ease-in-out ${
+                    exiting
+                      ? "grid-rows-[0fr] opacity-0 pointer-events-none"
+                      : "grid-rows-[1fr] opacity-100"
+                  }`}
+                >
+                  {/* overflow-hidden is required for the row-height trick to work */}
+                  <div className="overflow-hidden">
+                    <div className="pb-4">
+                      <SearchListCard
+                        trip={t}
+                        priority={i < 4}
+                        availability={availability}
+                        dateFilter={dateFilter}
+                        persons={persons}
+                        isLoading={availLoading}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
