@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import type { Trip } from "@/lib/data"
@@ -12,6 +12,7 @@ import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 import {
   Star, Clock, MapPin, SlidersHorizontal, CalendarDays, X,
   ChevronRight, Sparkles, Check, Plus, Sun, LayoutGrid, List, ArrowRight,
+  Users, Minus,
 } from "lucide-react"
 import { DateTimeModal } from "@/components/date-time-modal"
 
@@ -57,11 +58,20 @@ function formatDate(iso: string) {
   })
 }
 
+/* Check if a slot satisfies the person count requirement */
+function slotFitsPersons(slot: Timeslot, persons: number): boolean {
+  if (persons <= 1) return true
+  if (slot.spotsLeft === 0) return false        // sold out
+  if (slot.spotsLeft >= 99) return true         // UNLIMITED
+  return slot.spotsLeft >= persons
+}
+
 /* ── Filter modal ── */
 function FilterModal({ open, onClose, filters, onChange }: {
   open: boolean; onClose: () => void; filters: Filters; onChange: (f: Filters) => void
 }) {
   const [local, setLocal] = useState<Filters>(filters)
+  useEffect(() => { if (open) setLocal(filters) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!open) return null
   const set = (k: keyof Filters, v: number | string) => setLocal((p) => ({ ...p, [k]: v }))
   return (
@@ -95,10 +105,56 @@ function FilterModal({ open, onClose, filters, onChange }: {
         <div className="flex items-center gap-3 border-t border-border px-5 py-4">
           <button type="button" onClick={() => { setLocal(DEFAULT_FILTERS); onChange(DEFAULT_FILTERS) }}
             className="flex-1 rounded-full border border-border py-2 text-sm font-medium text-foreground hover:bg-secondary">Reset</button>
-          <button type="button" onClick={() => onChange(local)}
+          <button type="button" onClick={() => { onChange(local); onClose() }}
             className="flex-1 rounded-full bg-primary py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Apply</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ── Persons popover (inline +/- counter) ── */
+function PersonsPopover({
+  persons,
+  onChange,
+  onClose,
+}: {
+  persons: number
+  onChange: (n: number) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [onClose])
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full z-50 mt-1.5 flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 shadow-xl"
+    >
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(1, persons - 1))}
+        className="flex h-7 w-7 items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary"
+        aria-label="Fewer guests"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+      <span className="w-7 text-center text-sm font-semibold text-foreground">{persons}</span>
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(50, persons + 1))}
+        className="flex h-7 w-7 items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary"
+        aria-label="More guests"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+      <span className="ml-1 text-xs text-muted-foreground">guest{persons !== 1 ? "s" : ""}</span>
     </div>
   )
 }
@@ -164,10 +220,16 @@ function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean
   )
 }
 
-/* ── Slot row (label + up-to-4 chips + optional "see all" link) ── */
-function SlotRow({ label, slots, tripId }: { label: string; slots: Timeslot[]; tripId: string }) {
-  const visible = slots.slice(0, MAX_SLOTS_SHOWN)
-  const overflow = slots.length - MAX_SLOTS_SHOWN
+/* ── Slot row: label + up-to-4 chips filtered by person count + optional "see all" link ── */
+function SlotRow({
+  label, slots, tripId, persons,
+}: {
+  label: string; slots: Timeslot[]; tripId: string; persons: number
+}) {
+  const eligible = slots.filter((s) => slotFitsPersons(s, persons))
+  if (eligible.length === 0) return null
+  const visible  = eligible.slice(0, MAX_SLOTS_SHOWN)
+  const overflow = eligible.length - MAX_SLOTS_SHOWN
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="w-20 shrink-0 text-xs font-semibold text-foreground">{label}</span>
@@ -188,31 +250,32 @@ function SlotRow({ label, slots, tripId }: { label: string; slots: Timeslot[]; t
 
 /* ── List card ── */
 function SearchListCard({
-  trip,
-  priority = false,
-  availability,
-  dateFilter,
+  trip, priority = false, availability, dateFilter, persons,
 }: {
   trip: Trip
   priority?: boolean
   availability: AvailabilityMap
   dateFilter: { date: string; timeFrom: string; timeTo: string } | null
+  persons: number
 }) {
   const { addItem, isInCart } = useCart()
   const inCart      = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
   const departures  = availability[trip.id] ?? getDummyDepartures(trip.id)
 
-  // Build labeled slot rows depending on filter mode
+  // Build labeled slot rows: when date filter active show ONLY that date; otherwise today/tomorrow
   const slotRows: { label: string; slots: Timeslot[] }[] = []
   if (dateFilter?.date) {
-    // Date filter active → show only the selected date's slots
-    if (departures.today.length > 0)
-      slotRows.push({ label: formatDate(dateFilter.date), slots: departures.today })
+    slotRows.push({ label: formatDate(dateFilter.date), slots: departures.today })
   } else {
     if (departures.today.length > 0)    slotRows.push({ label: "Today",    slots: departures.today })
     if (departures.tomorrow.length > 0) slotRows.push({ label: "Tomorrow", slots: departures.tomorrow })
   }
+
+  // Check if at least one row has a slot satisfying person count
+  const hasEligibleSlots = slotRows.some(({ slots }) =>
+    slots.some((s) => slotFitsPersons(s, persons))
+  )
 
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md sm:flex-row">
@@ -262,14 +325,14 @@ function SearchListCard({
           </div>
         </div>
 
-        {slotRows.length > 0 && (
+        {hasEligibleSlots && (
           <div className="mt-4 border-t border-border pt-4">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {dateFilter?.date ? "Departures" : "Available Timeslots"}
             </p>
             <div className="flex flex-col gap-3">
               {slotRows.map(({ label, slots }) => (
-                <SlotRow key={label} label={label} slots={slots} tripId={trip.id} />
+                <SlotRow key={label} label={label} slots={slots} tripId={trip.id} persons={persons} />
               ))}
             </div>
           </div>
@@ -282,42 +345,59 @@ function SearchListCard({
 /* ── Main component ── */
 export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
   const searchParams = useSearchParams()
-  const query = searchParams.get("q") || ""
+  const router       = useRouter()
+  const query        = searchParams.get("q") || ""
 
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [filtersOpen, setFiltersOpen]       = useState(false)
   const [dateOpen, setDateOpen]             = useState(false)
-  const [activeFilters, setActiveFilters]   = useState<Filters>(DEFAULT_FILTERS)
+  const [personsOpen, setPersonsOpen]       = useState(false)
   const [viewMode, setViewMode]             = useState<"grid" | "list">("list")
   const [availability, setAvailability]     = useState<AvailabilityMap>({})
   const [availLoading, setAvailLoading]     = useState(false)
 
-  /* Re-fetch availability whenever the date/time filter changes */
-  const fetchAvailability = useCallback(
-    (filters: Filters) => {
-      const params = new URLSearchParams()
-      if (filters.dateFrom) params.set("date",     filters.dateFrom)
-      if (filters.timeFrom) params.set("timeFrom", filters.timeFrom)
-      if (filters.timeTo)   params.set("timeTo",   filters.timeTo)
-      setAvailLoading(true)
-      fetch(`/api/availability?${params}`)
-        .then((r) => r.ok ? r.json() : {})
-        .then((data: AvailabilityMap) => setAvailability(data))
-        .catch(() => {})
-        .finally(() => setAvailLoading(false))
-    },
-    [],
-  )
+  // Initialize filters from URL params (preserves hero search selections)
+  const [activeFilters, setActiveFilters] = useState<Filters>(() => ({
+    ...DEFAULT_FILTERS,
+    dateFrom: searchParams.get("date")     ?? "",
+    timeFrom: searchParams.get("timeFrom") ?? "",
+    timeTo:   searchParams.get("timeTo")   ?? "",
+    persons:  Math.max(1, parseInt(searchParams.get("persons") ?? "1", 10) || 1),
+  }))
 
-  /* Initial load */
-  useEffect(() => { fetchAvailability(activeFilters) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Sync URL params when date/time/persons filters change (so URL stays shareable)
+  const isMounted = useRef(false)
+  useEffect(() => {
+    if (!isMounted.current) { isMounted.current = true; return }
+    const params = new URLSearchParams()
+    if (query)                   params.set("q",        query)
+    if (activeFilters.dateFrom)  params.set("date",     activeFilters.dateFrom)
+    if (activeFilters.timeFrom)  params.set("timeFrom", activeFilters.timeFrom)
+    if (activeFilters.timeTo)    params.set("timeTo",   activeFilters.timeTo)
+    if (activeFilters.persons > 1) params.set("persons", String(activeFilters.persons))
+    router.replace(`/search?${params.toString()}`, { scroll: false })
+  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Re-fetch when date/time filter changes */
+  /* Fetch availability; re-fires when date/time filter changes */
+  const fetchAvailability = useCallback((filters: Filters) => {
+    const params = new URLSearchParams()
+    if (filters.dateFrom) params.set("date",     filters.dateFrom)
+    if (filters.timeFrom) params.set("timeFrom", filters.timeFrom)
+    if (filters.timeTo)   params.set("timeTo",   filters.timeTo)
+    setAvailLoading(true)
+    fetch(`/api/availability?${params}`)
+      .then((r) => r.ok ? r.json() : {})
+      .then((data: AvailabilityMap) => setAvailability(data))
+      .catch(() => {})
+      .finally(() => setAvailLoading(false))
+  }, [])
+
+  useEffect(() => { fetchAvailability(activeFilters) }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     fetchAvailability(activeFilters)
   }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, fetchAvailability])
 
-  /* Derive category pills from actual DB trips */
+  /* Category pills */
   const categories = useMemo(() => {
     const seen = new Set<string>()
     return initialTrips
@@ -330,17 +410,18 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
   const dateFilter = dateFilterActive
     ? { date: activeFilters.dateFrom, timeFrom: activeFilters.timeFrom, timeTo: activeFilters.timeTo }
     : null
+  const persons = activeFilters.persons
 
   const activeFilterCount = [
     activeFilters.priceMin > 0 || activeFilters.priceMax < 500,
     activeFilters.ratingMin > 0,
     activeFilters.durationMax < 24,
-    activeFilters.persons > 1,
     activeFilters.locationAddress !== "",
-    activeFilters.dateFrom !== "" || activeFilters.dateTo !== "",
   ].filter(Boolean).length
 
-  const hasDate = activeFilters.dateFrom !== "" || activeFilters.timeFrom !== ""
+  const hasDate    = activeFilters.dateFrom !== "" || activeFilters.timeFrom !== ""
+  const hasPersons = persons > 1
+
   const datePillLabel = (() => {
     if (!activeFilters.dateFrom && !activeFilters.timeFrom) return "Dates & Times"
     const datePart = activeFilters.dateFrom
@@ -352,7 +433,7 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     return [datePart, timePart].filter(Boolean).join(" · ")
   })()
 
-  /* Keyword + UI filter */
+  /* Keyword match */
   const keywordMatched = useMemo(() => {
     if (!query.trim()) return initialTrips
     const kws = query.toLowerCase().split(/\s+/).filter(Boolean)
@@ -362,6 +443,7 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     })
   }, [query, initialTrips])
 
+  /* Full filter chain */
   const filtered = useMemo(() => {
     let result = keywordMatched.filter((t) => {
       if (activeCategory && t.category !== activeCategory) return false
@@ -375,14 +457,29 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
       return true
     })
 
-    // When a date filter is active (and availability has loaded), only show trips
-    // that have at least one departure slot on that date in the given time range
-    if (dateFilterActive && !availLoading && Object.keys(availability).length > 0) {
-      result = result.filter((t) => (availability[t.id]?.today?.length ?? 0) > 0)
+    // When availability is loaded, hide trips with no qualifying timeslots
+    if (!availLoading && Object.keys(availability).length > 0) {
+      result = result.filter((t) => {
+        const avail = availability[t.id]
+        if (!avail) return true // no data yet — keep showing
+
+        if (dateFilterActive) {
+          // Date filter active → must have a slot on that date fitting person count
+          return avail.today.some((s) => slotFitsPersons(s, persons))
+        } else if (persons > 1) {
+          // Person filter only → must have a slot today or tomorrow fitting count
+          return (
+            avail.today.some((s) => slotFitsPersons(s, persons)) ||
+            avail.tomorrow.some((s) => slotFitsPersons(s, persons))
+          )
+        }
+        // No date/person filter → show all
+        return true
+      })
     }
 
     return result
-  }, [keywordMatched, activeCategory, activeFilters, dateFilterActive, availability, availLoading])
+  }, [keywordMatched, activeCategory, activeFilters, dateFilterActive, availability, availLoading, persons])
 
   const clearDate = () =>
     setActiveFilters((p) => ({ ...p, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "" }))
@@ -393,7 +490,7 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
 
       <FilterModal
         open={filtersOpen} onClose={() => setFiltersOpen(false)}
-        filters={activeFilters} onChange={(f) => { setActiveFilters(f); setFiltersOpen(false) }}
+        filters={activeFilters} onChange={(f) => setActiveFilters(f)}
       />
       <DateTimeModal
         open={dateOpen}
@@ -406,7 +503,9 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
       <div className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="flex items-center py-2.5">
+            {/* Left pills */}
             <div className="flex shrink-0 items-center gap-2 pr-2">
+              {/* Filter button */}
               <button type="button" onClick={() => setFiltersOpen(true)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
                   activeFilterCount > 0 ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
@@ -417,6 +516,8 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-background text-[10px] font-bold text-foreground">{activeFilterCount}</span>
                 )}
               </button>
+
+              {/* Dates & Times pill */}
               <button type="button" onClick={() => setDateOpen(true)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
                   hasDate ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
@@ -432,8 +533,42 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
                   </span>
                 )}
               </button>
+
+              {/* Guests pill with inline popover */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setPersonsOpen((o) => !o)}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                    hasPersons ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  {hasPersons ? `${persons} guest${persons !== 1 ? "s" : ""}` : "Guests"}
+                  {hasPersons && (
+                    <span
+                      role="button" tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); setActiveFilters((p) => ({ ...p, persons: 1 })); setPersonsOpen(false) }}
+                      onKeyDown={(e) => e.key === "Enter" && setActiveFilters((p) => ({ ...p, persons: 1 }))}
+                      className="ml-0.5 rounded-full p-0.5 hover:bg-background/20" aria-label="Clear guests"
+                    >
+                      <X className="h-3 w-3" />
+                    </span>
+                  )}
+                </button>
+                {personsOpen && (
+                  <PersonsPopover
+                    persons={persons}
+                    onChange={(n) => setActiveFilters((p) => ({ ...p, persons: n }))}
+                    onClose={() => setPersonsOpen(false)}
+                  />
+                )}
+              </div>
+
               <div className="h-5 w-px bg-border" />
             </div>
+
+            {/* Category pills (scrollable) */}
             <div className="flex flex-1 gap-2 overflow-x-auto scrollbar-none">
               {categories.map((cat) => {
                 const isActive = activeCategory === cat
@@ -470,10 +605,13 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
                 {activeFilters.timeFrom && (
                   <> · <span className="font-semibold text-foreground">{activeFilters.timeFrom}{activeFilters.timeTo ? `–${activeFilters.timeTo}` : ""}</span></>
                 )}
+                {persons > 1 && (
+                  <> · <span className="font-semibold text-foreground">{persons} guests</span></>
+                )}
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              {availLoading && dateFilterActive
+              {availLoading
                 ? <span className="italic">Checking availability…</span>
                 : <><span className="font-semibold text-foreground">{filtered.length}</span> experience{filtered.length !== 1 ? "s" : ""}{activeCategory ? ` in ${activeCategory}` : " in Luxembourg"}</>
               }
@@ -500,18 +638,30 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
             <Sparkles className="h-10 w-10 text-muted-foreground/40" />
             <p className="font-semibold text-foreground">
               {dateFilterActive
-                ? `No departures found for ${formatDate(activeFilters.dateFrom)}${activeFilters.timeFrom ? ` between ${activeFilters.timeFrom}${activeFilters.timeTo ? `–${activeFilters.timeTo}` : ""}` : ""}`
+                ? `No departures found for ${formatDate(activeFilters.dateFrom)}${persons > 1 ? ` with ${persons} guests` : ""}`
+                : persons > 1
+                ? `No available experiences for ${persons} guests`
                 : `No experiences found${query ? ` for "${query}"` : ""}`}
             </p>
             <p className="text-sm text-muted-foreground">
-              {dateFilterActive ? "Try a different date or time window." : "Try different keywords or adjust your filters."}
+              {dateFilterActive || persons > 1
+                ? "Try a different date, time, or fewer guests."
+                : "Try different keywords or adjust your filters."}
             </p>
-            {dateFilterActive && (
-              <button type="button" onClick={clearDate}
-                className="mt-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary">
-                Clear date filter
-              </button>
-            )}
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {dateFilterActive && (
+                <button type="button" onClick={clearDate}
+                  className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary">
+                  Clear date filter
+                </button>
+              )}
+              {persons > 1 && (
+                <button type="button" onClick={() => setActiveFilters((p) => ({ ...p, persons: 1 }))}
+                  className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary">
+                  Clear guest count
+                </button>
+              )}
+            </div>
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
@@ -526,6 +676,7 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
                 priority={i < 4}
                 availability={availability}
                 dateFilter={dateFilter}
+                persons={persons}
               />
             ))}
           </div>
@@ -536,3 +687,4 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     </div>
   )
 }
+
