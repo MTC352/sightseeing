@@ -66,6 +66,14 @@ function slotFitsPersons(slot: Timeslot, persons: number): boolean {
   return slot.spotsLeft >= persons
 }
 
+/* Check if a slot falls within the user-selected time window (client-side) */
+function slotFitsTime(slot: Timeslot, timeFrom: string, timeTo: string): boolean {
+  if (!timeFrom && !timeTo) return true
+  if (timeFrom && slot.time < timeFrom) return false
+  if (timeTo   && slot.time > timeTo)   return false
+  return true
+}
+
 /* ── Filter modal ── */
 function FilterModal({ open, onClose, filters, onChange }: {
   open: boolean; onClose: () => void; filters: Filters; onChange: (f: Filters) => void
@@ -249,13 +257,13 @@ function TimeslotSkeleton({ rows }: { rows: 1 | 2 }) {
   )
 }
 
-/* ── Slot row: label + up-to-4 chips filtered by person count + optional "see all" link ── */
+/* ── Slot row: label + up-to-4 chips filtered by person count + time window (client-side) ── */
 function SlotRow({
-  label, slots, tripId, persons,
+  label, slots, tripId, persons, timeFrom, timeTo,
 }: {
-  label: string; slots: Timeslot[]; tripId: string; persons: number
+  label: string; slots: Timeslot[]; tripId: string; persons: number; timeFrom: string; timeTo: string
 }) {
-  const eligible = slots.filter((s) => slotFitsPersons(s, persons))
+  const eligible = slots.filter((s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo))
   if (eligible.length === 0) return null
   const visible  = eligible.slice(0, MAX_SLOTS_SHOWN)
   const overflow = eligible.length - MAX_SLOTS_SHOWN
@@ -279,13 +287,15 @@ function SlotRow({
 
 /* ── List card ── */
 function SearchListCard({
-  trip, priority = false, availability, dateFilter, persons, isLoading,
+  trip, priority = false, availability, dateFilter, persons, timeFrom, timeTo, isLoading,
 }: {
   trip: Trip
   priority?: boolean
   availability: AvailabilityMap
-  dateFilter: { date: string; timeFrom: string; timeTo: string } | null
+  dateFilter: { date: string } | null
   persons: number
+  timeFrom: string
+  timeTo: string
   isLoading: boolean
 }) {
   const { addItem, isInCart } = useCart()
@@ -310,7 +320,7 @@ function SearchListCard({
   }
 
   const hasEligibleSlots = slotRows.some(({ slots }) =>
-    slots.some((s) => slotFitsPersons(s, persons))
+    slots.some((s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo))
   )
 
   return (
@@ -370,7 +380,7 @@ function SearchListCard({
             </p>
             <div className="flex flex-col gap-3">
               {slotRows.map(({ label, slots }) => (
-                <SlotRow key={label} label={label} slots={slots} tripId={trip.id} persons={persons} />
+                <SlotRow key={label} label={label} slots={slots} tripId={trip.id} persons={persons} timeFrom={timeFrom} timeTo={timeTo} />
               ))}
             </div>
           </div>
@@ -416,21 +426,19 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     router.replace(`/search?${params.toString()}`, { scroll: false })
   }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Fetch availability; re-fires when date/time filter changes.
-     AbortController cancels any in-flight request so a slow "no-date" fetch
-     can never overwrite a faster "date-specific" fetch (avoids blank results). */
+  /* Fetch availability — only re-fires when the DATE changes.
+     Time + person filtering is fully client-side so those changes never
+     trigger a network request and can't cause race conditions.
+     AbortController cancels any stale in-flight request. */
   const abortRef = useRef<AbortController | null>(null)
 
-  const fetchAvailability = useCallback((filters: Filters) => {
-    // Cancel previous in-flight request
+  const fetchAvailability = useCallback((dateFrom: string) => {
     if (abortRef.current) abortRef.current.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
     const params = new URLSearchParams()
-    if (filters.dateFrom) params.set("date",     filters.dateFrom)
-    if (filters.timeFrom) params.set("timeFrom", filters.timeFrom)
-    if (filters.timeTo)   params.set("timeTo",   filters.timeTo)
+    if (dateFrom) params.set("date", dateFrom)   // date only — no time params
     setAvailLoading(true)
     fetch(`/api/availability?${params}`, { signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : {})
@@ -439,10 +447,10 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
       .finally(() => setAvailLoading(false))
   }, [])
 
-  useEffect(() => { fetchAvailability(activeFilters) }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchAvailability(activeFilters.dateFrom) }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    fetchAvailability(activeFilters)
-  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, fetchAvailability])
+    fetchAvailability(activeFilters.dateFrom)
+  }, [activeFilters.dateFrom, fetchAvailability])
 
   /* Category pills */
   const categories = useMemo(() => {
@@ -504,23 +512,28 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
       return true
     })
 
-    // When availability is loaded, hide trips with no qualifying timeslots
+    // When availability is loaded, hide trips with no qualifying timeslots.
+    // Person count + time range are applied client-side here (no re-fetch needed).
+    const timeFrom = activeFilters.timeFrom
+    const timeTo   = activeFilters.timeTo
+    const hasTimeFilter = timeFrom !== "" || timeTo !== ""
+
     if (!availLoading && Object.keys(availability).length > 0) {
       result = result.filter((t) => {
         const avail = availability[t.id]
         if (!avail) return true // no data yet — keep showing
 
+        const slotOk = (s: Timeslot) =>
+          slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo)
+
         if (dateFilterActive) {
-          // Date filter active → must have a slot on that date fitting person count
-          return avail.today.some((s) => slotFitsPersons(s, persons))
-        } else if (persons > 1) {
-          // Person filter only → must have a slot today or tomorrow fitting count
-          return (
-            avail.today.some((s) => slotFitsPersons(s, persons)) ||
-            avail.tomorrow.some((s) => slotFitsPersons(s, persons))
-          )
+          // Date selected → must have a matching slot on that date
+          return avail.today.some(slotOk)
+        } else if (persons > 1 || hasTimeFilter) {
+          // Person or time filter active → must have a matching slot today or tomorrow
+          return avail.today.some(slotOk) || avail.tomorrow.some(slotOk)
         }
-        // No date/person filter → show all
+        // No availability-based filter → show all
         return true
       })
     }
@@ -531,30 +544,37 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
   /* ── Smooth exit animation state ── */
   const [displayedTrips, setDisplayedTrips] = useState<Trip[]>(filtered)
   const [exitingIds, setExitingIds]         = useState<Set<string>>(new Set())
-  const displayedRef = useRef<Trip[]>(filtered)
-  const exitTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const displayedRef  = useRef<Trip[]>(filtered)
+  const filteredRef   = useRef<Trip[]>(filtered)   // always latest — avoids stale closures in setTimeout
+  const exitTimer     = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Keep ref in sync so the filtered effect always reads latest displayed list
+  // Keep refs in sync with current state/derived values
   useEffect(() => { displayedRef.current = displayedTrips }, [displayedTrips])
+  useEffect(() => { filteredRef.current  = filtered        }, [filtered])
 
   useEffect(() => {
     if (exitTimer.current) clearTimeout(exitTimer.current)
 
-    const newIds     = new Set(filtered.map((t) => t.id))
-    const currently  = displayedRef.current.filter((t) => !exitingIds.has(t.id))
-    const leaving    = currently.filter((t) => !newIds.has(t.id))
+    const newIds    = new Set(filtered.map((t) => t.id))
+    // Only consider "currently visible" trips (exclude those already mid-exit)
+    const currently = displayedRef.current.filter((t) => !exitingIds.has(t.id))
+    const leaving   = currently.filter((t) => !newIds.has(t.id))
 
     if (leaving.length > 0) {
-      // Start exit animation, then remove after transition completes
+      // Mark leaving trips as exiting → CSS transition collapses them
       setExitingIds((prev) => new Set([...prev, ...leaving.map((t) => t.id)]))
       exitTimer.current = setTimeout(() => {
-        setDisplayedTrips(filtered)
+        // Use filteredRef so we always commit the *latest* filtered list,
+        // not the stale value captured when the timeout was created.
+        setDisplayedTrips(filteredRef.current)
         setExitingIds(new Set())
         exitTimer.current = null
       }, 320)
     } else {
-      // Trips are entering or reordering — update immediately
+      // Trips entering or no change — update immediately and ALWAYS clear
+      // any stale exitingIds so previously-exiting trips don't stay invisible.
       setDisplayedTrips(filtered)
+      setExitingIds(new Set())
     }
     return () => { if (exitTimer.current) clearTimeout(exitTimer.current) }
   }, [filtered]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -769,6 +789,8 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
                         availability={availability}
                         dateFilter={dateFilter}
                         persons={persons}
+                        timeFrom={activeFilters.timeFrom}
+                        timeTo={activeFilters.timeTo}
                         isLoading={availLoading}
                       />
                     </div>

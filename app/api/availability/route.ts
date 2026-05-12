@@ -30,7 +30,8 @@ export async function GET(req: Request) {
   const endDate   = dateParam || tomorrowStr
   const dateMode  = dateParam !== ""           // true → user picked a date
 
-  const cacheKey = `${startDate}|${endDate}|${timeFrom}|${timeTo}`
+  // Cache keyed by date range only — time/person filtering is done client-side
+  const cacheKey = `${startDate}|${endDate}`
   const cached   = _cache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json(cached.data)
@@ -64,10 +65,7 @@ export async function GET(req: Request) {
         for (const d of dates) {
           if (!d.start_time) continue
 
-          // Time-range filter — only applies when timeFrom/timeTo are set
-          if (timeFrom && d.start_time < timeFrom) continue
-          if (timeTo   && d.start_time > timeTo)   continue
-
+          // Time filtering is now client-side — return all slots regardless of time
           const raw      = d.spaces_remaining
           const unlimited = raw === "UNLIMITED"
           const spotsLeft  = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
