@@ -6,7 +6,7 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Tag, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive,
 } from "lucide-react"
 
 type NavItem = {
@@ -25,6 +25,7 @@ const NAV: NavItem[] = [
     label: "Trips",
     icon: Map,
     children: [
+      { href: "/admin/trips/archived", label: "Archived", icon: Archive },
       { href: "/admin/taxonomies", label: "Taxonomies", icon: Tag },
     ],
   },

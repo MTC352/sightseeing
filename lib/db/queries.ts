@@ -15,7 +15,18 @@ export async function dbListTrips() {
            provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
            permalink, google_business_url as "googleBusinessUrl",
            featured, featured_departure as "featuredDeparture", status, created_at, updated_at
-    FROM trips ORDER BY created_at DESC
+    FROM trips WHERE status != 'archived' ORDER BY created_at DESC
+  `)
+}
+
+export async function dbListArchivedTrips() {
+  return query(`
+    SELECT id, palisis_id, title, title_override, description, description_override,
+           price::float, original_price::float as "originalPrice", duration, category, tags, city,
+           provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
+           permalink, google_business_url as "googleBusinessUrl",
+           featured, featured_departure as "featuredDeparture", status, created_at, updated_at
+    FROM trips WHERE status = 'archived' ORDER BY created_at DESC
   `)
 }
 

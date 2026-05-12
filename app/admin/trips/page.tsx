@@ -4,6 +4,7 @@ import { Plus, Pencil, ExternalLink } from "lucide-react"
 import { TripDeleteButton } from "./trip-delete-button"
 import { TripToggleButton } from "./trip-toggle-button"
 import { TripStatusButton } from "./trip-status-button"
+import { TripArchiveButton } from "./trip-archive-button"
 
 export const dynamic = "force-dynamic"
 
@@ -118,6 +119,7 @@ export default async function AdminTripsPage() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Link>
+                      <TripArchiveButton tripId={trip.id} isArchived={false} />
                       <TripDeleteButton tripId={trip.id} tripTitle={trip.title} />
                     </div>
                   </td>
