@@ -880,39 +880,57 @@ Exported functions:
   clearTourCMSConfigCache() — force-expire after credential update
   pingTourCMS(config)       — GET /api/rate_limit_status.xml (does not count against rate limits)
   showChannel(config)       — GET /c/channel/show.xml
-  searchTours(config, params) — GET /c/tours/search.xml
-  showTour(config, id, params) — GET /c/tour/show.xml?id={id}
-  showTourDatesAndDeals(config, id, params) — GET /c/tour/datesprices/datesndeals/search.xml
-  searchRawDepartures(config, id, params) — GET /c/tour/datesprices/dep/manage/search.xml
-  showBooking(config, id)   — GET /c/booking/show.xml?booking_id={id}
-  createBooking(config, xml) — POST /c/booking/new/v1.xml
+  listTours(config, params) — GET /p/tours/list.xml  ← CORRECT IMPORT ENDPOINT (channelId=0)
+  searchTours(config, params) — GET /c/tours/search.xml  ← customer-facing search only, NOT for import
+  showTour(config, id, params, channelId?) — GET /c/tour/show.xml?id={id}
+  showTourDatesAndDeals(config, id, params, channelId?) — GET /c/tour/datesprices/datesndeals/search.xml
+  checkAvailability(config, id, params, channelId?) — GET /c/tour/datesprices/checkavail.xml  ← NEVER CACHE
+  searchRawDepartures(config, id, params) — GET /c/tour/datesprices/dep/manage/search.xml  ← TOUR OPERATOR ONLY
+  startNewBooking(config, channelId, xml) — POST /c/booking/new/start.xml  ← Step 1 of booking
+  commitNewBooking(config, channelId, bookingId, agentRef?) — POST /c/booking/new/commit.xml  ← Step 2
+  showBooking(config, channelId, id) — GET /c/booking/show.xml?booking_id={id}
   getTourCMSClient()        — convenience factory: returns bound client or null if not configured
+
+SIGNING FIX (applied): path in string-to-sign must have NO leading slash.
+  Correct:   "3930/0/GET/1769160491/c/tour/show.xml?id=1"
+  Was wrong: "3930/0/GET/1769160491//c/tour/show.xml?id=1"  (double slash = FAIL_SIG)
 
 Credential priority: TOURCMS_API_KEY + TOURCMS_CHANNEL_ID env vars → DB integrations table (palisis key + palisisChannelId).`,
         },
         {
           label: "PALISIS — [1] Product Catalog  |  Used by: T014 (import), /api/admin/palisis-import",
           status: "done",
-          testNote: `TourCMS endpoint: GET /c/tours/search.xml
+          testNote: `IMPORT ENDPOINT: GET /p/tours/list.xml  (channelId=0 — cross-channel, Marketplace Agent)
 Auth: HMAC-SHA256 signed (handled by lib/tourcms.ts)
-Params used: 404_tour_url=all, has_sale=all, per_page=200
+Called via: tourcms.listTours() in lib/tourcms.ts
 
-Field mapping (TourCMS → trips DB):
-  tour_id             → trips.palisis_id
-  tour_name_long      → trips.title
-  description/tagline → trips.description
-  from_price          → trips.price
-  duration_description → trips.duration
-  location_summary    → trips.city
-  supplier_name       → trips.provider
-  image_url           → trips.image
+NOTE: Was incorrectly using GET /c/tours/search.xml (customer-facing search).
+  The correct import endpoint is /p/tours/list.xml which returns ALL tours
+  including has_sale=0 (no future dates) and includes descriptions_last_updated
+  for incremental sync. Fixed in palisis-import/route.ts.
+
+Two-step import flow:
+  Step 1: listTours()            → lean list of all tours (one API call)
+  Step 2: showTour(id)           → full detail per NEW or OVERRIDE tour
+  (Incremental: compare descriptions_last_updated to skip unchanged tours)
+
+Field mapping (TourCMS Show Tour → trips DB):
+  tour_id                     → trips.palisis_id
+  tour_name_long / tour_name  → trips.title
+  shortdesc / summary         → trips.description
+  from_price                  → trips.price
+  duration_desc / duration    → trips.duration
+  location                    → trips.city
+  supplier_name               → trips.provider
+  images.image[0].url         → trips.image
+  book_url / tour_url         → trips.permalink  (per-tour Palisis booking URL)
 
 POST /api/admin/palisis-import (live):
-  — Fetches full catalog from TourCMS
-  — Creates new trips for tours not yet in DB (palisis_id not found)
-  — Returns diff list when existing trip titles/descriptions have changed
-  — Re-import with {override:true} body param to bulk-update existing trips
-  — Returns: { imported, updated, skipped, total, diffs }`,
+  — Fetches full catalog via /p/tours/list.xml
+  — For new tours: calls showTour() for rich data, then creates in DB
+  — For existing tours (override mode): re-fetches via showTour(), updates DB
+  — For existing tours (no override): lean diff check, returns diffs list
+  — Returns: { imported, updated, skipped, total, diffs, note }`,
         },
         {
           label: "PALISIS — [2] Single Product Detail  |  Used by: T014 (diff confirmation on re-import)",
@@ -948,16 +966,24 @@ A) Customer-facing (prices + offer details):
             special_offer_type, original_price_1_display
    Recommended cache: 30 minutes.
 
-B) Operator-level (departure_id for booking + per-rate pricing):
-   GET /c/tour/datesprices/dep/manage/search.xml?id={tourId}&start_date_start={YYYY-MM-DD}&start_date_end={YYYY-MM-DD}
+B) Real-time timeslots — for customer slot selection (NEVER CACHE):
+   GET /c/tour/datesprices/checkavail.xml?id={tourId}&date={YYYY-MM-DD}&r1={n}
+   Implemented as: checkAvailability(config, tourId, params, channelId?) in lib/tourcms.ts
+   Returns: component[] with component_key (expires in component_key_valid_for sec, default 1800)
+            start_time, end_time, start_time_utcseconds, spaces_remaining ("UNLIMITED" possible),
+            total_price_display, questions[], pickup_points[]
+   NEVER CACHE — must be real-time per customer request.
+
+C) Operator-level raw departures — TOUR OPERATOR ONLY (may return FAIL_TOUROPONLY):
+   GET /c/tour/datesprices/dep/manage/search.xml?id={tourId}
    Implemented as: searchRawDepartures(config, tourId, params) in lib/tourcms.ts
-   Returns: departure_id (required for createBooking), spaces_remaining, status, rates[] with rate_id + customer_price
-   Do not cache.
+   WARNING: As a Marketplace Agent this endpoint may be blocked. Use checkAvailability instead.
 
 Used in:
-  POST /api/admin/palisis-availability  → 7-day slots per synced trip (live, uses showDatesAndDeals)
+  POST /api/admin/palisis-availability  → 7-day slots per synced trip (admin preview, showDatesAndDeals)
   T015 trip detail calendar             → per-tour month view (showDatesAndDeals + distinct_start_dates=1)
-  T016 booking flow                     → departure_id + rate_id (searchRawDepartures)
+  T015 trip timeslot selection          → per-date real-time slots (checkAvailability — NEVER CACHE)
+  T016 booking flow                     → component_key from checkAvailability → startNewBooking
   T017 last-minute deals                → today's low-capacity slots (showDatesAndDeals + has_offer filter)
   T018 departing soon                   → today's departures (showDatesAndDeals, startdate_start=today)
   T019 date+time filter                 → filtered by start_time param (showDatesAndDeals + start_time=HH:MM)`,
@@ -979,38 +1005,57 @@ Recommended cache: 30 minutes per tourId+month combination.`,
         {
           label: "PALISIS — [5] Create Booking  |  Used by: T016 booking flow, POST /api/book",
           status: "partial",
-          detail: `TourCMS endpoint: POST /c/booking/new/v1.xml
-Implemented as: createBooking(config, bookingXml) in lib/tourcms.ts
+          detail: `Two-step booking flow (Marketplace Agent — no Get Booking Key step required):
 
-This is the only WRITE endpoint in the integration. Body is XML.
+STEP 1 — Start New Booking:
+  Endpoint: POST /c/booking/new/start.xml
+  Implemented as: startNewBooking(config, channelId, bookingXml) in lib/tourcms.ts
+  Creates a temporary booking (holds stock for hold_time_seconds, default 2700s / 45 min).
 
-Minimum required XML body:
-  <booking>
-    <tour_id>{tourId}</tour_id>
-    <departure_id>{departureId}</departure_id>   ← from searchRawDepartures
-    <components>
-      <component>
-        <tour_id>{tourId}</tour_id>
-        <departure_id>{departureId}</departure_id>
-        <rates>
-          <rate><rate_id>{rateId}</rate_id><quantity>{n}</quantity></rate>
-        </rates>
-      </component>
-    </components>
-    <customer>
-      <firstname>{firstName}</firstname>
-      <surname>{surname}</surname>
-      <email>{email}</email>
-    </customer>
-  </booking>
+  Minimum XML body:
+    <booking>
+      <total_customers>2</total_customers>
+      <components>
+        <component>
+          <component_key>FROM_CHECK_AVAIL</component_key>  ← from checkAvailability
+          <replies>
+            <reply>
+              <question_key>Q_KEY</question_key>
+              <answers><answer><answer_value>answer</answer_value></answer></answers>
+            </reply>
+          </replies>
+        </component>
+      </components>
+      <customers>
+        <customer>
+          <firstname>{firstName}</firstname>
+          <surname>{surname}</surname>
+          <email>{email}</email>
+        </customer>
+      </customers>
+    </booking>
 
-Response: booking_id (TourCMS booking reference).
+  Response: booking_id, hold_time_seconds, sales_revenue_due_now_display,
+            available_component_count, unavailable_component_count (check this > 0 = sold out race)
+
+STEP 2 — Commit New Booking:
+  Endpoint: POST /c/booking/new/commit.xml
+  Implemented as: commitNewBooking(config, channelId, bookingId, agentRef?) in lib/tourcms.ts
+  Call after payment confirmed (or immediately if agent-payable / no payment required).
+
+  Body: <booking><booking_id>{id}</booking_id><agent_ref>{ourRef}</agent_ref></booking>
+
+  Response: booking_id, status, status_text, voucher_url, barcode_data
+
+NOTE: Was previously implemented with wrong endpoint /c/booking/new/v1.xml (does not exist).
+  Fixed: both startNewBooking and commitNewBooking now use the correct endpoints.
+  component_key comes from checkAvailability — NOT departure_id from searchRawDepartures.
 
 Still needed to complete T016:
-  — Public /api/book route that calls createBooking()
-  — /trip/[id] booking UI (date picker → time slot → guest form → confirm)
-  — Error handling: slot sold out between availability fetch and POST attempt
-  — Confirmation page at /booking/confirmation?ref={bookingId}`,
+  — Public /api/book route (POST) that calls checkAvailability → startNewBooking → commitNewBooking
+  — /trip/[id] booking UI (date picker → timeslot → guest form → confirm)
+  — Race condition handling: unavailable_component_count > 0 → re-show Check Availability
+  — Confirmation page at /booking/confirmation?ref={bookingId} showing voucher_url`,
         },
         {
           label: "PALISIS — [6] Webhook: inbound events  |  Route: /api/webhooks/palisis (already built)",
