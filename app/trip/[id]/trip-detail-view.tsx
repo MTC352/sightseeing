@@ -297,18 +297,20 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
                 </button>
               </div>
 
-              {/* Palisis booking form */}
-              <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-                <div className="booking-iframe-wrap">
-                  <iframe
-                    src="https://sightseeingluxembourg.palisis.com/?book-direct=r-8146"
-                    title={`Book ${trip.title}`}
-                    className="booking-iframe"
-                    allow="payment"
-                    loading="lazy"
-                  />
+              {/* TourCMS / Palisis booking form */}
+              {trip.permalink ? (
+                <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+                  <div className="booking-iframe-wrap">
+                    <iframe
+                      src={trip.permalink}
+                      title={`Book ${trip.title}`}
+                      className="booking-iframe"
+                      allow="payment"
+                      loading="lazy"
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               {/* Live weather */}
               {(weatherLoading || weather) && (

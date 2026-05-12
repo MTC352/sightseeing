@@ -451,12 +451,48 @@ export async function listTours(
 }
 
 /**
+ * List Channel Tours  (Tour Operator catalog import)
+ * Endpoint: GET /c/tours/list.xml
+ *
+ * Returns ALL tours for the operator's own channel — both on-sale and draft.
+ * This is the correct import endpoint for Tour Operator accounts that cannot
+ * use /p/tours/list.xml (which requires a Marketplace Partner account).
+ *
+ * Uses the configured channelId (not 0) in both the URL path and signature.
+ * marketplaceId defaults to 0 when not supplied.
+ */
+export async function listChannelTours(
+  config: TourCMSConfig,
+  params: Record<string, string | number> = {},
+): Promise<{ ok: boolean; tours: TourSummary[]; total_tour_count: number; error?: string }> {
+  const qs   = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
+  const path = `/c/tours/list.xml${qs ? "?" + qs : ""}`
+
+  // /c/ endpoint — uses the operator's own channelId (not 0)
+  const res = await apiRequest<Record<string, unknown>>(config, "GET", path)
+  if (isError(res)) return { ok: false, tours: [], total_tour_count: 0, error: res.error }
+
+  // /c/tours/list.xml returns <tour> elements directly under <response> —
+  // no <tours> wrapper like /p/tours/list.xml. Parser produces root.tour.
+  const rawTours = res.tour
+  const tours: TourSummary[] = Array.isArray(rawTours)
+    ? rawTours as TourSummary[]
+    : rawTours ? [rawTours as TourSummary] : []
+
+  return {
+    ok: true,
+    tours,
+    total_tour_count: Number(res.total_tour_count ?? tours.length),
+  }
+}
+
+/**
  * Search Tours  (customer-facing search — NOT for catalog import)
  * Endpoint: GET /c/tours/search.xml
  *
  * Only returns currently-saleable tours (has_sale=1 by default).
  * Use for keyword search on the public site.
- * Use listTours() for catalog import instead.
+ * Use listTours() or listChannelTours() for catalog import instead.
  *
  * Cache: 30 minutes.
  */
@@ -514,7 +550,13 @@ export async function showTour(
 
   const res = await apiRequest<Record<string, unknown>>(config, "GET", path, undefined, channelIdOverride)
   if (isError(res)) return { ok: false, error: res.error }
-  return { ok: true, tour: res.tour as TourDetail }
+
+  // The XMLParser has "tour" in its isArray list (needed for list endpoints).
+  // Show Tour returns a single <tour> element which the parser wraps in a
+  // single-element array — unwrap it here so callers get a plain object.
+  const rawTour = res.tour
+  const tourObj = Array.isArray(rawTour) ? rawTour[0] : rawTour
+  return { ok: true, tour: tourObj as TourDetail }
 }
 
 // ── Availability ───────────────────────────────────────────────────────────────
@@ -766,15 +808,24 @@ export async function getTourCMSClient() {
     showChannel: () => showChannel(config),
 
     /**
-     * Catalog import — correct endpoint for importing all tours into DB.
-     * Uses /p/tours/list.xml (channelId=0).
+     * Marketplace catalog import — Marketplace Partner accounts only.
+     * Uses /p/tours/list.xml (channelId=0). Returns 401 for Tour Operators.
+     * Fall back to listChannelTours() on failure.
      */
     listTours: (params?: Record<string, string | number>) =>
       listTours(config, params),
 
     /**
+     * Tour Operator catalog import — correct fallback for non-Marketplace accounts.
+     * Uses /c/tours/list.xml with the operator's own channelId.
+     * Returns ALL tours (on-sale and draft), unlike searchTours.
+     */
+    listChannelTours: (params?: Record<string, string | number>) =>
+      listChannelTours(config, params),
+
+    /**
      * Customer-facing search — NOT for catalog import.
-     * Uses /c/tours/search.xml.
+     * Uses /c/tours/search.xml (has_sale=1 filter by default).
      */
     searchTours: (params?: Record<string, string | number>) =>
       searchTours(config, params),

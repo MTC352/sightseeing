@@ -101,7 +101,7 @@ export async function POST(req: Request) {
   const firstPageMP = await tourcms.listTours({ per_page: PER_PAGE, page: 1 })
 
   if (firstPageMP.ok) {
-    // Marketplace Agent mode — paginate through all tours
+    // ── Marketplace Partner mode: /p/tours/list.xml ──────────────────────────
     importMode = "marketplace"
     logs.push(`[${ts()}] Marketplace endpoint OK — ${firstPageMP.total_tour_count} total tours reported.`)
     tourList.push(...firstPageMP.tours)
@@ -117,18 +117,20 @@ export async function POST(req: Request) {
       if (page > 50) break
     }
 
-  } else if (
-    firstPageMP.error?.includes("PARTNERSONLY") ||
-    firstPageMP.error?.includes("KEYNOTFOUND") ||
-    firstPageMP.error?.includes("FAIL_KEY")
-  ) {
-    // Tour Operator mode — fall back to /c/tours/search.xml
+  } else {
+    // ── Tour Operator mode fallback: /c/tours/list.xml ───────────────────────
+    //
+    // /p/tours/list.xml requires a Marketplace Partner account — Tour Operator
+    // accounts receive HTTP 401. The correct operator endpoint is
+    // /c/tours/list.xml which uses the operator's own channelId (not 0).
+    // This returns all tours (both on-sale and draft) for the channel.
+    //
     importMode = "operator"
-    logs.push(`[${ts()}] Marketplace endpoint not available (${firstPageMP.error}) — switching to operator mode /c/tours/search.xml`)
+    logs.push(`[${ts()}] Marketplace endpoint not available (${firstPageMP.error}) — switching to Tour Operator mode /c/tours/list.xml`)
 
     let page = 1
     while (true) {
-      const r = await tourcms.searchTours({ per_page: PER_PAGE, page })
+      const r = await tourcms.listChannelTours({ per_page: PER_PAGE, page })
       if (!r.ok) {
         const error = `Tour catalog fetch failed (page ${page}): ${r.error}`
         logs.push(`[${ts()}] ERROR: ${error}`)
@@ -154,24 +156,6 @@ export async function POST(req: Request) {
       page++
       if (page > 50) break
     }
-
-  } else {
-    // Some other API error — abort
-    const error = `TourCMS API error: ${firstPageMP.error}`
-    logs.push(`[${ts()}] ERROR: ${error}`)
-
-    await dbInsertPalisisSyncLog({
-      trigger_type: "manual",
-      action: "import_run",
-      note: `FAILED: ${error}`,
-      changes: {
-        ok: false, error, imported: 0, skipped: 0, total: 0,
-        duration_ms: Date.now() - startedAt,
-        log: logs,
-      },
-    })
-
-    return NextResponse.json({ ok: false, error, imported: 0, skipped: 0, total: 0, log: logs }, { status: 502 })
   }
 
   logs.push(`[${ts()}] Catalog fetch complete — ${tourList.length} tours to process (mode: ${importMode})`)
@@ -197,7 +181,12 @@ export async function POST(req: Request) {
   const tourResults: Array<{ palisisId: string; title: string; action: string; error?: string }> = []
 
   for (const lean of tourList) {
-    const palisisId    = String(lean.tour_id ?? "")
+    // ── Canonical ID always comes from the list response — never from showTour ──
+    // The full detail response's tour_id may be typed differently or nested under
+    // a different key depending on the XML parser. The list endpoint is the
+    // authoritative source for tour IDs.
+    const palisisId     = String(lean.tour_id ?? "").trim()
+    const leanTitle     = String(lean.tour_name ?? lean.tour_name_long ?? "")
     const tourChannelId = Number(lean.channel_id) || undefined
 
     if (!palisisId) { skipped++; continue }
@@ -208,14 +197,19 @@ export async function POST(req: Request) {
         const detail = await tourcms.showTour(palisisId, { show_options: "1" }, tourChannelId)
 
         if (!detail.ok || !detail.tour) {
+          // Fall back to lean (list) data — fewer fields but always available
           logs.push(`[${ts()}] WARN: showTour failed for ${palisisId} (${detail.error}) — using lean data`)
-          await dbCreateTrip(mapTourDetail(lean))
-          tourResults.push({ palisisId, title: lean.tour_name ?? palisisId, action: "created_lean", error: detail.error })
+          const mapped = mapTourDetail(lean)
+          await dbCreateTrip({ ...mapped, palisisId, title: leanTitle || mapped.title })
+          tourResults.push({ palisisId, title: leanTitle || palisisId, action: "created_lean", error: detail.error })
           apiErrors++
         } else {
-          await dbCreateTrip(mapTourDetail(detail.tour))
-          tourResults.push({ palisisId, title: detail.tour.tour_name_long ?? detail.tour.tour_name ?? palisisId, action: "created" })
-          logs.push(`[${ts()}] Created trip ${palisisId}: "${detail.tour.tour_name_long ?? detail.tour.tour_name}"`)
+          // Use full detail, but ALWAYS use the lean tour_id as the DB key
+          const mapped      = mapTourDetail(detail.tour)
+          const displayTitle = String(detail.tour.tour_name_long ?? detail.tour.tour_name ?? leanTitle)
+          await dbCreateTrip({ ...mapped, palisisId, title: displayTitle || leanTitle })
+          tourResults.push({ palisisId, title: displayTitle || leanTitle, action: "created" })
+          logs.push(`[${ts()}] Created trip ${palisisId}: "${displayTitle || leanTitle}"`)
         }
         imported++
 
@@ -225,16 +219,17 @@ export async function POST(req: Request) {
         const detail    = await tourcms.showTour(palisisId, { show_options: "1" }, tourChannelId)
 
         if (!detail.ok || !detail.tour) {
-          logs.push(`[${ts()}] WARN: showTour failed for ${palisisId} (${detail.error}) — skip update`)
-          tourResults.push({ palisisId, title: lean.tour_name ?? palisisId, action: "skipped_api_error", error: detail.error })
+          logs.push(`[${ts()}] WARN: showTour failed for ${palisisId} (${detail.error}) — skipping update`)
+          tourResults.push({ palisisId, title: localTrip.title ?? leanTitle, action: "skipped_api_error", error: detail.error })
           apiErrors++
           skipped++
           continue
         }
 
-        const mapped = mapTourDetail(detail.tour)
+        const mapped       = mapTourDetail(detail.tour)
+        const displayTitle = String(detail.tour.tour_name_long ?? detail.tour.tour_name ?? leanTitle)
         await dbUpdateTrip(localTrip.id, {
-          title:       mapped.title,
+          title:       displayTitle || leanTitle || mapped.title,
           description: mapped.description,
           price:       mapped.price,
           duration:    mapped.duration,
@@ -243,26 +238,24 @@ export async function POST(req: Request) {
           provider:    mapped.provider,
           ...(localTrip.permalink ? {} : { permalink: mapped.permalink }),
         })
-        tourResults.push({ palisisId, title: mapped.title, action: "updated" })
-        logs.push(`[${ts()}] Updated trip ${palisisId}: "${mapped.title}"`)
+        tourResults.push({ palisisId, title: displayTitle || leanTitle, action: "updated" })
+        logs.push(`[${ts()}] Updated trip ${palisisId}: "${displayTitle || leanTitle}"`)
         updated++
 
       } else {
-        // ── Existing, no override: record it as skipped ─────────────────────
+        // ── Existing, no override ────────────────────────────────────────────
         const localTrip = byPalisis.get(palisisId)!
-        const leanMapped = mapTourDetail(lean)
-        const hasChanges = localTrip.title !== leanMapped.title || (localTrip.description ?? "") !== leanMapped.description
         tourResults.push({
           palisisId,
-          title: localTrip.title ?? palisisId,
-          action: hasChanges ? "skipped_has_changes" : "skipped_unchanged",
+          title: localTrip.title ?? leanTitle,
+          action: "skipped_unchanged",
         })
         skipped++
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       logs.push(`[${ts()}] ERROR processing tour ${palisisId}: ${msg}`)
-      tourResults.push({ palisisId, title: lean.tour_name ?? palisisId, action: "error", error: msg })
+      tourResults.push({ palisisId, title: leanTitle || palisisId, action: "error", error: msg })
       skipped++
     }
   }
