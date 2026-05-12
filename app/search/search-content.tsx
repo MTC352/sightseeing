@@ -1,12 +1,11 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
-import { trips, categories } from "@/lib/data"
 import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
@@ -16,7 +15,6 @@ import {
 } from "lucide-react"
 import { DateTimeModal } from "@/components/date-time-modal"
 
-/* ── re-use the same filter/modal types as explore ── */
 interface Filters {
   priceMin: number
   priceMax: number
@@ -35,30 +33,31 @@ const DEFAULT_FILTERS: Filters = {
   locationAddress: "", locationRadius: 10, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "",
 }
 
-/* ── Timeslot types + dummy data (mirrors explore-client) ── */
 interface Timeslot { time: string; spotsLeft: number; spotsTotal: number }
-interface TripDepartures { today: Timeslot[]; tomorrow: Timeslot[] }
+interface TripAvailability { today: Timeslot[]; tomorrow: Timeslot[] }
+type AvailabilityMap = Record<string, TripAvailability>
 
-function getDummyDepartures(tripId: string): TripDepartures {
-  const hash = tripId.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
+/* Deterministic fallback — same hash logic used before, only shown if API hasn't loaded yet */
+function getDummyDepartures(tripId: string): TripAvailability {
+  const hash  = tripId.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
   const times = ["09:00", "10:30", "11:00", "13:00", "14:30", "15:00", "16:30", "18:00", "19:30"]
   const pickSlots = (seed: number, count: number): Timeslot[] => {
     const slots: Timeslot[] = []
     for (let i = 0; i < count; i++) {
-      const idx = (seed + i * 3) % times.length
-      const total = 10 + ((seed + i) % 15)
+      const idx    = (seed + i * 3) % times.length
+      const total  = 10 + ((seed + i) % 15)
       const booked = Math.floor(total * (0.2 + ((seed * i) % 80) / 100))
       slots.push({ time: times[idx], spotsLeft: Math.max(0, total - booked), spotsTotal: total })
     }
     return slots.sort((a, b) => a.time.localeCompare(b.time))
   }
   return {
-    today: pickSlots(hash, 1 + (hash % 4)),
+    today:    pickSlots(hash, 1 + (hash % 4)),
     tomorrow: pickSlots(hash + 7, 1 + ((hash + 2) % 5)),
   }
 }
 
-/* ── Filter modal (slim inline version) ── */
+/* ── Filter modal ── */
 function FilterModal({ open, onClose, filters, onChange }: {
   open: boolean; onClose: () => void
   filters: Filters; onChange: (f: Filters) => void
@@ -105,8 +104,6 @@ function FilterModal({ open, onClose, filters, onChange }: {
   )
 }
 
-
-
 /* ── Timeslot chip ── */
 function TimeslotChip({ slot }: { slot: Timeslot }) {
   const pct = slot.spotsLeft / slot.spotsTotal
@@ -119,7 +116,7 @@ function TimeslotChip({ slot }: { slot: Timeslot }) {
     <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${colorClass}`}>
       <span className="font-semibold">{slot.time}</span>
       <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
-      <span className="text-[11px]">{slot.spotsLeft === 0 ? "Sold out" : `${slot.spotsLeft} left`}</span>
+      <span className="text-[11px]">{slot.spotsLeft === 0 ? "Sold out" : slot.spotsLeft >= 99 ? "Available" : `${slot.spotsLeft} left`}</span>
     </div>
   )
 }
@@ -127,7 +124,7 @@ function TimeslotChip({ slot }: { slot: Timeslot }) {
 /* ── Grid card ── */
 function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean }) {
   const { addItem, isInCart } = useCart()
-  const inCart = isInCart(trip.id)
+  const inCart     = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
   return (
     <Link href={`/trip/${trip.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
@@ -167,11 +164,20 @@ function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean
 }
 
 /* ── List card ── */
-function SearchListCard({ trip, priority = false }: { trip: Trip; priority?: boolean }) {
+function SearchListCard({
+  trip,
+  priority = false,
+  availability,
+}: {
+  trip: Trip
+  priority?: boolean
+  availability: AvailabilityMap
+}) {
   const { addItem, isInCart } = useCart()
-  const inCart = isInCart(trip.id)
+  const inCart     = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
-  const departures = getDummyDepartures(trip.id)
+  const departures  = availability[trip.id] ?? getDummyDepartures(trip.id)
+
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md sm:flex-row">
       <div className="relative aspect-[16/10] sm:aspect-auto sm:w-56 lg:w-64 shrink-0">
@@ -214,38 +220,62 @@ function SearchListCard({ trip, priority = false }: { trip: Trip; priority?: boo
             <p className="text-[10px] text-muted-foreground">per person</p>
           </div>
         </div>
-        <div className="mt-4 border-t border-border pt-4">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Available Timeslots</p>
-          <div className="flex flex-col gap-3">
-            {departures.today.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="w-20 shrink-0 text-xs font-semibold text-foreground">Today</span>
-                <div className="flex flex-wrap gap-2">{departures.today.map((s, i) => <TimeslotChip key={i} slot={s} />)}</div>
-              </div>
-            )}
-            {departures.tomorrow.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="w-20 shrink-0 text-xs font-semibold text-foreground">Tomorrow</span>
-                <div className="flex flex-wrap gap-2">{departures.tomorrow.map((s, i) => <TimeslotChip key={i} slot={s} />)}</div>
-              </div>
-            )}
+        {(departures.today.length > 0 || departures.tomorrow.length > 0) && (
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Available Timeslots</p>
+            <div className="flex flex-col gap-3">
+              {departures.today.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="w-20 shrink-0 text-xs font-semibold text-foreground">Today</span>
+                  <div className="flex flex-wrap gap-2">{departures.today.map((s, i) => <TimeslotChip key={i} slot={s} />)}</div>
+                </div>
+              )}
+              {departures.tomorrow.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="w-20 shrink-0 text-xs font-semibold text-foreground">Tomorrow</span>
+                  <div className="flex flex-wrap gap-2">{departures.tomorrow.map((s, i) => <TimeslotChip key={i} slot={s} />)}</div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
 }
 
 /* ── Main component ── */
-export function SearchContent() {
+export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
   const searchParams = useSearchParams()
   const query = searchParams.get("q") || ""
 
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [dateOpen, setDateOpen] = useState(false)
-  const [activeFilters, setActiveFilters] = useState<Filters>(DEFAULT_FILTERS)
-  const [viewMode, setViewMode] = useState<"grid" | "list">("list")
+  const [filtersOpen, setFiltersOpen]       = useState(false)
+  const [dateOpen, setDateOpen]             = useState(false)
+  const [activeFilters, setActiveFilters]   = useState<Filters>(DEFAULT_FILTERS)
+  const [viewMode, setViewMode]             = useState<"grid" | "list">("list")
+  const [availability, setAvailability]     = useState<AvailabilityMap>({})
+
+  /* Fetch real availability once on mount */
+  useEffect(() => {
+    fetch("/api/availability")
+      .then((r) => r.ok ? r.json() : {})
+      .then((data: AvailabilityMap) => setAvailability(data))
+      .catch(() => { /* keep empty — cards fall back to dummy */ })
+  }, [])
+
+  /* Derive category pills from actual DB trips */
+  const categories = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const t of initialTrips) {
+      if (t.category && !seen.has(t.category)) {
+        seen.add(t.category)
+        out.push(t.category)
+      }
+    }
+    return out.sort()
+  }, [initialTrips])
 
   const activeFilterCount = [
     activeFilters.priceMin > 0 || activeFilters.priceMax < 500,
@@ -268,15 +298,14 @@ export function SearchContent() {
     return [datePart, timePart].filter(Boolean).join(" · ")
   })()
 
-  // Keyword filter on the full catalog, then apply UI filters on top
   const keywordMatched = useMemo(() => {
-    if (!query.trim()) return trips
+    if (!query.trim()) return initialTrips
     const kws = query.toLowerCase().split(/\s+/).filter(Boolean)
-    return trips.filter((t) => {
+    return initialTrips.filter((t) => {
       const hay = [t.title, t.category, t.city ?? "", t.description ?? "", t.provider ?? "", ...(t.tags ?? [])].join(" ").toLowerCase()
       return kws.every((kw) => hay.includes(kw))
     })
-  }, [query])
+  }, [query, initialTrips])
 
   const filtered = keywordMatched.filter((t) => {
     if (activeCategory && t.category !== activeCategory) return false
@@ -305,11 +334,10 @@ export function SearchContent() {
         onApply={(v) => setActiveFilters((prev) => ({ ...prev, dateFrom: v.date, timeFrom: v.timeFrom, timeTo: v.timeTo }))}
       />
 
-      {/* ── Sticky filter bar (mirrors explore page exactly) ── */}
+      {/* ── Sticky filter bar ── */}
       <div className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="flex items-center py-2.5">
-            {/* Filters + Dates pills */}
             <div className="flex shrink-0 items-center gap-2 pr-2">
               <button type="button" onClick={() => setFiltersOpen(true)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
@@ -338,17 +366,16 @@ export function SearchContent() {
               </button>
               <div className="h-5 w-px bg-border" />
             </div>
-            {/* Scrollable category pills */}
             <div className="flex flex-1 gap-2 overflow-x-auto scrollbar-none">
-              {categories.map((c) => {
-                const isActive = activeCategory === c.name
+              {categories.map((cat) => {
+                const isActive = activeCategory === cat
                 return (
-                  <button type="button" key={c.name}
-                    onClick={() => setActiveCategory(isActive ? null : c.name)}
+                  <button type="button" key={cat}
+                    onClick={() => setActiveCategory(isActive ? null : cat)}
                     className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
                       isActive ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
                     }`}>
-                    {c.name}
+                    {cat}
                   </button>
                 )
               })}
@@ -362,7 +389,6 @@ export function SearchContent() {
 
       {/* ── Results ── */}
       <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
-        {/* Results header */}
         <div className="mb-4 flex items-center justify-between">
           <div>
             {query && (
@@ -375,7 +401,6 @@ export function SearchContent() {
               {activeCategory ? ` in ${activeCategory}` : " in Luxembourg"}
             </p>
           </div>
-          {/* Grid / List toggle */}
           <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
             <button type="button" onClick={() => setViewMode("grid")} aria-label="Grid view"
               className={`flex items-center justify-center rounded-md p-1.5 transition-colors ${
@@ -404,7 +429,9 @@ export function SearchContent() {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            {filtered.map((t, i) => <SearchListCard key={t.id} trip={t} priority={i < 4} />)}
+            {filtered.map((t, i) => (
+              <SearchListCard key={t.id} trip={t} priority={i < 4} availability={availability} />
+            ))}
           </div>
         )}
       </div>
