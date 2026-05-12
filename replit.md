@@ -16,7 +16,7 @@ Includes a full public frontend and a comprehensive admin panel at `/admin/*`.
 - **File uploads:** Vercel Blob
 - **Translations:** Weglot
 - **Maps:** Mapbox
-- **Booking:** Palisis (currently mock data — real API call commented out)
+- **Booking:** TourCMS/Palisis — `lib/tourcms.ts` custom HMAC-SHA256 client (native fetch + fast-xml-parser)
 - **Weather:** OpenWeatherMap
 - **Proxy/middleware:** `proxy.ts` (Next.js 16 format, not `middleware.ts`)
 - **State management:** Redux Toolkit + RTK Query — two separate stores (admin + site)

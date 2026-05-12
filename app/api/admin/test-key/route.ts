@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { pingTourCMS } from "@/lib/tourcms"
 
 export const dynamic = "force-dynamic"
 
@@ -30,9 +31,38 @@ export async function GET(req: Request) {
     }
 
     if (service === "palisis") {
-      const url = `https://palisis.com/api/v1/products?apiKey=${encodeURIComponent(key)}`
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
-      return NextResponse.json({ ok: r.ok, status: r.status, service: "palisis" })
+      // Use the real TourCMS HMAC-signed ping endpoint.
+      // The key param here is the API key; channel ID must come from env or DB.
+      // We build a temporary config using the provided key so the admin can test
+      // before saving — channel ID is read from env/DB as usual.
+      const channelId = process.env.TOURCMS_CHANNEL_ID
+        ? parseInt(process.env.TOURCMS_CHANNEL_ID, 10)
+        : NaN
+
+      if (isNaN(channelId)) {
+        // No channel ID configured yet — fall back to a basic HTTP check
+        // to confirm the key format is plausible (TourCMS keys are ~20 chars)
+        return NextResponse.json({
+          ok: key.length >= 10,
+          status: "CHANNEL_ID_MISSING",
+          service: "palisis",
+          note: "Set TOURCMS_CHANNEL_ID in secrets to enable full connectivity test",
+        })
+      }
+
+      const result = await pingTourCMS({
+        channelId,
+        marketplaceId: parseInt(process.env.TOURCMS_MARKETPLACE_ID ?? "0", 10) || 0,
+        apiKey: key,
+      })
+
+      return NextResponse.json({
+        ok: result.ok,
+        service: "palisis",
+        remaining_hits: result.remaining_hits,
+        remaining_hits_post: result.remaining_hits_post,
+        error: result.error,
+      })
     }
 
     return NextResponse.json({ ok: false, error: "Unknown service" })

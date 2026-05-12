@@ -1,79 +1,119 @@
 import { NextResponse } from "next/server"
-import { dbGetSettings, dbCreateTrip } from "@/lib/db/queries"
+import { getTourCMSClient } from "@/lib/tourcms"
+import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips } from "@/lib/db/queries"
 
-// Mock Palisis catalog — replace with real API call when credentials are available
-const MOCK_PALISIS_CATALOG = [
-  {
-    palisisId: "PAL-001",
-    title: "Casemates du Bock – Guided Tour",
-    description: "Explore the famous fortifications beneath Luxembourg City with an expert guide.",
-    price: 14,
-    duration: "1.5 hours",
-    category: "Culture & History",
-    tags: ["culture", "outdoor", "popular"],
-    city: "Luxembourg City",
-    provider: "Palisis",
-    highlights: ["UNESCO World Heritage site", "400 years of history", "Panoramic views"],
-    image: "/images/trips/city-train.jpg",
-    rating: 4.8,
-    reviewCount: 312,
-  },
-  {
-    palisisId: "PAL-002",
-    title: "Moselle Valley Wine Tasting Cruise",
-    description: "Sail along the Moselle river while sampling Luxembourg's finest wines.",
-    price: 49,
-    duration: "3 hours",
-    category: "Food & Drink",
-    tags: ["food", "romantic", "popular"],
-    city: "Remich",
-    provider: "Palisis",
-    highlights: ["Premium local wines", "River cruise", "Cheese pairings"],
-    image: "/images/trips/dinner-hopping-gourmet.jpg",
-    rating: 4.7,
-    reviewCount: 198,
-  },
-]
+export const dynamic = "force-dynamic"
 
-export async function POST() {
-  const settings = await dbGetSettings()
+// ── Field mapping: TourCMS tour summary → our trips DB schema ─────────────────
+function mapTourCMSTour(t: Record<string, unknown>) {
+  const tourId   = String(t.tour_id   ?? "")
+  const title    = String(t.tour_name_long ?? t.tour_name ?? "")
+  const desc     = String(t.description ?? t.tagline ?? "")
+  const price    = parseFloat(String(t.from_price ?? "0")) || 0
+  const image    = String(t.image_url ?? "")
+  const location = String(t.location_summary ?? t.location ?? "Luxembourg")
+  const duration = String(t.duration_description ?? "")
+  const supplier = String(t.supplier_name ?? "Sightseeing.lu")
 
-  // When real Palisis credentials are set, swap mock data for live API call:
-  // const res = await fetch(`${settings.apiKeys.palisis}/catalog`, {
-  //   headers: { "X-Api-Key": settings.apiKeys.palisis }
-  // })
-  // const catalog = await res.json()
+  // TourCMS doesn't have a direct category field in search results —
+  // we default to "Tours" and let admin override in /admin/trips/[id]
+  return {
+    palisisId:        tourId,
+    title,
+    description:      desc,
+    price,
+    duration,
+    category:         "Tours",
+    tags:             [] as string[],
+    city:             location,
+    provider:         supplier,
+    image,
+    highlights:       [] as string[],
+    badge:            null,
+    rating:           0,
+    reviewCount:      0,
+    featured:         false,
+    featuredDeparture: false,
+    status:           "draft" as const,
+    permalink:        null,
+    originalPrice:    null,
+  }
+}
 
-  if (!settings.apiKeys.palisis) {
-    console.warn("[palisis-import] No API key set — using mock catalog")
+export async function POST(req: Request) {
+  const body = await req.json().catch(() => ({})) as { override?: boolean }
+  const overrideAll = body.override === true
+
+  const tourcms = await getTourCMSClient()
+
+  if (!tourcms) {
+    // No credentials — fall back to a warning (no mock import anymore)
+    const settings = await dbGetSettings()
+    const hasKey   = !!(settings?.apiKeys as Record<string, string>)?.palisis
+    return NextResponse.json({
+      ok: false,
+      imported: 0,
+      skipped: 0,
+      total: 0,
+      error: hasKey
+        ? "TourCMS Channel ID missing — set TOURCMS_CHANNEL_ID in secrets"
+        : "TourCMS not configured — add API key and Channel ID in Admin → Integrations or secrets",
+    }, { status: 503 })
   }
 
-  let imported = 0
-  let skipped = 0
+  // Fetch full catalog from TourCMS
+  // 404_tour_url=all → skip broken URL validation (we're API-driven)
+  // has_sale=all     → include tours without upcoming dates too
+  const result = await tourcms.searchTours({ "404_tour_url": "all", has_sale: "all", per_page: 200 })
 
-  for (const item of MOCK_PALISIS_CATALOG) {
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.error, imported: 0, skipped: 0, total: 0 }, { status: 502 })
+  }
+
+  const tours     = result.tours
+  const existing  = await dbListTrips() as Array<{ id: string; palisis_id?: string; title?: string; description?: string }>
+  const byPalisis = new Map(existing.filter(t => t.palisis_id).map(t => [t.palisis_id!, t]))
+
+  let imported = 0
+  let skipped  = 0
+  let updated  = 0
+  const diffs: Array<{ palisisId: string; title: string; localTitle?: string }> = []
+
+  for (const tour of tours) {
+    const mapped    = mapTourCMSTour(tour as unknown as Record<string, unknown>)
+    const localTrip = byPalisis.get(mapped.palisisId)
+
     try {
-      await dbCreateTrip({
-        title: item.title,
-        description: item.description,
-        price: item.price,
-        duration: item.duration,
-        category: item.category,
-        tags: item.tags,
-        city: item.city,
-        provider: item.provider,
-        image: item.image,
-        highlights: item.highlights,
-        badge: null,
-        rating: item.rating,
-        reviewCount: item.reviewCount,
-        featured: false,
-        featuredDeparture: false,
-        status: "draft",
-        permalink: null,
-        originalPrice: null,
-      })
-      imported++
+      if (!localTrip) {
+        // New trip — create it
+        await dbCreateTrip(mapped)
+        imported++
+      } else if (overrideAll) {
+        // Bulk override mode — apply without confirmation
+        await dbUpdateTrip(localTrip.id, {
+          title:       mapped.title,
+          description: mapped.description,
+          price:       mapped.price,
+          duration:    mapped.duration,
+          image:       mapped.image,
+          city:        mapped.city,
+          provider:    mapped.provider,
+        })
+        updated++
+      } else {
+        // Check if there's a meaningful diff (title or description changed)
+        const titleDiff = localTrip.title !== mapped.title
+        const descDiff  = (localTrip.description ?? "") !== mapped.description
+        if (titleDiff || descDiff) {
+          diffs.push({
+            palisisId:  mapped.palisisId,
+            title:      mapped.title,
+            localTitle: localTrip.title,
+          })
+        } else {
+          skipped++
+        }
+      }
     } catch {
       skipped++
     }
@@ -82,10 +122,10 @@ export async function POST() {
   return NextResponse.json({
     ok: true,
     imported,
+    updated,
     skipped,
-    total: MOCK_PALISIS_CATALOG.length,
-    note: settings.apiKeys.palisis
-      ? "Imported from Palisis API"
-      : "Mock data used — set Palisis API key to import live catalog",
+    total: tours.length,
+    diffs,      // non-empty = admin should review before re-importing with override:true
+    note: `Fetched ${tours.length} tours from TourCMS live catalog`,
   })
 }

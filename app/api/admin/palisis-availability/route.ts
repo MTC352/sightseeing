@@ -1,61 +1,97 @@
 import { NextResponse } from "next/server"
-import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
+import { getTourCMSClient } from "@/lib/tourcms"
+import { dbListTrips } from "@/lib/db/queries"
 
-interface AvailabilitySlot {
-  tripId: string
-  tripTitle: string
-  date: string
-  spotsAvailable: number
-  spotsTotal: number
-}
-
-async function buildMockSlots(): Promise<AvailabilitySlot[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const trips: any[] = (await dbListTrips()).slice(0, 5)
-  const today = new Date()
-  const slots: AvailabilitySlot[] = []
-
-  for (const trip of trips) {
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today)
-      d.setDate(today.getDate() + i)
-      const spotsTotal = 12 + Math.floor(Math.random() * 8)
-      const spotsAvailable = Math.floor(Math.random() * spotsTotal)
-      slots.push({
-        tripId: trip.id,
-        tripTitle: trip.title,
-        date: d.toISOString().slice(0, 10),
-        spotsAvailable,
-        spotsTotal,
-      })
-    }
-  }
-
-  return slots
-}
+export const dynamic = "force-dynamic"
 
 export async function POST() {
-  const settings = await dbGetSettings()
+  const tourcms = await getTourCMSClient()
 
-  if (!settings.apiKeys.palisis) {
-    console.warn("[palisis-availability] No API key set — returning mock availability data")
+  if (!tourcms) {
+    return NextResponse.json({
+      ok: false,
+      error: "TourCMS not configured — add credentials in Admin → Integrations or secrets",
+      updated: 0,
+      slots: [],
+    }, { status: 503 })
   }
 
-  // Real implementation:
-  // const res = await fetch(`${settings.apiKeys.palisis}/availability`, {
-  //   headers: { "X-Api-Key": settings.apiKeys.palisis }
-  // })
-  // const data = await res.json()
+  // Get all our trips that have a palisis_id (synced from TourCMS)
+  const allTrips = await dbListTrips() as Array<{
+    id: string
+    title: string
+    palisis_id?: string
+  }>
+  const syncedTrips = allTrips.filter(t => t.palisis_id)
 
-  const slots = await buildMockSlots()
-  const updated = slots.length
+  if (syncedTrips.length === 0) {
+    return NextResponse.json({
+      ok: false,
+      error: "No trips with TourCMS IDs found — run the catalog import first",
+      updated: 0,
+      slots: [],
+    })
+  }
+
+  // Fetch availability for the next 7 days for each synced trip
+  const today   = new Date()
+  const in7Days = new Date(today)
+  in7Days.setDate(today.getDate() + 7)
+
+  const startStr = today.toISOString().slice(0, 10)
+  const endStr   = in7Days.toISOString().slice(0, 10)
+
+  const slots: Array<{
+    tripId: string
+    tripTitle: string
+    palisisId: string
+    startDate: string
+    startTime?: string
+    endTime?: string
+    price: string
+    priceDisplay: string
+    spacesRemaining: number | null
+    status: string
+    hasOffer: boolean
+  }> = []
+
+  let updated = 0
+
+  for (const trip of syncedTrips) {
+    const result = await tourcms.showDatesAndDeals(trip.palisis_id!, {
+      startdate_start: startStr,
+      startdate_end:   endStr,
+    })
+
+    if (!result.ok) {
+      console.warn(`[palisis-availability] Failed for trip ${trip.palisis_id}: ${result.error}`)
+      continue
+    }
+
+    for (const date of result.dates) {
+      slots.push({
+        tripId:          trip.id,
+        tripTitle:       trip.title,
+        palisisId:       trip.palisis_id!,
+        startDate:       date.start_date,
+        startTime:       date.start_time,
+        endTime:         date.end_time,
+        price:           date.price_1,
+        priceDisplay:    date.price_1_display,
+        spacesRemaining: date.spaces_remaining != null ? Number(date.spaces_remaining) : null,
+        status:          date.status ?? "OPEN",
+        hasOffer:        Number(date.special_offer_type ?? 0) > 0,
+      })
+    }
+
+    updated++
+  }
 
   return NextResponse.json({
     ok: true,
     updated,
+    total: syncedTrips.length,
     slots,
-    note: settings.apiKeys.palisis
-      ? "Availability updated from Palisis API"
-      : "Mock data — set Palisis API key to fetch real availability",
+    note: `Fetched availability from TourCMS for ${updated}/${syncedTrips.length} synced trips (next 7 days)`,
   })
 }

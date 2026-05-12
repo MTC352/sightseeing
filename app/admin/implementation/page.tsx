@@ -866,115 +866,151 @@ export default function ImplementationPage() {
       title: "T020 — API Integration Reference & Endpoint Catalog",
       icon: Server,
       items: [
-        // ── PALISIS ──────────────────────────────────────────────────────────
+        // ── PALISIS / TOURCMS ─────────────────────────────────────────────────
+        {
+          label: "lib/tourcms.ts — Custom TourCMS API Client  |  BUILT ✓",
+          status: "done",
+          testNote: `lib/tourcms.ts (530 lines)
+Auth: HMAC-SHA256 signed headers — node:crypto (zero external auth deps)
+Transport: native fetch with AbortSignal.timeout(12 000)
+Parsing: fast-xml-parser (installed)
+
+Exported functions:
+  getTourCMSConfig()        — loads credentials from env then DB; 5-min cache
+  clearTourCMSConfigCache() — force-expire after credential update
+  pingTourCMS(config)       — GET /api/rate_limit_status.xml (does not count against rate limits)
+  showChannel(config)       — GET /c/channel/show.xml
+  searchTours(config, params) — GET /c/tours/search.xml
+  showTour(config, id, params) — GET /c/tour/show.xml?id={id}
+  showTourDatesAndDeals(config, id, params) — GET /c/tour/datesprices/datesndeals/search.xml
+  searchRawDepartures(config, id, params) — GET /c/tour/datesprices/dep/manage/search.xml
+  showBooking(config, id)   — GET /c/booking/show.xml?booking_id={id}
+  createBooking(config, xml) — POST /c/booking/new/v1.xml
+  getTourCMSClient()        — convenience factory: returns bound client or null if not configured
+
+Credential priority: TOURCMS_API_KEY + TOURCMS_CHANNEL_ID env vars → DB integrations table (palisis key + palisisChannelId).`,
+        },
         {
           label: "PALISIS — [1] Product Catalog  |  Used by: T014 (import), /api/admin/palisis-import",
-          status: "pending",
-          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
-Current placeholder in code: GET {apiBase}/catalog (with header X-Api-Key: {key}).
-Connectivity test already calls: GET https://palisis.com/api/v1/products?apiKey={key}.
+          status: "done",
+          testNote: `TourCMS endpoint: GET /c/tours/search.xml
+Auth: HMAC-SHA256 signed (handled by lib/tourcms.ts)
+Params used: 404_tour_url=all, has_sale=all, per_page=200
 
-Needed input params: apiKey (or Bearer token), optional: page, limit, updatedSince (for delta sync).
-Expected response fields we need to map → our trips DB:
-  palisis product id  → trips.palisis_id
-  title               → trips.title
-  description         → trips.description
-  price               → trips.price
-  duration            → trips.duration
-  city / location     → trips.city
-  category            → trips.category
-  banner / image URL  → trips.image
-  tags / keywords     → trips.tags
-  rating              → trips.rating (may not exist — we store our own)
+Field mapping (TourCMS → trips DB):
+  tour_id             → trips.palisis_id
+  tour_name_long      → trips.title
+  description/tagline → trips.description
+  from_price          → trips.price
+  duration_description → trips.duration
+  location_summary    → trips.city
+  supplier_name       → trips.provider
+  image_url           → trips.image
 
-Used in: POST /api/admin/palisis-import (bulk import), /admin/palisis panel.
-Action needed: provide exact URL, auth method (API key header vs query param), and full response schema.`,
+POST /api/admin/palisis-import (live):
+  — Fetches full catalog from TourCMS
+  — Creates new trips for tours not yet in DB (palisis_id not found)
+  — Returns diff list when existing trip titles/descriptions have changed
+  — Re-import with {override:true} body param to bulk-update existing trips
+  — Returns: { imported, updated, skipped, total, diffs }`,
         },
         {
           label: "PALISIS — [2] Single Product Detail  |  Used by: T014 (diff confirmation on re-import)",
-          status: "pending",
-          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
-Likely: GET {apiBase}/products/{palisis_product_id}?apiKey={key}  OR  GET {apiBase}/catalog/{id}
+          status: "done",
+          testNote: `TourCMS endpoint: GET /c/tour/show.xml?id={tourId}
+Auth: HMAC-SHA256 signed (handled by lib/tourcms.ts)
+Implemented as: showTour(config, tourId, params) in lib/tourcms.ts
+
+Used for: fetching full detail for a single tour (description_text, lat/long, options, booking questions).
+Recommended cache: 60 minutes.
+
+Optional params:
+  show_options   — "1" to include bookable add-ons
+  show_offers    — "1" to include special offer summary
+  show_questions — "1" to include booking questions
 
 Needed for: when admin manually re-imports a single trip that already exists locally, we fetch the live
 Palisis product, compare title/description/price to our stored data, and show a side-by-side diff modal
 before overriding. Without this endpoint we fall back to comparing against the full catalog response.
 
-Expected response: same schema as [1] but for a single product.
-Action needed: confirm if single-product fetch exists, or if we must filter from the full catalog list.`,
+Full detail for a single tour including lat/long, booking questions, and add-on options.
+Compare title/description against stored trip — show diff before overriding.`,
         },
         {
           label: "PALISIS — [3] Availability by Product + Date  |  Used by: T015, T017, T018, T019",
-          status: "pending",
-          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
-Current placeholder in code: GET {apiBase}/availability (no params — returns all).
+          status: "done",
+          testNote: `Two TourCMS endpoints serve this need:
 
-This is the most-used Palisis endpoint across the platform. Every feature that shows live slot data calls it.
+A) Customer-facing (prices + offer details):
+   GET /c/tour/datesprices/datesndeals/search.xml?id={tourId}&startdate_start={YYYY-MM-DD}&startdate_end={YYYY-MM-DD}
+   Implemented as: showTourDatesAndDeals(config, tourId, params) in lib/tourcms.ts
+   Returns: start_date, end_date, start_time, end_time, price_1_display, spaces_remaining,
+            special_offer_type, original_price_1_display
+   Recommended cache: 30 minutes.
 
-Needed input params:
-  productId  (our trips.palisis_id)     — required for trip-specific queries
-  date       (YYYY-MM-DD)               — required for single-day queries
-  dateFrom / dateTo                     — optional range (for month-view calendar)
-
-Expected response fields we need:
-  time / departure_time  (HH:MM)        — slot start time
-  spotsAvailable         (integer)      — remaining capacity
-  spotsTotal             (integer)      — max capacity for this slot
-  slotId / departureId                  — unique ID needed to create a booking (T016)
-  status                                — e.g. "available", "sold_out", "cancelled"
+B) Operator-level (departure_id for booking + per-rate pricing):
+   GET /c/tour/datesprices/dep/manage/search.xml?id={tourId}&start_date_start={YYYY-MM-DD}&start_date_end={YYYY-MM-DD}
+   Implemented as: searchRawDepartures(config, tourId, params) in lib/tourcms.ts
+   Returns: departure_id (required for createBooking), spaces_remaining, status, rates[] with rate_id + customer_price
+   Do not cache.
 
 Used in:
-  GET /api/availability?tripId=&date=       → trip detail page calendar (T015)
-  GET /api/departing-soon                    → today's live departures (T018)
-  GET /api/last-minute-deals                 → low-capacity slots today (T017)
-  GET /api/departures/search?date=&from=&to= → date+time filter (T019)
-
-Cache strategy: 5-min TTL server-side. Cache key: palisisProductId + date.
-Action needed: exact URL, whether productId is required or optional, response array structure.`,
+  POST /api/admin/palisis-availability  → 7-day slots per synced trip (live, uses showDatesAndDeals)
+  T015 trip detail calendar             → per-tour month view (showDatesAndDeals + distinct_start_dates=1)
+  T016 booking flow                     → departure_id + rate_id (searchRawDepartures)
+  T017 last-minute deals                → today's low-capacity slots (showDatesAndDeals + has_offer filter)
+  T018 departing soon                   → today's departures (showDatesAndDeals, startdate_start=today)
+  T019 date+time filter                 → filtered by start_time param (showDatesAndDeals + start_time=HH:MM)`,
         },
         {
           label: "PALISIS — [4] Available Dates for a Product (month view)  |  Used by: T015 trip calendar",
-          status: "pending",
-          detail: `Endpoint: UNKNOWN — may be the same as [3] with a date range, or a separate endpoint.
+          status: "done",
+          testNote: `Resolved: Option A — no separate endpoint needed.
 
-Needed for: the trip detail page availability calendar. We need to know which dates in a given month
-have at least one available slot so we can highlight/grey-out calendar days before the user picks one.
+Use showTourDatesAndDeals(config, tourId, { startdate_start, startdate_end, distinct_start_dates: 1 })
+  startdate_start = first day of month  (YYYY-MM-01)
+  startdate_end   = last day of month   (YYYY-MM-28/30/31)
+  distinct_start_dates = 1              → one entry per date (efficient for calendar highlighting)
 
-Option A: Call [3] with dateFrom=YYYY-MM-01 & dateTo=YYYY-MM-31 → returns all slots for the month.
-Option B: Separate endpoint, e.g. GET {apiBase}/products/{id}/available-dates?month=2025-06
-
-If Option A exists and is performant, no separate endpoint is needed.
-Action needed: confirm whether a date-range query on [3] is supported.`,
+Response: list of { start_date, price_1_display, spaces_remaining } — one per available date.
+Dates NOT in the list = no availability (grey them out on the calendar).
+Recommended cache: 30 minutes per tourId+month combination.`,
         },
         {
           label: "PALISIS — [5] Create Booking  |  Used by: T016 booking flow, POST /api/book",
-          status: "pending",
-          detail: `Endpoint: UNKNOWN — awaiting Palisis API docs.
-Likely: POST {apiBase}/bookings  OR  POST {apiBase}/orders
+          status: "partial",
+          detail: `TourCMS endpoint: POST /c/booking/new/v1.xml
+Implemented as: createBooking(config, bookingXml) in lib/tourcms.ts
 
-This is a WRITE endpoint — the only endpoint where we send data TO Palisis (architecture rule: all others are read-only).
+This is the only WRITE endpoint in the integration. Body is XML.
 
-Required input fields we expect to send:
-  slotId / departureId   — from availability response [3], identifies the exact timeslot
-  productId              — Palisis product ID
-  guestName              — full name of lead guest
-  guestEmail             — confirmation email
-  adults                 — adult count
-  children               — child count (if supported)
-  language               — preferred language (optional)
+Minimum required XML body:
+  <booking>
+    <tour_id>{tourId}</tour_id>
+    <departure_id>{departureId}</departure_id>   ← from searchRawDepartures
+    <components>
+      <component>
+        <tour_id>{tourId}</tour_id>
+        <departure_id>{departureId}</departure_id>
+        <rates>
+          <rate><rate_id>{rateId}</rate_id><quantity>{n}</quantity></rate>
+        </rates>
+      </component>
+    </components>
+    <customer>
+      <firstname>{firstName}</firstname>
+      <surname>{surname}</surname>
+      <email>{email}</email>
+    </customer>
+  </booking>
 
-Expected response:
-  bookingReference       — Palisis booking reference number (shown on confirmation page)
-  confirmationUrl        — optional link to Palisis confirmation page
-  status                 — "confirmed", "pending", "failed"
+Response: booking_id (TourCMS booking reference).
 
-Error cases to handle:
-  slot sold out between availability fetch and booking attempt → re-fetch + show updated slots
-  invalid slotId → show error + reset
-  payment required by Palisis → unclear, depends on whether Palisis handles payment or we do
-
-Action needed: confirm POST body schema, auth method, error response format, whether payment
-is handled on our side (Stripe) or redirected to Palisis.`,
+Still needed to complete T016:
+  — Public /api/book route that calls createBooking()
+  — /trip/[id] booking UI (date picker → time slot → guest form → confirm)
+  — Error handling: slot sold out between availability fetch and POST attempt
+  — Confirmation page at /booking/confirmation?ref={bookingId}`,
         },
         {
           label: "PALISIS — [6] Webhook: inbound events  |  Route: /api/webhooks/palisis (already built)",
@@ -984,21 +1020,22 @@ is handled on our side (Stripe) or redirected to Palisis.`,
   booking.confirmed      → logged only (no business logic yet)
   booking.cancelled      → logged only (no business logic yet)
 
-What we still need Palisis to confirm:
-  1. Exact event type names (are they "product.updated" or "catalog.changed"? "availability.updated" or different?)
-  2. Webhook payload schema — what fields does each event type send?
+TourCMS sends webhooks when catalog or booking events occur. To receive them:
+  1. Register our URL in TourCMS → Configuration & Setup → Webhooks
+  2. Set a shared secret (stored as PALISIS_WEBHOOK_SECRET env var)
+
+What still needs confirming with TourCMS:
+  1. Exact event type names used in their webhook payloads
+  2. Webhook payload schema per event type
   3. Signature method — current code checks x-palisis-secret header (plain string).
-     If Palisis uses HMAC-SHA256, we need to update verification logic.
-  4. How to register our webhook URL with Palisis (dashboard setting or API call?).
+     Update to HMAC-SHA256 if that's what TourCMS uses.
 
 Webhook URL to register: https://{your-domain}/api/webhooks/palisis
-Secret env var: PALISIS_WEBHOOK_SECRET (already read from process.env in code).
-
-Action needed: provide event type names, payload schemas, signature method, registration process.`,
+Secret env var: PALISIS_WEBHOOK_SECRET (already read in code).`,
         },
         {
-          label: "PALISIS — [7] Key Storage & Auth Method  |  Used by: all Palisis routes",
-          status: "pending",
+          label: "PALISIS — [7] Key Storage & Auth Method  |  RESOLVED ✓",
+          status: "done",
           detail: `Currently the Palisis API key is stored in the integrations DB table (key: 'palisis') and in
 process.env.PALISIS_API_KEY (fallback). All server-side Palisis calls read from dbGetSettings().apiKeys.palisis.
 
@@ -1007,10 +1044,18 @@ Auth method is UNKNOWN — currently assumed to be either:
   Option B: Header       — X-Api-Key: {key}  (used in commented-out import route)
   Option C: Bearer token — Authorization: Bearer {token}
 
-Action needed: confirm auth method. If it's a Bearer token with expiry, we also need a token-refresh flow.
+Auth method: HMAC-SHA256 (no Bearer token, no expiry, no refresh flow needed).
+Credential fields stored in DB integrations table:
+  palisis            → TourCMS API key (private signing key)
+  palisisChannelId   → numeric Channel ID (found in TourCMS → Configuration & Setup → API)
+  palisisMarketplaceId → 0 for Tour Operators (leave empty/0 unless you are a Marketplace Agent)
 
-Base URL: also unknown — current code uses settings.apiKeys.palisis as the base URL itself (not a separate key).
-Clarify: is the stored key the API key only, or the full base URL + key combined?`,
+Credential loading priority (lib/tourcms.ts → getTourCMSConfig()):
+  1. TOURCMS_API_KEY + TOURCMS_CHANNEL_ID env vars (add in Replit Secrets)
+  2. DB integrations table (palisis + palisisChannelId keys)
+  5-min in-memory cache; call clearTourCMSConfigCache() after updating credentials in DB.
+
+Base URL: https://api.tourcms.com (hardcoded in lib/tourcms.ts — no need to store it).`,
         },
         // ── OPENWEATHERMAP ────────────────────────────────────────────────────
         {
