@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListIntegrations, dbUpsertIntegration, dbGetIntegration } from "@/lib/db/queries"
+import { clearTourCMSConfigCache } from "@/lib/tourcms"
 
 export const dynamic = "force-dynamic"
 
@@ -29,6 +30,10 @@ export async function PATCH(req: Request) {
         item.value ?? ""
       )
     }
+
+    // Clear the TourCMS credential cache so new keys take effect immediately
+    const hasPalisis = items.some(i => ["palisis", "palisisChannelId", "palisisMarketplaceId"].includes(i.key))
+    if (hasPalisis) clearTourCMSConfigCache()
 
     revalidatePath("/admin/integrations")
     return NextResponse.json({ ok: true })

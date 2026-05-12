@@ -11,6 +11,8 @@ interface ApiKeyField {
   hint: string
   docsUrl?: string
   testable?: boolean
+  secret?: boolean
+  inputType?: "text" | "number"
 }
 
 const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyField[] }[] = [
@@ -26,6 +28,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         hint: "Used to show live weather on the hero section and trip planner. Get a free key at openweathermap.org.",
         docsUrl: "https://openweathermap.org/api",
         testable: true,
+        secret: true,
       },
     ],
   },
@@ -41,6 +44,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         hint: "Used for the sightseeing map widget. Set NEXT_PUBLIC_MAPBOX_TOKEN in Vercel env vars for client-side access.",
         docsUrl: "https://docs.mapbox.com/api/overview/",
         testable: false,
+        secret: true,
       },
     ],
   },
@@ -55,6 +59,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         placeholder: "sk-ant-…",
         hint: "Optional — the Vercel AI Gateway handles Anthropic by default. Only set if using a direct connection.",
         docsUrl: "https://console.anthropic.com/",
+        secret: true,
       },
       {
         key: "openai",
@@ -62,21 +67,39 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         placeholder: "sk-…",
         hint: "Optional — the Vercel AI Gateway handles OpenAI by default.",
         docsUrl: "https://platform.openai.com/api-keys",
+        secret: true,
       },
     ],
   },
   {
     id: "palisis",
-    title: "Palisis Booking",
+    title: "Palisis / TourCMS",
     icon: RefreshCw,
     fields: [
       {
         key: "palisis",
         label: "API Key",
-        placeholder: "pal_live_…",
-        hint: "Used for importing trips and syncing availability from the Palisis booking engine.",
-        docsUrl: "https://palisis.com",
+        placeholder: "e.g. abcdef123456789",
+        hint: "Your TourCMS private API key — found in TourCMS → Configuration → API Settings.",
+        docsUrl: "https://www.tourcms.com/support/api/mp/",
         testable: true,
+        secret: true,
+      },
+      {
+        key: "palisisChannelId",
+        label: "Channel ID",
+        placeholder: "e.g. 3930",
+        hint: "Numeric channel ID from TourCMS → API Settings. Required for all API calls and the connectivity test.",
+        secret: false,
+        inputType: "number",
+      },
+      {
+        key: "palisisMarketplaceId",
+        label: "Marketplace ID",
+        placeholder: "e.g. 0  (use 0 if not a marketplace agent)",
+        hint: "Your marketplace agent ID — leave blank or 0 if you are accessing TourCMS as a Tour Operator directly.",
+        secret: false,
+        inputType: "number",
       },
     ],
   },
@@ -165,9 +188,12 @@ export default function IntegrationsPage() {
   async function testKey(fieldKey: string) {
     setTesting(fieldKey)
     try {
-      const res = await fetch(
-        `/api/admin/test-key?service=${encodeURIComponent(fieldKey)}&key=${encodeURIComponent(keys[fieldKey] ?? "")}`
-      )
+      let url = `/api/admin/test-key?service=${encodeURIComponent(fieldKey)}&key=${encodeURIComponent(keys[fieldKey] ?? "")}`
+      if (fieldKey === "palisis") {
+        if (keys.palisisChannelId) url += `&channelId=${encodeURIComponent(keys.palisisChannelId)}`
+        if (keys.palisisMarketplaceId) url += `&marketplaceId=${encodeURIComponent(keys.palisisMarketplaceId)}`
+      }
+      const res = await fetch(url)
       const data = (await res.json()) as { ok: boolean }
       setTestResult((p) => ({ ...p, [fieldKey]: data.ok ? "ok" : "fail" }))
     } catch {
@@ -232,13 +258,15 @@ export default function IntegrationsPage() {
               )}
             </div>
             <div className="space-y-5 p-5">
-              {section.fields.map((field) => (
+              {section.fields.map((field) => {
+                const isSecret = field.secret !== false
+                return (
                 <div key={field.key}>
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{field.label}</label>
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">
                       <input
-                        type={shown[field.key] ? "text" : "password"}
+                        type={isSecret ? (shown[field.key] ? "text" : "password") : "text"}
                         value={keys[field.key] ?? ""}
                         onChange={(e) => setKeys((k) => ({ ...k, [field.key]: e.target.value }))}
                         placeholder={field.placeholder}
@@ -247,6 +275,7 @@ export default function IntegrationsPage() {
                         spellCheck={false}
                       />
                     </div>
+                    {isSecret && (
                     <button
                       type="button"
                       onClick={() => setShown((p) => ({ ...p, [field.key]: !p[field.key] }))}
@@ -255,6 +284,7 @@ export default function IntegrationsPage() {
                     >
                       {shown[field.key] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
+                    )}
                     {field.testable && (
                       <button
                         type="button"
@@ -286,7 +316,7 @@ export default function IntegrationsPage() {
                   </div>
                   <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/60">{field.hint}</p>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         ))}

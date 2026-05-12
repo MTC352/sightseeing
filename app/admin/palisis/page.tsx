@@ -74,9 +74,10 @@ export default function PalisisPage() {
       <div className="mb-6 flex items-start gap-2 rounded-xl border border-border bg-secondary/40 px-4 py-3">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Currently using <strong className="text-foreground">mock data</strong> — configure your Palisis API key in{" "}
+          Trips are imported from TourCMS into our database and served from there — no live Palisis calls are made on the public site.
+          Configure your API key and Channel ID in{" "}
           <Link href="/admin/integrations" className="text-primary underline-offset-2 hover:underline">Integrations</Link>{" "}
-          to connect to the live catalog.
+          before running an import.
         </p>
       </div>
 

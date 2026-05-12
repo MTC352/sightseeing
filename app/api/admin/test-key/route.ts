@@ -31,28 +31,36 @@ export async function GET(req: Request) {
     }
 
     if (service === "palisis") {
-      // Use the real TourCMS HMAC-signed ping endpoint.
-      // The key param here is the API key; channel ID must come from env or DB.
-      // We build a temporary config using the provided key so the admin can test
-      // before saving — channel ID is read from env/DB as usual.
-      const channelId = process.env.TOURCMS_CHANNEL_ID
-        ? parseInt(process.env.TOURCMS_CHANNEL_ID, 10)
-        : NaN
+      // Accept channelId + marketplaceId from query params so the admin can test
+      // with what they've typed in the form before saving.
+      // Fall back to env vars if not provided.
+      const paramChannelId    = searchParams.get("channelId")
+      const paramMarketplaceId = searchParams.get("marketplaceId")
+
+      const channelId = paramChannelId
+        ? parseInt(paramChannelId, 10)
+        : process.env.TOURCMS_CHANNEL_ID
+          ? parseInt(process.env.TOURCMS_CHANNEL_ID, 10)
+          : NaN
+
+      const marketplaceId = paramMarketplaceId
+        ? parseInt(paramMarketplaceId, 10)
+        : process.env.TOURCMS_MARKETPLACE_ID
+          ? parseInt(process.env.TOURCMS_MARKETPLACE_ID, 10)
+          : 0
 
       if (isNaN(channelId)) {
-        // No channel ID configured yet — fall back to a basic HTTP check
-        // to confirm the key format is plausible (TourCMS keys are ~20 chars)
         return NextResponse.json({
-          ok: key.length >= 10,
+          ok: false,
           status: "CHANNEL_ID_MISSING",
           service: "palisis",
-          note: "Set TOURCMS_CHANNEL_ID in secrets to enable full connectivity test",
+          note: "Enter a Channel ID above and try again",
         })
       }
 
       const result = await pingTourCMS({
         channelId,
-        marketplaceId: parseInt(process.env.TOURCMS_MARKETPLACE_ID ?? "0", 10) || 0,
+        marketplaceId: isNaN(marketplaceId) ? 0 : marketplaceId,
         apiKey: key,
       })
 
