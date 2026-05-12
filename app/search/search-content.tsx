@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -11,22 +11,14 @@ import { useCart } from "@/lib/cart-context"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 import {
   Star, Clock, MapPin, SlidersHorizontal, CalendarDays, X,
-  ChevronRight, Sparkles, Check, Plus, Sun, LayoutGrid, List,
+  ChevronRight, Sparkles, Check, Plus, Sun, LayoutGrid, List, ArrowRight,
 } from "lucide-react"
 import { DateTimeModal } from "@/components/date-time-modal"
 
 interface Filters {
-  priceMin: number
-  priceMax: number
-  ratingMin: number
-  durationMax: number
-  persons: number
-  locationAddress: string
-  locationRadius: number
-  dateFrom: string
-  dateTo: string
-  timeFrom: string
-  timeTo: string
+  priceMin: number; priceMax: number; ratingMin: number; durationMax: number
+  persons: number; locationAddress: string; locationRadius: number
+  dateFrom: string; dateTo: string; timeFrom: string; timeTo: string
 }
 const DEFAULT_FILTERS: Filters = {
   priceMin: 0, priceMax: 500, ratingMin: 0, durationMax: 24, persons: 1,
@@ -37,7 +29,9 @@ interface Timeslot { time: string; spotsLeft: number; spotsTotal: number }
 interface TripAvailability { today: Timeslot[]; tomorrow: Timeslot[] }
 type AvailabilityMap = Record<string, TripAvailability>
 
-/* Deterministic fallback — same hash logic used before, only shown if API hasn't loaded yet */
+const MAX_SLOTS_SHOWN = 4
+
+/* Deterministic fallback for when the API hasn't loaded yet */
 function getDummyDepartures(tripId: string): TripAvailability {
   const hash  = tripId.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
   const times = ["09:00", "10:30", "11:00", "13:00", "14:30", "15:00", "16:30", "18:00", "19:30"]
@@ -57,10 +51,15 @@ function getDummyDepartures(tripId: string): TripAvailability {
   }
 }
 
+function formatDate(iso: string) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "short", day: "numeric", month: "short",
+  })
+}
+
 /* ── Filter modal ── */
 function FilterModal({ open, onClose, filters, onChange }: {
-  open: boolean; onClose: () => void
-  filters: Filters; onChange: (f: Filters) => void
+  open: boolean; onClose: () => void; filters: Filters; onChange: (f: Filters) => void
 }) {
   const [local, setLocal] = useState<Filters>(filters)
   if (!open) return null
@@ -116,7 +115,9 @@ function TimeslotChip({ slot }: { slot: Timeslot }) {
     <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${colorClass}`}>
       <span className="font-semibold">{slot.time}</span>
       <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
-      <span className="text-[11px]">{slot.spotsLeft === 0 ? "Sold out" : slot.spotsLeft >= 99 ? "Available" : `${slot.spotsLeft} left`}</span>
+      <span className="text-[11px]">
+        {slot.spotsLeft === 0 ? "Sold out" : slot.spotsLeft >= 99 ? "Available" : `${slot.spotsLeft} left`}
+      </span>
     </div>
   )
 }
@@ -124,7 +125,7 @@ function TimeslotChip({ slot }: { slot: Timeslot }) {
 /* ── Grid card ── */
 function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean }) {
   const { addItem, isInCart } = useCart()
-  const inCart     = isInCart(trip.id)
+  const inCart      = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
   return (
     <Link href={`/trip/${trip.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
@@ -163,20 +164,55 @@ function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean
   )
 }
 
+/* ── Slot row (label + up-to-4 chips + optional "see all" link) ── */
+function SlotRow({ label, slots, tripId }: { label: string; slots: Timeslot[]; tripId: string }) {
+  const visible = slots.slice(0, MAX_SLOTS_SHOWN)
+  const overflow = slots.length - MAX_SLOTS_SHOWN
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-20 shrink-0 text-xs font-semibold text-foreground">{label}</span>
+      <div className="flex flex-wrap gap-2">
+        {visible.map((s, i) => <TimeslotChip key={i} slot={s} />)}
+        {overflow > 0 && (
+          <Link
+            href={`/trip/${tripId}#booking`}
+            className="flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+          >
+            +{overflow} more <ArrowRight className="h-3 w-3" />
+          </Link>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /* ── List card ── */
 function SearchListCard({
   trip,
   priority = false,
   availability,
+  dateFilter,
 }: {
   trip: Trip
   priority?: boolean
   availability: AvailabilityMap
+  dateFilter: { date: string; timeFrom: string; timeTo: string } | null
 }) {
   const { addItem, isInCart } = useCart()
-  const inCart     = isInCart(trip.id)
+  const inCart      = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
   const departures  = availability[trip.id] ?? getDummyDepartures(trip.id)
+
+  // Build labeled slot rows depending on filter mode
+  const slotRows: { label: string; slots: Timeslot[] }[] = []
+  if (dateFilter?.date) {
+    // Date filter active → show only the selected date's slots
+    if (departures.today.length > 0)
+      slotRows.push({ label: formatDate(dateFilter.date), slots: departures.today })
+  } else {
+    if (departures.today.length > 0)    slotRows.push({ label: "Today",    slots: departures.today })
+    if (departures.tomorrow.length > 0) slotRows.push({ label: "Tomorrow", slots: departures.tomorrow })
+  }
 
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md sm:flex-row">
@@ -201,6 +237,7 @@ function SearchListCard({
           {inCart ? <><Check className="h-3 w-3" />Added</> : <><Plus className="h-3 w-3" />Add to Triplist</>}
         </button>
       </div>
+
       <div className="flex flex-1 flex-col p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
@@ -209,7 +246,11 @@ function SearchListCard({
               <h3 className="mt-0.5 text-base font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">{trip.title}</h3>
             </Link>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1"><Star className="h-3 w-3 fill-amber-400 text-amber-400" /><span className="font-semibold text-foreground">{trip.rating}</span><span>({trip.reviewCount.toLocaleString()})</span></span>
+              <span className="flex items-center gap-1">
+                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                <span className="font-semibold text-foreground">{trip.rating}</span>
+                <span>({trip.reviewCount.toLocaleString()})</span>
+              </span>
               <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{trip.duration}</span>
               {trip.city && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{trip.city}</span>}
             </div>
@@ -220,22 +261,16 @@ function SearchListCard({
             <p className="text-[10px] text-muted-foreground">per person</p>
           </div>
         </div>
-        {(departures.today.length > 0 || departures.tomorrow.length > 0) && (
+
+        {slotRows.length > 0 && (
           <div className="mt-4 border-t border-border pt-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Available Timeslots</p>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {dateFilter?.date ? "Departures" : "Available Timeslots"}
+            </p>
             <div className="flex flex-col gap-3">
-              {departures.today.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-20 shrink-0 text-xs font-semibold text-foreground">Today</span>
-                  <div className="flex flex-wrap gap-2">{departures.today.map((s, i) => <TimeslotChip key={i} slot={s} />)}</div>
-                </div>
-              )}
-              {departures.tomorrow.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="w-20 shrink-0 text-xs font-semibold text-foreground">Tomorrow</span>
-                  <div className="flex flex-wrap gap-2">{departures.tomorrow.map((s, i) => <TimeslotChip key={i} slot={s} />)}</div>
-                </div>
-              )}
+              {slotRows.map(({ label, slots }) => (
+                <SlotRow key={label} label={label} slots={slots} tripId={trip.id} />
+              ))}
             </div>
           </div>
         )}
@@ -255,27 +290,46 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
   const [activeFilters, setActiveFilters]   = useState<Filters>(DEFAULT_FILTERS)
   const [viewMode, setViewMode]             = useState<"grid" | "list">("list")
   const [availability, setAvailability]     = useState<AvailabilityMap>({})
+  const [availLoading, setAvailLoading]     = useState(false)
 
-  /* Fetch real availability once on mount */
+  /* Re-fetch availability whenever the date/time filter changes */
+  const fetchAvailability = useCallback(
+    (filters: Filters) => {
+      const params = new URLSearchParams()
+      if (filters.dateFrom) params.set("date",     filters.dateFrom)
+      if (filters.timeFrom) params.set("timeFrom", filters.timeFrom)
+      if (filters.timeTo)   params.set("timeTo",   filters.timeTo)
+      setAvailLoading(true)
+      fetch(`/api/availability?${params}`)
+        .then((r) => r.ok ? r.json() : {})
+        .then((data: AvailabilityMap) => setAvailability(data))
+        .catch(() => {})
+        .finally(() => setAvailLoading(false))
+    },
+    [],
+  )
+
+  /* Initial load */
+  useEffect(() => { fetchAvailability(activeFilters) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Re-fetch when date/time filter changes */
   useEffect(() => {
-    fetch("/api/availability")
-      .then((r) => r.ok ? r.json() : {})
-      .then((data: AvailabilityMap) => setAvailability(data))
-      .catch(() => { /* keep empty — cards fall back to dummy */ })
-  }, [])
+    fetchAvailability(activeFilters)
+  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, fetchAvailability])
 
   /* Derive category pills from actual DB trips */
   const categories = useMemo(() => {
     const seen = new Set<string>()
-    const out: string[] = []
-    for (const t of initialTrips) {
-      if (t.category && !seen.has(t.category)) {
-        seen.add(t.category)
-        out.push(t.category)
-      }
-    }
-    return out.sort()
+    return initialTrips
+      .map((t) => t.category)
+      .filter((c) => { if (!c || seen.has(c)) return false; seen.add(c); return true })
+      .sort()
   }, [initialTrips])
+
+  const dateFilterActive = activeFilters.dateFrom !== ""
+  const dateFilter = dateFilterActive
+    ? { date: activeFilters.dateFrom, timeFrom: activeFilters.timeFrom, timeTo: activeFilters.timeTo }
+    : null
 
   const activeFilterCount = [
     activeFilters.priceMin > 0 || activeFilters.priceMax < 500,
@@ -298,6 +352,7 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     return [datePart, timePart].filter(Boolean).join(" · ")
   })()
 
+  /* Keyword + UI filter */
   const keywordMatched = useMemo(() => {
     if (!query.trim()) return initialTrips
     const kws = query.toLowerCase().split(/\s+/).filter(Boolean)
@@ -307,17 +362,30 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     })
   }, [query, initialTrips])
 
-  const filtered = keywordMatched.filter((t) => {
-    if (activeCategory && t.category !== activeCategory) return false
-    if (t.price < activeFilters.priceMin || t.price > activeFilters.priceMax) return false
-    if (t.rating < activeFilters.ratingMin) return false
-    if (activeFilters.locationAddress &&
-      !t.title.toLowerCase().includes(activeFilters.locationAddress.toLowerCase()) &&
-      !t.category.toLowerCase().includes(activeFilters.locationAddress.toLowerCase())) return false
-    const dHours = parseFloat(t.duration?.replace(/[^\d.]/g, "") || "99")
-    if (activeFilters.durationMax < 24 && dHours > activeFilters.durationMax) return false
-    return true
-  })
+  const filtered = useMemo(() => {
+    let result = keywordMatched.filter((t) => {
+      if (activeCategory && t.category !== activeCategory) return false
+      if (t.price < activeFilters.priceMin || t.price > activeFilters.priceMax) return false
+      if (t.rating < activeFilters.ratingMin) return false
+      if (activeFilters.locationAddress &&
+        !t.title.toLowerCase().includes(activeFilters.locationAddress.toLowerCase()) &&
+        !t.category.toLowerCase().includes(activeFilters.locationAddress.toLowerCase())) return false
+      const dHours = parseFloat(t.duration?.replace(/[^\d.]/g, "") || "99")
+      if (activeFilters.durationMax < 24 && dHours > activeFilters.durationMax) return false
+      return true
+    })
+
+    // When a date filter is active (and availability has loaded), only show trips
+    // that have at least one departure slot on that date in the given time range
+    if (dateFilterActive && !availLoading && Object.keys(availability).length > 0) {
+      result = result.filter((t) => (availability[t.id]?.today?.length ?? 0) > 0)
+    }
+
+    return result
+  }, [keywordMatched, activeCategory, activeFilters, dateFilterActive, availability, availLoading])
+
+  const clearDate = () =>
+    setActiveFilters((p) => ({ ...p, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "" }))
 
   return (
     <div className="min-h-screen bg-background font-sans">
@@ -357,8 +425,8 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
                 {datePillLabel}
                 {hasDate && (
                   <span role="button" tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); setActiveFilters((p) => ({ ...p, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "" })) }}
-                    onKeyDown={(e) => e.key === "Enter" && setActiveFilters((p) => ({ ...p, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "" }))}
+                    onClick={(e) => { e.stopPropagation(); clearDate() }}
+                    onKeyDown={(e) => e.key === "Enter" && clearDate()}
                     className="ml-0.5 rounded-full p-0.5 hover:bg-background/20" aria-label="Clear dates">
                     <X className="h-3 w-3" />
                   </span>
@@ -393,12 +461,22 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
           <div>
             {query && (
               <p className="mb-0.5 text-xs text-muted-foreground">
-                Search results for <span className="font-semibold text-foreground">&quot;{query}&quot;</span>
+                Results for <span className="font-semibold text-foreground">&quot;{query}&quot;</span>
+              </p>
+            )}
+            {dateFilterActive && (
+              <p className="mb-0.5 text-xs text-muted-foreground">
+                Departures on <span className="font-semibold text-foreground">{formatDate(activeFilters.dateFrom)}</span>
+                {activeFilters.timeFrom && (
+                  <> · <span className="font-semibold text-foreground">{activeFilters.timeFrom}{activeFilters.timeTo ? `–${activeFilters.timeTo}` : ""}</span></>
+                )}
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{filtered.length}</span> experience{filtered.length !== 1 ? "s" : ""}
-              {activeCategory ? ` in ${activeCategory}` : " in Luxembourg"}
+              {availLoading && dateFilterActive
+                ? <span className="italic">Checking availability…</span>
+                : <><span className="font-semibold text-foreground">{filtered.length}</span> experience{filtered.length !== 1 ? "s" : ""}{activeCategory ? ` in ${activeCategory}` : " in Luxembourg"}</>
+              }
             </p>
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
@@ -417,11 +495,23 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
           </div>
         </div>
 
-        {filtered.length === 0 ? (
+        {filtered.length === 0 && !availLoading ? (
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <Sparkles className="h-10 w-10 text-muted-foreground/40" />
-            <p className="font-semibold text-foreground">No experiences found{query ? ` for "${query}"` : ""}</p>
-            <p className="text-sm text-muted-foreground">Try different keywords or adjust your filters.</p>
+            <p className="font-semibold text-foreground">
+              {dateFilterActive
+                ? `No departures found for ${formatDate(activeFilters.dateFrom)}${activeFilters.timeFrom ? ` between ${activeFilters.timeFrom}${activeFilters.timeTo ? `–${activeFilters.timeTo}` : ""}` : ""}`
+                : `No experiences found${query ? ` for "${query}"` : ""}`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {dateFilterActive ? "Try a different date or time window." : "Try different keywords or adjust your filters."}
+            </p>
+            {dateFilterActive && (
+              <button type="button" onClick={clearDate}
+                className="mt-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary">
+                Clear date filter
+              </button>
+            )}
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
@@ -430,7 +520,13 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
         ) : (
           <div className="flex flex-col gap-4">
             {filtered.map((t, i) => (
-              <SearchListCard key={t.id} trip={t} priority={i < 4} availability={availability} />
+              <SearchListCard
+                key={t.id}
+                trip={t}
+                priority={i < 4}
+                availability={availability}
+                dateFilter={dateFilter}
+              />
             ))}
           </div>
         )}

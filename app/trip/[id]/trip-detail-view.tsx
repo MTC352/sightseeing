@@ -347,7 +347,9 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
 
               {/* TourCMS / Palisis booking form — memoized to prevent re-mount on parent re-renders */}
               {trip.permalink ? (
-                <BookingIframe src={trip.permalink} title={`Book ${trip.title}`} />
+                <div id="booking">
+                  <BookingIframe src={trip.permalink} title={`Book ${trip.title}`} />
+                </div>
               ) : null}
 
               {/* Live weather */}
