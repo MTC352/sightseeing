@@ -220,6 +220,29 @@ function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean
   )
 }
 
+/* ── Timeslot skeleton (shown while availability is loading) ── */
+function TimeslotSkeleton() {
+  return (
+    <div className="mt-4 border-t border-border pt-4">
+      {/* label */}
+      <div className="mb-2 h-3 w-28 animate-pulse rounded bg-muted" />
+      {/* chips row */}
+      <div className="flex items-center gap-2">
+        <div className="h-4 w-16 animate-pulse rounded bg-muted" />
+        <div className="flex gap-2">
+          {[72, 64, 68].map((w, i) => (
+            <div
+              key={i}
+              className="h-8 animate-pulse rounded-lg bg-muted"
+              style={{ width: w }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Slot row: label + up-to-4 chips filtered by person count + optional "see all" link ── */
 function SlotRow({
   label, slots, tripId, persons,
@@ -250,35 +273,36 @@ function SlotRow({
 
 /* ── List card ── */
 function SearchListCard({
-  trip, priority = false, availability, dateFilter, persons,
+  trip, priority = false, availability, dateFilter, persons, isLoading,
 }: {
   trip: Trip
   priority?: boolean
   availability: AvailabilityMap
   dateFilter: { date: string; timeFrom: string; timeTo: string } | null
   persons: number
+  isLoading: boolean
 }) {
   const { addItem, isInCart } = useCart()
   const inCart      = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
-  const departures  = availability[trip.id] ?? getDummyDepartures(trip.id)
+  // Show skeleton while this trip's data hasn't arrived yet
+  const tripAvail   = availability[trip.id]
+  const showSkeleton = isLoading && !tripAvail
+  const departures  = tripAvail ?? getDummyDepartures(trip.id)
 
   // Build labeled slot rows: when date filter active show ONLY that date; otherwise today/tomorrow
-  const now          = new Date()
-  const todayLabel   = formatDate(now.toISOString().split("T")[0])
+  const now           = new Date()
+  const todayLabel    = formatDate(now.toISOString().split("T")[0])
   const tomorrowLabel = formatDate(new Date(now.getTime() + 86_400_000).toISOString().split("T")[0])
 
   const slotRows: { label: string; slots: Timeslot[] }[] = []
   if (dateFilter?.date) {
-    // Date filter active → show ONLY slots for the selected date
     slotRows.push({ label: formatDate(dateFilter.date), slots: departures.today })
   } else {
-    // No date filter → show today and tomorrow with actual calendar dates (not relative labels)
     if (departures.today.length > 0)    slotRows.push({ label: todayLabel,    slots: departures.today })
     if (departures.tomorrow.length > 0) slotRows.push({ label: tomorrowLabel, slots: departures.tomorrow })
   }
 
-  // Check if at least one row has a slot satisfying person count
   const hasEligibleSlots = slotRows.some(({ slots }) =>
     slots.some((s) => slotFitsPersons(s, persons))
   )
@@ -331,7 +355,9 @@ function SearchListCard({
           </div>
         </div>
 
-        {hasEligibleSlots && (
+        {showSkeleton ? (
+          <TimeslotSkeleton />
+        ) : hasEligibleSlots ? (
           <div className="mt-4 border-t border-border pt-4">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {dateFilter?.date ? "Departures" : "Available Timeslots"}
@@ -342,7 +368,7 @@ function SearchListCard({
               ))}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )
@@ -683,6 +709,7 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
                 availability={availability}
                 dateFilter={dateFilter}
                 persons={persons}
+                isLoading={availLoading}
               />
             ))}
           </div>
