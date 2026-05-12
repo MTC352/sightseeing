@@ -8,10 +8,13 @@ export const dynamic = "force-dynamic"
 
 export default async function AdminTripsPage() {
   const trips = await dbListTrips() as {
-    id: string; title: string; city: string; category: string; price: number;
+    id: string; palisis_id: string | null; title: string; city: string; category: string; price: number;
     originalPrice: number | null; image: string; featured: boolean;
     featuredDeparture: boolean; status: string;
   }[]
+
+  const palisisCount = trips.filter(t => t.id.startsWith("tcms_")).length
+  const manualCount  = trips.length - palisisCount
 
   return (
     <div className="p-6 lg:p-10">
@@ -20,7 +23,15 @@ export default async function AdminTripsPage() {
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Content</p>
           <h1 className="mt-1 text-2xl font-bold text-foreground">Trips</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">{trips.length} total trips in the catalogue</p>
+          <div className="mt-1 flex items-center gap-2">
+            <p className="text-sm text-muted-foreground">{trips.length} total</p>
+            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold bg-blue-500/12 text-blue-600 ring-1 ring-inset ring-blue-500/20">
+              {palisisCount} Palisis
+            </span>
+            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold bg-slate-500/10 text-slate-500 ring-1 ring-inset ring-slate-500/20">
+              {manualCount} Manual
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -58,7 +69,18 @@ export default async function AdminTripsPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="truncate font-medium text-foreground max-w-[220px]">{trip.title}</p>
-                        <p className="text-xs text-muted-foreground">{trip.city}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <p className="text-xs text-muted-foreground">{trip.city}</p>
+                          {trip.id.startsWith("tcms_") ? (
+                            <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-blue-500/12 text-blue-600 ring-1 ring-inset ring-blue-500/20">
+                              Palisis
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-slate-400/10 text-slate-500 ring-1 ring-inset ring-slate-400/20">
+                              Manual
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
