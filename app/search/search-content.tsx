@@ -264,12 +264,18 @@ function SearchListCard({
   const departures  = availability[trip.id] ?? getDummyDepartures(trip.id)
 
   // Build labeled slot rows: when date filter active show ONLY that date; otherwise today/tomorrow
+  const now          = new Date()
+  const todayLabel   = formatDate(now.toISOString().split("T")[0])
+  const tomorrowLabel = formatDate(new Date(now.getTime() + 86_400_000).toISOString().split("T")[0])
+
   const slotRows: { label: string; slots: Timeslot[] }[] = []
   if (dateFilter?.date) {
+    // Date filter active → show ONLY slots for the selected date
     slotRows.push({ label: formatDate(dateFilter.date), slots: departures.today })
   } else {
-    if (departures.today.length > 0)    slotRows.push({ label: "Today",    slots: departures.today })
-    if (departures.tomorrow.length > 0) slotRows.push({ label: "Tomorrow", slots: departures.tomorrow })
+    // No date filter → show today and tomorrow with actual calendar dates (not relative labels)
+    if (departures.today.length > 0)    slotRows.push({ label: todayLabel,    slots: departures.today })
+    if (departures.tomorrow.length > 0) slotRows.push({ label: tomorrowLabel, slots: departures.tomorrow })
   }
 
   // Check if at least one row has a slot satisfying person count
