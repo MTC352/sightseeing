@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, memo } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -17,6 +17,28 @@ import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingB
 import { useWeather } from "@/hooks/use-weather"
 
 const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
+
+/**
+ * Memoized so that parent re-renders (weather loading, cart updates, gallery
+ * index changes) never unmount/remount the iframe — which would reset the
+ * TourCMS booking widget's internal state (person count, selected date, etc.).
+ * React will only recreate the iframe if `src` actually changes.
+ */
+const BookingIframe = memo(function BookingIframe({ src, title }: { src: string; title: string }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className="booking-iframe-wrap">
+        <iframe
+          src={src}
+          title={title}
+          className="booking-iframe"
+          allow="payment"
+          loading="lazy"
+        />
+      </div>
+    </div>
+  )
+})
 
 export default function TripDetailClient({ id, trip: serverTrip }: { id: string; trip: Trip | null }) {
   const trip = serverTrip ?? getTripById(id)
@@ -323,19 +345,9 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
                 </button>
               </div>
 
-              {/* TourCMS / Palisis booking form */}
+              {/* TourCMS / Palisis booking form — memoized to prevent re-mount on parent re-renders */}
               {trip.permalink ? (
-                <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-                  <div className="booking-iframe-wrap">
-                    <iframe
-                      src={trip.permalink}
-                      title={`Book ${trip.title}`}
-                      className="booking-iframe"
-                      allow="payment"
-                      loading="lazy"
-                    />
-                  </div>
-                </div>
+                <BookingIframe src={trip.permalink} title={`Book ${trip.title}`} />
               ) : null}
 
               {/* Live weather */}
