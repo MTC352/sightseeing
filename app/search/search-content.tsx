@@ -416,17 +416,26 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     router.replace(`/search?${params.toString()}`, { scroll: false })
   }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Fetch availability; re-fires when date/time filter changes */
+  /* Fetch availability; re-fires when date/time filter changes.
+     AbortController cancels any in-flight request so a slow "no-date" fetch
+     can never overwrite a faster "date-specific" fetch (avoids blank results). */
+  const abortRef = useRef<AbortController | null>(null)
+
   const fetchAvailability = useCallback((filters: Filters) => {
+    // Cancel previous in-flight request
+    if (abortRef.current) abortRef.current.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+
     const params = new URLSearchParams()
     if (filters.dateFrom) params.set("date",     filters.dateFrom)
     if (filters.timeFrom) params.set("timeFrom", filters.timeFrom)
     if (filters.timeTo)   params.set("timeTo",   filters.timeTo)
     setAvailLoading(true)
-    fetch(`/api/availability?${params}`)
+    fetch(`/api/availability?${params}`, { signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : {})
-      .then((data: AvailabilityMap) => setAvailability(data))
-      .catch(() => {})
+      .then((data: AvailabilityMap) => { setAvailability(data); abortRef.current = null })
+      .catch((err) => { if (err?.name !== "AbortError") console.error(err) })
       .finally(() => setAvailLoading(false))
   }, [])
 

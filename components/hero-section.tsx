@@ -33,7 +33,7 @@ export function HeroSection() {
     if (dateTime.date) params.set("date", dateTime.date)
     if (dateTime.timeFrom) params.set("timeFrom", dateTime.timeFrom)
     if (dateTime.timeTo) params.set("timeTo", dateTime.timeTo)
-    if (persons !== 2) params.set("persons", String(persons))
+    if (persons > 1) params.set("persons", String(persons))
     router.push(`/search?${params.toString()}`)
   }
 
