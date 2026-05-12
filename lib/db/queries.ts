@@ -31,6 +31,14 @@ export async function dbGetTrip(id: string) {
 }
 
 export async function dbCreateTrip(data: Record<string, unknown>) {
+  // palisisId = TourCMS tour_id (external identity). id = our internal PK.
+  // For seed data from lib/data.ts, callers pass `id` only and we use it for both
+  // (preserves the legacy id==palisis_id contract for static seed trips).
+  // For TourCMS imports, callers pass `palisisId` separately and we generate a
+  // fresh id so two tours imported in the same millisecond cannot collide.
+  const palisisId = (data.palisisId ?? data.id) as string | undefined
+  const tripId    = (data.id as string | undefined)
+                 ?? (palisisId ? `tcms_${palisisId}` : `t_${Date.now()}_${Math.random().toString(36).slice(2,8)}`)
   const rows = await query(`
     INSERT INTO trips (id, palisis_id, title, description, price, original_price, duration, category,
       tags, city, provider, image, gallery, highlights, badge, rating, review_count,
@@ -38,7 +46,7 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
     RETURNING *
   `, [
-    data.id ?? String(Date.now()), data.id ?? String(Date.now()),
+    tripId, palisisId ?? tripId,
     data.title, data.description, data.price, data.originalPrice ?? null,
     data.duration, data.category, data.tags ?? [], data.city ?? 'Luxembourg',
     data.provider ?? null, data.image ?? null, data.gallery ?? null,

@@ -404,7 +404,92 @@ Use to verify credentials and read channel branding.
 
 ---
 
-## 9. Two-Stage Availability UI Pattern (Summary)
+## 9. Trip Detail Page — Timeslots with Availability ⭐
+
+> **Question**: "On `/trip/[id]` we want to show timeslots with availability. Which endpoint?"
+> **Answer**: A single endpoint — **Check Availability** (`/c/tour/datesprices/checkavail.xml`).
+> No combined endpoint or custom multi-call helper is needed for the timeslot list itself.
+
+### When to call which endpoint on the trip detail page
+
+| User action | Endpoint to call | Cache | Why |
+|---|---|---|---|
+| Page loads, calendar shown | **Dates & Deals** (§6.1) with `distinct_start_dates=1` for the visible month | 30 min | Lightweight — tells the calendar which dates to enable/grey-out |
+| User clicks a date | **Check Availability** (§6.2) with that date + quantities | **NEVER** | Returns the actual timeslot buttons, with `component_key` and live `spaces_remaining` |
+| User changes quantity (e.g. 2 → 3 adults) | Re-call **Check Availability** | **NEVER** | Price and availability depend on quantity |
+| User clicks a timeslot to book | Send the slot's `component_key` to our `/api/book` route | n/a | Triggers Start New Booking |
+
+### Concrete shape of the trip page
+
+```
+┌─────────────────────────────────────────┐
+│ Trip Title                              │
+│ Description, images...                  │
+│                                         │
+│ [Calendar widget]   ← Dates & Deals     │
+│  M T W T F S S                          │
+│  · · · · · 5 6      ← 5/6 enabled       │
+│  7 8 9 . . . .       (others greyed)    │
+│                                         │
+│ Selected date: Sat 6 Jul                │
+│ Quantity: [2 adults v] [0 child v]      │
+│                                         │
+│ Available timeslots:  ← Check Avail     │
+│  ┌──────┐ ┌──────┐ ┌──────┐             │
+│  │09:00 │ │14:00 │ │19:00 │             │
+│  │ €45  │ │ €45  │ │ €60  │             │
+│  │8 left│ │1 left│ │ FULL │             │
+│  └──────┘ └──────┘ └──────┘             │
+│  ↑ each one is a <component>            │
+│    with component_key + total_price     │
+└─────────────────────────────────────────┘
+```
+
+### Why no "combined" endpoint is needed
+
+TourCMS's `checkavail` already returns everything for one date in one call:
+- Multiple `<component>` entries = multiple timeslots
+- Each component has its own `start_time`, `total_price_display`, `spaces_remaining`, `component_key`
+- Sort the components by `start_time_utcseconds` to display them in order
+
+The only reason to make a "custom" combined function would be to fetch slots for **multiple dates at once** (e.g. show today + tomorrow + next 5 days on the search page). For that, call `checkavail` once per date in parallel — TourCMS does not have a single endpoint that returns multi-date timeslot lists.
+
+### Helper available in `lib/tourcms.ts`
+
+```ts
+const tourcms = await getTourCMSClient()
+
+// One date, one call:
+const { components } = await tourcms.checkAvailability(tourId, {
+  date: "2026-07-06",
+  r1: 2,                  // 2 of rate_id=1 (e.g. adults)
+  r2: 1,                  // 1 of rate_id=2 (e.g. child)
+})
+
+// Each `component` is one timeslot — render directly:
+components
+  .sort((a, b) => Number(a.start_time_utcseconds) - Number(b.start_time_utcseconds))
+  .map(c => ({
+    label:           c.start_time,
+    price:           c.total_price_display,
+    spaces:          c.spaces_remaining,             // can be "UNLIMITED"
+    isFull:          c.spaces_remaining === "0",
+    bookingKey:      c.component_key,                // pass to /api/book
+    expiresInSec:    /* component_key_valid_for from response root */,
+  }))
+```
+
+For the multi-date search page, parallelize:
+```ts
+const dates = ["2026-07-06", "2026-07-07", "2026-07-08"]
+const results = await Promise.all(
+  dates.map(date => tourcms.checkAvailability(tourId, { date, r1: 2 }))
+)
+```
+
+---
+
+## 10. Two-Stage Availability UI Pattern (Summary)
 
 ```
 Stage 1: Customer picks a date from calendar
@@ -429,7 +514,7 @@ Stage 4: Booking confirmation page
 
 ---
 
-## 10. Webhook — Inbound from TourCMS
+## 11. Webhook — Inbound from TourCMS
 
 TourCMS can POST events to our endpoint when things change.
 

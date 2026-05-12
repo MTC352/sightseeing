@@ -3,6 +3,9 @@ import { getTourCMSClient } from "@/lib/tourcms"
 import type { TourDetail, TourSummary } from "@/lib/tourcms"
 import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips } from "@/lib/db/queries"
 
+// Type marker for the paginated accumulator (lets us write `typeof TOUR_LIST_TYPE`)
+const TOUR_LIST_TYPE = [] as TourSummary[]
+
 export const dynamic = "force-dynamic"
 
 // ── Field mapping: TourCMS Show Tour response → our trips DB schema ───────────
@@ -100,22 +103,30 @@ export async function POST(req: Request) {
     }, { status: 503 })
   }
 
-  // Step 1: Fetch lean tour list from /p/tours/list.xml (correct import endpoint)
-  // We omit per_page to use TourCMS default (75), which is fine for most accounts.
-  // Add per_page: 200 if needed for accounts with many tours.
-  const listResult = await tourcms.listTours()
-
-  if (!listResult.ok) {
-    return NextResponse.json({
-      ok: false,
-      error: `TourCMS list failed: ${listResult.error}`,
-      imported: 0,
-      skipped: 0,
-      total: 0,
-    }, { status: 502 })
+  // Step 1: Fetch lean tour list from /p/tours/list.xml (correct import endpoint).
+  // Paginate at per_page=200 (TourCMS max) so accounts with > 75 tours import fully.
+  const PER_PAGE = 200
+  const tourList: typeof TOUR_LIST_TYPE = []
+  let page = 1
+  while (true) {
+    const r = await tourcms.listTours({ per_page: PER_PAGE, page })
+    if (!r.ok) {
+      return NextResponse.json({
+        ok: false,
+        error: `TourCMS list failed (page ${page}): ${r.error}`,
+        imported: 0,
+        skipped: 0,
+        total: 0,
+      }, { status: 502 })
+    }
+    tourList.push(...r.tours)
+    // Stop when this page returned fewer than PER_PAGE OR we've covered total_tour_count.
+    if (r.tours.length < PER_PAGE) break
+    if (r.total_tour_count && tourList.length >= r.total_tour_count) break
+    page++
+    if (page > 50) break // hard safety cap (50 × 200 = 10 000 tours)
   }
 
-  const tourList  = listResult.tours
   const existing  = await dbListTrips() as Array<{
     id: string
     palisis_id?: string
@@ -138,11 +149,14 @@ export async function POST(req: Request) {
     if (!palisisId) { skipped++; continue }
 
     const localTrip = byPalisis.get(palisisId)
+    // Always pass the tour's own channel_id from /p/tours/list — it can differ
+    // from our default channel for cross-channel marketplace agents.
+    const tourChannelId = Number(lean.channel_id) || undefined
 
     try {
       if (!localTrip) {
         // ── New tour: fetch full detail then create in DB ──────────────────
-        const detail = await tourcms.showTour(String(lean.tour_id), { show_options: "1" })
+        const detail = await tourcms.showTour(String(lean.tour_id), { show_options: "1" }, tourChannelId)
         if (!detail.ok || !detail.tour) {
           console.warn(`[palisis-import] showTour failed for ${palisisId}: ${detail.error}`)
           // Fall back to lean summary data so we don't skip the tour entirely
@@ -155,7 +169,7 @@ export async function POST(req: Request) {
 
       } else if (overrideAll) {
         // ── Bulk override: re-fetch full detail and apply ──────────────────
-        const detail = await tourcms.showTour(String(lean.tour_id), { show_options: "1" })
+        const detail = await tourcms.showTour(String(lean.tour_id), { show_options: "1" }, tourChannelId)
         if (!detail.ok || !detail.tour) {
           console.warn(`[palisis-import] showTour failed for ${palisisId}: ${detail.error}`)
           apiErrors++
