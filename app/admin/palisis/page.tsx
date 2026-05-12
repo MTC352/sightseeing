@@ -1,37 +1,85 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { RefreshCw, Download, CheckCircle2, XCircle, AlertCircle, Info, ArrowLeft, Calendar } from "lucide-react"
+import {
+  RefreshCw, Download, CheckCircle2, XCircle, AlertCircle,
+  Info, ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Terminal,
+} from "lucide-react"
 
 interface ImportResult {
   ok: boolean
+  import_mode?: "marketplace" | "operator"
   imported?: number
   skipped?: number
-  total?: number
-  note?: string
   updated?: number
-  slots?: { tripId: string; tripTitle: string; date: string; spotsAvailable: number; spotsTotal: number }[]
+  total?: number
+  apiErrors?: number
+  note?: string
+  error?: string
+  log?: string[]
+  slots?: { tripId: string; tripTitle: string; startDate: string; startTime?: string; priceDisplay: string; spacesRemaining: number | null; status: string }[]
+}
+
+interface SyncLogEntry {
+  id: string
+  trigger_type: string
+  action: string
+  note: string | null
+  changes: {
+    ok?: boolean
+    import_mode?: string
+    total?: number
+    imported?: number
+    updated?: number
+    skipped?: number
+    api_errors?: number
+    duration_ms?: number
+    error?: string
+    log?: string[]
+    tours?: { palisisId: string; title: string; action: string; error?: string }[]
+  } | null
+  created_at: string
 }
 
 export default function PalisisPage() {
-  const [importing, setImporting] = useState(false)
-  const [syncing, setSyncing] = useState(false)
+  const [importing, setImporting]       = useState(false)
+  const [syncing, setSyncing]           = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
-  const [syncResult, setSyncResult] = useState<ImportResult | null>(null)
-  const [importError, setImportError] = useState("")
-  const [syncError, setSyncError] = useState("")
+  const [syncResult, setSyncResult]     = useState<ImportResult | null>(null)
+  const [importError, setImportError]   = useState("")
+  const [syncError, setSyncError]       = useState("")
+  const [showLog, setShowLog]           = useState(false)
+  const [logs, setLogs]                 = useState<SyncLogEntry[]>([])
+  const [logsLoading, setLogsLoading]   = useState(true)
+  const [expandedLog, setExpandedLog]   = useState<string | null>(null)
+
+  const fetchLogs = useCallback(async () => {
+    setLogsLoading(true)
+    try {
+      const res  = await fetch("/api/admin/palisis-logs?limit=10")
+      const data = await res.json()
+      if (data.ok) setLogs(data.logs ?? [])
+    } catch { /* ignore */ } finally {
+      setLogsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchLogs() }, [fetchLogs])
 
   async function runImport() {
     setImporting(true)
     setImportResult(null)
     setImportError("")
+    setShowLog(false)
     try {
-      const res = await fetch("/api/admin/palisis-import", { method: "POST" })
-      const data = await res.json()
+      const res  = await fetch("/api/admin/palisis-import", { method: "POST" })
+      const data = await res.json() as ImportResult
       setImportResult(data)
+      if (!data.ok) setImportError(data.error ?? "Import failed — see log for details.")
+      await fetchLogs()
     } catch {
-      setImportError("Request failed — check your Palisis API key in Integrations.")
+      setImportError("Request failed — check your API key and Channel ID in Integrations.")
     } finally {
       setImporting(false)
     }
@@ -42,11 +90,12 @@ export default function PalisisPage() {
     setSyncResult(null)
     setSyncError("")
     try {
-      const res = await fetch("/api/admin/palisis-availability", { method: "POST" })
-      const data = await res.json()
+      const res  = await fetch("/api/admin/palisis-availability", { method: "POST" })
+      const data = await res.json() as ImportResult
       setSyncResult(data)
+      if (!data.ok) setSyncError(data.error ?? "Sync failed.")
     } catch {
-      setSyncError("Request failed — check your Palisis API key in Integrations.")
+      setSyncError("Request failed — check your API key and Channel ID in Integrations.")
     } finally {
       setSyncing(false)
     }
@@ -54,6 +103,7 @@ export default function PalisisPage() {
 
   return (
     <div className="p-6 lg:p-10">
+      {/* Header */}
       <div className="mb-8 flex items-start gap-4">
         <button
           type="button"
@@ -65,23 +115,28 @@ export default function PalisisPage() {
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Integrations</p>
           <h1 className="mt-1 flex items-center gap-2 text-2xl font-bold text-foreground">
-            <RefreshCw className="h-6 w-6 text-primary" /> Palisis Import
+            <RefreshCw className="h-6 w-6 text-primary" /> Palisis / TourCMS Import
           </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Import trips and sync availability from the Palisis booking engine.</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Import trips from TourCMS into our database. Trips are served from our DB — no live TourCMS calls on the public site.
+          </p>
         </div>
       </div>
 
+      {/* Info banner */}
       <div className="mb-6 flex items-start gap-2 rounded-xl border border-border bg-secondary/40 px-4 py-3">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Trips are imported from TourCMS into our database and served from there — no live Palisis calls are made on the public site.
-          Configure your API key and Channel ID in{" "}
-          <Link href="/admin/integrations" className="text-primary underline-offset-2 hover:underline">Integrations</Link>{" "}
-          before running an import.
+          Works for both <strong className="text-foreground">Tour Operators</strong> (using your channel ID) and{" "}
+          <strong className="text-foreground">Marketplace Partners</strong> (cross-channel). The importer detects your account type automatically.
+          Configure credentials in{" "}
+          <Link href="/admin/integrations" className="text-primary underline-offset-2 hover:underline">Integrations → Palisis / TourCMS</Link>.
         </p>
       </div>
 
+      {/* Action cards */}
       <div className="grid gap-5 sm:grid-cols-2">
+
         {/* Import catalog */}
         <div className="rounded-2xl border border-border bg-card p-6">
           <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -89,43 +144,111 @@ export default function PalisisPage() {
           </div>
           <h2 className="text-base font-semibold text-foreground">Import Catalog</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Pull the full trip catalog from Palisis and create new trips in draft status for review.
+            Pull the full trip catalog from TourCMS and create new trips in draft status for review.
+            Existing trips are skipped unless you run an override import.
           </p>
 
-          <button
-            type="button"
-            onClick={runImport}
-            disabled={importing}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-          >
-            <Download className={`h-4 w-4 ${importing ? "animate-bounce" : ""}`} />
-            {importing ? "Importing…" : "Run Import"}
-          </button>
+          <div className="mt-5 flex gap-2">
+            <button
+              type="button"
+              onClick={runImport}
+              disabled={importing}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            >
+              <Download className={`h-4 w-4 ${importing ? "animate-bounce" : ""}`} />
+              {importing ? "Importing…" : "Run Import"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirm("Override mode will re-fetch and update all existing trips. This cannot be undone. Continue?")) return
+                setImporting(true)
+                setImportResult(null)
+                setImportError("")
+                setShowLog(false)
+                fetch("/api/admin/palisis-import", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ override: true }),
+                })
+                  .then(r => r.json())
+                  .then(async (data: ImportResult) => {
+                    setImportResult(data)
+                    if (!data.ok) setImportError(data.error ?? "Import failed.")
+                    await fetchLogs()
+                  })
+                  .catch(() => setImportError("Request failed."))
+                  .finally(() => setImporting(false))
+              }}
+              disabled={importing}
+              className="flex h-12 items-center rounded-xl border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+              title="Re-import and overwrite existing trips"
+            >
+              Override
+            </button>
+          </div>
 
           {importError && (
-            <div className="mt-3 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
-              <XCircle className="h-3.5 w-3.5 shrink-0" /> {importError}
+            <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+              <div className="flex items-start gap-2">
+                <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{importError}</span>
+              </div>
             </div>
           )}
 
           {importResult && (
             <div className={`mt-3 rounded-lg border px-4 py-3 text-xs ${importResult.ok ? "border-emerald-500/20 bg-emerald-500/10" : "border-destructive/20 bg-destructive/10"}`}>
               <div className="flex items-center gap-2 font-medium">
-                {importResult.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}
+                {importResult.ok
+                  ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  : <XCircle className="h-3.5 w-3.5 text-destructive" />}
                 <span className={importResult.ok ? "text-emerald-600" : "text-destructive"}>
                   {importResult.ok ? "Import complete" : "Import failed"}
                 </span>
+                {importResult.import_mode && (
+                  <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                    {importResult.import_mode === "operator" ? "Tour Operator" : "Marketplace"} mode
+                  </span>
+                )}
               </div>
+
               {importResult.ok && (
                 <div className="mt-2 space-y-1 text-muted-foreground">
-                  <p>{importResult.imported} trips imported · {importResult.skipped} skipped · {importResult.total} in catalog</p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                    <span><strong className="text-foreground">{importResult.total}</strong> in catalog</span>
+                    <span><strong className="text-emerald-600">{importResult.imported ?? 0}</strong> imported</span>
+                    {(importResult.updated ?? 0) > 0 && <span><strong className="text-blue-600">{importResult.updated}</strong> updated</span>}
+                    <span><strong className="text-muted-foreground">{importResult.skipped ?? 0}</strong> skipped</span>
+                    {(importResult.apiErrors ?? 0) > 0 && <span><strong className="text-amber-600">{importResult.apiErrors}</strong> API errors</span>}
+                  </div>
                   {importResult.note && <p className="text-muted-foreground/60 italic">{importResult.note}</p>}
                 </div>
               )}
-              {importResult.ok && (
+
+              {importResult.ok && (importResult.imported ?? 0) > 0 && (
                 <Link href="/admin/trips" className="mt-2 flex items-center gap-1 text-primary hover:underline">
                   Review new trips →
                 </Link>
+              )}
+
+              {importResult.log && importResult.log.length > 0 && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowLog(v => !v)}
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-muted-foreground"
+                  >
+                    <Terminal className="h-3 w-3" />
+                    {showLog ? "Hide" : "Show"} import log
+                    {showLog ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </button>
+                  {showLog && (
+                    <pre className="mt-1.5 max-h-40 overflow-y-auto rounded bg-secondary/60 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                      {importResult.log.join("\n")}
+                    </pre>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -138,7 +261,8 @@ export default function PalisisPage() {
           </div>
           <h2 className="text-base font-semibold text-foreground">Sync Availability</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Update departure slots and available spots for all existing trips without a full re-import.
+            Fetch the next 7 days of availability from TourCMS for all imported trips — admin preview only.
+            Customer-facing availability is always fetched live.
           </p>
 
           <button
@@ -157,14 +281,13 @@ export default function PalisisPage() {
             </div>
           )}
 
-          {syncResult && (
+          {syncResult && syncResult.ok && (
             <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs">
               <div className="flex items-center gap-2 font-medium">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                <span className="text-emerald-600">Availability updated</span>
+                <span className="text-emerald-600">Availability synced</span>
               </div>
-              <p className="mt-1.5 text-muted-foreground">{syncResult.updated} slot records refreshed</p>
-              {syncResult.note && <p className="mt-1 text-muted-foreground/60 italic">{syncResult.note}</p>}
+              {syncResult.note && <p className="mt-1.5 text-muted-foreground/70 italic">{syncResult.note}</p>}
 
               {syncResult.slots && syncResult.slots.length > 0 && (
                 <div className="mt-3 overflow-hidden rounded-lg border border-border">
@@ -173,16 +296,20 @@ export default function PalisisPage() {
                       <tr className="border-b border-border bg-secondary/50">
                         <th className="px-2 py-1.5 text-left text-muted-foreground/60">Trip</th>
                         <th className="px-2 py-1.5 text-left text-muted-foreground/60">Date</th>
+                        <th className="px-2 py-1.5 text-left text-muted-foreground/60">Time</th>
+                        <th className="px-2 py-1.5 text-right text-muted-foreground/60">Price</th>
                         <th className="px-2 py-1.5 text-right text-muted-foreground/60">Spots</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {syncResult.slots.slice(0, 8).map((s, i) => (
+                      {syncResult.slots.slice(0, 10).map((s, i) => (
                         <tr key={i} className="border-b border-border last:border-0">
-                          <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[100px]">{s.tripTitle.split(" ").slice(0, 3).join(" ")}</td>
-                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.date}</td>
-                          <td className={`px-2 py-1.5 text-right font-semibold ${s.spotsAvailable === 0 ? "text-destructive" : s.spotsAvailable < 4 ? "text-amber-600" : "text-emerald-600"}`}>
-                            {s.spotsAvailable}/{s.spotsTotal}
+                          <td className="max-w-[80px] truncate px-2 py-1.5 text-muted-foreground">{s.tripTitle.split(" ").slice(0, 3).join(" ")}</td>
+                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.startDate}</td>
+                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.startTime ?? "—"}</td>
+                          <td className="px-2 py-1.5 text-right text-muted-foreground">{s.priceDisplay}</td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${s.spacesRemaining === 0 ? "text-destructive" : (s.spacesRemaining ?? 999) < 4 ? "text-amber-600" : "text-emerald-600"}`}>
+                            {s.spacesRemaining ?? "∞"}
                           </td>
                         </tr>
                       ))}
@@ -195,18 +322,145 @@ export default function PalisisPage() {
         </div>
       </div>
 
+      {/* Import run history */}
+      <div className="mt-6 rounded-2xl border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-muted-foreground/50" />
+            <h2 className="text-sm font-semibold text-foreground">Import History</h2>
+          </div>
+          <button
+            type="button"
+            onClick={fetchLogs}
+            disabled={logsLoading}
+            className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+          >
+            <RefreshCw className={`h-3 w-3 ${logsLoading ? "animate-spin" : ""}`} /> Refresh
+          </button>
+        </div>
+
+        {logsLoading ? (
+          <div className="px-5 py-8 text-center text-xs text-muted-foreground">Loading…</div>
+        ) : logs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-xs text-muted-foreground">
+            No import runs yet. Click "Run Import" to get started.
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {logs.map((entry) => {
+              const ok      = entry.changes?.ok !== false
+              const isOpen  = expandedLog === entry.id
+              const ch      = entry.changes ?? {}
+
+              return (
+                <div key={entry.id}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedLog(isOpen ? null : entry.id)}
+                    className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-secondary/30"
+                  >
+                    {ok
+                      ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      : <XCircle className="h-4 w-4 shrink-0 text-destructive" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-foreground">
+                          {entry.action === "import_run" ? "Import Run" : entry.action}
+                        </span>
+                        {ch.import_mode && (
+                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            {ch.import_mode === "operator" ? "Operator" : "Marketplace"}
+                          </span>
+                        )}
+                        {ok && ch.total != null && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {ch.total} tours · {ch.imported ?? 0} imported · {ch.skipped ?? 0} skipped
+                            {ch.duration_ms ? ` · ${(ch.duration_ms / 1000).toFixed(1)}s` : ""}
+                          </span>
+                        )}
+                      </div>
+                      {entry.note && (
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">{entry.note}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground/50">
+                      <span>{new Date(entry.created_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>
+                      {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-border bg-secondary/20 px-5 pb-4 pt-3">
+                      {ch.error && (
+                        <div className="mb-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                          {ch.error}
+                        </div>
+                      )}
+
+                      {ch.tours && ch.tours.length > 0 && (
+                        <div className="mb-3 overflow-hidden rounded-lg border border-border">
+                          <table className="w-full text-[10px]">
+                            <thead>
+                              <tr className="border-b border-border bg-secondary/50">
+                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Palisis ID</th>
+                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Trip</th>
+                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ch.tours.slice(0, 20).map((t, i) => (
+                                <tr key={i} className="border-b border-border last:border-0">
+                                  <td className="px-2 py-1 font-mono text-muted-foreground">{t.palisisId}</td>
+                                  <td className="max-w-[200px] truncate px-2 py-1 text-muted-foreground">{t.title}</td>
+                                  <td className={`px-2 py-1 font-medium ${
+                                    t.action === "created" ? "text-emerald-600"
+                                    : t.action === "updated" ? "text-blue-600"
+                                    : t.action.includes("error") ? "text-destructive"
+                                    : "text-muted-foreground"
+                                  }`}>
+                                    {t.action}{t.error ? ` (${t.error})` : ""}
+                                  </td>
+                                </tr>
+                              ))}
+                              {ch.tours.length > 20 && (
+                                <tr>
+                                  <td colSpan={3} className="px-2 py-1.5 text-center text-muted-foreground/60">
+                                    +{ch.tours.length - 20} more — check full log below
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {ch.log && ch.log.length > 0 && (
+                        <pre className="max-h-48 overflow-y-auto rounded-lg bg-secondary/60 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                          {ch.log.join("\n")}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Webhook hint */}
-      <div className="mt-6 rounded-xl border border-border bg-card p-5">
+      <div className="mt-5 rounded-xl border border-border bg-card p-5">
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
           <div>
             <p className="text-sm font-medium text-foreground">Automate with Webhooks</p>
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              Configure Palisis to POST to{" "}
+              Configure TourCMS to POST to{" "}
               <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-                /api/admin/palisis-availability
+                /api/webhooks/palisis
               </code>{" "}
-              on each booking to keep availability in sync automatically. Contact your Palisis account manager to set up webhook triggers.
+              on booking events to keep trip data in sync automatically.
+              Contact your TourCMS account manager to set up webhook triggers.
             </p>
           </div>
         </div>

@@ -805,3 +805,46 @@ export async function dbUpsertIntegration(key: string, label: string, value: str
     [key, label, value]
   )
 }
+
+// ── Palisis Sync Log ─────────────────────────────────────────────────────────
+
+export async function dbInsertPalisisSyncLog(data: {
+  trigger_type: string
+  action: string
+  note?: string
+  changes?: Record<string, unknown>
+  palisis_id?: string
+  triggered_by?: string
+}) {
+  return queryOne(
+    `INSERT INTO palisis_sync_log (id, trigger_type, palisis_id, action, changes, triggered_by, note, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4::jsonb, $5::uuid, $6, NOW())
+     RETURNING id`,
+    [
+      data.trigger_type,
+      data.palisis_id ?? null,
+      data.action,
+      data.changes ? JSON.stringify(data.changes) : null,
+      data.triggered_by ?? null,
+      data.note ?? null,
+    ]
+  )
+}
+
+export async function dbListPalisisSyncLogs(limit = 20) {
+  return query<{
+    id: string
+    trigger_type: string
+    palisis_id: string | null
+    action: string
+    changes: Record<string, unknown> | null
+    note: string | null
+    created_at: string
+  }>(
+    `SELECT id, trigger_type, palisis_id, action, changes, note, created_at
+     FROM palisis_sync_log
+     ORDER BY created_at DESC
+     LIMIT $1`,
+    [limit]
+  )
+}

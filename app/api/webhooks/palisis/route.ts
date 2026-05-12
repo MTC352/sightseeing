@@ -25,9 +25,9 @@ export async function POST(req: Request) {
     switch (payload.event) {
       case "availability.updated": {
         if (!payload.tripId && !payload.externalId) break
-        const trips = await dbListTrips() as { id: string; palisisId?: string }[]
+        const trips = await dbListTrips() as { id: string; palisis_id?: string }[]
         const trip = trips.find(
-          (t) => t.id === payload.tripId || t.palisisId === payload.externalId
+          (t) => t.id === payload.tripId || t.palisis_id === payload.externalId
         )
         if (trip && payload.data) {
           await dbUpdateTrip(trip.id, payload.data)

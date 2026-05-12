@@ -1,133 +1,183 @@
 import { NextResponse } from "next/server"
 import { getTourCMSClient } from "@/lib/tourcms"
 import type { TourDetail, TourSummary } from "@/lib/tourcms"
-import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips } from "@/lib/db/queries"
-
-// Type marker for the paginated accumulator (lets us write `typeof TOUR_LIST_TYPE`)
-const TOUR_LIST_TYPE = [] as TourSummary[]
+import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog } from "@/lib/db/queries"
 
 export const dynamic = "force-dynamic"
 
-// ── Field mapping: TourCMS Show Tour response → our trips DB schema ───────────
-//
-// Called with the full TourDetail from /c/tour/show.xml.
-// Fields come from the lean TourSummary (listTours) as fallback
-// when showTour is skipped (e.g. for unchanged tours in incremental sync).
-//
+// ── Field mapping: TourCMS tour response → our trips DB schema ────────────────
 function mapTourDetail(t: TourDetail | TourSummary) {
   const full = t as TourDetail
 
-  const tourId  = String(t.tour_id ?? "")
-  const title   = String(t.tour_name_long ?? t.tour_name ?? "")
+  const tourId = String(t.tour_id ?? "")
+  const title  = String(t.tour_name_long ?? t.tour_name ?? "")
 
-  // Prefer rich description from showTour; fall back to lean summary fields
-  const desc    = String(
+  const desc = String(
     full.shortdesc ?? full.summary ?? (t as TourSummary).description ?? (t as TourSummary).tagline ?? ""
   )
 
-  const price   = parseFloat(String(t.from_price ?? "0")) || 0
+  const price = parseFloat(String(t.from_price ?? "0")) || 0
 
-  // First image from the images[] array (showTour only), then lean thumbnail
-  const images  = full.images?.image
-  const image   = String(
+  const images = full.images?.image
+  const image  = String(
     (Array.isArray(images) ? images[0]?.url ?? images[0]?.url_thumbnail : undefined)
     ?? (t as TourSummary).image_url
     ?? full.thumbnail_image
     ?? ""
   )
 
-  // duration_desc from showTour is human-readable (e.g. "3 hours"); prefer it
   const duration = String(full.duration_desc ?? t.duration ?? (t as TourSummary).duration_description ?? "")
-
   const location = String(t.location ?? (t as TourSummary).location_summary ?? "Luxembourg")
-
   const supplier = String((t as TourSummary).supplier_name ?? "Sightseeing.lu")
 
-  // Use the TourCMS book_url as the permalink if we don't already have one.
-  // This allows /trip/[id] to surface the correct per-tour Palisis booking link.
   const palisisBookUrl = String(full.book_url ?? t.tour_url ?? "")
 
   return {
-    palisisId:        tourId,
+    palisisId:         tourId,
     title,
-    description:      desc,
+    description:       desc,
     price,
     duration,
-    // Default category to "Tours" — admin can refine in /admin/trips/[id]
-    category:         "Tours",
-    tags:             [] as string[],
-    city:             location,
-    provider:         supplier,
+    category:          "Tours",
+    tags:              [] as string[],
+    city:              location,
+    provider:          supplier,
     image,
-    highlights:       [] as string[],
-    badge:            null,
-    rating:           0,
-    reviewCount:      0,
-    featured:         false,
+    highlights:        [] as string[],
+    badge:             null,
+    rating:            0,
+    reviewCount:       0,
+    featured:          false,
     featuredDeparture: false,
-    status:           "draft" as const,
-    // Store the per-tour Palisis booking URL so booking iframes can be dynamic
-    permalink:        palisisBookUrl || null,
-    originalPrice:    null,
+    status:            "draft" as const,
+    permalink:         palisisBookUrl || null,
+    originalPrice:     null,
   }
 }
 
 // ── POST /api/admin/palisis-import ────────────────────────────────────────────
-//
-// Correct import flow (as a Marketplace Agent):
-//   1. GET /p/tours/list.xml  (channelId=0) — lean list of ALL tours
-//   2. For each new tour: GET /c/tour/show.xml — full detail for DB storage
-//   3. For existing tours in override mode: same
-//   4. For existing tours without changes: skip (diff by title/description)
-//
-// This correctly uses listTours, NOT searchTours.
-// searchTours (/c/tours/search.xml) is for customer-facing keyword search only.
-//
 export async function POST(req: Request) {
+  const startedAt = Date.now()
   const body = await req.json().catch(() => ({})) as { override?: boolean }
   const overrideAll = body.override === true
 
+  // ── 1. Load TourCMS client ─────────────────────────────────────────────────
   const tourcms = await getTourCMSClient()
 
   if (!tourcms) {
     const settings = await dbGetSettings()
     const hasKey   = !!(settings?.apiKeys as Record<string, string>)?.palisis
-    return NextResponse.json({
-      ok: false,
-      imported: 0,
-      skipped: 0,
-      total: 0,
-      error: hasKey
-        ? "TourCMS Channel ID missing — set TOURCMS_CHANNEL_ID in secrets"
-        : "TourCMS not configured — add API key and Channel ID in Admin → Integrations or secrets",
-    }, { status: 503 })
+    const error    = hasKey
+      ? "TourCMS Channel ID missing — set it in Admin → Integrations (Palisis / TourCMS section)"
+      : "TourCMS not configured — add API Key and Channel ID in Admin → Integrations"
+
+    await dbInsertPalisisSyncLog({
+      trigger_type: "manual",
+      action: "import_run",
+      note: `FAILED: ${error}`,
+      changes: { ok: false, error, imported: 0, skipped: 0, total: 0, duration_ms: Date.now() - startedAt },
+    })
+
+    return NextResponse.json({ ok: false, imported: 0, skipped: 0, total: 0, error }, { status: 503 })
   }
 
-  // Step 1: Fetch lean tour list from /p/tours/list.xml (correct import endpoint).
-  // Paginate at per_page=200 (TourCMS max) so accounts with > 75 tours import fully.
+  // ── 2. Fetch tour catalog — auto-detect Marketplace vs Tour Operator ────────
+  //
+  // Marketplace Partners:  GET /p/tours/list.xml  (channelId=0)
+  //   — Returns all tours across ALL connected channels.
+  //   — Includes has_sale=0 tours. Best for complete catalogs.
+  //
+  // Tour Operators:        GET /c/tours/search.xml  (channelId=their own)
+  //   — /p/ returns FAIL_KEYNOTFOUND_PARTNERSONLY for non-partner keys.
+  //   — /c/tours/search.xml is the correct fallback for direct operators.
+  //
   const PER_PAGE = 200
-  const tourList: typeof TOUR_LIST_TYPE = []
-  let page = 1
-  while (true) {
-    const r = await tourcms.listTours({ per_page: PER_PAGE, page })
-    if (!r.ok) {
-      return NextResponse.json({
-        ok: false,
-        error: `TourCMS list failed (page ${page}): ${r.error}`,
-        imported: 0,
-        skipped: 0,
-        total: 0,
-      }, { status: 502 })
+  const tourList: TourSummary[] = []
+  let importMode: "marketplace" | "operator" = "marketplace"
+  const logs: string[] = []
+
+  // Attempt 1: Marketplace Partner endpoint (/p/)
+  logs.push(`[${ts()}] Attempting marketplace endpoint /p/tours/list.xml …`)
+  const firstPageMP = await tourcms.listTours({ per_page: PER_PAGE, page: 1 })
+
+  if (firstPageMP.ok) {
+    // Marketplace Agent mode — paginate through all tours
+    importMode = "marketplace"
+    logs.push(`[${ts()}] Marketplace endpoint OK — ${firstPageMP.total_tour_count} total tours reported.`)
+    tourList.push(...firstPageMP.tours)
+
+    let page = 2
+    while (tourList.length < firstPageMP.total_tour_count && firstPageMP.tours.length >= PER_PAGE) {
+      const r = await tourcms.listTours({ per_page: PER_PAGE, page })
+      if (!r.ok) { logs.push(`[${ts()}] Pagination stopped at page ${page}: ${r.error}`); break }
+      tourList.push(...r.tours)
+      logs.push(`[${ts()}] Page ${page}: +${r.tours.length} tours (total so far: ${tourList.length})`)
+      if (r.tours.length < PER_PAGE) break
+      page++
+      if (page > 50) break
     }
-    tourList.push(...r.tours)
-    // Stop when this page returned fewer than PER_PAGE OR we've covered total_tour_count.
-    if (r.tours.length < PER_PAGE) break
-    if (r.total_tour_count && tourList.length >= r.total_tour_count) break
-    page++
-    if (page > 50) break // hard safety cap (50 × 200 = 10 000 tours)
+
+  } else if (
+    firstPageMP.error?.includes("PARTNERSONLY") ||
+    firstPageMP.error?.includes("KEYNOTFOUND") ||
+    firstPageMP.error?.includes("FAIL_KEY")
+  ) {
+    // Tour Operator mode — fall back to /c/tours/search.xml
+    importMode = "operator"
+    logs.push(`[${ts()}] Marketplace endpoint not available (${firstPageMP.error}) — switching to operator mode /c/tours/search.xml`)
+
+    let page = 1
+    while (true) {
+      const r = await tourcms.searchTours({ per_page: PER_PAGE, page })
+      if (!r.ok) {
+        const error = `Tour catalog fetch failed (page ${page}): ${r.error}`
+        logs.push(`[${ts()}] ERROR: ${error}`)
+
+        await dbInsertPalisisSyncLog({
+          trigger_type: "manual",
+          action: "import_run",
+          note: `FAILED: ${error}`,
+          changes: {
+            ok: false, error, imported: 0, skipped: 0, total: 0,
+            import_mode: importMode,
+            duration_ms: Date.now() - startedAt,
+            log: logs,
+          },
+        })
+
+        return NextResponse.json({ ok: false, error, imported: 0, skipped: 0, total: 0, log: logs }, { status: 502 })
+      }
+      tourList.push(...r.tours)
+      logs.push(`[${ts()}] Page ${page}: ${r.tours.length} tours fetched (total so far: ${tourList.length} / ${r.total_tour_count})`)
+      if (r.tours.length < PER_PAGE) break
+      if (r.total_tour_count && tourList.length >= r.total_tour_count) break
+      page++
+      if (page > 50) break
+    }
+
+  } else {
+    // Some other API error — abort
+    const error = `TourCMS API error: ${firstPageMP.error}`
+    logs.push(`[${ts()}] ERROR: ${error}`)
+
+    await dbInsertPalisisSyncLog({
+      trigger_type: "manual",
+      action: "import_run",
+      note: `FAILED: ${error}`,
+      changes: {
+        ok: false, error, imported: 0, skipped: 0, total: 0,
+        duration_ms: Date.now() - startedAt,
+        log: logs,
+      },
+    })
+
+    return NextResponse.json({ ok: false, error, imported: 0, skipped: 0, total: 0, log: logs }, { status: 502 })
   }
 
-  const existing  = await dbListTrips() as Array<{
+  logs.push(`[${ts()}] Catalog fetch complete — ${tourList.length} tours to process (mode: ${importMode})`)
+
+  // ── 3. Load existing DB trips keyed by palisis_id ─────────────────────────
+  const existing = await dbListTrips() as Array<{
     id: string
     palisis_id?: string
     title?: string
@@ -137,45 +187,51 @@ export async function POST(req: Request) {
   const byPalisis = new Map(
     existing.filter(t => t.palisis_id).map(t => [t.palisis_id!, t])
   )
+  logs.push(`[${ts()}] DB has ${existing.length} existing trips, ${byPalisis.size} with palisis_id.`)
 
+  // ── 4. Process each tour ──────────────────────────────────────────────────
   let imported  = 0
   let skipped   = 0
   let updated   = 0
   let apiErrors = 0
-  const diffs: Array<{ palisisId: string; title: string; localTitle?: string }> = []
+  const tourResults: Array<{ palisisId: string; title: string; action: string; error?: string }> = []
 
   for (const lean of tourList) {
-    const palisisId = String(lean.tour_id ?? "")
-    if (!palisisId) { skipped++; continue }
-
-    const localTrip = byPalisis.get(palisisId)
-    // Always pass the tour's own channel_id from /p/tours/list — it can differ
-    // from our default channel for cross-channel marketplace agents.
+    const palisisId    = String(lean.tour_id ?? "")
     const tourChannelId = Number(lean.channel_id) || undefined
 
+    if (!palisisId) { skipped++; continue }
+
     try {
-      if (!localTrip) {
-        // ── New tour: fetch full detail then create in DB ──────────────────
-        const detail = await tourcms.showTour(String(lean.tour_id), { show_options: "1" }, tourChannelId)
+      if (!byPalisis.has(palisisId)) {
+        // ── New tour: fetch full detail then create ──────────────────────────
+        const detail = await tourcms.showTour(palisisId, { show_options: "1" }, tourChannelId)
+
         if (!detail.ok || !detail.tour) {
-          console.warn(`[palisis-import] showTour failed for ${palisisId}: ${detail.error}`)
-          // Fall back to lean summary data so we don't skip the tour entirely
+          logs.push(`[${ts()}] WARN: showTour failed for ${palisisId} (${detail.error}) — using lean data`)
           await dbCreateTrip(mapTourDetail(lean))
+          tourResults.push({ palisisId, title: lean.tour_name ?? palisisId, action: "created_lean", error: detail.error })
           apiErrors++
         } else {
           await dbCreateTrip(mapTourDetail(detail.tour))
+          tourResults.push({ palisisId, title: detail.tour.tour_name_long ?? detail.tour.tour_name ?? palisisId, action: "created" })
+          logs.push(`[${ts()}] Created trip ${palisisId}: "${detail.tour.tour_name_long ?? detail.tour.tour_name}"`)
         }
         imported++
 
       } else if (overrideAll) {
-        // ── Bulk override: re-fetch full detail and apply ──────────────────
-        const detail = await tourcms.showTour(String(lean.tour_id), { show_options: "1" }, tourChannelId)
+        // ── Override mode: re-fetch and update ──────────────────────────────
+        const localTrip = byPalisis.get(palisisId)!
+        const detail    = await tourcms.showTour(palisisId, { show_options: "1" }, tourChannelId)
+
         if (!detail.ok || !detail.tour) {
-          console.warn(`[palisis-import] showTour failed for ${palisisId}: ${detail.error}`)
+          logs.push(`[${ts()}] WARN: showTour failed for ${palisisId} (${detail.error}) — skip update`)
+          tourResults.push({ palisisId, title: lean.tour_name ?? palisisId, action: "skipped_api_error", error: detail.error })
           apiErrors++
           skipped++
           continue
         }
+
         const mapped = mapTourDetail(detail.tour)
         await dbUpdateTrip(localTrip.id, {
           title:       mapped.title,
@@ -185,48 +241,78 @@ export async function POST(req: Request) {
           image:       mapped.image,
           city:        mapped.city,
           provider:    mapped.provider,
-          // Only update permalink if the local trip doesn't already have a custom one
           ...(localTrip.permalink ? {} : { permalink: mapped.permalink }),
         })
+        tourResults.push({ palisisId, title: mapped.title, action: "updated" })
+        logs.push(`[${ts()}] Updated trip ${palisisId}: "${mapped.title}"`)
         updated++
 
       } else {
-        // ── Existing tour, no override: compare title/description ──────────
-        // Use lean list data for the comparison (no extra API call)
+        // ── Existing, no override: record it as skipped ─────────────────────
+        const localTrip = byPalisis.get(palisisId)!
         const leanMapped = mapTourDetail(lean)
-        const titleDiff  = localTrip.title !== leanMapped.title
-        const descDiff   = (localTrip.description ?? "") !== leanMapped.description
-
-        if (titleDiff || descDiff) {
-          diffs.push({
-            palisisId,
-            title:      leanMapped.title,
-            localTitle: localTrip.title,
-          })
-        } else {
-          skipped++
-        }
+        const hasChanges = localTrip.title !== leanMapped.title || (localTrip.description ?? "") !== leanMapped.description
+        tourResults.push({
+          palisisId,
+          title: localTrip.title ?? palisisId,
+          action: hasChanges ? "skipped_has_changes" : "skipped_unchanged",
+        })
+        skipped++
       }
     } catch (err) {
-      console.error(`[palisis-import] Error processing tour ${palisisId}:`, err)
+      const msg = err instanceof Error ? err.message : String(err)
+      logs.push(`[${ts()}] ERROR processing tour ${palisisId}: ${msg}`)
+      tourResults.push({ palisisId, title: lean.tour_name ?? palisisId, action: "error", error: msg })
       skipped++
     }
   }
 
+  const durationMs = Date.now() - startedAt
+  const summaryNote = [
+    `Mode: ${importMode}.`,
+    `${tourList.length} tours in catalog.`,
+    imported > 0 ? `${imported} new trips imported.` : null,
+    updated  > 0 ? `${updated} trips updated (override).` : null,
+    skipped  > 0 ? `${skipped} skipped (unchanged or existing).` : null,
+    apiErrors > 0 ? `${apiErrors} showTour API errors (used lean data).` : null,
+    `Completed in ${(durationMs / 1000).toFixed(1)}s.`,
+  ].filter(Boolean).join(" ")
+
+  logs.push(`[${ts()}] Done. ${summaryNote}`)
+
+  // ── 5. Write import run log to DB ─────────────────────────────────────────
+  await dbInsertPalisisSyncLog({
+    trigger_type: "manual",
+    action: "import_run",
+    note: summaryNote,
+    changes: {
+      ok: true,
+      import_mode: importMode,
+      total: tourList.length,
+      imported,
+      updated,
+      skipped,
+      api_errors: apiErrors,
+      override_mode: overrideAll,
+      duration_ms: durationMs,
+      tours: tourResults,
+      log: logs,
+    },
+  })
+
   return NextResponse.json({
     ok: true,
+    import_mode: importMode,
     imported,
     updated,
     skipped,
     total: tourList.length,
     apiErrors: apiErrors > 0 ? apiErrors : undefined,
-    diffs,
-    note: [
-      `Fetched ${tourList.length} tours from TourCMS via /p/tours/list.xml.`,
-      imported > 0  ? `${imported} new trips created (with full detail from /c/tour/show.xml).` : null,
-      updated  > 0  ? `${updated} existing trips updated (override mode).` : null,
-      diffs.length > 0 ? `${diffs.length} trips have upstream changes — re-import with override:true to apply.` : null,
-      apiErrors > 0 ? `${apiErrors} tours fell back to lean data (showTour API error).` : null,
-    ].filter(Boolean).join(" "),
+    note: summaryNote,
+    log: logs,
   })
+}
+
+function ts() {
+  return new Date().toISOString().slice(11, 23)
 }
