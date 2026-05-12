@@ -452,7 +452,54 @@ TourCMS's `checkavail` already returns everything for one date in one call:
 - Each component has its own `start_time`, `total_price_display`, `spaces_remaining`, `component_key`
 - Sort the components by `start_time_utcseconds` to display them in order
 
-The only reason to make a "custom" combined function would be to fetch slots for **multiple dates at once** (e.g. show today + tomorrow + next 5 days on the search page). For that, call `checkavail` once per date in parallel — TourCMS does not have a single endpoint that returns multi-date timeslot lists.
+The only reason to make a "custom" combined function would be to fetch slots for **multiple dates at once** (e.g. show today + tomorrow + next 5 days on the search page). For that, call `checkavail` once per date in parallel — TourCMS does not have a single endpoint that returns multi-date timeslot lists. See §9.1 below for the concrete pattern.
+
+### 9.1 Multi-Date Display Pattern — "Today + Tomorrow" / "Next N Days"
+
+Use cases:
+- Departures listing page: "Today's tours" + "Tomorrow's tours"
+- Search results: each tour card shows next 3 available timeslots
+- "Departing soon" widget on the homepage
+
+There is no single TourCMS endpoint for this. Two options:
+
+**Option A — Lightweight (recommended for listing/search pages):**
+Use `Dates & Deals` ONCE per tour with a date range covering the days you want to display. This gives you from-prices and which dates have any availability — enough for a card preview. Avoids hitting `checkAvailability` for every tour on a list page.
+
+```ts
+// Show "next 7 days" preview for many tours on a listing page
+const today    = new Date().toISOString().slice(0, 10)
+const inAWeek  = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10)
+
+const preview = await tourcms.showTourDatesAndDeals(tourId, {
+  startdate_start: today,
+  startdate_end:   inAWeek,
+  distinct_start_dates: 1,                  // one entry per date
+}, tourChannelId)
+// → preview.dates[] = [{ start_date, price_1_display, spaces_remaining }, ...]
+//   Render as "From €45 • next available: Sat 6 Jul"
+```
+
+Cache: 30 min. Safe to run for many tours in parallel via `Promise.all`.
+
+**Option B — Full timeslots (for trip detail page, "today" widget, or when user expands a date):**
+Call `checkAvailability` once per date in parallel. Each call returns all timeslots for that date.
+
+```ts
+// Show actual bookable timeslots for today AND tomorrow on a single tour
+const today    = new Date().toISOString().slice(0, 10)
+const tomorrow = new Date(Date.now() + 86400_000).toISOString().slice(0, 10)
+
+const [todaySlots, tomorrowSlots] = await Promise.all([
+  tourcms.checkAvailability(tourId, { date: today,    r1: 2 }, tourChannelId),
+  tourcms.checkAvailability(tourId, { date: tomorrow, r1: 2 }, tourChannelId),
+])
+// → each .components[] is one timeslot with component_key + total_price_display
+```
+
+NEVER cache `checkAvailability` results. Call on demand only (e.g. when the user actually views the page or expands a date row).
+
+**Anti-pattern to avoid:** Do NOT call `checkAvailability` for every trip on a listing page just to show "today's slots". That's 43 live API calls per page load. Use Option A for listings; reserve Option B for trip-detail pages and short widgets ("departing in next 4 hours" with maybe 5 tours).
 
 ### Helper available in `lib/tourcms.ts`
 
