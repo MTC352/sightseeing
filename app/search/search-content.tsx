@@ -301,10 +301,11 @@ function SearchListCard({
   const { addItem, isInCart } = useCart()
   const inCart      = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
-  // Show skeleton while this trip's data hasn't arrived yet
-  const tripAvail   = availability[trip.id]
-  const showSkeleton = isLoading && !tripAvail
-  const departures  = tripAvail ?? getDummyDepartures(trip.id)
+  const tripAvail = availability[trip.id]
+  // Show skeleton for every card while ANY availability fetch is in progress.
+  // This prevents old-date slots from flashing briefly with wrong labels.
+  const showSkeleton = isLoading
+  const departures   = tripAvail ?? getDummyDepartures(trip.id)
 
   // Build labeled slot rows: when date filter active show ONLY that date; otherwise today/tomorrow
   const now           = new Date()
@@ -439,6 +440,9 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
 
     const params = new URLSearchParams()
     if (dateFrom) params.set("date", dateFrom)   // date only — no time params
+    // Wipe stale data immediately so cards never briefly show old slots with wrong
+    // date labels, and so the skeleton renders for every card during the transition.
+    setAvailability({})
     setAvailLoading(true)
     fetch(`/api/availability?${params}`, { signal: ctrl.signal })
       .then((r) => r.ok ? r.json() : {})
