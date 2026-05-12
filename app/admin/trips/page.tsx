@@ -3,6 +3,7 @@ import { dbListTrips } from "@/lib/db/queries"
 import { Plus, Pencil, ExternalLink } from "lucide-react"
 import { TripDeleteButton } from "./trip-delete-button"
 import { TripToggleButton } from "./trip-toggle-button"
+import { TripStatusButton } from "./trip-status-button"
 
 export const dynamic = "force-dynamic"
 
@@ -98,13 +99,7 @@ export default async function AdminTripsPage() {
                     <TripToggleButton tripId={trip.id} field="featuredDeparture" value={trip.featuredDeparture} />
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      trip.status === "published"
-                        ? "bg-emerald-500/15 text-emerald-600"
-                        : "bg-amber-500/15 text-amber-600"
-                    }`}>
-                      {trip.status}
-                    </span>
+                    <TripStatusButton tripId={trip.id} status={trip.status} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">

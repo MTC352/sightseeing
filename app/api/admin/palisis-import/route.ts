@@ -49,7 +49,7 @@ function mapTourDetail(t: TourDetail | TourSummary) {
     reviewCount:       0,
     featured:          false,
     featuredDeparture: false,
-    status:            "draft" as const,
+    status:            "published" as const,
     permalink:         palisisBookUrl || null,
     originalPrice:     null,
   }

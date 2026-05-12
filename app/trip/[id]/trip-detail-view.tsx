@@ -35,7 +35,7 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
     setCanGoBack(window.history.length > 2)
   }, [])
 
-  if (!trip || !detail) {
+  if (!trip) {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
@@ -48,7 +48,7 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
   }
 
   const inCart = isInCart(trip.id)
-  const gallery = detail.gallery.length > 0 ? detail.gallery : [trip.image]
+  const gallery = (detail?.gallery ?? []).length > 0 ? (detail!.gallery) : [trip.image]
 
   return (
     <div className="min-h-screen bg-background">
@@ -148,8 +148,8 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
               <h1 className="mt-2 text-2xl font-bold text-foreground lg:text-3xl">{trip.title}</h1>
               <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{trip.duration}</span>
-                <span className="flex items-center gap-1"><Users className="h-4 w-4" />Max {detail.maxGroupSize} people</span>
-                <span className="flex items-center gap-1"><Globe className="h-4 w-4" />{detail.languages.join(", ")}</span>
+                {detail?.maxGroupSize && <span className="flex items-center gap-1"><Users className="h-4 w-4" />Max {detail.maxGroupSize} people</span>}
+                {(detail?.languages ?? []).length > 0 && <span className="flex items-center gap-1"><Globe className="h-4 w-4" />{detail!.languages.join(", ")}</span>}
                 <span className="flex items-center gap-1"><MapPin className="h-4 w-4" />{trip.city ?? "Luxembourg"}</span>
               </div>
             </div>
@@ -157,16 +157,16 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
             {/* Description */}
             <div className="mt-6">
               <p className="text-sm text-muted-foreground leading-relaxed">
-                {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}. {detail.description}
+                {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}.{detail?.description || trip.description ? ` ${detail?.description ?? trip.description}` : ""}
               </p>
             </div>
 
             {/* Guides */}
-            {detail.guides.length > 0 && (
+            {(detail?.guides ?? []).length > 0 && (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Meet your guides</h2>
                 <div className="mt-4 flex flex-col gap-4">
-                  {detail.guides.map((g) => (
+                  {(detail!.guides).map((g) => (
                     <div key={g.id} className="flex gap-4 rounded-xl border border-border bg-card p-4">
                       <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full">
                         <Image src={g.avatar || "/placeholder.svg"} alt={g.name} fill className="object-cover" sizes="56px" />
@@ -193,73 +193,99 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
             )}
 
             {/* Reasons to book */}
-            <div className="mt-8">
-              <h2 className="text-lg font-bold text-foreground">Reasons to book</h2>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {detail.reasons.map((r, i) => (
-                  <div key={i} className="flex items-start gap-2 rounded-lg border border-border bg-card p-3">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    <span className="text-sm text-foreground">{r}</span>
-                  </div>
-                ))}
+            {(detail?.reasons ?? []).length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-lg font-bold text-foreground">Reasons to book</h2>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {detail!.reasons.map((r, i) => (
+                    <div key={i} className="flex items-start gap-2 rounded-lg border border-border bg-card p-3">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <span className="text-sm text-foreground">{r}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Highlights from DB */}
+            {(detail?.itinerary ?? []).length === 0 && (trip.highlights ?? []).length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-lg font-bold text-foreground">Highlights</h2>
+                <ul className="mt-4 flex flex-col gap-2">
+                  {(trip.highlights as string[]).map((h, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{h}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Itinerary */}
-            <div className="mt-8">
-              <h2 className="text-lg font-bold text-foreground">This is the plan</h2>
-              <div className="mt-4 flex flex-col">
-                {detail.itinerary.map((step, i) => (
-                  <div key={i} className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{i + 1}</div>
-                      {i < detail.itinerary.length - 1 && <div className="flex-1 w-px bg-border" />}
+            {(detail?.itinerary ?? []).length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-lg font-bold text-foreground">This is the plan</h2>
+                <div className="mt-4 flex flex-col">
+                  {detail!.itinerary.map((step, i) => (
+                    <div key={i} className="flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{i + 1}</div>
+                        {i < detail!.itinerary.length - 1 && <div className="flex-1 w-px bg-border" />}
+                      </div>
+                      <div className="pb-6">
+                        <p className="text-sm font-semibold text-foreground">{step.title}</p>
+                        {step.duration && <p className="text-xs text-primary">{step.duration}</p>}
+                        <p className="mt-1 text-sm text-muted-foreground leading-relaxed">{step.description}</p>
+                      </div>
                     </div>
-                    <div className="pb-6">
-                      <p className="text-sm font-semibold text-foreground">{step.title}</p>
-                      {step.duration && <p className="text-xs text-primary">{step.duration}</p>}
-                      <p className="mt-1 text-sm text-muted-foreground leading-relaxed">{step.description}</p>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Includes / Not included */}
-            <div className="mt-8 grid gap-6 sm:grid-cols-2">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">{"What's included"}</h3>
-                <ul className="mt-2 flex flex-col gap-1.5">
-                  {detail.includes.map((item) => (
-                    <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Check className="h-3.5 w-3.5 text-primary" />{item}
-                    </li>
-                  ))}
-                </ul>
+            {((detail?.includes ?? []).length > 0 || (detail?.notIncluded ?? []).length > 0) && (
+              <div className="mt-8 grid gap-6 sm:grid-cols-2">
+                {(detail?.includes ?? []).length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">{"What's included"}</h3>
+                    <ul className="mt-2 flex flex-col gap-1.5">
+                      {detail!.includes.map((item) => (
+                        <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Check className="h-3.5 w-3.5 text-primary" />{item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(detail?.notIncluded ?? []).length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Not included</h3>
+                    <ul className="mt-2 flex flex-col gap-1.5">
+                      {detail!.notIncluded.map((item) => (
+                        <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className="h-3.5 w-3.5 text-center text-xs text-destructive">&times;</span>{item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Not included</h3>
-                <ul className="mt-2 flex flex-col gap-1.5">
-                  {detail.notIncluded.map((item) => (
-                    <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span className="h-3.5 w-3.5 text-center text-xs text-destructive">&times;</span>{item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+            )}
 
             {/* Cancellation */}
-            <div className="mt-8 rounded-xl border border-border bg-card p-4">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Shield className="h-4 w-4 text-primary" /> Cancellation policy
-              </h3>
-              <ul className="mt-2 flex flex-col gap-1">
-                {detail.cancellationPolicy.map((p) => (
-                  <li key={p} className="text-sm text-muted-foreground">&bull; {p}</li>
-                ))}
-              </ul>
-            </div>
+            {(detail?.cancellationPolicy ?? []).length > 0 && (
+              <div className="mt-8 rounded-xl border border-border bg-card p-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Shield className="h-4 w-4 text-primary" /> Cancellation policy
+                </h3>
+                <ul className="mt-2 flex flex-col gap-1">
+                  {detail!.cancellationPolicy.map((p) => (
+                    <li key={p} className="text-sm text-muted-foreground">&bull; {p}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Google Reviews */}
             <GoogleReviews 
@@ -270,7 +296,7 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
             />
 
             {/* FAQ + AI Chat */}
-            <TripChat tripId={id} tripTitle={trip.title} faqs={detail.goodToKnow} />
+            <TripChat tripId={id} tripTitle={trip.title} faqs={detail?.goodToKnow ?? []} />
 
             {/* Getting there */}
             <div className="mt-10">
@@ -365,12 +391,14 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
         </div>
 
         {/* Related trips */}
-        <div className="mt-12">
-          <h2 className="text-lg font-bold text-foreground">Other things to do</h2>
-          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {related.map((t) => <TripCard key={t.id} trip={t} />)}
+        {related.length > 0 && (
+          <div className="mt-12">
+            <h2 className="text-lg font-bold text-foreground">Other things to do</h2>
+            <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {related.map((t) => <TripCard key={t.id} trip={t} />)}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <SiteFooter />
