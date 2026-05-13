@@ -474,30 +474,36 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
      Time + person filtering is fully client-side so those changes never
      trigger a network request and can't cause race conditions.
      AbortController cancels any stale in-flight request. */
-  const abortRef = useRef<AbortController | null>(null)
-
-  const fetchAvailability = useCallback((dateFrom: string) => {
-    if (abortRef.current) abortRef.current.abort()
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-
+  const fetchAvailability = useCallback((dateFrom: string, signal: AbortSignal) => {
     const params = new URLSearchParams()
-    if (dateFrom) params.set("date", dateFrom)   // date only — no time params
-    // Wipe stale data immediately so cards never briefly show old slots with wrong
-    // date labels, and so the skeleton renders for every card during the transition.
+    if (dateFrom) params.set("date", dateFrom)
+    // Wipe stale data + show skeleton immediately so no old slots flash during transitions.
     setAvailability({})
     setAvailLoading(true)
-    fetch(`/api/availability?${params}`, { signal: ctrl.signal })
+    fetch(`/api/availability?${params}`, { signal })
       .then((r) => r.ok ? r.json() : {})
-      .then((data: AvailabilityMap) => { setAvailability(data); abortRef.current = null })
-      .catch((err) => { if (err?.name !== "AbortError") console.error(err) })
-      .finally(() => setAvailLoading(false))
+      .then((data: AvailabilityMap) => {
+        // Only update state when this fetch was NOT aborted.
+        setAvailability(data)
+        setAvailLoading(false)
+      })
+      .catch((err) => {
+        if (err?.name === "AbortError") return  // aborted — do NOT touch loading state
+        console.error(err)
+        setAvailLoading(false)
+      })
+      // NO .finally() — aborted fetches must never clear availLoading,
+      // because the replacement fetch is already in flight and will clear it.
   }, [])
 
   // Single effect covers both initial mount AND date changes.
-  // The [] mount-only duplicate is removed to avoid two back-to-back fetches on startup.
+  // Returns a cleanup that aborts the in-flight request so React Strict Mode
+  // double-invocation and fast date changes never leave a stale fetch running
+  // that would prematurely flip availLoading back to false.
   useEffect(() => {
-    fetchAvailability(activeFilters.dateFrom)
+    const ctrl = new AbortController()
+    fetchAvailability(activeFilters.dateFrom, ctrl.signal)
+    return () => ctrl.abort()
   }, [activeFilters.dateFrom, fetchAvailability]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Category pills */
