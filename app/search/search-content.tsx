@@ -344,7 +344,7 @@ function AllSlotsModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl" aria-describedby={undefined}>
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
             <CalendarClock className="h-4 w-4 text-primary shrink-0" />

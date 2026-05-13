@@ -5,7 +5,13 @@ import Link from "next/link"
 import {
   RefreshCw, Download, CheckCircle2, XCircle, AlertCircle,
   Info, ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Terminal,
+  TriangleAlert,
 } from "lucide-react"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface ImportResult {
   ok: boolean
@@ -53,6 +59,8 @@ export default function PalisisPage() {
   const [logs, setLogs]                 = useState<SyncLogEntry[]>([])
   const [logsLoading, setLogsLoading]   = useState(true)
   const [expandedLog, setExpandedLog]   = useState<string | null>(null)
+  const [overrideMode, setOverrideMode] = useState(false)
+  const [confirmOpen, setConfirmOpen]   = useState(false)
 
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true)
@@ -148,45 +156,105 @@ export default function PalisisPage() {
             Existing trips are skipped unless you run an override import.
           </p>
 
-          <div className="mt-5 flex gap-2">
-            <button
-              type="button"
-              onClick={runImport}
+          {/* Override checkbox */}
+          <label className={`mt-5 flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors ${
+            overrideMode
+              ? "border-amber-400/50 bg-amber-50/60 dark:bg-amber-950/20"
+              : "border-border bg-secondary/30 hover:bg-secondary/50"
+          }`}>
+            <input
+              type="checkbox"
+              checked={overrideMode}
+              onChange={(e) => setOverrideMode(e.target.checked)}
               disabled={importing}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-            >
-              <Download className={`h-4 w-4 ${importing ? "animate-bounce" : ""}`} />
-              {importing ? "Importing…" : "Run Import"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!confirm("Override mode will re-fetch and update all existing trips. This cannot be undone. Continue?")) return
-                setImporting(true)
-                setImportResult(null)
-                setImportError("")
-                setShowLog(false)
-                fetch("/api/admin/palisis-import", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ override: true }),
-                })
-                  .then(r => r.json())
-                  .then(async (data: ImportResult) => {
-                    setImportResult(data)
-                    if (!data.ok) setImportError(data.error ?? "Import failed.")
-                    await fetchLogs()
-                  })
-                  .catch(() => setImportError("Request failed."))
-                  .finally(() => setImporting(false))
-              }}
-              disabled={importing}
-              className="flex h-12 items-center rounded-xl border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
-              title="Re-import and overwrite existing trips"
-            >
-              Override
-            </button>
-          </div>
+              className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
+            />
+            <div>
+              <p className={`text-xs font-semibold ${overrideMode ? "text-amber-700 dark:text-amber-400" : "text-foreground"}`}>
+                Override existing trips
+              </p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                Re-fetch and overwrite all matching trips already in the database.
+                Leave unchecked to skip existing trips.
+              </p>
+            </div>
+          </label>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (overrideMode) {
+                setConfirmOpen(true)
+              } else {
+                runImport()
+              }
+            }}
+            disabled={importing}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+          >
+            <Download className={`h-4 w-4 ${importing ? "animate-bounce" : ""}`} />
+            {importing ? "Importing…" : "Run Import"}
+          </button>
+
+          {/* Override confirmation dialog */}
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                  <TriangleAlert className="h-5 w-5 shrink-0" />
+                  Override trip data — this cannot be undone
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-3 text-sm">
+                    <p>
+                      You are about to re-import the full TourCMS catalog with{" "}
+                      <strong className="text-foreground">override mode enabled</strong>.
+                      Every trip already in the database that matches a TourCMS tour will be
+                      <strong className="text-foreground"> overwritten</strong> — including any
+                      manual edits to titles, descriptions, prices, images, and tags.
+                    </p>
+                    <div className="rounded-lg border border-amber-400/30 bg-amber-50/70 px-3 py-2.5 text-[12px] leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                      <strong>Irreversible:</strong> overwritten fields cannot be recovered.
+                      Make sure you have reviewed any manual customisations before continuing.
+                    </div>
+                    <p className="text-muted-foreground">
+                      New trips that don't yet exist in the database will still be created in draft status as normal.
+                    </p>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setConfirmOpen(false)}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    setConfirmOpen(false)
+                    setImporting(true)
+                    setImportResult(null)
+                    setImportError("")
+                    setShowLog(false)
+                    fetch("/api/admin/palisis-import", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ override: true }),
+                    })
+                      .then(r => r.json())
+                      .then(async (data: ImportResult) => {
+                        setImportResult(data)
+                        if (!data.ok) setImportError(data.error ?? "Import failed.")
+                        await fetchLogs()
+                      })
+                      .catch(() => setImportError("Request failed."))
+                      .finally(() => setImporting(false))
+                  }}
+                  className="bg-amber-600 text-white hover:bg-amber-700 focus:ring-amber-600"
+                >
+                  Yes, override and import
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {importError && (
             <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
