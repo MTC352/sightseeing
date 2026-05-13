@@ -842,7 +842,7 @@ export async function dbInsertPalisisSyncLog(data: {
   )
 }
 
-export async function dbListPalisisSyncLogs(limit = 20) {
+export async function dbListPalisisSyncLogs(limit = 20, offset = 0) {
   return query<{
     id: string
     trigger_type: string
@@ -855,7 +855,15 @@ export async function dbListPalisisSyncLogs(limit = 20) {
     `SELECT id, trigger_type, palisis_id, action, changes, note, created_at
      FROM palisis_sync_log
      ORDER BY created_at DESC
-     LIMIT $1`,
-    [limit]
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
   )
+}
+
+export async function dbCountPalisisSyncLogs() {
+  const rows = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM palisis_sync_log`,
+    []
+  )
+  return parseInt(rows[0]?.count ?? "0", 10)
 }

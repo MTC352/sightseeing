@@ -65,7 +65,7 @@ export default function PalisisPage() {
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true)
     try {
-      const res  = await fetch("/api/admin/palisis-logs?limit=10")
+      const res  = await fetch("/api/admin/palisis-logs?limit=5")
       const data = await res.json()
       if (data.ok) setLogs(data.logs ?? [])
     } catch { /* ignore */ } finally {
@@ -396,15 +396,24 @@ export default function PalisisPage() {
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-muted-foreground/50" />
             <h2 className="text-sm font-semibold text-foreground">Import History</h2>
+            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">Latest 5</span>
           </div>
-          <button
-            type="button"
-            onClick={fetchLogs}
-            disabled={logsLoading}
-            className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-40"
-          >
-            <RefreshCw className={`h-3 w-3 ${logsLoading ? "animate-spin" : ""}`} /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={fetchLogs}
+              disabled={logsLoading}
+              className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3 w-3 ${logsLoading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+            <Link
+              href="/admin/palisis/history"
+              className="flex items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              View All
+            </Link>
+          </div>
         </div>
 
         {logsLoading ? (
