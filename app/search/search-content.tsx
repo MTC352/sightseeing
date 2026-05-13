@@ -309,8 +309,9 @@ function SearchListCard({
 
   // Build labeled slot rows: when date filter active show ONLY that date; otherwise today/tomorrow
   const now           = new Date()
-  const todayLabel    = formatDate(now.toISOString().split("T")[0])
-  const tomorrowLabel = formatDate(new Date(now.getTime() + 86_400_000).toISOString().split("T")[0])
+  // Human-friendly labels for the no-date-filter view
+  const todayLabel    = "Today"
+  const tomorrowLabel = "Tomorrow"
 
   const slotRows: { label: string; slots: Timeslot[] }[] = []
   if (dateFilter?.date) {
@@ -403,7 +404,9 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
   const [personsOpen, setPersonsOpen]       = useState(false)
   const [viewMode, setViewMode]             = useState<"grid" | "list">("list")
   const [availability, setAvailability]     = useState<AvailabilityMap>({})
-  const [availLoading, setAvailLoading]     = useState(false)
+  // Start as true so skeleton shows on the very first render — prevents dummy
+  // departure data from flashing before the initial availability fetch resolves.
+  const [availLoading, setAvailLoading]     = useState(true)
 
   // Initialize filters from URL params (preserves hero search selections)
   const [activeFilters, setActiveFilters] = useState<Filters>(() => ({
@@ -451,10 +454,11 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
       .finally(() => setAvailLoading(false))
   }, [])
 
-  useEffect(() => { fetchAvailability(activeFilters.dateFrom) }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Single effect covers both initial mount AND date changes.
+  // The [] mount-only duplicate is removed to avoid two back-to-back fetches on startup.
   useEffect(() => {
     fetchAvailability(activeFilters.dateFrom)
-  }, [activeFilters.dateFrom, fetchAvailability])
+  }, [activeFilters.dateFrom, fetchAvailability]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Category pills */
   const categories = useMemo(() => {
