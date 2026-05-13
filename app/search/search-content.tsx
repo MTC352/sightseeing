@@ -12,9 +12,12 @@ import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 import {
   Star, Clock, MapPin, SlidersHorizontal, CalendarDays, X,
   ChevronRight, Sparkles, Check, Plus, Sun, LayoutGrid, List, ArrowRight,
-  Users, Minus,
+  Users, Minus, CalendarClock,
 } from "lucide-react"
 import { DateTimeModal } from "@/components/date-time-modal"
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
 
 interface Filters {
   priceMin: number; priceMax: number; ratingMin: number; durationMax: number
@@ -297,11 +300,12 @@ function TimeslotSkeleton({ rows }: { rows: 1 | 2 }) {
   )
 }
 
-/* ── Slot row: label + up-to-4 chips filtered by person count + time window (client-side) ── */
+/* ── Slot row: label + up-to-4 chips + overflow button ── */
 function SlotRow({
-  label, slots, tripId, persons, timeFrom, timeTo,
+  label, slots, persons, timeFrom, timeTo, onShowAll,
 }: {
-  label: string; slots: Timeslot[]; tripId: string; persons: number; timeFrom: string; timeTo: string
+  label: string; slots: Timeslot[]; persons: number; timeFrom: string; timeTo: string
+  onShowAll: () => void
 }) {
   const eligible = slots.filter((s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo))
   if (eligible.length === 0) return null
@@ -313,15 +317,62 @@ function SlotRow({
       <div className="flex flex-wrap gap-2">
         {visible.map((s, i) => <TimeslotChip key={i} slot={s} />)}
         {overflow > 0 && (
-          <Link
-            href={`/trip/${tripId}#booking`}
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onShowAll() }}
             className="flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
           >
             +{overflow} more <ArrowRight className="h-3 w-3" />
-          </Link>
+          </button>
         )}
       </div>
     </div>
+  )
+}
+
+/* ── All-timeslots modal ── */
+function AllSlotsModal({
+  open, onClose, tripTitle, slotRows, persons, timeFrom, timeTo,
+}: {
+  open: boolean
+  onClose: () => void
+  tripTitle: string
+  slotRows: { label: string; slots: Timeslot[] }[]
+  persons: number
+  timeFrom: string
+  timeTo: string
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <div className="flex items-center gap-2 mb-1">
+            <CalendarClock className="h-4 w-4 text-primary shrink-0" />
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Available Timeslots
+            </p>
+          </div>
+          <DialogTitle className="text-base leading-snug">{tripTitle}</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-5 pt-2">
+          {slotRows.map(({ label, slots }) => {
+            const eligible = slots.filter(
+              (s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo),
+            )
+            if (eligible.length === 0) return null
+            return (
+              <div key={label}>
+                <p className="mb-2.5 text-xs font-semibold text-foreground">{label}</p>
+                <div className="flex flex-wrap gap-2">
+                  {eligible.map((s, i) => <TimeslotChip key={i} slot={s} />)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -341,9 +392,9 @@ function SearchListCard({
   const { addItem, isInCart } = useCart()
   const inCart      = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
+  const [allSlotsOpen, setAllSlotsOpen] = useState(false)
   const tripAvail = availability[trip.id]
   // Show skeleton for every card while ANY availability fetch is in progress.
-  // This prevents old-date slots from flashing briefly with wrong labels.
   const showSkeleton = isLoading
   const departures   = tripAvail ?? getDummyDepartures(trip.id)
 
@@ -422,12 +473,30 @@ function SearchListCard({
             </p>
             <div className="flex flex-col gap-3">
               {slotRows.map(({ label, slots }) => (
-                <SlotRow key={label} label={label} slots={slots} tripId={trip.id} persons={persons} timeFrom={timeFrom} timeTo={timeTo} />
+                <SlotRow
+                  key={label}
+                  label={label}
+                  slots={slots}
+                  persons={persons}
+                  timeFrom={timeFrom}
+                  timeTo={timeTo}
+                  onShowAll={() => setAllSlotsOpen(true)}
+                />
               ))}
             </div>
           </div>
         ) : null}
       </div>
+
+      <AllSlotsModal
+        open={allSlotsOpen}
+        onClose={() => setAllSlotsOpen(false)}
+        tripTitle={trip.title}
+        slotRows={slotRows}
+        persons={persons}
+        timeFrom={timeFrom}
+        timeTo={timeTo}
+      />
     </div>
   )
 }
