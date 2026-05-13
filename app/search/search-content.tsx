@@ -186,6 +186,46 @@ function TimeslotChip({ slot }: { slot: Timeslot }) {
   )
 }
 
+/* ── Full list-card skeleton (replaces real card while availability is loading) ── */
+function SearchListCardSkeleton() {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card sm:flex-row">
+      {/* image area */}
+      <div className="aspect-[16/10] animate-pulse bg-muted sm:aspect-auto sm:w-56 lg:w-64 shrink-0" />
+      {/* content area */}
+      <div className="flex flex-1 flex-col p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-14 animate-pulse rounded bg-muted" />
+            <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <div className="h-6 w-20 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-14 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+        <TimeslotSkeleton rows={2} />
+      </div>
+    </div>
+  )
+}
+
+/* ── Full grid-card skeleton ── */
+function SearchCardSkeleton() {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <div className="aspect-[4/3] animate-pulse bg-muted" />
+      <div className="flex flex-1 flex-col gap-2 p-2.5">
+        <div className="h-3 w-14 animate-pulse rounded bg-muted" />
+        <div className="h-4 w-4/5 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+        <div className="mt-auto h-4 w-24 animate-pulse rounded bg-muted pt-1" />
+      </div>
+    </div>
+  )
+}
+
 /* ── Grid card ── */
 function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean }) {
   const { addItem, isInCart } = useCart()
@@ -739,7 +779,18 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
           </div>
         </div>
 
-        {filtered.length === 0 && !availLoading ? (
+        {availLoading ? (
+          /* ── Full-card skeletons while availability is loading ── */
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => <SearchCardSkeleton key={i} />)}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {Array.from({ length: 5 }).map((_, i) => <SearchListCardSkeleton key={i} />)}
+            </div>
+          )
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <Sparkles className="h-10 w-10 text-muted-foreground/40" />
             <p className="font-semibold text-foreground">
