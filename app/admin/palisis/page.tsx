@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
   RefreshCw, Download, CheckCircle2, XCircle, AlertCircle,
-  Info, ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Terminal,
+  Info, ArrowLeft, ChevronDown, ChevronUp, Clock, Terminal,
   TriangleAlert, Webhook, Copy, Check,
 } from "lucide-react"
 import {
@@ -50,11 +50,8 @@ interface SyncLogEntry {
 
 export default function PalisisPage() {
   const [importing, setImporting]       = useState(false)
-  const [syncing, setSyncing]           = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
-  const [syncResult, setSyncResult]     = useState<ImportResult | null>(null)
   const [importError, setImportError]   = useState("")
-  const [syncError, setSyncError]       = useState("")
   const [showLog, setShowLog]           = useState(false)
   const [logs, setLogs]                 = useState<SyncLogEntry[]>([])
   const [logsLoading, setLogsLoading]   = useState(true)
@@ -138,22 +135,6 @@ export default function PalisisPage() {
     }
   }
 
-  async function runSync() {
-    setSyncing(true)
-    setSyncResult(null)
-    setSyncError("")
-    try {
-      const res  = await fetch("/api/admin/palisis-availability", { method: "POST" })
-      const data = await res.json() as ImportResult
-      setSyncResult(data)
-      if (!data.ok) setSyncError(data.error ?? "Sync failed.")
-    } catch {
-      setSyncError("Request failed — check your API key and Channel ID in Integrations.")
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   return (
     <div className="p-6 lg:p-10">
       {/* Header */}
@@ -185,88 +166,6 @@ export default function PalisisPage() {
           Configure credentials in{" "}
           <Link href="/admin/integrations" className="text-primary underline-offset-2 hover:underline">Integrations → Palisis / TourCMS</Link>.
         </p>
-      </div>
-
-      {/* Auto-Sync (Webhook) panel */}
-      <div className="mb-5 rounded-2xl border border-border bg-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10">
-              <Webhook className="h-5 w-5 text-violet-600" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-foreground">Auto-Sync via Webhook</h2>
-              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-                When enabled, Palisis can push trip-update events to our webhook URL and we
-                will automatically re-fetch and override that single trip.
-                When disabled, incoming webhooks are logged but ignored.
-              </p>
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-blue-500/10 px-2 py-1 text-[11px] font-medium text-blue-700">
-                <Info className="h-3 w-3" /> One-way only — we never push data back to Palisis.
-              </p>
-            </div>
-          </div>
-
-          {/* Toggle switch */}
-          <label className="flex cursor-pointer items-center gap-2.5">
-            <span className={`text-xs font-semibold ${autoSync ? "text-emerald-600" : "text-muted-foreground"}`}>
-              {autoSync ? "Enabled" : "Disabled"}
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoSync}
-              disabled={autoSyncSaving}
-              onClick={() => toggleAutoSync(!autoSync)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
-                autoSync ? "bg-emerald-500" : "bg-muted"
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
-                  autoSync ? "translate-x-5" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          </label>
-        </div>
-
-        {/* Webhook URL */}
-        <div className="mt-5 rounded-xl border border-border bg-secondary/30 p-4">
-          <div className="flex items-center gap-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Webhook URL
-            </p>
-            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              POST
-            </span>
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <code className="flex-1 truncate rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground">
-              {webhookUrl || "Loading…"}
-            </code>
-            <button
-              type="button"
-              onClick={copyWebhookUrl}
-              disabled={!webhookUrl}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
-            >
-              {copied ? (
-                <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied</>
-              ) : (
-                <><Copy className="h-3.5 w-3.5" /> Copy</>
-              )}
-            </button>
-          </div>
-          <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
-            Configure this URL in TourCMS → Webhooks for trip-update events.
-            Payload should include the tour ID as <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">tour_id</code>,{" "}
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">tourId</code>, or{" "}
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">externalId</code>.
-            Optional auth: send your secret in the <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">x-palisis-secret</code> header
-            (configure <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">PALISIS_WEBHOOK_SECRET</code> env var).
-          </p>
-        </div>
       </div>
 
       {/* Action cards */}
@@ -449,71 +348,81 @@ export default function PalisisPage() {
           )}
         </div>
 
-        {/* Sync availability */}
+        {/* Auto-Sync via Webhook */}
         <div className="rounded-2xl border border-border bg-card p-6">
-          <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
-            <Calendar className="h-5 w-5 text-amber-600" />
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
+              <Webhook className="h-5 w-5 text-violet-600" />
+            </div>
+
+            {/* Toggle switch */}
+            <label className="flex cursor-pointer items-center gap-2.5">
+              <span className={`text-xs font-semibold ${autoSync ? "text-emerald-600" : "text-muted-foreground"}`}>
+                {autoSync ? "Enabled" : "Disabled"}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoSync}
+                disabled={autoSyncSaving}
+                onClick={() => toggleAutoSync(!autoSync)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
+                  autoSync ? "bg-emerald-500" : "bg-muted"
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
+                    autoSync ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </label>
           </div>
-          <h2 className="text-base font-semibold text-foreground">Sync Availability</h2>
+
+          <h2 className="text-base font-semibold text-foreground">Auto-Sync via Webhook</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Fetch the next 7 days of availability from TourCMS for all imported trips — admin preview only.
-            Customer-facing availability is always fetched live.
+            When enabled, Palisis can push trip-update events to our webhook URL and we
+            automatically re-fetch and override that single trip. When disabled, incoming
+            webhooks are logged but ignored.
           </p>
 
-          <button
-            type="button"
-            onClick={runSync}
-            disabled={syncing}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
-          >
-            <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing…" : "Sync Availability"}
-          </button>
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-blue-500/10 px-2 py-1 text-[11px] font-medium text-blue-700">
+            <Info className="h-3 w-3" /> One-way only — we never push data back to Palisis.
+          </p>
 
-          {syncError && (
-            <div className="mt-3 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
-              <XCircle className="h-3.5 w-3.5 shrink-0" /> {syncError}
+          {/* Webhook URL */}
+          <div className="mt-4 rounded-xl border border-border bg-secondary/30 p-3">
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Webhook URL
+              </p>
+              <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                POST
+              </span>
             </div>
-          )}
-
-          {syncResult && syncResult.ok && (
-            <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs">
-              <div className="flex items-center gap-2 font-medium">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                <span className="text-emerald-600">Availability synced</span>
-              </div>
-              {syncResult.note && <p className="mt-1.5 text-muted-foreground/70 italic">{syncResult.note}</p>}
-
-              {syncResult.slots && syncResult.slots.length > 0 && (
-                <div className="mt-3 overflow-hidden rounded-lg border border-border">
-                  <table className="w-full text-[10px]">
-                    <thead>
-                      <tr className="border-b border-border bg-secondary/50">
-                        <th className="px-2 py-1.5 text-left text-muted-foreground/60">Trip</th>
-                        <th className="px-2 py-1.5 text-left text-muted-foreground/60">Date</th>
-                        <th className="px-2 py-1.5 text-left text-muted-foreground/60">Time</th>
-                        <th className="px-2 py-1.5 text-right text-muted-foreground/60">Price</th>
-                        <th className="px-2 py-1.5 text-right text-muted-foreground/60">Spots</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {syncResult.slots.slice(0, 10).map((s, i) => (
-                        <tr key={i} className="border-b border-border last:border-0">
-                          <td className="max-w-[80px] truncate px-2 py-1.5 text-muted-foreground">{s.tripTitle.split(" ").slice(0, 3).join(" ")}</td>
-                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.startDate}</td>
-                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.startTime ?? "—"}</td>
-                          <td className="px-2 py-1.5 text-right text-muted-foreground">{s.priceDisplay}</td>
-                          <td className={`px-2 py-1.5 text-right font-semibold ${s.spacesRemaining === 0 ? "text-destructive" : (s.spacesRemaining ?? 999) < 4 ? "text-amber-600" : "text-emerald-600"}`}>
-                            {s.spacesRemaining ?? "∞"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="flex-1 truncate rounded-lg border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] text-foreground">
+                {webhookUrl || "Loading…"}
+              </code>
+              <button
+                type="button"
+                onClick={copyWebhookUrl}
+                disabled={!webhookUrl}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                {copied ? (
+                  <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied</>
+                ) : (
+                  <><Copy className="h-3.5 w-3.5" /> Copy</>
+                )}
+              </button>
             </div>
-          )}
+            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+              Configure this URL in TourCMS → Webhooks. Payload should include the tour ID as{" "}
+              <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">tour_id</code>.
+              Optional auth via <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">x-palisis-secret</code> header.
+            </p>
+          </div>
         </div>
       </div>
 
