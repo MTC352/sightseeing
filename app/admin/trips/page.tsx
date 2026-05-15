@@ -1,10 +1,11 @@
 import Link from "next/link"
 import { dbListTrips } from "@/lib/db/queries"
-import { Plus, Pencil, ExternalLink } from "lucide-react"
+import { Pencil, ExternalLink } from "lucide-react"
 import { TripDeleteButton } from "./trip-delete-button"
 import { TripToggleButton } from "./trip-toggle-button"
 import { TripStatusButton } from "./trip-status-button"
 import { TripArchiveButton } from "./trip-archive-button"
+import { TripSyncButton } from "./trip-sync-button"
 
 export const dynamic = "force-dynamic"
 
@@ -37,12 +38,20 @@ export default async function AdminTripsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/admin/trips/new"
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            href="/admin/palisis"
+            className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-500/20"
           >
-            <Plus className="h-4 w-4" /> New Trip
+            Import from Palisis
           </Link>
         </div>
+      </div>
+
+      {/* Source-of-truth notice */}
+      <div className="mb-4 flex items-start gap-2 rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 text-xs text-blue-700">
+        <span className="font-semibold">Palisis is the source of truth.</span>
+        <span className="text-blue-700/80">
+          New trips are added via Palisis import. Use the sync icon on each row to re-fetch data from Palisis (one-way override).
+        </span>
       </div>
 
       {/* Table */}
@@ -119,6 +128,7 @@ export default async function AdminTripsPage() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Link>
+                      <TripSyncButton palisisId={trip.palisis_id} />
                       <TripArchiveButton tripId={trip.id} isArchived={false} />
                       <TripDeleteButton tripId={trip.id} tripTitle={trip.title} />
                     </div>

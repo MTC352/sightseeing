@@ -4,6 +4,17 @@
 Next.js 16 tourism discovery and booking platform for Luxembourg.
 Includes a full public frontend and a comprehensive admin panel at `/admin/*`.
 
+## ⚠️ CRITICAL: Palisis/TourCMS is ONE-WAY ONLY
+
+**Palisis (TourCMS) → our DB. Never the other way around.**
+
+- The site **never** pushes trip data, prices, descriptions, edits, or any payload back to Palisis.
+- All Palisis-related code paths (`lib/tourcms.ts`, `lib/palisis-sync.ts`, `app/api/admin/palisis-import/*`, `app/api/webhooks/palisis/*`) are **read-only** from our perspective on Palisis data.
+- Every sync operation (manual button on a trip, manual full import, webhook auto-sync) re-fetches via TourCMS `showTour` / `listTours` and **overrides** our local DB row.
+- The only POST/PUT calls to TourCMS that are allowed are **booking-creation** flows (customer-initiated, not admin-initiated edits).
+- Auto-sync is toggleable in `/admin/palisis` (stored as `integrations.palisis_auto_sync`). When OFF, incoming webhooks are logged-and-skipped.
+- **Do NOT add any code that pushes admin trip edits to Palisis.** The admin UI's "Edit Trip" form writes to our DB only — Palisis is the upstream source of truth, not a sink.
+
 ## Key Architecture
 
 - **Framework:** Next.js 16 (App Router) with TypeScript

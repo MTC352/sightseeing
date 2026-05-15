@@ -5,7 +5,7 @@ import Link from "next/link"
 import {
   RefreshCw, Download, CheckCircle2, XCircle, AlertCircle,
   Info, ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Terminal,
-  TriangleAlert,
+  TriangleAlert, Webhook, Copy, Check,
 } from "lucide-react"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -61,6 +61,51 @@ export default function PalisisPage() {
   const [expandedLog, setExpandedLog]   = useState<string | null>(null)
   const [overrideMode, setOverrideMode] = useState(false)
   const [confirmOpen, setConfirmOpen]   = useState(false)
+  const [autoSync, setAutoSync]         = useState(false)
+  const [autoSyncSaving, setAutoSyncSaving] = useState(false)
+  const [webhookUrl, setWebhookUrl]     = useState("")
+  const [copied, setCopied]             = useState(false)
+
+  // Load auto-sync setting + compute webhook URL on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setWebhookUrl(`${window.location.origin}/api/webhooks/palisis`)
+    }
+    fetch("/api/admin/settings")
+      .then(r => r.json())
+      .then(d => {
+        const enabled = d?.apiKeys?.palisis_auto_sync === "true"
+        setAutoSync(enabled)
+      })
+      .catch(() => { /* ignore */ })
+  }, [])
+
+  async function toggleAutoSync(enabled: boolean) {
+    setAutoSyncSaving(true)
+    setAutoSync(enabled)
+    try {
+      await fetch("/api/admin/settings", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          section: "apiKeys",
+          data:    { palisis_auto_sync: enabled ? "true" : "false" },
+        }),
+      })
+    } catch {
+      setAutoSync(!enabled)
+    } finally {
+      setAutoSyncSaving(false)
+    }
+  }
+
+  async function copyWebhookUrl() {
+    try {
+      await navigator.clipboard.writeText(webhookUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch { /* ignore */ }
+  }
 
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true)
@@ -140,6 +185,88 @@ export default function PalisisPage() {
           Configure credentials in{" "}
           <Link href="/admin/integrations" className="text-primary underline-offset-2 hover:underline">Integrations → Palisis / TourCMS</Link>.
         </p>
+      </div>
+
+      {/* Auto-Sync (Webhook) panel */}
+      <div className="mb-5 rounded-2xl border border-border bg-card p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10">
+              <Webhook className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Auto-Sync via Webhook</h2>
+              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                When enabled, Palisis can push trip-update events to our webhook URL and we
+                will automatically re-fetch and override that single trip.
+                When disabled, incoming webhooks are logged but ignored.
+              </p>
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-blue-500/10 px-2 py-1 text-[11px] font-medium text-blue-700">
+                <Info className="h-3 w-3" /> One-way only — we never push data back to Palisis.
+              </p>
+            </div>
+          </div>
+
+          {/* Toggle switch */}
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <span className={`text-xs font-semibold ${autoSync ? "text-emerald-600" : "text-muted-foreground"}`}>
+              {autoSync ? "Enabled" : "Disabled"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoSync}
+              disabled={autoSyncSaving}
+              onClick={() => toggleAutoSync(!autoSync)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
+                autoSync ? "bg-emerald-500" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
+                  autoSync ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </label>
+        </div>
+
+        {/* Webhook URL */}
+        <div className="mt-5 rounded-xl border border-border bg-secondary/30 p-4">
+          <div className="flex items-center gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Webhook URL
+            </p>
+            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              POST
+            </span>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="flex-1 truncate rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground">
+              {webhookUrl || "Loading…"}
+            </code>
+            <button
+              type="button"
+              onClick={copyWebhookUrl}
+              disabled={!webhookUrl}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+            >
+              {copied ? (
+                <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied</>
+              ) : (
+                <><Copy className="h-3.5 w-3.5" /> Copy</>
+              )}
+            </button>
+          </div>
+          <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            Configure this URL in TourCMS → Webhooks for trip-update events.
+            Payload should include the tour ID as <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">tour_id</code>,{" "}
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">tourId</code>, or{" "}
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">externalId</code>.
+            Optional auth: send your secret in the <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">x-palisis-secret</code> header
+            (configure <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">PALISIS_WEBHOOK_SECRET</code> env var).
+          </p>
+        </div>
       </div>
 
       {/* Action cards */}

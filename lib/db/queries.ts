@@ -489,7 +489,12 @@ export async function dbGetSettings() {
 export async function dbUpdateApiKeys(data: Record<string, string>) {
   for (const [key, value] of Object.entries(data)) {
     if (key === 'weglot') continue
-    await query(`UPDATE integrations SET value = $1, updated_at = NOW() WHERE key = $2`, [value, key])
+    await query(
+      `INSERT INTO integrations (key, label, value, updated_at)
+       VALUES ($2, $2, $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [value, key]
+    )
   }
 }
 
