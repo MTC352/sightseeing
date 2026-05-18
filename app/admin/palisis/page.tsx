@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
-  RefreshCw, Download, CheckCircle2, XCircle, AlertCircle,
+  RefreshCw, Download, CheckCircle2, XCircle,
   Info, ArrowLeft, ChevronDown, ChevronUp, Clock, Terminal,
   TriangleAlert, Webhook, Copy, Check,
 } from "lucide-react"
@@ -545,23 +545,6 @@ export default function PalisisPage() {
         )}
       </div>
 
-      {/* Webhook hint */}
-      <div className="mt-5 rounded-xl border border-border bg-card p-5">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
-          <div>
-            <p className="text-sm font-medium text-foreground">Automate with Webhooks</p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              Configure TourCMS to POST to{" "}
-              <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-                /api/webhooks/palisis
-              </code>{" "}
-              on booking events to keep trip data in sync automatically.
-              Contact your TourCMS account manager to set up webhook triggers.
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
