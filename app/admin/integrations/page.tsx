@@ -550,7 +550,7 @@ export default function IntegrationsPage() {
       {tab === "settings" && (
         <div className="space-y-5">
 
-          {/* Departing Soon Block — collapsible */}
+          {/* Departing Soon Widget — collapsible */}
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             <button
               type="button"
@@ -559,7 +559,7 @@ export default function IntegrationsPage() {
               aria-expanded={!dsCollapsed}
             >
               <Calendar className="h-4 w-4 text-muted-foreground/50" />
-              <h2 className="text-sm font-semibold text-foreground">Departing Soon Block</h2>
+              <h2 className="text-sm font-semibold text-foreground">Departing Soon Widget</h2>
               <span className={`ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${dsWidgetEnabled ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${dsWidgetEnabled ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
                 {dsWidgetEnabled ? "On" : "Off"}
@@ -625,8 +625,8 @@ export default function IntegrationsPage() {
               {dsWidgetEnabled && (
                 <>
                   {/* ROW 2 — No. of Trips + Dates & Deals Store Interval + Refresh Discovery */}
-                  <div className="flex flex-wrap items-end gap-4 px-5 py-4">
-                    <div className="flex flex-col gap-1.5 min-w-[180px]">
+                  <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-[260px_1fr] md:items-end">
+                    <div className="flex flex-col gap-1.5">
                       <div className="flex items-center gap-1.5">
                         <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">No. of Trips to Show</label>
                         <InfoTip text="How many upcoming departures appear in the widget (3–10). Discovery scans every published trip, then keeps the earliest N (one per trip)." />
@@ -647,42 +647,43 @@ export default function IntegrationsPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-1.5 min-w-[220px]">
-                      <div className="flex items-center gap-1.5">
-                        <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Dates and Deals Store Interval</label>
-                        <InfoTip text="How many days of upcoming departures to pre-fetch from Palisis. One datesndeals call per trip covers the whole window. The cache stays valid until the window expires — no periodic job. Use Refresh Discovery to rebuild on demand." />
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Dates and Deals Store Interval</label>
+                          <InfoTip text="How many days of upcoming departures to pre-fetch from Palisis. One datesndeals call per trip covers the whole window. The cache stays valid until the window expires — no periodic job. Use Refresh Discovery to rebuild on demand." />
+                        </div>
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            min={3} max={30} step={1}
+                            value={dsWindowDays}
+                            onChange={(e) => {
+                              const n = Math.max(3, Math.min(30, parseInt(e.target.value, 10) || 7))
+                              setKeys((k) => ({ ...k, departing_soon_discovery_window_days: String(n) }))
+                              setDsDirty(true)
+                            }}
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-12"
+                          />
+                          <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">days</span>
+                        </div>
                       </div>
-                      <div className="relative flex items-center">
-                        <input
-                          type="number"
-                          min={3} max={30} step={1}
-                          value={dsWindowDays}
-                          onChange={(e) => {
-                            const n = Math.max(3, Math.min(30, parseInt(e.target.value, 10) || 7))
-                            setKeys((k) => ({ ...k, departing_soon_discovery_window_days: String(n) }))
-                            setDsDirty(true)
-                          }}
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-12"
-                        />
-                        <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">days</span>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => refreshNow("discovery")}
+                        disabled={dsRefreshing === "discovery"}
+                        title="Re-fetch the full window of dates+deals for every trip"
+                        className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${dsRefreshing === "discovery" ? "animate-spin" : ""}`} />
+                        Refresh Discovery
+                      </button>
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={() => refreshNow("discovery")}
-                      disabled={dsRefreshing === "discovery"}
-                      title="Re-fetch the full window of dates+deals for every trip"
-                      className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-                    >
-                      <RefreshCw className={`h-3 w-3 ${dsRefreshing === "discovery" ? "animate-spin" : ""}`} />
-                      Refresh Discovery
-                    </button>
                   </div>
 
-                  {/* ROW 3 — Show Availability toggle (always visible when widget on) */}
-                  <div className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center">
-                    <label className="flex items-center gap-2 md:min-w-[260px]">
+                  {/* ROW 3 — Show Availability toggle paired with TTL + Refresh */}
+                  <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-[260px_1fr] md:items-end">
+                    <label className="flex items-center gap-2 md:self-center">
                       <button
                         type="button"
                         role="switch"
@@ -697,10 +698,9 @@ export default function IntegrationsPage() {
                       <InfoTip text="When ON, cards display real-time spaces-remaining (Limited availability / Only N left). When OFF, those pills are hidden AND the availability refresh stops — saves up to ~14,400 Palisis calls/day." />
                     </label>
 
-                    {/* Read-Time Availability TTL — paired side-by-side with the toggle */}
                     {dsShowAvail && (
-                      <div className="flex items-end gap-2 md:ml-auto">
-                        <div className="flex flex-col gap-1.5 min-w-[180px]">
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
                           <div className="flex items-center gap-1.5">
                             <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Read-Time Availability TTL</label>
                             <InfoTip text="Minimum age before a homepage hit can trigger a fresh availability refresh. Acts as a dedupe guard against thundering herds (default 20s)." />
@@ -734,10 +734,10 @@ export default function IntegrationsPage() {
                     )}
                   </div>
 
-                  {/* ROW 4 — Auto-Update Availability toggle + Interval (when ON) */}
+                  {/* ROW 4 — Auto-Update Availability toggle + Interval */}
                   {dsShowAvail && (
-                    <div className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center">
-                      <label className="flex items-center gap-2 md:min-w-[260px]">
+                    <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-[260px_1fr] md:items-end">
+                      <label className="flex items-center gap-2 md:self-center">
                         <button
                           type="button"
                           role="switch"
@@ -755,26 +755,24 @@ export default function IntegrationsPage() {
                       </label>
 
                       {keys.departing_soon_auto_update === "true" && (
-                        <div className="flex items-end gap-2 md:ml-auto">
-                          <div className="flex flex-col gap-1.5 min-w-[220px]">
-                            <div className="flex items-center gap-1.5">
-                              <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Auto-Update Availability Interval</label>
-                              <InfoTip text="How often the background job refreshes spaces-remaining for the currently displayed slots. Lower values = more accurate, higher API usage." />
-                            </div>
-                            <div className="relative flex items-center">
-                              <input
-                                type="number"
-                                min={15} max={300} step={5}
-                                value={dsAvailSec}
-                                onChange={(e) => {
-                                  const sec = Math.max(15, Math.min(300, parseInt(e.target.value, 10) || 30))
-                                  setKeys((k) => ({ ...k, departing_soon_auto_update_interval_seconds: String(sec) }))
-                                  setDsDirty(true)
-                                }}
-                                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
-                              />
-                              <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">sec</span>
-                            </div>
+                        <div className="flex flex-col gap-1.5 max-w-md">
+                          <div className="flex items-center gap-1.5">
+                            <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Auto-Update Availability Interval</label>
+                            <InfoTip text="How often the background job refreshes spaces-remaining for the currently displayed slots. Lower values = more accurate, higher API usage." />
+                          </div>
+                          <div className="relative flex items-center">
+                            <input
+                              type="number"
+                              min={15} max={300} step={5}
+                              value={dsAvailSec}
+                              onChange={(e) => {
+                                const sec = Math.max(15, Math.min(300, parseInt(e.target.value, 10) || 30))
+                                setKeys((k) => ({ ...k, departing_soon_auto_update_interval_seconds: String(sec) }))
+                                setDsDirty(true)
+                              }}
+                              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                            />
+                            <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">sec</span>
                           </div>
                         </div>
                       )}
