@@ -152,21 +152,11 @@ export default function PalisisPage() {
             <RefreshCw className="h-6 w-6 text-primary" /> Palisis / TourCMS Import
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Import trips from TourCMS into our database. Trips are served from our DB — no live TourCMS calls on the public site.
+            Import trips from TourCMS into our database.
           </p>
         </div>
       </div>
 
-      {/* Info banner */}
-      <div className="mb-6 flex items-start gap-2 rounded-xl border border-border bg-secondary/40 px-4 py-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Works for both <strong className="text-foreground">Tour Operators</strong> (using your channel ID) and{" "}
-          <strong className="text-foreground">Marketplace Partners</strong> (cross-channel). The importer detects your account type automatically.
-          Configure credentials in{" "}
-          <Link href="/admin/integrations" className="text-primary underline-offset-2 hover:underline">Integrations → Palisis / TourCMS</Link>.
-        </p>
-      </div>
 
       {/* Action cards */}
       <div className="grid gap-5 sm:grid-cols-2">
@@ -233,18 +223,12 @@ export default function PalisisPage() {
                 <AlertDialogDescription asChild>
                   <div className="space-y-3 text-sm">
                     <p>
-                      You are about to re-import the full TourCMS catalog with{" "}
-                      <strong className="text-foreground">override mode enabled</strong>.
-                      Every trip already in the database that matches a TourCMS tour will be
-                      <strong className="text-foreground"> overwritten</strong> — including any
-                      manual edits to titles, descriptions, prices, images, and tags.
+                      All existing trips that match a TourCMS tour will be{" "}
+                      <strong className="text-foreground">overwritten</strong> — titles, descriptions, prices, images, and tags.
+                      This cannot be undone.
                     </p>
-                    <div className="rounded-lg border border-amber-400/30 bg-amber-50/70 px-3 py-2.5 text-[12px] leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                      <strong>Irreversible:</strong> overwritten fields cannot be recovered.
-                      Make sure you have reviewed any manual customisations before continuing.
-                    </div>
                     <p className="text-muted-foreground">
-                      New trips that don't yet exist in the database will still be created in draft status as normal.
+                      New trips will be created in draft status as normal.
                     </p>
                   </div>
                 </AlertDialogDescription>
