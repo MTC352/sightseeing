@@ -166,6 +166,12 @@ export default function IntegrationsPage() {
   const [dsCollapsed, setDsCollapsed] = useState(false)
   const [dsDirty, setDsDirty] = useState(false)
   const [dsSavedAll, setDsSavedAll] = useState(false)
+  // LMD
+  const [lmdCollapsed, setLmdCollapsed] = useState(false)
+  const [lmdDirty, setLmdDirty] = useState(false)
+  const [lmdSaving, setLmdSaving] = useState(false)
+  const [lmdSaved, setLmdSaved] = useState(false)
+  const [lmdToggling, setLmdToggling] = useState(false)
   const [dsStatus, setDsStatus] = useState<{
     tourcmsConfigured: boolean | null
     lastDiscoveryAt: string | null
@@ -252,6 +258,41 @@ export default function IntegrationsPage() {
       setTimeout(() => setDsSavedAll(false), 2500)
     } catch { /* ignore */ }
     finally { setDsSaving(null) }
+  }
+
+  /** Toggle lmd_widget_enabled boolean. */
+  async function toggleLmd(enabled: boolean) {
+    setLmdToggling(true)
+    setKeys((k) => ({ ...k, lmd_widget_enabled: enabled ? "true" : "false" }))
+    try {
+      await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "apiKeys", data: { lmd_widget_enabled: enabled ? "true" : "false" } }),
+      })
+    } catch { /* ignore */ }
+    finally { setLmdToggling(false) }
+  }
+
+  /** Saves all editable LMD numeric settings in one PATCH. */
+  async function saveLmdSettings() {
+    setLmdSaving(true)
+    try {
+      const payload = {
+        lmd_max_spaces: String(lmdMaxSpaces),
+        lmd_max_hours: String(lmdMaxHours),
+        lmd_max_cards: String(lmdMaxCards),
+      }
+      await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "apiKeys", data: payload }),
+      })
+      setLmdDirty(false)
+      setLmdSaved(true)
+      setTimeout(() => setLmdSaved(false), 2500)
+    } catch { /* ignore */ }
+    finally { setLmdSaving(false) }
   }
 
   async function save() {
@@ -365,6 +406,11 @@ export default function IntegrationsPage() {
   // Defaults: widget ON, show-availability ON, auto-update OFF
   const dsWidgetEnabled  = (keys.departing_soon_widget_enabled ?? "true") === "true"
   const dsShowAvail      = (keys.departing_soon_show_availability ?? "true") === "true"
+  // LMD derived values
+  const lmdEnabled    = (keys.lmd_widget_enabled ?? "true") === "true"
+  const lmdMaxSpaces  = parseInt(keys.lmd_max_spaces ?? "3", 10) || 3
+  const lmdMaxHours   = parseInt(keys.lmd_max_hours ?? "24", 10) || 24
+  const lmdMaxCards   = parseInt(keys.lmd_max_cards ?? "3", 10) || 3
 
   return (
     <div className="p-6 lg:p-10">
@@ -825,6 +871,160 @@ export default function IntegrationsPage() {
             </div>
 
             </>
+            )}
+          </div>
+
+          {/* ── Last Minute Deals Widget ───────────────────────────────── */}
+          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <button
+              type="button"
+              onClick={() => setLmdCollapsed((c) => !c)}
+              className="flex w-full items-center gap-3 border-b border-border px-5 py-3.5 text-left transition-colors hover:bg-muted/30"
+              aria-expanded={!lmdCollapsed}
+            >
+              <Zap className="h-4 w-4 text-muted-foreground/50" />
+              <h2 className="text-sm font-semibold text-foreground">Last Minute Deals Widget</h2>
+              <span className={`ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${lmdEnabled ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${lmdEnabled ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                {lmdEnabled ? "On" : "Off"}
+              </span>
+              <span className="ml-auto text-[11px] text-muted-foreground/50">Homepage widget</span>
+              <ChevronDown className={`h-4 w-4 text-muted-foreground/60 transition-transform ${lmdCollapsed ? "" : "rotate-180"}`} />
+            </button>
+
+            {!lmdCollapsed && (
+              <>
+                <p className="border-b border-border bg-muted/10 px-5 py-3 text-[11px] text-muted-foreground">
+                  Shows deals on the homepage when upcoming slots match <strong>all</strong> rules below.
+                  Reuses the Departing Soon discovery + availability cache — no extra API calls.
+                </p>
+
+                {/* ROW 1 — Enable / Disable */}
+                <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-[260px_1fr] md:items-center border-b border-border">
+                  <label className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={lmdEnabled}
+                      disabled={lmdToggling}
+                      onClick={() => toggleLmd(!lmdEnabled)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed ${lmdEnabled ? "bg-emerald-500" : "bg-muted"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${lmdEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </button>
+                    <span className="text-xs font-medium text-foreground select-none">Show Widget</span>
+                    <InfoTip text="When ON, the 'Last Minute Deals' section is shown on the homepage whenever qualifying slots exist. When OFF, the section is hidden entirely." />
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Deals are picked from the Departing Soon discovery cache — no extra TourCMS calls.
+                  </p>
+                </div>
+
+                {/* ROW 2 — Rules */}
+                {lmdEnabled && (
+                  <div className="border-b border-border px-5 py-4">
+                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Deal Rules — a slot must match ALL conditions</p>
+                    <div className="flex flex-wrap gap-4">
+
+                      {/* Max spaces */}
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[180px]">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Spaces remaining ≤</label>
+                          <InfoTip text="A slot qualifies as a Last Minute Deal only when spaces remaining is at or below this number. Default: 3." />
+                        </div>
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            min={1} max={500} step={1}
+                            value={lmdMaxSpaces}
+                            onChange={(e) => {
+                              const n = Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 3))
+                              setKeys((k) => ({ ...k, lmd_max_spaces: String(n) }))
+                              setLmdDirty(true)
+                            }}
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-16"
+                          />
+                          <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">spaces</span>
+                        </div>
+                      </div>
+
+                      {/* Max hours */}
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[180px]">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Departing within</label>
+                          <InfoTip text="Only slots departing within this many hours from now qualify. 24h = today, 48h = today + tomorrow, etc. Max 168h (7 days). Default: 24." />
+                        </div>
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            min={1} max={168} step={1}
+                            value={lmdMaxHours}
+                            onChange={(e) => {
+                              const n = Math.max(1, Math.min(168, parseInt(e.target.value, 10) || 24))
+                              setKeys((k) => ({ ...k, lmd_max_hours: String(n) }))
+                              setLmdDirty(true)
+                            }}
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                          />
+                          <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">hrs</span>
+                        </div>
+                      </div>
+
+                      {/* Max cards */}
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[180px]">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Max Cards to Show</label>
+                          <InfoTip text="Maximum number of deal cards displayed on the homepage. Qualifying slots are sorted soonest-first. Default: 3." />
+                        </div>
+                        <div className="relative flex items-center">
+                          <input
+                            type="number"
+                            min={1} max={12} step={1}
+                            value={lmdMaxCards}
+                            onChange={(e) => {
+                              const n = Math.max(1, Math.min(12, parseInt(e.target.value, 10) || 3))
+                              setKeys((k) => ({ ...k, lmd_max_cards: String(n) }))
+                              setLmdDirty(true)
+                            }}
+                            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-14"
+                          />
+                          <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">cards</span>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Rule summary */}
+                    <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-[11px] text-muted-foreground">
+                      <strong className="text-foreground">Active rule:</strong>{" "}
+                      Show up to <strong className="text-foreground">{lmdMaxCards}</strong> deal
+                      {lmdMaxCards !== 1 ? "s" : ""} where spaces remaining
+                      is <strong className="text-foreground">≤ {lmdMaxSpaces}</strong> and departure
+                      is within <strong className="text-foreground">{lmdMaxHours}h</strong> from now.
+                    </div>
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="flex items-center justify-end gap-3 border-t border-border bg-muted/10 px-5 py-3">
+                  {lmdDirty && !lmdSaved && (
+                    <span className="text-[11px] font-medium text-amber-600">Unsaved changes</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={saveLmdSettings}
+                    disabled={lmdSaving || (!lmdDirty && !lmdSaved)}
+                    className={`flex h-8 items-center gap-1.5 rounded-lg px-4 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      lmdSaved
+                        ? "bg-emerald-500/15 text-emerald-600"
+                        : "bg-primary text-primary-foreground hover:bg-primary/90"
+                    }`}
+                  >
+                    {lmdSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                    {lmdSaved ? "Saved" : lmdSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </>
             )}
           </div>
 

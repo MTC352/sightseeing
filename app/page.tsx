@@ -1,6 +1,7 @@
 import { Navbar } from "@/components/site-navbar"
 import { HeroSection } from "@/components/hero-section"
-import { TrendingSection, WeatherSection, CategoriesSection, DealsSection, ReviewsSection, RecentlyViewed, StatsBar, DeparturesSoonSection } from "@/components/home-sections"
+import { TrendingSection, WeatherSection, CategoriesSection, ReviewsSection, RecentlyViewed, StatsBar, DeparturesSoonSection } from "@/components/home-sections"
+import { LastMinuteDealsSection } from "@/components/last-minute-deals-section"
 import { SiteFooter } from "@/components/site-footer"
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -54,7 +55,7 @@ export default function Page() {
       <WeatherSection />
       <RecentlyViewed />
       <CategoriesSection />
-      <DealsSection />
+      <LastMinuteDealsSection />
       <ReviewsSection />
       <StatsBar />
       <SiteFooter />

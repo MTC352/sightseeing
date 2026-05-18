@@ -159,6 +159,23 @@ export async function getAvailabilityThreshold(): Promise<number> {
   return getNumericSetting("departing_soon_availability_threshold", 15, 1, 999)
 }
 
+// ─── Last Minute Deals settings ──────────────────────────────────────────────
+export async function getLmdWidgetEnabled(): Promise<boolean> {
+  return getBoolSetting("lmd_widget_enabled", true)
+}
+/** Show LMD card if spaces remaining ≤ this value. Default 3. */
+export async function getLmdMaxSpaces(): Promise<number> {
+  return getNumericSetting("lmd_max_spaces", 3, 1, 500)
+}
+/** Show LMD card only if departure is within this many hours. Default 24. */
+export async function getLmdMaxHours(): Promise<number> {
+  return getNumericSetting("lmd_max_hours", 24, 1, 168)
+}
+/** Maximum number of LMD cards to display. Default 3. */
+export async function getLmdMaxCards(): Promise<number> {
+  return getNumericSetting("lmd_max_cards", 3, 1, 12)
+}
+
 /** True when the discovery window is empty or has elapsed. */
 export function isDiscoveryExpired(): boolean {
   if (!discoveryCache) return true
