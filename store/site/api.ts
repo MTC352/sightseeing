@@ -1,4 +1,16 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react"
+import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
+
+export type { DepartingSoonItem }
+
+export type DepartingSoonData = {
+  ok: boolean
+  departures: DepartingSoonItem[]
+  autoUpdate: boolean
+  interval: number
+  cachedAt: string
+  fromCache: boolean
+}
 
 export type WeatherData = {
   temp: number

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Save, Check, Eye, EyeOff, ExternalLink, AlertCircle, Cloud, Map, Bot, Zap, Globe, Star, RefreshCw } from "lucide-react"
+import { Save, Check, Eye, EyeOff, ExternalLink, AlertCircle, Cloud, Map, Bot, Zap, Globe, Star, RefreshCw, Calendar } from "lucide-react"
 
 interface ApiKeyField {
   key: string
@@ -150,6 +150,9 @@ export default function IntegrationsPage() {
   const [testing, setTesting] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<Record<string, "ok" | "fail">>({})
   const [error, setError] = useState("")
+  const [dsToggling, setDsToggling] = useState(false)
+  const [dsIntervalSaving, setDsIntervalSaving] = useState(false)
+  const [dsIntervalSaved, setDsIntervalSaved] = useState(false)
 
   useEffect(() => {
     fetch("/api/admin/settings")
@@ -182,6 +185,43 @@ export default function IntegrationsPage() {
       setError("Could not save — please try again.")
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function toggleDsAutoUpdate(enabled: boolean) {
+    setDsToggling(true)
+    setKeys((k) => ({ ...k, departing_soon_auto_update: enabled ? "true" : "false" }))
+    try {
+      await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: "apiKeys",
+          data: { departing_soon_auto_update: enabled ? "true" : "false" },
+        }),
+      })
+    } catch {
+      setKeys((k) => ({ ...k, departing_soon_auto_update: enabled ? "false" : "true" }))
+    } finally {
+      setDsToggling(false)
+    }
+  }
+
+  async function saveDsInterval() {
+    setDsIntervalSaving(true)
+    try {
+      await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: "apiKeys",
+          data: { departing_soon_interval: keys.departing_soon_interval ?? "300" },
+        }),
+      })
+      setDsIntervalSaved(true)
+      setTimeout(() => setDsIntervalSaved(false), 2500)
+    } catch { /* ignore */ } finally {
+      setDsIntervalSaving(false)
     }
   }
 
@@ -320,6 +360,94 @@ export default function IntegrationsPage() {
             </div>
           </div>
         ))}
+
+        {/* ── Departing Soon ──────────────────────────────────────── */}
+        <div className="rounded-xl border border-border bg-card">
+          <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+            <Calendar className="h-4 w-4 text-muted-foreground/50" />
+            <h2 className="text-sm font-semibold text-foreground">Departing Soon Block</h2>
+            <p className="ml-auto text-[11px] text-muted-foreground/60">Homepage widget settings</p>
+          </div>
+          <div className="space-y-5 p-5">
+
+            {/* Auto-update toggle */}
+            <div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Auto-Update</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground/60">
+                    When enabled, the Departing Soon block on the homepage polls for fresh
+                    departures from Palisis while the page is open — at the interval set below.
+                    When disabled, data is only refreshed on page load.
+                  </p>
+                </div>
+                <label className="ml-6 flex shrink-0 cursor-pointer items-center gap-2.5">
+                  <span className={`text-xs font-semibold ${keys.departing_soon_auto_update === "true" ? "text-emerald-600" : "text-muted-foreground"}`}>
+                    {keys.departing_soon_auto_update === "true" ? "Enabled" : "Disabled"}
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={keys.departing_soon_auto_update === "true"}
+                    disabled={dsToggling}
+                    onClick={() => toggleDsAutoUpdate(keys.departing_soon_auto_update !== "true")}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
+                      keys.departing_soon_auto_update === "true" ? "bg-emerald-500" : "bg-muted"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
+                        keys.departing_soon_auto_update === "true" ? "translate-x-5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                </label>
+              </div>
+            </div>
+
+            {/* Refresh interval */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Refresh Interval
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex items-center">
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={Math.max(1, Math.round(parseInt(keys.departing_soon_interval ?? "300", 10) / 60)) || 5}
+                    onChange={(e) => {
+                      const mins = Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 5))
+                      setKeys((k) => ({ ...k, departing_soon_interval: String(mins * 60) }))
+                    }}
+                    className={`${inputBase} w-24 pr-12`}
+                  />
+                  <span className="absolute right-3 text-xs text-muted-foreground/50">min</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={saveDsInterval}
+                  disabled={dsIntervalSaving}
+                  className={`flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
+                    dsIntervalSaved
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                      : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  }`}
+                >
+                  {dsIntervalSaved ? <><Check className="h-3.5 w-3.5" /> Saved</> : <><Save className="h-3.5 w-3.5" /> Save</>}
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/60">
+                How often the homepage widget re-fetches live departure data from Palisis when
+                auto-update is on. Default is 5 minutes. Keep this at 5+ minutes to avoid
+                hammering the Palisis API. Data is also cached server-side between requests.
+              </p>
+            </div>
+
+          </div>
+        </div>
+
       </div>
     </div>
   )
