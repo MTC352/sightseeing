@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "s-CC0BDwWTXgz4n9TubIk"
+uri = "file://docs/departing-soon-audit.md"
+type = "text"
+title = "Departing Soon — Technical Audit"

@@ -1,0 +1,69 @@
+Single Diagnostic Prompt for Replit
+Copy-paste this to Replit as one message:
+
+I need a complete technical audit of the "Departing Soon" feature on the homepage so I can share it with someone debugging a bug. Output your entire response as a single Markdown document with the exact section headers below. For every code-related question, paste the actual code from the files, not a summary or description. If a piece doesn't exist in the project yet, write "NOT IMPLEMENTED" under that section — don't skip it. If you're unsure, say so explicitly rather than guessing.
+Departing Soon — Technical Audit
+1. Data Flow Map
+
+Which file renders the Departing Soon block on the homepage? Full path.
+Is it a Server Component, Client Component, or static page?
+Which function/API route fetches its data? Paste that function in full.
+Trace and list every function call from the homepage component down to the final TourCMS HTTP call or Supabase query. One bullet per hop.
+Which TourCMS endpoint(s) does the chain ultimately hit? Paste the exact URL/path string, not just the method name.
+Does the chain read from the local palisis_tours Supabase table at any point? If yes, paste the query.
+How does the code decide what counts as "departing soon" — next N hours, next N days, all future dates, top N by date? Paste the relevant code.
+Is there ANY filtering by current time anywhere in the chain? Paste the exact comparison line(s), e.g. if (slot.time > now). If there's no such filter anywhere, state that explicitly.
+
+2. Live Response Sample
+Pick one specific trip that's currently displaying a departed timeslot on the homepage.
+
+tour_id: ___
+channel_id: ___
+Call the same function the homepage uses to fetch timeslots for this trip and paste the raw response object in a code block. Don't summarize. Don't pretty-print into a table. Raw JSON/XML.
+Separately, call /c/tour/datesprices/checkavail.xml?id={tour_id}&date={today}&r1=1 directly against TourCMS and paste the raw XML response in a code block.
+In one sentence: is the homepage function actually using checkavail, or is it reading some other source?
+
+3. Database Schema
+
+Paste the CREATE TABLE (or Supabase schema dump) for palisis_tours and any related tables that store timeslot/departure/availability data.
+For each timestamp/time column: is it stored as UTC seconds (integer), ISO 8601 string, local time string, or a display string like "10:00 AM"?
+When was each table last populated, and by which job, importer, or route?
+Are timeslot times stored per-trip as a separate row in a timeslots/availability/departures table, embedded as JSON inside the trip row, or not stored locally at all?
+
+4. Admin Panel Auto-Update
+
+Paste the admin UI code where the auto-update toggle and time-interval inputs are defined.
+Where are those settings stored? Table name and column names.
+What reads those settings and acts on them? Identify whether it's: Vercel Cron (vercel.json entry), Supabase pg_cron, Replit Scheduled Deployment, a setInterval somewhere, a third-party scheduler, or nothing actually wired up.
+Paste the full code of whatever function the cron/interval calls (or is supposed to call).
+Paste any vercel.json cron config or equivalent scheduler config file.
+
+5. Trip Detail Page (the Palisis iframe)
+
+Paste the JSX where the Palisis iframe is embedded on the trip detail page.
+What's the full src URL of the iframe — is it book_url straight from TourCMS, hardcoded, or constructed?
+Paste the code that builds the link from the homepage's Departing Soon card to the trip detail page. Does the link carry a specific slot/time/component, or just the trip ID?
+
+6. Caching Layers
+
+Are there any unstable_cache, revalidate, fetch cache options, cache: directives, or 'use cache' annotations in the data-fetching code path? Paste each.
+Any Redis, Upstash, or Supabase-as-cache layer in between?
+Client-side: any SWR, React Query, or useEffect-with-state that holds data after first load on the homepage? Paste it.
+Realistically, how long could a timeslot persist somewhere in the chain after TourCMS itself would consider it departed?
+
+7. Rate Limiting & Errors
+
+Do we ever call /api/rate_limit_status.xml? Where?
+What happens when a TourCMS call fails or times out — do we serve stale cache, return an empty array, throw, or crash the route? Paste the error-handling code.
+Are there any logs from the last 24 hours showing failed TourCMS calls, 429s, or rate-limit warnings? If logs are accessible, paste 5–10 representative lines.
+
+8. Environment & Versions
+
+Next.js version, hosting platform (Vercel/Replit/other), Node version.
+Which TourCMS client is actually being used by the Departing Soon code path: tourcms-js, tourcms (Node), the custom PalisisAPI class, or a raw fetch?
+Server timezone of the host running the cron/route handlers.
+
+9. One-Sentence Self-Assessment
+In one sentence, what do you (Replit) think is wrong with the current Departing Soon implementation? Be specific.
+
+End every section even if it's "NOT IMPLEMENTED". Don't merge sections. Don't replace code blocks with descriptions. Output one continuous Markdown document I can copy-paste in one go.
