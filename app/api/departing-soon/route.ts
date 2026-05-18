@@ -2,10 +2,9 @@
  * GET /api/departing-soon
  *
  * READ-ONLY endpoint consumed by the homepage widget.
- * Never calls TourCMS directly — only `refreshAvailability()` (TTL-gated, deduped).
- *
- * Returns whatever is in `discoveryCache`, with each slot's spacesRemaining
- * overlaid from `availabilityCache` (when "show availability" toggle is ON).
+ * Never calls TourCMS directly — only `refreshAvailability()` (TTL-gated, deduped)
+ * and `triggerDiscoveryBootstrap()` (non-blocking, fires when the discovery
+ * window has expired).
  */
 
 import { NextResponse } from "next/server"
@@ -15,6 +14,8 @@ import {
   availabilityCache,
   refreshAvailability,
   triggerDiscoveryBootstrap,
+  computeDisplayedSlots,
+  isDiscoveryExpired,
   getAutoUpdateEnabled,
   getAutoUpdateIntervalSeconds,
   getWidgetEnabled,
@@ -42,7 +43,7 @@ export interface DepartingSoonItem {
 
 export async function GET() {
   try {
-    // 0. Master toggle — widget administratively disabled
+    // 0. Master toggle
     if (!(await getWidgetEnabled())) {
       return NextResponse.json({
         ok: false,
@@ -68,40 +69,44 @@ export async function GET() {
       )
     }
 
-    // 2. Discovery cache must exist
-    if (!discoveryCache) {
+    // 2. Lazy bootstrap / expiry refresh — non-blocking when we have stale data,
+    //    blocking 503 only on cold start.
+    if (isDiscoveryExpired()) {
       triggerDiscoveryBootstrap()
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "DISCOVERY_NOT_INITIALIZED",
-          departures: [],
-          widgetEnabled: true,
-          tourcmsConfigured: true,
-          hint: "Discovery refresh has been triggered in the background. Reload in a few seconds.",
-        },
-        { status: 503 },
-      )
+      if (!discoveryCache) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "DISCOVERY_NOT_INITIALIZED",
+            departures: [],
+            widgetEnabled: true,
+            tourcmsConfigured: true,
+            hint: "Discovery refresh has been triggered in the background. Reload in a few seconds.",
+          },
+          { status: 503 },
+        )
+      }
+      // else: cache is past expiresAt but we'll serve stale slots while the
+      // background refresh runs — much better UX than a 503.
     }
 
     const showAvailability = await getShowAvailability()
+    const displayed = await computeDisplayedSlots()
 
     // 3. Refresh availability only when the toggle says so (TTL-gated, deduped)
     if (showAvailability) {
       await refreshAvailability()
     }
 
-    // 4. Build response — drop departed slots; drop sold-out only when we are tracking availability
-    const nowUtc = Math.floor(Date.now() / 1000)
+    // 4. Build response — drop sold-out only when we are tracking availability
     const departures: DepartingSoonItem[] = []
-    for (const slot of discoveryCache.slots) {
-      if (slot.startTimeUtcSeconds <= nowUtc) continue
-
+    for (const slot of displayed) {
       let spacesRemaining: number | "UNLIMITED" | undefined
       if (showAvailability) {
-        const avail = availabilityCache?.byTripId[slot.tripId]
-        // No live record yet — fall back to the snapshot from discovery so the
-        // card still appears (avoids a blank widget while availability warms up)
+        const key = `${slot.tripId}:${slot.date}:${slot.time}`
+        const avail = availabilityCache?.bySlotKey[key]
+        // No live record yet (warming up) — fall back to initial snapshot so
+        // the card still appears.
         const effective = avail ?? { spacesRemaining: slot.initialSpacesRemaining, stillBookable: true }
         if (!effective.stillBookable) continue
         if (effective.spacesRemaining !== "UNLIMITED" && effective.spacesRemaining <= 0) continue
@@ -135,10 +140,13 @@ export async function GET() {
       autoUpdate,
       intervalSecs,
       tourcmsConfigured: true,
-      partial: departures.length < discoveryCache.slots.length,
-      tripsChecked: discoveryCache.tripsChecked,
-      failedTripCount: discoveryCache.failedTripCount,
-      lastDiscoveryAt: new Date(discoveryCache.refreshedAt).toISOString(),
+      partial: departures.length < displayed.length,
+      tripsChecked: discoveryCache?.tripsChecked ?? 0,
+      failedTripCount: discoveryCache?.failedTripCount ?? 0,
+      totalSlotsCached: discoveryCache?.allSlots.length ?? 0,
+      daysFetched: discoveryCache?.daysFetched ?? 0,
+      lastDiscoveryAt: discoveryCache ? new Date(discoveryCache.refreshedAt).toISOString() : null,
+      discoveryExpiresAt: discoveryCache ? new Date(discoveryCache.expiresAt).toISOString() : null,
       lastAvailabilityAt: availabilityCache ? new Date(availabilityCache.refreshedAt).toISOString() : null,
     })
   } catch (err) {

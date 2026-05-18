@@ -3,11 +3,24 @@
  *
  * Shared in-process caches for the "Departing Soon" homepage widget.
  *
- * Two-layer architecture:
- *   1. discoveryCache  — the top-5 candidate slots, rebuilt by a cron every
- *                        few minutes via datesndeals + checkavail walks.
- *   2. availabilityCache — per-slot real-time spaces_remaining, refreshed
- *                        far more often (one parallel checkavail per slot).
+ * NEW ARCHITECTURE (window-based discovery, no periodic cron):
+ *
+ *   1. discoveryCache  — ALL upcoming bookable timeslots for the next N days
+ *                        (N = `departing_soon_discovery_window_days`, default 7),
+ *                        for every published+synced trip. Built from a single
+ *                        `datesndeals` call per trip. The cache stays valid for
+ *                        the full window — when the window expires, the next
+ *                        homepage read triggers a background refresh (no cron
+ *                        needed). The admin can also force-refresh from the
+ *                        settings panel.
+ *
+ *   2. availabilityCache — per-displayed-slot real-time spaces_remaining,
+ *                        refreshed via one parallel `checkavail` per slot.
+ *                        Keyed by `${tripId}:${date}:${time}` so the entry
+ *                        invalidates naturally as earlier slots depart.
+ *
+ * Read flow: read endpoint pulls the top-N earliest upcoming slots (1 per trip)
+ * from `discoveryCache.allSlots`, then overlays real-time availability.
  *
  * A Promise-based lock dedupes concurrent availability refreshes so 1000
  * simultaneous homepage hits cause exactly ONE upstream call cluster.
@@ -40,27 +53,32 @@ export interface AvailabilityRecord {
 }
 
 export interface DiscoveryCache {
-  slots: DiscoverySlot[]
+  /** Every upcoming bookable timeslot for the window, across all trips. */
+  allSlots: DiscoverySlot[]
   refreshedAt: number
+  /** When this window expires (refreshedAt + daysFetched*86400000). */
+  expiresAt: number
+  daysFetched: number
   failedTripCount: number
   tripsChecked: number
 }
 
 export interface AvailabilityCache {
-  byTripId: Record<string, AvailabilityRecord>
+  /** Composite key: `${tripId}:${date}:${time}` — invalidates naturally when the displayed slot shifts. */
+  bySlotKey: Record<string, AvailabilityRecord>
   refreshedAt: number
 }
 
 // ── Module-level state ─────────────────────────────────────────────────────
 // NOTE: This is process-local. If Replit scales horizontally each instance
-// has its own cache — that's OK; the discovery cron warms all of them.
+// has its own cache — that's OK; the lazy bootstrap warms each instance.
 
 export let discoveryCache: DiscoveryCache | null = null
 export let availabilityCache: AvailabilityCache | null = null
 let availabilityRefreshLock: Promise<void> | null = null
 
 // Bootstrap-in-progress guard so the lazy bootstrap doesn't fire twice
-let discoveryBootstrapInFlight: Promise<void> | null = null
+let discoveryBootstrapInFlight: Promise<unknown> | null = null
 
 export function setDiscoveryCache(next: DiscoveryCache | null) {
   discoveryCache = next
@@ -76,6 +94,10 @@ function forceArray<T>(x: T | T[] | undefined | null): T[] {
   return Array.isArray(x) ? x : [x]
 }
 
+function slotKey(s: { tripId: string; date: string; time: string }): string {
+  return `${s.tripId}:${s.date}:${s.time}`
+}
+
 async function getNumericSetting(key: string, fallback: number, min: number, max: number): Promise<number> {
   try {
     const s = await dbGetSettings()
@@ -88,8 +110,9 @@ async function getNumericSetting(key: string, fallback: number, min: number, max
   }
 }
 
-export async function getDiscoveryIntervalSeconds(): Promise<number> {
-  return getNumericSetting("departing_soon_discovery_interval_seconds", 300, 60, 3600)
+/** Discovery window: how many days of `datesndeals` to fetch per trip. Default 7. */
+export async function getDiscoveryWindowDays(): Promise<number> {
+  return getNumericSetting("departing_soon_discovery_window_days", 7, 3, 30)
 }
 export async function getAvailabilityTtlSeconds(): Promise<number> {
   return getNumericSetting("departing_soon_availability_ttl_seconds", 20, 10, 120)
@@ -114,24 +137,26 @@ async function getBoolSetting(key: string, fallback: boolean): Promise<boolean> 
 export async function getAutoUpdateEnabled(): Promise<boolean> {
   return getBoolSetting("departing_soon_auto_update", false)
 }
-/** Master visibility toggle — when false, widget is hidden and BOTH crons skip. Default ON. */
+/** Master visibility toggle — when false, widget hides and all upstream work skips. Default ON. */
 export async function getWidgetEnabled(): Promise<boolean> {
   return getBoolSetting("departing_soon_widget_enabled", true)
 }
-/** Show "Limited availability" / "Only N left" pills AND run the availability cron. Default ON. */
+/** Show "Limited availability" pills AND run the availability cron. Default ON. */
 export async function getShowAvailability(): Promise<boolean> {
   return getBoolSetting("departing_soon_show_availability", true)
 }
 
+/** True when the discovery window is empty or has elapsed. */
+export function isDiscoveryExpired(): boolean {
+  if (!discoveryCache) return true
+  return Date.now() >= discoveryCache.expiresAt
+}
+
 /** Compute UTC seconds from a Luxembourg local date+time string (datesndeals doesn't return UTC). */
 function lxToUtcSeconds(date: string, time: string): number {
-  // Luxembourg is CET (UTC+1) Oct-Mar, CEST (UTC+2) Mar-Oct. DST rules: last Sun Mar 01:00 UTC → last Sun Oct 01:00 UTC.
-  // We approximate using the Intl API to avoid pulling a tz library.
   const [y, m, d] = date.split("-").map(Number)
   const [hh, mm] = (time || "00:00").split(":").map(Number)
-  // Build a UTC date as if the local wall-clock time were UTC, then subtract the Luxembourg offset.
   const asUtc = Date.UTC(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0)
-  // Use Intl to find Luxembourg's offset at that instant.
   try {
     const dtf = new Intl.DateTimeFormat("en-GB", {
       timeZone: "Europe/Luxembourg",
@@ -145,77 +170,94 @@ function lxToUtcSeconds(date: string, time: string): number {
     const offsetMs = luxAsUtc - asUtc
     return Math.floor((asUtc - offsetMs) / 1000)
   } catch {
-    // Fallback: assume CET (UTC+1)
     return Math.floor((asUtc - 3_600_000) / 1000)
   }
+}
+
+// ── computeDisplayedSlots ──────────────────────────────────────────────────
+// The top-N earliest upcoming slots, one per trip, drawn from discoveryCache.allSlots.
+// Both the read endpoint AND the availability refresh use this so they always
+// agree on which slots are "displayed".
+
+export async function computeDisplayedSlots(): Promise<DiscoverySlot[]> {
+  if (!discoveryCache) return []
+  const slotCount = await getSlotCount()
+  const nowUtc = Math.floor(Date.now() / 1000)
+
+  const earliestPerTrip = new Map<string, DiscoverySlot>()
+  for (const s of discoveryCache.allSlots) {
+    if (s.startTimeUtcSeconds <= nowUtc) continue
+    const existing = earliestPerTrip.get(s.tripId)
+    if (!existing || s.startTimeUtcSeconds < existing.startTimeUtcSeconds) {
+      earliestPerTrip.set(s.tripId, s)
+    }
+  }
+  return [...earliestPerTrip.values()]
+    .sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
+    .slice(0, slotCount)
 }
 
 // ── refreshAvailability ────────────────────────────────────────────────────
 // Pure async function — gated by:
 //   1. In-flight lock (dedupe): if a refresh is already running, await it.
 //   2. TTL: if last refresh was more recent than departing_soon_availability_ttl_seconds, skip.
-//   3. Discovery cache must exist (otherwise nothing to refresh).
+//   3. Master + show-availability toggles must be ON.
+//   4. Discovery cache must exist (otherwise nothing to display).
 //
-// Does ONE parallel checkavail per cached slot — currently max 5.
+// Does ONE parallel checkavail per CURRENTLY DISPLAYED slot.
 
 export async function refreshAvailability(): Promise<void> {
-  // Fast path: if a refresh is in flight, share its promise. Checked first so
-  // we never start two refresh cycles for the same burst of callers.
   if (availabilityRefreshLock) return availabilityRefreshLock
 
-  // CRITICAL: assign the lock synchronously (before any await) so concurrent
-  // callers that arrive between awaits in the prechecks below all see it.
-  // The async body is wrapped in an IIFE and stored in the lock; any early
-  // exit must clear the lock so the next caller can try again.
   availabilityRefreshLock = (async () => {
     try {
-      // Respect master + show-availability toggles
       if (!(await getWidgetEnabled())) return
       if (!(await getShowAvailability())) return
 
       const ttl = await getAvailabilityTtlSeconds()
       if (availabilityCache && (Date.now() - availabilityCache.refreshedAt) / 1000 < ttl) return
-      if (!discoveryCache || discoveryCache.slots.length === 0) return
+
+      const displayed = await computeDisplayedSlots()
+      if (displayed.length === 0) return
 
       const tourcms = await getTourCMSClient()
       if (!tourcms) return
 
-      const slots = discoveryCache.slots
-      const newAvailability: Record<string, AvailabilityRecord> = {}
-
       const results = await Promise.allSettled(
-        slots.map((s) => tourcms.checkAvailability(s.palisisId, { date: s.date, r1: 1 })),
+        displayed.map((s) => tourcms.checkAvailability(s.palisisId, { date: s.date, r1: 1 })),
       )
 
+      const newBySlotKey: Record<string, AvailabilityRecord> = {}
+
       results.forEach((r, i) => {
-        const slot = slots[i]
+        const slot = displayed[i]
+        const key = slotKey(slot)
         if (r.status === "rejected") {
-          // Transient — keep last known record if any
-          newAvailability[slot.tripId] =
-            availabilityCache?.byTripId[slot.tripId] ?? { spacesRemaining: 0, stillBookable: false }
+          // Transient — keep last known record if any, else mark sold-out
+          newBySlotKey[key] =
+            availabilityCache?.bySlotKey[key] ?? { spacesRemaining: 0, stillBookable: false }
           return
         }
         if (!r.value.ok) {
-          newAvailability[slot.tripId] = { spacesRemaining: 0, stillBookable: false }
+          newBySlotKey[key] = { spacesRemaining: 0, stillBookable: false }
           return
         }
         const components = forceArray(r.value.components)
-        // Match by start_time (HH:MM) since datesndeals didn't give us a component_key/utcseconds.
-        // If only one component for that date, just take it.
+        // Match by start_time (HH:MM). If only one component, just take it.
         const match =
           components.find((c) => (c.start_time ?? "").slice(0, 5) === slot.time.slice(0, 5))
           ?? (components.length === 1 ? components[0] : undefined)
         if (!match) {
-          newAvailability[slot.tripId] = { spacesRemaining: 0, stillBookable: false }
+          newBySlotKey[key] = { spacesRemaining: 0, stillBookable: false }
           return
         }
         const raw = match.spaces_remaining
         const spacesRemaining: number | "UNLIMITED" =
           raw === "UNLIMITED" ? "UNLIMITED" : Math.max(0, Number(raw ?? 0))
-        newAvailability[slot.tripId] = { spacesRemaining, stillBookable: true }
+        newBySlotKey[key] = { spacesRemaining, stillBookable: true }
       })
 
-      availabilityCache = { byTripId: newAvailability, refreshedAt: Date.now() }
+      availabilityCache = { bySlotKey: newBySlotKey, refreshedAt: Date.now() }
     } finally {
       availabilityRefreshLock = null
     }
@@ -225,19 +267,12 @@ export async function refreshAvailability(): Promise<void> {
 }
 
 // ── Cron auth ──────────────────────────────────────────────────────────────
-// Guards the /api/cron/* endpoints from public abuse. When CRON_SECRET is set,
-// callers must present it as `?secret=` or `X-Cron-Secret` header. Without
-// the env var, only same-origin / dev access is allowed (defense in depth via
-// proxy.ts is still recommended in production).
 
 import type { NextRequest } from "next/server"
 
 export function isAuthorizedCron(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET
   if (!expected) {
-    // No secret configured — only allow when request is internal (no Origin
-    // header set, e.g. server-to-server / curl from within the container) or
-    // from the same host. This is a soft guard; configure CRON_SECRET in prod.
     return process.env.NODE_ENV !== "production"
   }
   const provided = req.nextUrl.searchParams.get("secret") ?? req.headers.get("x-cron-secret")
@@ -245,15 +280,22 @@ export function isAuthorizedCron(req: NextRequest): boolean {
 }
 
 // ── refreshDiscovery ───────────────────────────────────────────────────────
-// Heavy: one datesndeals + up-to-3 checkavail calls per published+synced trip.
-// Called only from the discovery cron + the admin "Refresh Now" button.
-// Always finishes by triggering a refreshAvailability() pass on the new top-5.
+// Fetches `datesndeals` for the next windowDays days for every published+synced
+// trip and stores ALL bookable upcoming timeslots in `discoveryCache.allSlots`.
+// One call per trip — no per-trip checkavail.
+//
+// Called by:
+//   - Lazy bootstrap (first homepage hit after cold start)
+//   - Lazy expiry refresh (homepage hit after window elapsed) — non-blocking
+//   - Admin "Refresh Now" button (force=true)
 
 export interface RefreshDiscoveryResult {
   ok: true
-  slotsFound: number
+  slotsFound: number       // total bookable slots across all trips
+  tripsWithSlots: number   // trips that contributed at least one slot
   failedTripCount: number
   tripsChecked: number
+  daysFetched: number
   durationMs: number
   rateLimitSkipped: boolean
 }
@@ -261,19 +303,19 @@ export interface RefreshDiscoveryResult {
 export async function refreshDiscovery(force: boolean): Promise<RefreshDiscoveryResult | { ok: false; error: string }> {
   const start = Date.now()
 
-  // Master toggle — if widget is administratively disabled, skip ALL upstream work.
   if (!(await getWidgetEnabled())) {
     return { ok: false, error: "WIDGET_DISABLED" }
   }
 
-  const interval = await getDiscoveryIntervalSeconds()
-
-  if (!force && discoveryCache && (Date.now() - discoveryCache.refreshedAt) / 1000 < interval) {
+  // Window-based gate: skip when cache still inside its window unless forced.
+  if (!force && discoveryCache && !isDiscoveryExpired()) {
     return {
       ok: true,
-      slotsFound: discoveryCache.slots.length,
+      slotsFound: discoveryCache.allSlots.length,
+      tripsWithSlots: new Set(discoveryCache.allSlots.map((s) => s.tripId)).size,
       failedTripCount: discoveryCache.failedTripCount,
       tripsChecked: discoveryCache.tripsChecked,
+      daysFetched: discoveryCache.daysFetched,
       durationMs: 0,
       rateLimitSkipped: false,
     }
@@ -284,21 +326,23 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     return { ok: false, error: "TOURCMS_NOT_CONFIGURED" }
   }
 
-  // Rate-limit guard — don't risk hitting the wall mid-cycle
+  // Rate-limit guard
   const rl = getLastKnownRateLimit()
   if (rl !== null && rl.remaining < 200) {
     console.warn(`[departing-soon] Skipping discovery — rate-limit remaining=${rl.remaining} < 200`)
     return {
       ok: true,
-      slotsFound: discoveryCache?.slots.length ?? 0,
+      slotsFound: discoveryCache?.allSlots.length ?? 0,
+      tripsWithSlots: discoveryCache ? new Set(discoveryCache.allSlots.map((s) => s.tripId)).size : 0,
       failedTripCount: 0,
       tripsChecked: 0,
+      daysFetched: discoveryCache?.daysFetched ?? 0,
       durationMs: Date.now() - start,
       rateLimitSkipped: true,
     }
   }
 
-  const slotCount = await getSlotCount()
+  const windowDays = await getDiscoveryWindowDays()
 
   // Lazy-import to avoid circular deps with queries.ts
   const { dbListTrips } = await import("@/lib/db/queries")
@@ -315,17 +359,14 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 
   const today = new Date()
   const ts = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
-  const in90 = new Date(Date.now() + 90 * 86_400_000)
-  const horizon = `${in90.getFullYear()}-${String(in90.getMonth() + 1).padStart(2, "0")}-${String(in90.getDate()).padStart(2, "0")}`
+  const endDate = new Date(Date.now() + (windowDays - 1) * 86_400_000)
+  const horizon = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`
   const nowUtcSeconds = Math.floor(Date.now() / 1000)
 
   let failedTripCount = 0
   const collected: DiscoverySlot[] = []
 
-  // ── OPTIMIZED: datesndeals only (no checkavail). 1 call per trip.
-  // datesndeals returns start_date, start_time, price, spaces_remaining for each
-  // candidate date — enough to build the card. component_key isn't needed since
-  // the card just deep-links to the booking iframe.
+  // datesndeals only — 1 call per trip. Collect ALL bookable upcoming slots.
   for (const trip of synced) {
     try {
       const dnd = await tourcms.showDatesAndDeals(trip.palisis_id!, {
@@ -335,55 +376,55 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
       })
       if (!dnd.ok || dnd.dates.length === 0) continue
 
-      // First bookable, future date that isn't sold out
-      const earliest = dnd.dates.find((d) => {
+      for (const d of dnd.dates) {
         const status = (d.status ?? "").toUpperCase()
         const bookable = !status || status === "OPEN" || status === "AVAILABLE"
-        if (!bookable) return false
-        if (d.spaces_remaining === "0") return false
-        const ts = lxToUtcSeconds(d.start_date, d.start_time ?? "00:00")
-        return ts > nowUtcSeconds
-      })
-      if (!earliest) continue
+        if (!bookable) continue
+        if (d.spaces_remaining === "0") continue
+        const startUtc = lxToUtcSeconds(d.start_date, d.start_time ?? "00:00")
+        if (startUtc <= nowUtcSeconds) continue
 
-      const rawSpaces = earliest.spaces_remaining
-      const initialSpacesRemaining: number | "UNLIMITED" =
-        rawSpaces === "UNLIMITED" ? "UNLIMITED"
-        : rawSpaces == null || rawSpaces === "" ? "UNLIMITED"
-        : Math.max(0, Number(rawSpaces))
+        const rawSpaces = d.spaces_remaining
+        const initialSpacesRemaining: number | "UNLIMITED" =
+          rawSpaces === "UNLIMITED" ? "UNLIMITED"
+          : rawSpaces == null || rawSpaces === "" ? "UNLIMITED"
+          : Math.max(0, Number(rawSpaces))
 
-      collected.push({
-        tripId: trip.id,
-        palisisId: trip.palisis_id!,
-        tripTitle: trip.title,
-        tripImage: trip.image ?? "",
-        tripPermalink: trip.permalink ?? "",
-        tripCategory: trip.category ?? "Tours",
-        tripCity: trip.city ?? "Luxembourg",
-        date: earliest.start_date,
-        time: (earliest.start_time ?? "00:00").slice(0, 5),
-        startTimeUtcSeconds: lxToUtcSeconds(earliest.start_date, earliest.start_time ?? "00:00"),
-        priceDisplay: earliest.price_1_display ?? (earliest.price_1 ? `${earliest.price_1} €` : ""),
-        initialSpacesRemaining,
-      })
+        collected.push({
+          tripId: trip.id,
+          palisisId: trip.palisis_id!,
+          tripTitle: trip.title,
+          tripImage: trip.image ?? "",
+          tripPermalink: trip.permalink ?? "",
+          tripCategory: trip.category ?? "Tours",
+          tripCity: trip.city ?? "Luxembourg",
+          date: d.start_date,
+          time: (d.start_time ?? "00:00").slice(0, 5),
+          startTimeUtcSeconds: startUtc,
+          priceDisplay: d.price_1_display ?? (d.price_1 ? `${d.price_1} €` : ""),
+          initialSpacesRemaining,
+        })
+      }
     } catch (err) {
       failedTripCount++
       console.warn("[departing-soon] discovery: trip failed", trip.id, err)
     }
   }
 
-  const top = collected
-    .sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
-    .slice(0, slotCount)
+  collected.sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
 
+  const now = Date.now()
   discoveryCache = {
-    slots: top,
-    refreshedAt: Date.now(),
+    allSlots: collected,
+    refreshedAt: now,
+    expiresAt: now + windowDays * 86_400_000,
+    daysFetched: windowDays,
     failedTripCount,
     tripsChecked: synced.length,
   }
 
-  // Reset availability cache; refresh it if show-availability is on.
+  // Window changed → previous availability records may now refer to slots that
+  // are no longer displayed. Drop and refresh.
   availabilityCache = null
   if (await getShowAvailability()) {
     await refreshAvailability().catch((e) =>
@@ -393,31 +434,31 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 
   return {
     ok: true,
-    slotsFound: top.length,
+    slotsFound: collected.length,
+    tripsWithSlots: new Set(collected.map((s) => s.tripId)).size,
     failedTripCount,
     tripsChecked: synced.length,
+    daysFetched: windowDays,
     durationMs: Date.now() - start,
     rateLimitSkipped: false,
   }
 }
 
-// ── Lazy bootstrap ─────────────────────────────────────────────────────────
-// In dev (no Scheduled Deployment running), we don't want the homepage to show
-// an empty/503 forever. The read endpoint calls this to fire-and-forget a
-// discovery refresh when the cache is empty.
+// ── Lazy bootstrap / expiry refresh ────────────────────────────────────────
+// Replaces the periodic discovery cron. Called from the read endpoint:
+//   - if cache empty → fire bootstrap (read returns 503 once, then succeeds)
+//   - if cache expired → fire refresh in the background, serve stale until done
+//
+// Both paths share `discoveryBootstrapInFlight` so concurrent reads don't race.
 
 export function triggerDiscoveryBootstrap(): void {
   if (discoveryBootstrapInFlight) return
   discoveryBootstrapInFlight = refreshDiscovery(false)
-    .then(() => undefined)
     .catch((e) => console.warn("[departing-soon] bootstrap failed:", e))
     .finally(() => { discoveryBootstrapInFlight = null })
 }
 
 // ── Rate-limit tracking ────────────────────────────────────────────────────
-// TourCMS doesn't reliably return rate-limit headers on every response, but
-// when it does we record them here. The discovery cron consults this before
-// kicking off a heavy cycle.
 
 interface RateLimitSnapshot {
   remaining: number
@@ -429,7 +470,6 @@ export function recordRateLimit(remaining: number) {
   lastRateLimit = { remaining, recordedAt: Date.now() }
 }
 export function getLastKnownRateLimit(): RateLimitSnapshot | null {
-  // Treat anything older than 10 minutes as stale (unknown)
   if (!lastRateLimit) return null
   if (Date.now() - lastRateLimit.recordedAt > 10 * 60 * 1000) return null
   return lastRateLimit

@@ -167,6 +167,9 @@ export default function IntegrationsPage() {
     tourcmsConfigured: boolean | null
     lastDiscoveryAt: string | null
     lastAvailabilityAt: string | null
+    discoveryExpiresAt?: string | null
+    daysFetched?: number
+    totalSlotsCached?: number
     tripsChecked?: number
     failedTripCount?: number
   }>({ tourcmsConfigured: null, lastDiscoveryAt: null, lastAvailabilityAt: null })
@@ -176,10 +179,6 @@ export default function IntegrationsPage() {
       .then((r) => r.json())
       .then((s) => {
         const apiKeys = (s?.apiKeys ?? {}) as ApiKeys
-        // One-time migration: old key → new key
-        if (apiKeys.departing_soon_interval && !apiKeys.departing_soon_discovery_interval_seconds) {
-          apiKeys.departing_soon_discovery_interval_seconds = apiKeys.departing_soon_interval
-        }
         setKeys(apiKeys)
       })
       .catch(() => {})
@@ -194,6 +193,9 @@ export default function IntegrationsPage() {
         tourcmsConfigured: data.tourcmsConfigured ?? null,
         lastDiscoveryAt: data.lastDiscoveryAt ?? null,
         lastAvailabilityAt: data.lastAvailabilityAt ?? null,
+        discoveryExpiresAt: data.discoveryExpiresAt ?? null,
+        daysFetched: data.daysFetched,
+        totalSlotsCached: data.totalSlotsCached,
         tripsChecked: data.tripsChecked,
         failedTripCount: data.failedTripCount,
       })
@@ -204,7 +206,7 @@ export default function IntegrationsPage() {
     setDsRefreshing(kind)
     try {
       const url = kind === "discovery"
-        ? "/api/cron/refresh-discovery?force=1"
+        ? "/api/admin/refresh-discovery"
         : "/api/admin/refresh-availability"
       await fetch(url, { method: "POST" })
       await refreshDsStatus()
@@ -305,7 +307,7 @@ export default function IntegrationsPage() {
     }
   }
 
-  const dsDiscoverySec   = parseInt(keys.departing_soon_discovery_interval_seconds ?? keys.departing_soon_interval ?? "300", 10) || 300
+  const dsWindowDays     = parseInt(keys.departing_soon_discovery_window_days ?? "7", 10) || 7
   const dsAvailSec       = parseInt(keys.departing_soon_auto_update_interval_seconds ?? "30", 10) || 30
   const dsAvailTtlSec    = parseInt(keys.departing_soon_availability_ttl_seconds ?? "20", 10) || 20
   const dsSlotCount      = parseInt(keys.departing_soon_slot_count ?? "5", 10) || 5
@@ -689,49 +691,61 @@ export default function IntegrationsPage() {
                 {/* Discovery interval */}
                 <tr className="hover:bg-muted/20 transition-colors">
                   <td className="px-5 py-4 align-middle">
-                    <span className="text-xs font-medium text-foreground">Discovery Refresh Interval</span>
+                    <span className="text-xs font-medium text-foreground">Discovery Window (days)</span>
                   </td>
                   <td className="px-5 py-4 align-middle">
                     <p className="text-xs text-muted-foreground">
-                      How often the heavy discovery cron rebuilds the top-5 candidate slots
-                      (one datesndeals + up-to-3 checkavail per published trip). Keep ≥ 5 min.
+                      How many days of upcoming departures to pre-fetch from Palisis. ONE
+                      <code className="mx-1 rounded bg-muted px-1">datesndeals</code> call per trip
+                      gives us every timeslot in the window. The cache stays valid for the full
+                      window — no periodic cron. When it expires, the next homepage hit triggers a
+                      background refresh. Click <strong>Refresh now</strong> to rebuild on demand
+                      (e.g. after re-syncing a trip).
                     </p>
+                    {dsStatus.discoveryExpiresAt && (
+                      <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+                        Current window expires: <strong>{fmtTs(dsStatus.discoveryExpiresAt)}</strong>
+                        {typeof dsStatus.totalSlotsCached === "number" && (
+                          <span className="ml-2">· {dsStatus.totalSlotsCached} slots cached</span>
+                        )}
+                      </p>
+                    )}
                   </td>
                   <td className="px-5 py-4 align-middle">
                     <div className="flex items-center gap-2">
                       <div className="relative flex items-center">
                         <input
                           type="number"
-                          min={60} max={3600} step={30}
-                          value={dsDiscoverySec}
+                          min={3} max={30} step={1}
+                          value={dsWindowDays}
                           onChange={(e) => {
-                            const sec = Math.max(60, Math.min(3600, parseInt(e.target.value, 10) || 300))
-                            setKeys((k) => ({ ...k, departing_soon_discovery_interval_seconds: String(sec) }))
+                            const n = Math.max(3, Math.min(30, parseInt(e.target.value, 10) || 7))
+                            setKeys((k) => ({ ...k, departing_soon_discovery_window_days: String(n) }))
                           }}
-                          className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                          className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-12"
                         />
-                        <span className="absolute right-3 text-xs text-muted-foreground/50 pointer-events-none">sec</span>
+                        <span className="absolute right-3 text-xs text-muted-foreground/50 pointer-events-none">days</span>
                       </div>
                       <button
                         type="button"
-                        onClick={() => saveDsKey("departing_soon_discovery_interval_seconds", String(dsDiscoverySec), "discovery")}
+                        onClick={() => saveDsKey("departing_soon_discovery_window_days", String(dsWindowDays), "discovery")}
                         disabled={dsSaving === "discovery"}
                         className={`flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
-                          dsSavedKey === "departing_soon_discovery_interval_seconds"
+                          dsSavedKey === "departing_soon_discovery_window_days"
                             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
                             : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
                         }`}
                       >
-                        {dsSavedKey === "departing_soon_discovery_interval_seconds"
+                        {dsSavedKey === "departing_soon_discovery_window_days"
                           ? <><Check className="h-3.5 w-3.5" /> Saved</>
                           : <><Save className="h-3.5 w-3.5" /> Save</>}
                       </button>
                       <button
                         type="button"
                         onClick={() => refreshNow("discovery")}
-                        disabled={dsRefreshing === "discovery"}
-                        title="Force a discovery rebuild now"
-                        className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+                        disabled={dsRefreshing === "discovery" || !dsWidgetEnabled}
+                        title="Fetch a fresh window of dates+deals for all trips now"
+                        className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
                       >
                         <RefreshCw className={`h-3.5 w-3.5 ${dsRefreshing === "discovery" ? "animate-spin" : ""}`} />
                         Refresh now
