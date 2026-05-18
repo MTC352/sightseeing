@@ -1,9 +1,15 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
-import { Bot, ChevronRight, MessageSquare, HelpCircle, Map, Sparkles, TriangleAlert, FlaskConical } from "lucide-react"
+import { Bot, ChevronRight, MessageSquare, HelpCircle, Map, Sparkles, TriangleAlert, FlaskConical, PenLine } from "lucide-react"
 import { AIAdvisorDashboard } from "@/components/admin/ai-advisor-dashboard"
 
 const SYSTEM_META: Record<string, { label: string; description: string; icon: typeof Bot; href: string }> = {
+  blog: {
+    label: "Blog Content Generator",
+    description: "Generates SEO & AEO optimised articles and DALL-E 2 cover images from a topic prompt. Used on the blog edit page.",
+    icon: PenLine,
+    href: "/admin/ai-systems/blog",
+  },
   planner: {
     label: "Trip Planner",
     description: "Conversational AI that recommends and builds itineraries. Shown on /planner.",

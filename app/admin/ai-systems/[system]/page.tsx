@@ -26,6 +26,17 @@ const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
     label: "Help & FAQ Chat",
     hint: "Used on /help. Handles booking, payment, and cancellation queries. Should be factual and conservative (low temperature).",
   },
+  blog: {
+    label: "Blog Content Generator",
+    hint: "Used on the blog post edit page. Generates SEO & AEO optimized articles via OpenAI GPT-4o, plus cover images via DALL-E 2. Requires an OpenAI API key in the Integrations settings.",
+  },
+}
+
+const BLOG_DEFAULT_CONFIG = {
+  systemPrompt: "",
+  model: "anthropic/claude-opus-4.6",
+  temperature: 0.75,
+  maxTokens: 4000,
 }
 
 const DEFAULT_CONFIG = {
