@@ -89,6 +89,15 @@ export function setAvailabilityCache(next: AvailabilityCache | null) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+/** Decode HTML entities (e.g. &#8364; → €) from TourCMS price strings. */
+function decodeHtmlEntities(str: string): string {
+  return str.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+}
+
 function forceArray<T>(x: T | T[] | undefined | null): T[] {
   if (x == null) return []
   return Array.isArray(x) ? x : [x]
@@ -401,7 +410,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
           date: d.start_date,
           time: (d.start_time ?? "00:00").slice(0, 5),
           startTimeUtcSeconds: startUtc,
-          priceDisplay: d.price_1_display ?? (d.price_1 ? `${d.price_1} €` : ""),
+          priceDisplay: decodeHtmlEntities(d.price_1_display ?? (d.price_1 ? `${d.price_1} €` : "")),
           initialSpacesRemaining,
         })
       }
