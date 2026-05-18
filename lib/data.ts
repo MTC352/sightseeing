@@ -2,6 +2,7 @@ export interface Trip {
   id: string
   title: string
   image: string
+  gallery?: string[]
   price: number
   originalPrice?: number
   rating: number

@@ -9,6 +9,7 @@ function mapDbTrip(r: Record<string, unknown>): Trip {
     id: String(r.id),
     title: String((r.title_override ?? r.title) ?? ""),
     image: String(r.image ?? "/images/placeholder.jpg"),
+    gallery: Array.isArray(r.gallery) ? (r.gallery as string[]).filter(Boolean) : [],
     price: Number(r.price ?? 0),
     originalPrice: r.originalPrice != null ? Number(r.originalPrice) : undefined,
     rating: Number(r.rating ?? 0),

@@ -104,7 +104,14 @@ export default function TripDetailClient({
   }
 
   const inCart = isInCart(trip.id)
-  const gallery = (detail?.gallery ?? []).length > 0 ? (detail!.gallery) : [trip.image]
+  // Priority: DB gallery (from Palisis sync or admin upload) → static detail gallery → featured image only
+  const gallery: string[] = (
+    (trip.gallery ?? []).length > 0
+      ? trip.gallery!
+      : (detail?.gallery ?? []).length > 0
+        ? detail!.gallery
+        : [trip.image]
+  ).filter(Boolean)
 
   return (
     <div className="min-h-screen bg-background">

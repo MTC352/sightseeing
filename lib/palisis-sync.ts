@@ -30,11 +30,22 @@ function mapTourDetail(t: TourDetail) {
   const title  = String(t.tour_name_long ?? t.tour_name ?? "")
   const desc   = String(t.shortdesc ?? t.summary ?? "")
   const price  = parseFloat(String(t.from_price ?? "0")) || 0
-  const images = t.images?.image
-  const image  = String(
-    (Array.isArray(images) ? images[0]?.url ?? images[0]?.url_thumbnail : undefined)
-    ?? t.thumbnail_image ?? ""
-  )
+
+  // Extract all gallery images from Palisis — images.image is an array of image objects
+  const rawImages = t.images?.image
+  const imageList = Array.isArray(rawImages) ? rawImages : (rawImages ? [rawImages] : [])
+  // Pick the best URL for each image (xlarge → large → url → thumbnail)
+  const galleryUrls: string[] = imageList
+    .map(img => String(img.url_xlarge ?? img.url_large ?? img.url ?? img.url_thumbnail ?? ""))
+    .filter(Boolean)
+
+  // Featured image = first gallery image, or thumbnail fallback
+  const image = galleryUrls[0] ?? String(t.thumbnail_image ?? "")
+  // Full gallery = all distinct images; include thumbnail if nothing else
+  const gallery = galleryUrls.length > 0
+    ? galleryUrls
+    : (t.thumbnail_image ? [String(t.thumbnail_image)] : [])
+
   const duration = String(t.duration_desc ?? t.duration ?? "")
   const location = String(t.location ?? "Luxembourg")
   const supplier = String((t as { supplier_name?: string }).supplier_name ?? "Sightseeing.lu")
@@ -50,6 +61,7 @@ function mapTourDetail(t: TourDetail) {
     city:        location,
     provider:    supplier,
     image,
+    gallery,
     highlights:  [] as string[],
     badge:       null,
     rating:      0,
@@ -128,6 +140,7 @@ export async function syncSingleTripFromPalisis(
       price:       mapped.price,
       duration:    mapped.duration,
       image:       mapped.image,
+      gallery:     mapped.gallery,
       city:        mapped.city,
       provider:    mapped.provider,
       // Preserve manually-set permalink if present

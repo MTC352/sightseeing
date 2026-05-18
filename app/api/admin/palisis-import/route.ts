@@ -18,13 +18,18 @@ function mapTourDetail(t: TourDetail | TourSummary) {
 
   const price = parseFloat(String(t.from_price ?? "0")) || 0
 
-  const images = full.images?.image
-  const image  = String(
-    (Array.isArray(images) ? images[0]?.url ?? images[0]?.url_thumbnail : undefined)
-    ?? (t as TourSummary).image_url
-    ?? full.thumbnail_image
-    ?? ""
-  )
+  // Extract all gallery images from Palisis (xlarge → large → url → thumbnail)
+  const rawImages = full.images?.image
+  const imageList = Array.isArray(rawImages) ? rawImages : (rawImages ? [rawImages] : [])
+  const galleryUrls: string[] = imageList
+    .map(img => String(img.url_xlarge ?? img.url_large ?? img.url ?? img.url_thumbnail ?? ""))
+    .filter(Boolean)
+
+  const image = galleryUrls[0]
+    ?? String((t as TourSummary).image_url ?? full.thumbnail_image ?? "")
+  const gallery = galleryUrls.length > 0
+    ? galleryUrls
+    : (full.thumbnail_image ? [String(full.thumbnail_image)] : [])
 
   const duration = String(full.duration_desc ?? t.duration ?? (t as TourSummary).duration_description ?? "")
   const location = String(t.location ?? (t as TourSummary).location_summary ?? "Luxembourg")
@@ -43,6 +48,7 @@ function mapTourDetail(t: TourDetail | TourSummary) {
     city:              location,
     provider:          supplier,
     image,
+    gallery,
     highlights:        [] as string[],
     badge:             null,
     rating:            0,
@@ -234,6 +240,7 @@ export async function POST(req: Request) {
           price:       mapped.price,
           duration:    mapped.duration,
           image:       mapped.image,
+          gallery:     mapped.gallery,
           city:        mapped.city,
           provider:    mapped.provider,
           ...(localTrip.permalink ? {} : { permalink: mapped.permalink }),
