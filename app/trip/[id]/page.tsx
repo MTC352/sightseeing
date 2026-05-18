@@ -32,8 +32,11 @@ export const dynamic = "force-dynamic"
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
-  const dbRow = await dbGetTrip(id).catch(() => null)
-  const trip = dbRow ? mapDbTrip(dbRow as Record<string, unknown>) : getTripById(id)
+  const dbRow = await dbGetTrip(id, { publicOnly: true }).catch(() => null)
+  const dbRowAny = await dbGetTrip(id).catch(() => null)
+  const trip = dbRow
+    ? mapDbTrip(dbRow as Record<string, unknown>)
+    : (dbRowAny ? null : getTripById(id))
   const detail = getTripDetail(id)
 
   if (!trip) {
@@ -66,14 +69,30 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   }
 }
 
-export default async function TripPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function TripPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const { id } = await params
-  const dbRow = await dbGetTrip(id).catch(() => null)
-  const trip = dbRow ? mapDbTrip(dbRow as Record<string, unknown>) : getTripById(id)
+  const sp = await searchParams
+  const selectedDate = typeof sp.date === "string" ? sp.date : undefined
+  const selectedTime = typeof sp.time === "string" ? sp.time : undefined
+
+  const dbRow = await dbGetTrip(id, { publicOnly: true }).catch(() => null)
+  // CRITICAL: only fall back to the static seed data when the trip exists
+  // there but isn't in the DB at all (legacy seed IDs). NEVER fall back when
+  // the DB has the trip with non-published status — that would expose drafts.
+  const dbRowAny = await dbGetTrip(id).catch(() => null)
+  const trip = dbRow
+    ? mapDbTrip(dbRow as Record<string, unknown>)
+    : (dbRowAny ? null : getTripById(id))
   const detail = getTripDetail(id)
 
   if (!trip) {
-    return <TripDetailClient id={id} trip={null} />
+    return <TripDetailClient id={id} trip={null} selectedDate={selectedDate} selectedTime={selectedTime} />
   }
 
   const imageUrl = trip.image.startsWith("/") ? `${BASE}${trip.image}` : trip.image
@@ -170,7 +189,7 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(allSchemas) }}
       />
-      <TripDetailClient id={id} trip={trip} />
+      <TripDetailClient id={id} trip={trip} selectedDate={selectedDate} selectedTime={selectedTime} />
     </>
   )
 }

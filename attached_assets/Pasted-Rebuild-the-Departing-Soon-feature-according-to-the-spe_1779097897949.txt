@@ -1,0 +1,201 @@
+Rebuild the Departing Soon feature according to the specification below. This supersedes the existing implementation entirely; do not preserve old logic. The TourCMS API reference I shared previously is authoritative for endpoint shapes — refer to §6.3 (datesndeals), §6.4 (checkavail), and §0.3 (timeslot pattern). The existing implementation has multiple latent bugs (wrong endpoint, broken timezone math in isInFuture, no real server cron despite the admin toggle, silent failure on missing credentials, stale spaces_remaining shown to users). Fix all of them with one coherent rebuild.
+Goals
+
+Show the next 5 upcoming bookable departures across all imported trips.
+Availability numbers must match what the Palisis iframe shows, within 20 seconds maximum staleness.
+Refreshing the homepage triggers a real API refresh of availability — but is deduplicated and TTL-gated so traffic spikes don't cause API spam.
+Background auto-update (admin toggle) keeps availability warm even when no one is on the homepage.
+Zero TourCMS calls during page render — server handles all I/O, homepage just reads cache.
+Stay under 2000 calls/hour even under heavy traffic.
+
+Two caches
+Use module-level variables in app/api/departing-soon/route.ts (or a shared lib/departing-soon-cache.ts):
+tstype DiscoverySlot = {
+  tripId: string;
+  palisisId: string;
+  tripTitle: string;
+  tripImage: string;
+  tripPermalink: string;
+  date: string;            // YYYY-MM-DD
+  time: string;            // HH:MM, display only
+  startTimeUtcSeconds: number;
+  priceDisplay: string;
+  componentKey: string;    // from checkavail
+};
+
+let discoveryCache: { slots: DiscoverySlot[]; refreshedAt: number } | null = null;
+
+type AvailabilityRecord = {
+  spacesRemaining: number | "UNLIMITED";
+  stillBookable: boolean;  // false if the matching component disappeared
+};
+
+let availabilityCache: { byTripId: Record<string, AvailabilityRecord>; refreshedAt: number } | null = null;
+let availabilityRefreshLock: Promise<void> | null = null;
+Settings (admin Integrations panel)
+Add or reuse these keys in the existing integrations settings table:
+KeyDefaultMin/MaxPurposedeparting_soon_discovery_interval_seconds30060 / 3600How often the discovery cron rebuilds the top-5 listdeparting_soon_availability_ttl_seconds2010 / 120Minimum gap between two availability refreshes. Below this, return cached.departing_soon_auto_update"false"—When "true", background cron also keeps availability warmdeparting_soon_auto_update_interval_seconds3015 / 300Background availability refresh cadence when auto-update is on
+The existing departing_soon_interval setting should be renamed/migrated to departing_soon_discovery_interval_seconds. The browser-side setInterval polling is no longer needed — delete the client polling logic; the server now owns freshness.
+Route 1: POST /api/cron/refresh-discovery
+Replit Scheduled Deployment runs this every 1 minute. Logic:
+
+Read departing_soon_discovery_interval_seconds. If discoveryCache exists and (now - discoveryCache.refreshedAt) < interval and ?force=1 is not set, exit immediately.
+Resolve TourCMS credentials. If missing, write tourcmsConfigured: false flag somewhere readable and exit.
+Load all trips from trips table where palisis_id IS NOT NULL AND status != 'archived'.
+For each trip, find its next bookable departure using the algorithm below.
+Collect results, sort by startTimeUtcSeconds ascending, take top 5.
+Write to discoveryCache.
+Immediately afterwards, call refreshAvailability() (see Route 2) to populate availabilityCache for the new top 5.
+Return { ok: true, slotsFound: N, failedTripCount: M, durationMs: ... }.
+
+Per-trip "next bookable departure" algorithm
+
+Call GET /c/tour/datesprices/datesndeals/search.xml?id={palisisId}&startdate_start={today}&startdate_end={today+90d}&order=start_date.
+From response, take dates where status === "OPEN" and spaces_remaining !== "0". Note: spaces_remaining may be the string "UNLIMITED" — treat as bookable.
+Iterate up to the first 3 candidate dates in chronological order:
+
+Call GET /c/tour/datesprices/checkavail.xml?id={palisisId}&date={candidate.start_date}&r1=1.
+Force-array available_components.component (it may arrive as object or array).
+Filter to components where Number(c.start_time_utcseconds) > Math.floor(Date.now() / 1000).
+If any survive, take the earliest one as this trip's next departure. Build a DiscoverySlot record. Break out of the candidate-date loop.
+If none survive, continue to next candidate date.
+
+
+If the 3-date walk yields nothing, skip this trip silently.
+Wrap each trip's per-trip work in its own try/catch. Per-trip errors increment failedTripCount, do not abort the whole cron run.
+
+Route 2: refreshAvailability() — internal function, callable from anywhere
+Located in lib/departing-soon-cache.ts or inline in the route file. Pure function (no HTTP wrapper — used both by the read endpoint and the auto-update cron).
+tsasync function refreshAvailability(): Promise<void> {
+  // Dedupe: if a refresh is already running, await it instead of starting another.
+  if (availabilityRefreshLock) return availabilityRefreshLock;
+
+  // TTL gate: too recent? Skip silently.
+  const ttl = await getSetting("departing_soon_availability_ttl_seconds");
+  if (availabilityCache && (Date.now() - availabilityCache.refreshedAt) / 1000 < ttl) return;
+
+  // No discovery cache? Nothing to refresh.
+  if (!discoveryCache || discoveryCache.slots.length === 0) return;
+
+  availabilityRefreshLock = (async () => {
+    try {
+      const newAvailability: Record<string, AvailabilityRecord> = {};
+      const slots = discoveryCache!.slots;
+
+      // 5 parallel checkavail calls — one per cached slot
+      const results = await Promise.allSettled(
+        slots.map(s =>
+          tourcms.checkAvailability(s.palisisId, { date: s.date, r1: 1 })
+        )
+      );
+
+      results.forEach((r, i) => {
+        const slot = slots[i];
+        if (r.status === "rejected") {
+          // Keep previous availability record on transient error
+          newAvailability[slot.tripId] = availabilityCache?.byTripId[slot.tripId] ?? { spacesRemaining: 0, stillBookable: false };
+          return;
+        }
+        const components = forceArray(r.value.available_components?.component);
+        // Match the exact slot by start_time_utcseconds
+        const match = components.find(c => Number(c.start_time_utcseconds) === slot.startTimeUtcSeconds);
+        if (!match) {
+          // Slot is no longer bookable
+          newAvailability[slot.tripId] = { spacesRemaining: 0, stillBookable: false };
+        } else {
+          newAvailability[slot.tripId] = {
+            spacesRemaining: match.spaces_remaining === "UNLIMITED" ? "UNLIMITED" : Number(match.spaces_remaining),
+            stillBookable: true,
+          };
+        }
+      });
+
+      availabilityCache = { byTripId: newAvailability, refreshedAt: Date.now() };
+    } finally {
+      availabilityRefreshLock = null;
+    }
+  })();
+
+  return availabilityRefreshLock;
+}
+The Promise stored in availabilityRefreshLock is the dedupe key. If 1000 homepage requests arrive in the same 500 ms window, only the first triggers the refresh; the other 999 await the same Promise. This is the critical anti-spam protection.
+Route 3: POST /api/cron/auto-update-availability
+Replit Scheduled Deployment runs this every 1 minute. Logic:
+
+Read departing_soon_auto_update. If "false", exit immediately.
+Read departing_soon_auto_update_interval_seconds. If availabilityCache exists and (now - availabilityCache.refreshedAt) / 1000 < intervalSeconds, exit.
+Call refreshAvailability().
+
+Route 4: GET /api/departing-soon (read endpoint)
+This is what the homepage hits. Must never call TourCMS directly — it only calls refreshAvailability() which is gated.
+
+If discoveryCache is null → return { ok: false, error: "DISCOVERY_NOT_INITIALIZED", departures: [] } with HTTP 503.
+If TourCMS credentials are not configured → return { ok: false, error: "TOURCMS_NOT_CONFIGURED", departures: [] } with HTTP 500. The admin Integrations panel reads this and shows a red banner.
+Await refreshAvailability() — this may be instant (TTL not expired or in-flight already), or take ~500 ms (5 parallel API calls).
+Build response array:
+
+For each slot in discoveryCache.slots:
+
+Look up its availabilityCache.byTripId[slot.tripId]. If absent, use { spacesRemaining: 0, stillBookable: false } as default.
+Apply two read-time filters: drop if slot.startTimeUtcSeconds <= Math.floor(Date.now()/1000) (departed); drop if !avail.stillBookable or avail.spacesRemaining === 0 (sold out).
+Otherwise emit { ...slot, spacesRemaining: avail.spacesRemaining }.
+
+
+
+
+Return { ok: true, departures, lastDiscoveryAt: discoveryCache.refreshedAt, lastAvailabilityAt: availabilityCache?.refreshedAt, autoUpdate, intervalSecs, partial, failedTripCount, tourcmsConfigured: true }.
+
+Note step 4 explicitly does NOT backfill from outside the top 5 if some are filtered out. If 2 of the cached 5 just departed/sold out, the homepage shows 3. The next discovery cron run will refill. Backfilling on the read path would require fresh datesndeals + checkavail calls, defeating the architecture.
+Client component changes (departing-soon-section.tsx)
+
+Remove the setInterval browser polling entirely. Server owns freshness now.
+Keep useEffect initial fetch on mount.
+Add a manual refresh button (small icon, optional UX): on click, re-fetches /api/departing-soon. This goes through refreshAvailability() server-side (TTL-gated).
+Card link must carry slot context: /trip/${tripId}?date=${date}&time=${encodeURIComponent(time)}.
+Display spacesRemaining with banding (NOT the raw number, even though the data is accurate — banding hides the residual ≤20 s drift):
+
+"UNLIMITED" or numeric ≥ 10 → no urgency pill
+numeric 5–9 → grey pill "Limited availability"
+numeric 1–4 → red pill "Only {N} left" (raw number is OK in this band because the urgency justifies the small drift risk)
+numeric 0 → never displayed (filtered out at read time)
+
+
+If response includes tourcmsConfigured: false, hide the widget entirely on the homepage. Don't render an empty state — the feature is administratively disabled.
+
+Trip detail page changes (app/trip/[id]/trip-detail-view.tsx)
+
+Use useSearchParams to read date and time query params.
+When both are present, render a heading directly above <BookingIframe>:
+You selected: {formatted date} at {time}
+Confirm and complete booking in the widget below
+
+If trip.permalink contains {date} or {time} placeholders, substitute them; otherwise pass the iframe src unchanged. The heading is the minimum context.
+
+Admin Integrations panel
+
+Replace the existing single "interval" input with two: "Discovery interval (minutes)" and "Availability refresh interval (seconds)". Map to departing_soon_discovery_interval_seconds and departing_soon_auto_update_interval_seconds respectively.
+Keep the auto-update toggle but update the help text: "When enabled, the server keeps availability data warm on its own schedule. When disabled, availability refreshes only when a user opens the homepage."
+Add two "Refresh Now" buttons:
+
+"Refresh discovery list" → POST /api/cron/refresh-discovery?force=1
+"Refresh availability" → calls a new endpoint POST /api/admin/refresh-availability which just calls refreshAvailability() and returns when done.
+
+
+Display two timestamps: lastDiscoveryAt and lastAvailabilityAt. Both read from /api/departing-soon.
+If tourcmsConfigured: false on response, show red banner.
+
+Rate limit awareness (no extra API calls)
+Don't call /api/rate_limit_status.xml proactively. Instead: in apiRequest() in lib/tourcms.ts, parse the rate-limit headers (x-ratelimit-remaining, or whatever TourCMS returns) from every response. Track the most recent values in module-level state. Before each cron cycle, if remainingHits < 200, log a warning and skip the cycle entirely (don't risk hitting the wall). The discovery cron is the only place this guard matters; availability refresh is cheap enough to always run.
+Acceptance criteria
+
+Iframe parity — pick any trip with multiple daily timeslots. The slot shown in Departing Soon (date, time, spacesRemaining-band) must agree with what the Palisis iframe says is bookable.
+Departed slot disappears on refresh — wait until a displayed slot's startTimeUtcSeconds passes, refresh homepage immediately. The slot must be filtered out (read-time filter).
+Refresh triggers real API call — open browser DevTools Network tab. Refresh homepage. The /api/departing-soon request must take ~500 ms on first hit (real refresh) and < 50 ms on second hit within 20 s (TTL-gated). After 20 s, next refresh takes ~500 ms again.
+Dedupe under load — simulate 100 simultaneous homepage requests (e.g., for i in {1..100}; do curl /api/departing-soon & done). Check server logs: only one set of 5 checkavail calls must fire to TourCMS; the other 99 requests share the same in-flight refresh.
+Auto-update OFF — disable in admin. Open homepage. Leave it for 10 min. Watch the server logs: no availability refresh fires unless someone hits the homepage.
+Auto-update ON — enable in admin. Don't touch homepage. Watch logs: a background availability refresh fires every departing_soon_auto_update_interval_seconds.
+Sold-out scenario — manually mark a slot as sold out via Palisis admin (or pick a slot already sold out in the iframe). Within departing_soon_availability_ttl_seconds, the homepage must stop showing it.
+Missing credentials — temporarily unset TOURCMS_API_KEY. Admin panel shows red banner; homepage widget hides itself.
+Rate limit safety — monitor remainingHits over 24 hours of normal traffic. Must stay above 500 at all times. If it drops, log shows the cycle-skip warning.
+
+Ship all of these together. Do not split into phases — the architecture only works if every piece is in place.

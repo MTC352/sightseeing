@@ -44,7 +44,7 @@ function mapDbRow(r: Record<string, unknown>): Trip {
 }
 
 export default async function SearchPage() {
-  const rows = await dbListTrips().catch(() => [])
+  const rows = await dbListTrips({ publicOnly: true }).catch(() => [])
   const trips = (rows as Record<string, unknown>[])
     .filter((r) => r.status === "published")
     .map(mapDbRow)

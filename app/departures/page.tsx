@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 }
 
 export default async function DeparturesPage() {
-  const rows = await dbListTrips().catch(() => [])
+  const rows = await dbListTrips({ publicOnly: true }).catch(() => [])
 
   const dbTrips: Trip[] = rows
     .filter((r) => (r.status as string) === "published")

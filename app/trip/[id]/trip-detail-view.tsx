@@ -24,6 +24,30 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
  * TourCMS booking widget's internal state (person count, selected date, etc.).
  * React will only recreate the iframe if `src` actually changes.
  */
+/**
+ * Append slot-context (date/time) to the booking iframe URL so the
+ * TourCMS/Palisis widget loads pre-selected. Both must be present, otherwise
+ * the URL is returned unchanged.
+ */
+function substitutePlaceholders(url: string, date?: string, time?: string): string {
+  if (!url || !date || !time) return url
+  const sep = url.includes("?") ? "&" : "?"
+  return `${url}${sep}date=${encodeURIComponent(date)}&time=${encodeURIComponent(time)}`
+}
+
+/** Format YYYY-MM-DD as "Sun, 17 May 2026" for the slot-context banner. */
+function formatSelectedDate(iso: string): string {
+  try {
+    const [y, m, d] = iso.split("-").map(Number)
+    if (!y || !m || !d) return iso
+    return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+      weekday: "short", day: "numeric", month: "short", year: "numeric",
+    })
+  } catch {
+    return iso
+  }
+}
+
 const BookingIframe = memo(function BookingIframe({ src, title }: { src: string; title: string }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
@@ -40,7 +64,17 @@ const BookingIframe = memo(function BookingIframe({ src, title }: { src: string;
   )
 })
 
-export default function TripDetailClient({ id, trip: serverTrip }: { id: string; trip: Trip | null }) {
+export default function TripDetailClient({
+  id,
+  trip: serverTrip,
+  selectedDate,
+  selectedTime,
+}: {
+  id: string
+  trip: Trip | null
+  selectedDate?: string
+  selectedTime?: string
+}) {
   const trip = serverTrip ?? getTripById(id)
   const detail = getTripDetail(id)
   
@@ -347,8 +381,21 @@ export default function TripDetailClient({ id, trip: serverTrip }: { id: string;
 
               {/* TourCMS / Palisis booking form — memoized to prevent re-mount on parent re-renders */}
               {trip.permalink ? (
-                <div id="booking">
-                  <BookingIframe src={trip.permalink} title={`Book ${trip.title}`} />
+                <div id="booking" className="space-y-3">
+                  {selectedDate && selectedTime && (
+                    <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+                      <p className="font-semibold text-foreground">
+                        You selected: {formatSelectedDate(selectedDate)} at {selectedTime}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Confirm and complete booking in the widget below.
+                      </p>
+                    </div>
+                  )}
+                  <BookingIframe
+                    src={substitutePlaceholders(trip.permalink, selectedDate, selectedTime)}
+                    title={`Book ${trip.title}`}
+                  />
                 </div>
               ) : null}
 

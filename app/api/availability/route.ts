@@ -39,7 +39,7 @@ export async function GET(req: Request) {
 
   const [config, rows] = await Promise.all([
     getTourCMSConfig(),
-    dbListTrips().catch(() => [] as unknown[]),
+    dbListTrips({ publicOnly: true }).catch(() => [] as unknown[]),
   ])
 
   const tcmsTrips = (rows as { id: string }[]).filter(r => r.id.startsWith("tcms_"))

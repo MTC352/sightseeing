@@ -160,15 +160,71 @@ export default function IntegrationsPage() {
   const [testResult, setTestResult] = useState<Record<string, "ok" | "fail">>({})
   const [error, setError] = useState("")
   const [dsToggling, setDsToggling] = useState(false)
-  const [dsIntervalSaving, setDsIntervalSaving] = useState(false)
-  const [dsIntervalSaved, setDsIntervalSaved] = useState(false)
+  const [dsSaving, setDsSaving] = useState<"discovery" | "availability" | null>(null)
+  const [dsSavedKey, setDsSavedKey] = useState<string | null>(null)
+  const [dsRefreshing, setDsRefreshing] = useState<"discovery" | "availability" | null>(null)
+  const [dsStatus, setDsStatus] = useState<{
+    tourcmsConfigured: boolean | null
+    lastDiscoveryAt: string | null
+    lastAvailabilityAt: string | null
+    tripsChecked?: number
+    failedTripCount?: number
+  }>({ tourcmsConfigured: null, lastDiscoveryAt: null, lastAvailabilityAt: null })
 
   useEffect(() => {
     fetch("/api/admin/settings")
       .then((r) => r.json())
-      .then((s) => setKeys(s?.apiKeys ?? {}))
+      .then((s) => {
+        const apiKeys = (s?.apiKeys ?? {}) as ApiKeys
+        // One-time migration: old key → new key
+        if (apiKeys.departing_soon_interval && !apiKeys.departing_soon_discovery_interval_seconds) {
+          apiKeys.departing_soon_discovery_interval_seconds = apiKeys.departing_soon_interval
+        }
+        setKeys(apiKeys)
+      })
       .catch(() => {})
+    refreshDsStatus()
   }, [])
+
+  async function refreshDsStatus() {
+    try {
+      const res = await fetch("/api/departing-soon", { cache: "no-store" })
+      const data = await res.json()
+      setDsStatus({
+        tourcmsConfigured: data.tourcmsConfigured ?? null,
+        lastDiscoveryAt: data.lastDiscoveryAt ?? null,
+        lastAvailabilityAt: data.lastAvailabilityAt ?? null,
+        tripsChecked: data.tripsChecked,
+        failedTripCount: data.failedTripCount,
+      })
+    } catch { /* ignore */ }
+  }
+
+  async function refreshNow(kind: "discovery" | "availability") {
+    setDsRefreshing(kind)
+    try {
+      const url = kind === "discovery"
+        ? "/api/cron/refresh-discovery?force=1"
+        : "/api/admin/refresh-availability"
+      await fetch(url, { method: "POST" })
+      await refreshDsStatus()
+    } catch { /* ignore */ }
+    finally { setDsRefreshing(null) }
+  }
+
+  async function saveDsKey(key: string, value: string, kind: "discovery" | "availability") {
+    setDsSaving(kind)
+    try {
+      await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "apiKeys", data: { [key]: value } }),
+      })
+      setDsSavedKey(key)
+      setTimeout(() => setDsSavedKey(null), 2500)
+    } catch { /* ignore */ }
+    finally { setDsSaving(null) }
+  }
 
   async function save() {
     setSaving(true)
@@ -214,22 +270,12 @@ export default function IntegrationsPage() {
     }
   }
 
-  async function saveDsInterval() {
-    setDsIntervalSaving(true)
-    try {
-      await fetch("/api/admin/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          section: "apiKeys",
-          data: { departing_soon_interval: keys.departing_soon_interval ?? "300" },
-        }),
-      })
-      setDsIntervalSaved(true)
-      setTimeout(() => setDsIntervalSaved(false), 2500)
-    } catch { /* ignore */ } finally {
-      setDsIntervalSaving(false)
-    }
+  function fmtTs(iso: string | null): string {
+    if (!iso) return "never"
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+    if (diff < 60) return `${diff}s ago`
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+    return new Date(iso).toLocaleString("en-GB")
   }
 
   async function testKey(fieldKey: string) {
@@ -254,7 +300,9 @@ export default function IntegrationsPage() {
     }
   }
 
-  const dsIntervalMins = Math.max(1, Math.round(parseInt(keys.departing_soon_interval ?? "300", 10) / 60)) || 5
+  const dsDiscoverySec = parseInt(keys.departing_soon_discovery_interval_seconds ?? keys.departing_soon_interval ?? "300", 10) || 300
+  const dsAvailSec     = parseInt(keys.departing_soon_auto_update_interval_seconds ?? "30", 10) || 30
+  const dsAvailTtlSec  = parseInt(keys.departing_soon_availability_ttl_seconds ?? "20", 10) || 20
 
   return (
     <div className="p-6 lg:p-10">
@@ -450,26 +498,52 @@ export default function IntegrationsPage() {
               <span className="ml-auto text-[11px] text-muted-foreground/50">Homepage widget</span>
             </div>
 
+            {/* Missing credentials banner */}
+            {dsStatus.tourcmsConfigured === false && (
+              <div className="border-b border-destructive/20 bg-destructive/10 px-5 py-3 text-sm text-destructive flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                TourCMS credentials missing — the widget is hidden on the public site. Add the
+                Palisis API key + Channel ID on the API Keys tab to enable it.
+              </div>
+            )}
+
+            {/* Status row */}
+            <div className="grid grid-cols-2 gap-4 border-b border-border px-5 py-3 text-xs">
+              <div>
+                <span className="font-medium text-muted-foreground">Last discovery: </span>
+                <span className="text-foreground">{fmtTs(dsStatus.lastDiscoveryAt)}</span>
+                {dsStatus.tripsChecked !== undefined && (
+                  <span className="ml-2 text-muted-foreground/60">
+                    ({dsStatus.tripsChecked - (dsStatus.failedTripCount ?? 0)}/{dsStatus.tripsChecked} tours ok)
+                  </span>
+                )}
+              </div>
+              <div>
+                <span className="font-medium text-muted-foreground">Last availability: </span>
+                <span className="text-foreground">{fmtTs(dsStatus.lastAvailabilityAt)}</span>
+              </div>
+            </div>
+
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground w-48">Setting</th>
                   <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground">Description</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground w-52">Value</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground w-72">Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
 
-                {/* Auto-update row */}
+                {/* Auto-update toggle */}
                 <tr className="hover:bg-muted/20 transition-colors">
                   <td className="px-5 py-4 align-middle">
                     <span className="text-xs font-medium text-foreground">Auto-Update</span>
                   </td>
                   <td className="px-5 py-4 align-middle">
                     <p className="text-xs text-muted-foreground">
-                      When enabled, the Departing Soon block polls Palisis for fresh departures
-                      while the homepage is open — at the interval set below. When off, data is
-                      only fetched on page load.
+                      When ON, the auto-update cron refreshes availability for the cached top-5
+                      slots every <strong>{dsAvailSec}s</strong>. When OFF, availability is only
+                      refreshed when the homepage is loaded (read-time, TTL-gated).
                     </p>
                   </td>
                   <td className="px-5 py-4 align-middle">
@@ -490,27 +564,22 @@ export default function IntegrationsPage() {
                           }`}
                         />
                       </button>
-                      <span
-                        className={`text-xs font-semibold ${
-                          keys.departing_soon_auto_update === "true" ? "text-emerald-600" : "text-muted-foreground"
-                        }`}
-                      >
+                      <span className={`text-xs font-semibold ${keys.departing_soon_auto_update === "true" ? "text-emerald-600" : "text-muted-foreground"}`}>
                         {keys.departing_soon_auto_update === "true" ? "Enabled" : "Disabled"}
                       </span>
                     </div>
                   </td>
                 </tr>
 
-                {/* Refresh interval row */}
+                {/* Discovery interval */}
                 <tr className="hover:bg-muted/20 transition-colors">
                   <td className="px-5 py-4 align-middle">
-                    <span className="text-xs font-medium text-foreground">Refresh Interval</span>
+                    <span className="text-xs font-medium text-foreground">Discovery Refresh Interval</span>
                   </td>
                   <td className="px-5 py-4 align-middle">
                     <p className="text-xs text-muted-foreground">
-                      How often the homepage widget re-fetches live departure data when
-                      auto-update is on. Minimum 1 minute. Keep at 5+ minutes to avoid
-                      hammering the Palisis API — data is also cached server-side.
+                      How often the heavy discovery cron rebuilds the top-5 candidate slots
+                      (one datesndeals + up-to-3 checkavail per published trip). Keep ≥ 5 min.
                     </p>
                   </td>
                   <td className="px-5 py-4 align-middle">
@@ -518,28 +587,137 @@ export default function IntegrationsPage() {
                       <div className="relative flex items-center">
                         <input
                           type="number"
-                          min={1}
-                          max={60}
-                          value={dsIntervalMins}
+                          min={60} max={3600} step={30}
+                          value={dsDiscoverySec}
                           onChange={(e) => {
-                            const mins = Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 5))
-                            setKeys((k) => ({ ...k, departing_soon_interval: String(mins * 60) }))
+                            const sec = Math.max(60, Math.min(3600, parseInt(e.target.value, 10) || 300))
+                            setKeys((k) => ({ ...k, departing_soon_discovery_interval_seconds: String(sec) }))
                           }}
-                          className="w-20 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                          className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
                         />
-                        <span className="absolute right-3 text-xs text-muted-foreground/50 pointer-events-none">min</span>
+                        <span className="absolute right-3 text-xs text-muted-foreground/50 pointer-events-none">sec</span>
                       </div>
                       <button
                         type="button"
-                        onClick={saveDsInterval}
-                        disabled={dsIntervalSaving}
+                        onClick={() => saveDsKey("departing_soon_discovery_interval_seconds", String(dsDiscoverySec), "discovery")}
+                        disabled={dsSaving === "discovery"}
                         className={`flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
-                          dsIntervalSaved
+                          dsSavedKey === "departing_soon_discovery_interval_seconds"
                             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
                             : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
                         }`}
                       >
-                        {dsIntervalSaved ? <><Check className="h-3.5 w-3.5" /> Saved</> : <><Save className="h-3.5 w-3.5" /> Save</>}
+                        {dsSavedKey === "departing_soon_discovery_interval_seconds"
+                          ? <><Check className="h-3.5 w-3.5" /> Saved</>
+                          : <><Save className="h-3.5 w-3.5" /> Save</>}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => refreshNow("discovery")}
+                        disabled={dsRefreshing === "discovery"}
+                        title="Force a discovery rebuild now"
+                        className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${dsRefreshing === "discovery" ? "animate-spin" : ""}`} />
+                        Refresh now
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Availability auto-update interval */}
+                <tr className="hover:bg-muted/20 transition-colors">
+                  <td className="px-5 py-4 align-middle">
+                    <span className="text-xs font-medium text-foreground">Availability Auto-Update Interval</span>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <p className="text-xs text-muted-foreground">
+                      How often the auto-update cron refreshes spaces-remaining for the cached
+                      top-5 (5 parallel checkavail calls). Only runs when Auto-Update is ON.
+                    </p>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex items-center">
+                        <input
+                          type="number"
+                          min={15} max={300} step={5}
+                          value={dsAvailSec}
+                          onChange={(e) => {
+                            const sec = Math.max(15, Math.min(300, parseInt(e.target.value, 10) || 30))
+                            setKeys((k) => ({ ...k, departing_soon_auto_update_interval_seconds: String(sec) }))
+                          }}
+                          className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                        />
+                        <span className="absolute right-3 text-xs text-muted-foreground/50 pointer-events-none">sec</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => saveDsKey("departing_soon_auto_update_interval_seconds", String(dsAvailSec), "availability")}
+                        disabled={dsSaving === "availability"}
+                        className={`flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
+                          dsSavedKey === "departing_soon_auto_update_interval_seconds"
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                            : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        }`}
+                      >
+                        {dsSavedKey === "departing_soon_auto_update_interval_seconds"
+                          ? <><Check className="h-3.5 w-3.5" /> Saved</>
+                          : <><Save className="h-3.5 w-3.5" /> Save</>}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => refreshNow("availability")}
+                        disabled={dsRefreshing === "availability"}
+                        title="Refresh spaces-remaining now"
+                        className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${dsRefreshing === "availability" ? "animate-spin" : ""}`} />
+                        Refresh now
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Availability TTL */}
+                <tr className="hover:bg-muted/20 transition-colors">
+                  <td className="px-5 py-4 align-middle">
+                    <span className="text-xs font-medium text-foreground">Read-Time Availability TTL</span>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <p className="text-xs text-muted-foreground">
+                      Minimum age before a homepage hit can trigger a fresh availability refresh.
+                      Acts as the dedupe guard against thundering herds (default 20s).
+                    </p>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex items-center">
+                        <input
+                          type="number"
+                          min={10} max={120} step={5}
+                          value={dsAvailTtlSec}
+                          onChange={(e) => {
+                            const sec = Math.max(10, Math.min(120, parseInt(e.target.value, 10) || 20))
+                            setKeys((k) => ({ ...k, departing_soon_availability_ttl_seconds: String(sec) }))
+                          }}
+                          className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                        />
+                        <span className="absolute right-3 text-xs text-muted-foreground/50 pointer-events-none">sec</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => saveDsKey("departing_soon_availability_ttl_seconds", String(dsAvailTtlSec), "availability")}
+                        disabled={dsSaving === "availability"}
+                        className={`flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
+                          dsSavedKey === "departing_soon_availability_ttl_seconds"
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                            : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        }`}
+                      >
+                        {dsSavedKey === "departing_soon_availability_ttl_seconds"
+                          ? <><Check className="h-3.5 w-3.5" /> Saved</>
+                          : <><Save className="h-3.5 w-3.5" /> Save</>}
                       </button>
                     </div>
                   </td>

@@ -8,14 +8,21 @@ import { query, queryOne } from "@/lib/db"
 
 // ── Trips ──────────────────────────────────────────────────────────────────
 
-export async function dbListTrips() {
+/**
+ * List trips.
+ * @param opts.publicOnly  When true, returns only status='published' rows
+ *                          (use for all public/frontend reads + TourCMS integrations).
+ *                          When false/omitted, returns drafts + published (admin use).
+ */
+export async function dbListTrips(opts: { publicOnly?: boolean } = {}) {
+  const where = opts.publicOnly ? "status = 'published'" : "status != 'archived'"
   return query(`
     SELECT id, palisis_id, title, title_override, description, description_override,
            price::float, original_price::float as "originalPrice", duration, category, tags, city,
            provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
            permalink, google_business_url as "googleBusinessUrl",
            featured, featured_departure as "featuredDeparture", status, created_at, updated_at
-    FROM trips WHERE status != 'archived' ORDER BY created_at DESC
+    FROM trips WHERE ${where} ORDER BY created_at DESC
   `)
 }
 
@@ -30,14 +37,19 @@ export async function dbListArchivedTrips() {
   `)
 }
 
-export async function dbGetTrip(id: string) {
+/**
+ * Get one trip by id.
+ * @param opts.publicOnly  When true, returns null unless status='published'.
+ */
+export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {}) {
+  const extra = opts.publicOnly ? "AND status = 'published'" : ""
   return queryOne(`
     SELECT id, palisis_id, title, title_override, description, description_override,
            price::float, original_price::float as "originalPrice", duration, category, tags, city,
            provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
            permalink, google_business_url as "googleBusinessUrl",
            featured, featured_departure as "featuredDeparture", status, created_at, updated_at
-    FROM trips WHERE id = $1
+    FROM trips WHERE id = $1 ${extra}
   `, [id])
 }
 
