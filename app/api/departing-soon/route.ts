@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { dbGetSettings, dbUpdateApiKeys, dbListDepartures, dbListTrips } from "@/lib/db/queries"
+import { dbGetSettings, dbListDepartures, dbListTrips } from "@/lib/db/queries"
 import { getTourCMSClient } from "@/lib/tourcms"
 
 export const dynamic = "force-dynamic"
@@ -26,16 +26,30 @@ interface MemCache {
 
 let memCache: MemCache | null = null
 
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
 function getLabel(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  const today = new Date()
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
-  const tomorrow = new Date(today)
-  tomorrow.setDate(today.getDate() + 1)
+  const ts = todayStr()
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
   const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`
-  if (dateStr === todayStr) return "Today"
+  if (dateStr === ts) return "Today"
   if (dateStr === tomorrowStr) return "Tomorrow"
-  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "short" })
+  const [y, m, day] = dateStr.split("-").map(Number)
+  return new Date(y, m - 1, day).toLocaleDateString("en-GB", { weekday: "short" })
+}
+
+/** Returns true only if the slot is still in the future (not yet departed). */
+function isInFuture(dateStr: string, timeStr: string): boolean {
+  const now = new Date()
+  const [hh, mm] = (timeStr ?? "00:00").split(":").map(Number)
+  // Build a Date in local time for the slot
+  const slotDate = new Date(dateStr + "T00:00:00")
+  slotDate.setHours(hh, mm, 0, 0)
+  return slotDate > now
 }
 
 export async function GET() {
@@ -104,7 +118,7 @@ async function fetchFromTourCMS(
   if (syncedTrips.length === 0) return []
 
   const today = new Date()
-  const todayStr = today.toISOString().slice(0, 10)
+  const ts = todayStr()
   const in7Days = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
 
   const items: DepartingSoonItem[] = []
@@ -112,17 +126,27 @@ async function fetchFromTourCMS(
   for (const trip of syncedTrips) {
     try {
       const result = await tourcms.showDatesAndDeals(trip.palisis_id!, {
-        startdate_start: todayStr,
+        startdate_start: ts,
         startdate_end: in7Days,
       })
       if (!result.ok || !Array.isArray(result.dates) || result.dates.length === 0) continue
 
-      const openSlots = result.dates.filter(
-        (d: Record<string, unknown>) => !d.status || d.status === "OPEN" || d.status === "AVAILABLE"
-      )
+      // Keep only open slots that haven't departed yet
+      const openSlots = (result.dates as Record<string, unknown>[]).filter((d) => {
+        const status = d.status as string | undefined
+        const isOpen = !status || status === "OPEN" || status === "AVAILABLE"
+        if (!isOpen) return false
+        return isInFuture(d.start_date as string, (d.start_time as string) ?? "00:00")
+      })
       if (openSlots.length === 0) continue
 
-      const slot = openSlots[0] as Record<string, unknown>
+      // Pick the earliest remaining slot
+      openSlots.sort((a, b) =>
+        `${a.start_date}T${a.start_time ?? "00:00"}`.localeCompare(
+          `${b.start_date}T${b.start_time ?? "00:00"}`
+        )
+      )
+      const slot = openSlots[0]
       const price = parseFloat((slot.price_1 as string) ?? "0") || 0
       const spacesRemaining =
         slot.spaces_remaining != null ? Number(slot.spaces_remaining) : null
@@ -152,8 +176,7 @@ async function fetchFromTourCMS(
 }
 
 async function fetchFromDB(): Promise<DepartingSoonItem[]> {
-  const today = new Date()
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+  const ts = todayStr()
 
   const deps = (await dbListDepartures()) as Array<{
     id: string
@@ -172,7 +195,12 @@ async function fetchFromDB(): Promise<DepartingSoonItem[]> {
 
   const seen = new Set<string>()
   return deps
-    .filter((d) => d.date >= todayStr && d.status !== "cancelled")
+    .filter(
+      (d) =>
+        d.status !== "cancelled" &&
+        d.date >= ts &&
+        isInFuture(d.date, d.time)
+    )
     .sort((a, b) => `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`))
     .filter((d) => {
       if (seen.has(d.tripId)) return false
