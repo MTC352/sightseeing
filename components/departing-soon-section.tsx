@@ -34,24 +34,23 @@ function SkeletonCard() {
   )
 }
 
-/** Render the urgency badge per spec:
- *   ≥10 or UNLIMITED  → no badge
- *   5–9               → grey "Limited availability"
- *   1–4               → red "Only N left"
+/** Render the availability pill — original style:
+ *   UNLIMITED / ≥9   → no pill
+ *   5–8              → amber  "N left"
+ *   1–4              → red    "N left"
+ *   0                → red    "Full"
  */
 function UrgencyBadge({ spaces }: { spaces: number | "UNLIMITED" | undefined }) {
-  if (spaces === undefined) return null
-  if (spaces === "UNLIMITED" || (typeof spaces === "number" && spaces >= 10)) return null
-  if (typeof spaces === "number" && spaces >= 5) {
-    return (
-      <div className="absolute right-3 top-3 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-foreground shadow">
-        Limited availability
-      </div>
-    )
-  }
+  if (spaces === undefined || spaces === "UNLIMITED") return null
+  if (typeof spaces === "number" && spaces >= 9) return null
+  const colour =
+    spaces === 0 || spaces <= 4
+      ? "bg-destructive text-white"
+      : "bg-amber-500 text-white"
+  const label = spaces === 0 ? "Full" : `${spaces} left`
   return (
-    <div className="absolute right-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-white shadow">
-      Only {spaces} left
+    <div className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-bold shadow ${colour}`}>
+      {label}
     </div>
   )
 }
