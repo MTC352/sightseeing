@@ -3,14 +3,9 @@
 /**
  * SEO Optimizer — RankMath Pro-style widget for the trip admin edit page.
  *
- * Features:
- *   • Focus Keyword input (top segment) — drives all keyword-based checks live
- *   • SERP preview (Google-style URL / title / description)
- *   • Edit Snippet panel (editable SEO title + meta description)
- *   • Overall SEO score with circular gauge
- *   • 4 accordion sections: Basic SEO · Additional · Title Readability · Content Readability
- *   • Every check: ✓ green pass / ✗ red error icon + help tooltip
- *   • All checks update live as the user edits the trip form
+ * All 21 checks update live as the user edits any field in the form above.
+ * Descriptions may be plain text OR HTML (rich text editor output) — the
+ * optimizer strips HTML before counting words / checking keyword presence.
  */
 
 import React, { useState, useMemo, useEffect } from "react"
@@ -38,6 +33,34 @@ const SENTIMENT_WORDS = new Set([
 ])
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
+
+/** Strip HTML tags + decode basic entities → plain text. */
+function stripHtml(html: string): string {
+  if (!html) return ""
+  return html
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi,  " ")
+    .replace(/<\/li>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g,   "&")
+    .replace(/&lt;/g,    "<")
+    .replace(/&gt;/g,    ">")
+    .replace(/&quot;/g,  '"')
+    .replace(/&nbsp;/g,  " ")
+    .replace(/&#39;/g,   "'")
+    .replace(/\s+/g,     " ")
+    .trim()
+}
+
+/** Extract paragraph-level text blocks (for short-paragraph check). */
+function getParagraphs(html: string): string[] {
+  if (html.includes("<p")) {
+    return (html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) ?? [])
+      .map(stripHtml)
+      .filter(Boolean)
+  }
+  return html.split(/\n\n+/).filter(Boolean)
+}
 
 function wordCount(text: string): number {
   return text.trim() === "" ? 0 : text.trim().split(/\s+/).length
@@ -119,41 +142,44 @@ function scoreColors(score: number) {
 export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   const [focusKeyword,  setFocusKeyword]  = useState("")
   const [seoTitle,      setSeoTitle]      = useState(tripData.title ?? "")
-  const [metaDesc,      setMetaDesc]      = useState((tripData.description ?? "").slice(0, 160))
+  const [metaDesc,      setMetaDesc]      = useState(stripHtml(tripData.description ?? "").slice(0, 160))
   const [editSnippet,   setEditSnippet]   = useState(false)
   const [openSections,  setOpenSections]  = useState<Set<string>>(new Set(["basic"]))
   const [visibleTip,    setVisibleTip]    = useState<string | null>(null)
 
-  // Keep seoTitle in sync when the form title changes externally (but not while editing snippet)
+  // Keep seoTitle in sync with the form title (unless user is editing the snippet)
   useEffect(() => {
     if (tripData.title && !editSnippet) setSeoTitle(tripData.title)
   }, [tripData.title, editSnippet])
 
-  // Keep metaDesc in sync when description changes externally (but not while editing snippet)
+  // Keep metaDesc in sync — pull first 160 chars of plain-text description
   useEffect(() => {
     if (tripData.description && !editSnippet) {
-      setMetaDesc((tripData.description ?? "").slice(0, 160))
+      setMetaDesc(stripHtml(tripData.description).slice(0, 160))
     }
   }, [tripData.description, editSnippet])
 
-  // ── Derived values (all live) ────────────────────────────────────────────
+  // ── Derived values (live) ────────────────────────────────────────────────
   const kw          = focusKeyword.toLowerCase().trim()
   const permalink   = tripData.permalink ?? tripData.id ?? ""
-  const description = tripData.description ?? ""
+  const rawHtml     = tripData.description ?? ""           // HTML (or plain text) from the editor
   const image       = tripData.image ?? ""
   const highlights  = tripData.highlights ?? []
   const url         = `https://sightseeing.lu/trip/${permalink}`
 
-  const words   = useMemo(() => wordCount(description), [description])
-  const kwCount = useMemo(() => countOccurrences(description, kw), [description, kw])
+  // Strip HTML for all text-analysis purposes
+  const plainText = useMemo(() => stripHtml(rawHtml), [rawHtml])
+
+  const words   = useMemo(() => wordCount(plainText), [plainText])
+  const kwCount = useMemo(() => countOccurrences(plainText, kw), [plainText, kw])
   const density = words > 0 ? (kwCount / words) * 100 : 0
 
-  // ── Build all checks (recomputed instantly on any dependency change) ──────
+  // ── All checks (recomputed instantly on any change) ───────────────────────
   const sections: SectionDef[] = useMemo(() => {
-    const tl = seoTitle.toLowerCase()
-    const dl = description.toLowerCase()
-    const ml = metaDesc.toLowerCase()
-    const pl = permalink.toLowerCase()
+    const tl  = seoTitle.toLowerCase()
+    const dl  = plainText.toLowerCase()           // plain text for keyword/content checks
+    const ml  = metaDesc.toLowerCase()
+    const pl  = permalink.toLowerCase()
 
     const basic: Check[] = [
       { id: "kw-in-title",    pass: !!kw && tl.includes(kw),                                                        message: "Add Focus Keyword to the SEO title." },
@@ -166,32 +192,33 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
     ]
 
     const additional: Check[] = [
-      { id: "kw-in-headings",  pass: !!kw && highlights.some((h) => h.toLowerCase().includes(kw)),                 message: "Use Focus Keyword in subheadings like H2, H3, H4, etc." },
-      { id: "image-alt",       pass: !!image,                                                                       message: "Add an image with your Focus Keyword as alt text." },
+      { id: "kw-in-headings",  pass: !!kw && highlights.some((h) => h.toLowerCase().includes(kw)),                  message: "Use Focus Keyword in subheadings like H2, H3, H4, etc." },
+      { id: "image-alt",       pass: !!image,                                                                        message: "Add an image with your Focus Keyword as alt text." },
       { id: "keyword-density", pass: !!kw && density >= 0.5 && density <= 2.5,
         message: `Keyword Density is ${density.toFixed(1)}%. Aim for around 1% Keyword Density.` },
       { id: "url-length",      pass: permalink.length > 0 && permalink.length <= 75,
         message: permalink.length <= 75
           ? `URL is ${permalink.length} characters long. Kudos!`
           : `URL is ${permalink.length} characters long. Consider shortening it.` },
-      { id: "external-links",  pass: /https?:\/\/[^s]/.test(description),                                          message: "Link out to external resources." },
-      { id: "dofollow-links",  pass: /https?:\/\/[^s]/.test(description),                                          message: "Add DoFollow links pointing to external resources." },
-      { id: "internal-links",  pass: /\/(trip|blog|explore|departures|help)\//.test(description),                  message: "Add internal links in your content." },
-      { id: "kw-set",          pass: !!kw,                                                                          message: "Set a Focus Keyword for this content." },
+      // Link checks use the raw HTML so that <a href="..."> tags are detected
+      { id: "external-links",  pass: /https?:\/\/[^"'\s<>]/.test(rawHtml),                                          message: "Link out to external resources." },
+      { id: "dofollow-links",  pass: /href="https?:\/\/[^"]+"/i.test(rawHtml),                                      message: "Add DoFollow links pointing to external resources." },
+      { id: "internal-links",  pass: /href="\/(trip|blog|explore|departures|help)\//i.test(rawHtml),                message: "Add internal links in your content." },
+      { id: "kw-set",          pass: !!kw,                                                                           message: "Set a Focus Keyword for this content." },
     ]
 
     const titleReadability: Check[] = [
-      { id: "kw-at-title-start", pass: !!kw && (tl.startsWith(kw) || tl.indexOf(kw) < Math.ceil(tl.length / 2)), message: "Use the Focus Keyword near the beginning of SEO title." },
-      { id: "title-sentiment",   pass: hasWordFrom(seoTitle, SENTIMENT_WORDS),                                     message: "Your title doesn't contain a positive or a negative sentiment word." },
-      { id: "title-power-word",  pass: hasWordFrom(seoTitle, POWER_WORDS),                                        message: "Your title doesn't contain a power word. Add at least one." },
-      { id: "title-number",      pass: /\d/.test(seoTitle),                                                        message: "Your SEO title doesn't contain a number." },
+      { id: "kw-at-title-start", pass: !!kw && (tl.startsWith(kw) || tl.indexOf(kw) < Math.ceil(tl.length / 2)),  message: "Use the Focus Keyword near the beginning of SEO title." },
+      { id: "title-sentiment",   pass: hasWordFrom(seoTitle, SENTIMENT_WORDS),                                      message: "Your title doesn't contain a positive or a negative sentiment word." },
+      { id: "title-power-word",  pass: hasWordFrom(seoTitle, POWER_WORDS),                                          message: "Your title doesn't contain a power word. Add at least one." },
+      { id: "title-number",      pass: /\d/.test(seoTitle),                                                         message: "Your SEO title doesn't contain a number." },
     ]
 
     const contentReadability: Check[] = [
-      { id: "toc",             pass: highlights.length >= 3,                                                        message: "You don't seem to be using a Table of Contents plugin." },
-      { id: "short-paragraphs",pass: !description.split(/\n\n+/).some((p) => wordCount(p) > 100),
+      { id: "toc",              pass: highlights.length >= 3,                                                        message: "You don't seem to be using a Table of Contents plugin." },
+      { id: "short-paragraphs", pass: !getParagraphs(rawHtml).some((p) => wordCount(p) > 100),
         message: "At least one paragraph is long. Consider using short paragraphs." },
-      { id: "rich-media",      pass: !!image,                                                                       message: "You are not using rich media like images or videos." },
+      { id: "rich-media",       pass: !!image,                                                                       message: "You are not using rich media like images or videos." },
     ]
 
     return [
@@ -200,7 +227,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
       { id: "title",      label: "Title Readability",   checks: titleReadability },
       { id: "content",    label: "Content Readability", checks: contentReadability },
     ]
-  }, [kw, seoTitle, metaDesc, description, permalink, image, highlights, words, density])
+  }, [kw, seoTitle, metaDesc, plainText, rawHtml, permalink, image, highlights, words, density])
 
   // ── Score ─────────────────────────────────────────────────────────────────
   const allChecks    = sections.flatMap((s) => s.checks)
@@ -277,7 +304,11 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
               {kwCount} occurrence{kwCount !== 1 ? "s" : ""} in {words} words
             </span>
             <span className="text-muted-foreground/40">·</span>
-            <span className={cn("font-semibold", density >= 0.5 && density <= 2.5 ? "text-emerald-500" : density === 0 ? "text-red-400" : "text-amber-500")}>
+            <span className={cn("font-semibold",
+              density === 0 ? "text-red-400" :
+              density >= 0.5 && density <= 2.5 ? "text-emerald-500" :
+              density < 0.5 ? "text-amber-500" : "text-amber-500"
+            )}>
               {density === 0 ? "Not found" : density >= 0.5 && density <= 2.5 ? "Good density" : density < 0.5 ? "Too low" : "Too high"}
             </span>
           </div>
@@ -392,13 +423,9 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
                   <div className="space-y-3.5">
                     {section.checks.map((check) => (
                       <div key={check.id} className="flex items-start gap-3">
-
-                        {/* Pass / fail icon */}
                         {check.pass
                           ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
                           : <XCircle      className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />}
-
-                        {/* Message */}
                         <span className={cn(
                           "flex-1 text-[13px] leading-snug",
                           check.pass
@@ -407,8 +434,6 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
                         )}>
                           {check.message}
                         </span>
-
-                        {/* Help tooltip */}
                         <div className="relative shrink-0">
                           <button
                             onClick={() => setVisibleTip((t) => t === check.id ? null : check.id)}

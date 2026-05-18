@@ -6,6 +6,7 @@ import type { AdminTrip } from "@/lib/admin-store"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { SEOOptimizer } from "@/components/admin/seo-optimizer"
+import { RichTextEditor } from "@/components/admin/rich-text-editor"
 
 const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
 const COMMON_TAGS = ["popular", "outdoor", "indoor", "family", "sport", "culture", "food", "night", "free", "premium", "adventure", "museum", "music", "car", "popular"]
@@ -188,7 +189,11 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
             </div>
             <div>
               <label className={labelClass}>Description</label>
-              <textarea rows={4} className={inputClass} placeholder="Trip description" value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} />
+              <RichTextEditor
+                value={form.description ?? ""}
+                onChange={(html) => set("description", html)}
+                placeholder="Write your trip description here…"
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
