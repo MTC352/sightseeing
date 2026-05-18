@@ -39,7 +39,8 @@ function SkeletonCard() {
  *   5–9               → grey "Limited availability"
  *   1–4               → red "Only N left"
  */
-function UrgencyBadge({ spaces }: { spaces: number | "UNLIMITED" }) {
+function UrgencyBadge({ spaces }: { spaces: number | "UNLIMITED" | undefined }) {
+  if (spaces === undefined) return null
   if (spaces === "UNLIMITED" || (typeof spaces === "number" && spaces >= 10)) return null
   if (typeof spaces === "number" && spaces >= 5) {
     return (
@@ -81,8 +82,8 @@ export function DeparturesSoonSection() {
     try {
       const res = await fetch("/api/departing-soon", { cache: "no-store" })
       const data = await res.json()
-      // Administratively unavailable → hide widget
-      if (data.tourcmsConfigured === false) {
+      // Administratively unavailable → hide widget (master toggle OFF or no TourCMS creds)
+      if (data.widgetEnabled === false || data.tourcmsConfigured === false) {
         setHidden(true)
         setDepartures([])
         return

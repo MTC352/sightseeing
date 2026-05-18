@@ -28,9 +28,10 @@ export interface DiscoverySlot {
   tripCity: string
   date: string                 // YYYY-MM-DD (operator local date)
   time: string                 // HH:MM     (display only)
-  startTimeUtcSeconds: number  // sort/match key
+  startTimeUtcSeconds: number  // sort/match key (synthesized from date+time, Lux TZ)
   priceDisplay: string
-  componentKey: string
+  /** Initial spaces seen during discovery (datesndeals) — overlaid by availability cache when present. */
+  initialSpacesRemaining: number | "UNLIMITED"
 }
 
 export interface AvailabilityRecord {
@@ -96,13 +97,56 @@ export async function getAvailabilityTtlSeconds(): Promise<number> {
 export async function getAutoUpdateIntervalSeconds(): Promise<number> {
   return getNumericSetting("departing_soon_auto_update_interval_seconds", 30, 15, 300)
 }
-export async function getAutoUpdateEnabled(): Promise<boolean> {
+export async function getSlotCount(): Promise<number> {
+  return getNumericSetting("departing_soon_slot_count", 5, 3, 10)
+}
+async function getBoolSetting(key: string, fallback: boolean): Promise<boolean> {
   try {
     const s = await dbGetSettings()
     const k = (s?.apiKeys as Record<string, string> | undefined) ?? {}
-    return k.departing_soon_auto_update === "true"
+    const v = k[key]
+    if (v === undefined || v === null || v === "") return fallback
+    return v === "true"
   } catch {
-    return false
+    return fallback
+  }
+}
+export async function getAutoUpdateEnabled(): Promise<boolean> {
+  return getBoolSetting("departing_soon_auto_update", false)
+}
+/** Master visibility toggle — when false, widget is hidden and BOTH crons skip. Default ON. */
+export async function getWidgetEnabled(): Promise<boolean> {
+  return getBoolSetting("departing_soon_widget_enabled", true)
+}
+/** Show "Limited availability" / "Only N left" pills AND run the availability cron. Default ON. */
+export async function getShowAvailability(): Promise<boolean> {
+  return getBoolSetting("departing_soon_show_availability", true)
+}
+
+/** Compute UTC seconds from a Luxembourg local date+time string (datesndeals doesn't return UTC). */
+function lxToUtcSeconds(date: string, time: string): number {
+  // Luxembourg is CET (UTC+1) Oct-Mar, CEST (UTC+2) Mar-Oct. DST rules: last Sun Mar 01:00 UTC → last Sun Oct 01:00 UTC.
+  // We approximate using the Intl API to avoid pulling a tz library.
+  const [y, m, d] = date.split("-").map(Number)
+  const [hh, mm] = (time || "00:00").split(":").map(Number)
+  // Build a UTC date as if the local wall-clock time were UTC, then subtract the Luxembourg offset.
+  const asUtc = Date.UTC(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0)
+  // Use Intl to find Luxembourg's offset at that instant.
+  try {
+    const dtf = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Luxembourg",
+      hour12: false,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    })
+    const parts = dtf.formatToParts(new Date(asUtc))
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0)
+    const luxAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"))
+    const offsetMs = luxAsUtc - asUtc
+    return Math.floor((asUtc - offsetMs) / 1000)
+  } catch {
+    // Fallback: assume CET (UTC+1)
+    return Math.floor((asUtc - 3_600_000) / 1000)
   }
 }
 
@@ -125,6 +169,10 @@ export async function refreshAvailability(): Promise<void> {
   // exit must clear the lock so the next caller can try again.
   availabilityRefreshLock = (async () => {
     try {
+      // Respect master + show-availability toggles
+      if (!(await getWidgetEnabled())) return
+      if (!(await getShowAvailability())) return
+
       const ttl = await getAvailabilityTtlSeconds()
       if (availabilityCache && (Date.now() - availabilityCache.refreshedAt) / 1000 < ttl) return
       if (!discoveryCache || discoveryCache.slots.length === 0) return
@@ -152,9 +200,11 @@ export async function refreshAvailability(): Promise<void> {
           return
         }
         const components = forceArray(r.value.components)
-        const match = components.find(
-          (c) => Number(c.start_time_utcseconds ?? 0) === slot.startTimeUtcSeconds,
-        )
+        // Match by start_time (HH:MM) since datesndeals didn't give us a component_key/utcseconds.
+        // If only one component for that date, just take it.
+        const match =
+          components.find((c) => (c.start_time ?? "").slice(0, 5) === slot.time.slice(0, 5))
+          ?? (components.length === 1 ? components[0] : undefined)
         if (!match) {
           newAvailability[slot.tripId] = { spacesRemaining: 0, stillBookable: false }
           return
@@ -210,6 +260,12 @@ export interface RefreshDiscoveryResult {
 
 export async function refreshDiscovery(force: boolean): Promise<RefreshDiscoveryResult | { ok: false; error: string }> {
   const start = Date.now()
+
+  // Master toggle — if widget is administratively disabled, skip ALL upstream work.
+  if (!(await getWidgetEnabled())) {
+    return { ok: false, error: "WIDGET_DISABLED" }
+  }
+
   const interval = await getDiscoveryIntervalSeconds()
 
   if (!force && discoveryCache && (Date.now() - discoveryCache.refreshedAt) / 1000 < interval) {
@@ -242,6 +298,8 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     }
   }
 
+  const slotCount = await getSlotCount()
+
   // Lazy-import to avoid circular deps with queries.ts
   const { dbListTrips } = await import("@/lib/db/queries")
   const allTrips = (await dbListTrips({ publicOnly: true })) as Array<{
@@ -264,6 +322,10 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   let failedTripCount = 0
   const collected: DiscoverySlot[] = []
 
+  // ── OPTIMIZED: datesndeals only (no checkavail). 1 call per trip.
+  // datesndeals returns start_date, start_time, price, spaces_remaining for each
+  // candidate date — enough to build the card. component_key isn't needed since
+  // the card just deep-links to the booking iframe.
   for (const trip of synced) {
     try {
       const dnd = await tourcms.showDatesAndDeals(trip.palisis_id!, {
@@ -273,71 +335,65 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
       })
       if (!dnd.ok || dnd.dates.length === 0) continue
 
-      // Candidate dates: OPEN and not 0-spaces (UNLIMITED counts as bookable)
-      const candidates = dnd.dates
-        .filter((d) => {
-          const status = (d.status ?? "").toUpperCase()
-          const bookable = !status || status === "OPEN" || status === "AVAILABLE"
-          if (!bookable) return false
-          if (d.spaces_remaining === "0") return false
-          return true
-        })
-        .slice(0, 3)
+      // First bookable, future date that isn't sold out
+      const earliest = dnd.dates.find((d) => {
+        const status = (d.status ?? "").toUpperCase()
+        const bookable = !status || status === "OPEN" || status === "AVAILABLE"
+        if (!bookable) return false
+        if (d.spaces_remaining === "0") return false
+        const ts = lxToUtcSeconds(d.start_date, d.start_time ?? "00:00")
+        return ts > nowUtcSeconds
+      })
+      if (!earliest) continue
 
-      let chosen: DiscoverySlot | null = null
-      for (const cand of candidates) {
-        const ca = await tourcms.checkAvailability(trip.palisis_id!, { date: cand.start_date, r1: 1 })
-        if (!ca.ok) continue
-        const comps = forceArray(ca.components)
-          .filter((c) => Number(c.start_time_utcseconds ?? 0) > nowUtcSeconds)
-          .sort((a, b) => Number(a.start_time_utcseconds ?? 0) - Number(b.start_time_utcseconds ?? 0))
-        const earliest = comps[0]
-        if (!earliest) continue
+      const rawSpaces = earliest.spaces_remaining
+      const initialSpacesRemaining: number | "UNLIMITED" =
+        rawSpaces === "UNLIMITED" ? "UNLIMITED"
+        : rawSpaces == null || rawSpaces === "" ? "UNLIMITED"
+        : Math.max(0, Number(rawSpaces))
 
-        chosen = {
-          tripId: trip.id,
-          palisisId: trip.palisis_id!,
-          tripTitle: trip.title,
-          tripImage: trip.image ?? "",
-          tripPermalink: trip.permalink ?? "",
-          tripCategory: trip.category ?? "Tours",
-          tripCity: trip.city ?? "Luxembourg",
-          date: earliest.start_date ?? cand.start_date,
-          time: earliest.start_time ?? cand.start_time ?? "00:00",
-          startTimeUtcSeconds: Number(earliest.start_time_utcseconds ?? 0),
-          priceDisplay: earliest.total_price_display
-            ?? cand.price_1_display
-            ?? (cand.price_1 ? `${cand.price_1} €` : ""),
-          componentKey: earliest.component_key ?? "",
-        }
-        break
-      }
-
-      if (chosen) collected.push(chosen)
+      collected.push({
+        tripId: trip.id,
+        palisisId: trip.palisis_id!,
+        tripTitle: trip.title,
+        tripImage: trip.image ?? "",
+        tripPermalink: trip.permalink ?? "",
+        tripCategory: trip.category ?? "Tours",
+        tripCity: trip.city ?? "Luxembourg",
+        date: earliest.start_date,
+        time: (earliest.start_time ?? "00:00").slice(0, 5),
+        startTimeUtcSeconds: lxToUtcSeconds(earliest.start_date, earliest.start_time ?? "00:00"),
+        priceDisplay: earliest.price_1_display ?? (earliest.price_1 ? `${earliest.price_1} €` : ""),
+        initialSpacesRemaining,
+      })
     } catch (err) {
       failedTripCount++
       console.warn("[departing-soon] discovery: trip failed", trip.id, err)
     }
   }
 
-  const top5 = collected
+  const top = collected
     .sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
-    .slice(0, 5)
+    .slice(0, slotCount)
 
   discoveryCache = {
-    slots: top5,
+    slots: top,
     refreshedAt: Date.now(),
     failedTripCount,
     tripsChecked: synced.length,
   }
 
-  // Reset availability cache so the next read forces a fresh availability pass
+  // Reset availability cache; refresh it if show-availability is on.
   availabilityCache = null
-  await refreshAvailability().catch((e) => console.warn("[departing-soon] post-discovery availability refresh failed:", e))
+  if (await getShowAvailability()) {
+    await refreshAvailability().catch((e) =>
+      console.warn("[departing-soon] post-discovery availability refresh failed:", e),
+    )
+  }
 
   return {
     ok: true,
-    slotsFound: top5.length,
+    slotsFound: top.length,
     failedTripCount,
     tripsChecked: synced.length,
     durationMs: Date.now() - start,

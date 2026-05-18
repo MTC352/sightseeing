@@ -5,8 +5,7 @@
  * Never calls TourCMS directly — only `refreshAvailability()` (TTL-gated, deduped).
  *
  * Returns whatever is in `discoveryCache`, with each slot's spacesRemaining
- * overlaid from `availabilityCache`. Filters out departed + sold-out slots
- * at READ time (does NOT backfill from outside the cached top-5).
+ * overlaid from `availabilityCache` (when "show availability" toggle is ON).
  */
 
 import { NextResponse } from "next/server"
@@ -18,6 +17,8 @@ import {
   triggerDiscoveryBootstrap,
   getAutoUpdateEnabled,
   getAutoUpdateIntervalSeconds,
+  getWidgetEnabled,
+  getShowAvailability,
 } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
@@ -35,13 +36,24 @@ export interface DepartingSoonItem {
   time: string
   startTimeUtcSeconds: number
   priceDisplay: string
-  spacesRemaining: number | "UNLIMITED"
-  componentKey: string
+  /** Omitted when the admin "show availability" toggle is OFF. */
+  spacesRemaining?: number | "UNLIMITED"
 }
 
 export async function GET() {
   try {
-    // 1. Credentials check — feature is administratively unavailable without TourCMS
+    // 0. Master toggle — widget administratively disabled
+    if (!(await getWidgetEnabled())) {
+      return NextResponse.json({
+        ok: false,
+        error: "WIDGET_DISABLED",
+        departures: [],
+        widgetEnabled: false,
+        tourcmsConfigured: true,
+      })
+    }
+
+    // 1. Credentials check
     const cfg = await getTourCMSConfig()
     if (!cfg) {
       return NextResponse.json(
@@ -49,21 +61,22 @@ export async function GET() {
           ok: false,
           error: "TOURCMS_NOT_CONFIGURED",
           departures: [],
+          widgetEnabled: true,
           tourcmsConfigured: false,
         },
         { status: 500 },
       )
     }
 
-    // 2. Discovery cache must exist before we can serve anything
+    // 2. Discovery cache must exist
     if (!discoveryCache) {
-      // Fire-and-forget bootstrap so subsequent hits succeed without manual cron
       triggerDiscoveryBootstrap()
       return NextResponse.json(
         {
           ok: false,
           error: "DISCOVERY_NOT_INITIALIZED",
           departures: [],
+          widgetEnabled: true,
           tourcmsConfigured: true,
           hint: "Discovery refresh has been triggered in the background. Reload in a few seconds.",
         },
@@ -71,19 +84,29 @@ export async function GET() {
       )
     }
 
-    // 3. Refresh availability if TTL expired (dedupes concurrent callers)
-    await refreshAvailability()
+    const showAvailability = await getShowAvailability()
 
-    // 4. Build the response — read-time filters: drop departed + sold out
+    // 3. Refresh availability only when the toggle says so (TTL-gated, deduped)
+    if (showAvailability) {
+      await refreshAvailability()
+    }
+
+    // 4. Build response — drop departed slots; drop sold-out only when we are tracking availability
     const nowUtc = Math.floor(Date.now() / 1000)
     const departures: DepartingSoonItem[] = []
     for (const slot of discoveryCache.slots) {
-      if (slot.startTimeUtcSeconds <= nowUtc) continue // already departed
+      if (slot.startTimeUtcSeconds <= nowUtc) continue
 
-      const avail =
-        availabilityCache?.byTripId[slot.tripId] ?? { spacesRemaining: 0, stillBookable: false }
-      if (!avail.stillBookable) continue
-      if (avail.spacesRemaining !== "UNLIMITED" && avail.spacesRemaining <= 0) continue
+      let spacesRemaining: number | "UNLIMITED" | undefined
+      if (showAvailability) {
+        const avail = availabilityCache?.byTripId[slot.tripId]
+        // No live record yet — fall back to the snapshot from discovery so the
+        // card still appears (avoids a blank widget while availability warms up)
+        const effective = avail ?? { spacesRemaining: slot.initialSpacesRemaining, stillBookable: true }
+        if (!effective.stillBookable) continue
+        if (effective.spacesRemaining !== "UNLIMITED" && effective.spacesRemaining <= 0) continue
+        spacesRemaining = effective.spacesRemaining
+      }
 
       departures.push({
         tripId: slot.tripId,
@@ -97,8 +120,7 @@ export async function GET() {
         time: slot.time,
         startTimeUtcSeconds: slot.startTimeUtcSeconds,
         priceDisplay: slot.priceDisplay,
-        spacesRemaining: avail.spacesRemaining,
-        componentKey: slot.componentKey,
+        ...(spacesRemaining !== undefined ? { spacesRemaining } : {}),
       })
     }
 
@@ -108,6 +130,8 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       departures,
+      widgetEnabled: true,
+      showAvailability,
       autoUpdate,
       intervalSecs,
       tourcmsConfigured: true,

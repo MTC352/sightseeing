@@ -252,19 +252,24 @@ export default function IntegrationsPage() {
   }
 
   async function toggleDsAutoUpdate(enabled: boolean) {
+    return toggleDsBool("departing_soon_auto_update", enabled)
+  }
+
+  /** Generic boolean toggle for any departing_soon_* flag. Optimistic + revert on failure. */
+  async function toggleDsBool(key: string, enabled: boolean) {
     setDsToggling(true)
-    setKeys((k) => ({ ...k, departing_soon_auto_update: enabled ? "true" : "false" }))
+    setKeys((k) => ({ ...k, [key]: enabled ? "true" : "false" }))
     try {
       await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           section: "apiKeys",
-          data: { departing_soon_auto_update: enabled ? "true" : "false" },
+          data: { [key]: enabled ? "true" : "false" },
         }),
       })
     } catch {
-      setKeys((k) => ({ ...k, departing_soon_auto_update: enabled ? "false" : "true" }))
+      setKeys((k) => ({ ...k, [key]: enabled ? "false" : "true" }))
     } finally {
       setDsToggling(false)
     }
@@ -300,9 +305,13 @@ export default function IntegrationsPage() {
     }
   }
 
-  const dsDiscoverySec = parseInt(keys.departing_soon_discovery_interval_seconds ?? keys.departing_soon_interval ?? "300", 10) || 300
-  const dsAvailSec     = parseInt(keys.departing_soon_auto_update_interval_seconds ?? "30", 10) || 30
-  const dsAvailTtlSec  = parseInt(keys.departing_soon_availability_ttl_seconds ?? "20", 10) || 20
+  const dsDiscoverySec   = parseInt(keys.departing_soon_discovery_interval_seconds ?? keys.departing_soon_interval ?? "300", 10) || 300
+  const dsAvailSec       = parseInt(keys.departing_soon_auto_update_interval_seconds ?? "30", 10) || 30
+  const dsAvailTtlSec    = parseInt(keys.departing_soon_availability_ttl_seconds ?? "20", 10) || 20
+  const dsSlotCount      = parseInt(keys.departing_soon_slot_count ?? "5", 10) || 5
+  // Defaults: widget ON, show-availability ON, auto-update OFF
+  const dsWidgetEnabled  = (keys.departing_soon_widget_enabled ?? "true") === "true"
+  const dsShowAvail      = (keys.departing_soon_show_availability ?? "true") === "true"
 
   return (
     <div className="p-6 lg:p-10">
@@ -534,16 +543,122 @@ export default function IntegrationsPage() {
               </thead>
               <tbody className="divide-y divide-border">
 
-                {/* Auto-update toggle */}
+                {/* Master visibility toggle */}
                 <tr className="hover:bg-muted/20 transition-colors">
                   <td className="px-5 py-4 align-middle">
-                    <span className="text-xs font-medium text-foreground">Auto-Update</span>
+                    <span className="text-xs font-medium text-foreground">Show Widget on Homepage</span>
                   </td>
                   <td className="px-5 py-4 align-middle">
                     <p className="text-xs text-muted-foreground">
-                      When ON, the auto-update cron refreshes availability for the cached top-5
-                      slots every <strong>{dsAvailSec}s</strong>. When OFF, availability is only
-                      refreshed when the homepage is loaded (read-time, TTL-gated).
+                      Master on/off switch. When OFF, the homepage widget hides completely and
+                      <strong> both crons skip all Palisis calls</strong> — zero API usage from this feature.
+                    </p>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={dsWidgetEnabled}
+                        disabled={dsToggling}
+                        onClick={() => toggleDsBool("departing_soon_widget_enabled", !dsWidgetEnabled)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${dsWidgetEnabled ? "bg-emerald-500" : "bg-muted"}`}
+                      >
+                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${dsWidgetEnabled ? "translate-x-5" : "translate-x-0.5"}`} />
+                      </button>
+                      <span className={`text-xs font-semibold ${dsWidgetEnabled ? "text-emerald-600" : "text-muted-foreground"}`}>
+                        {dsWidgetEnabled ? "Visible" : "Hidden"}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Show timeslot availability toggle */}
+                <tr className="hover:bg-muted/20 transition-colors">
+                  <td className="px-5 py-4 align-middle">
+                    <span className="text-xs font-medium text-foreground">Show Timeslot Availability</span>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <p className="text-xs text-muted-foreground">
+                      When ON, cards show real-time spaces-remaining (&ldquo;Limited availability&rdquo; / &ldquo;Only N left&rdquo;).
+                      When OFF, those pills are hidden AND the availability cron stops — saves ~14,400 Palisis calls/day.
+                    </p>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={dsShowAvail}
+                        disabled={dsToggling}
+                        onClick={() => toggleDsBool("departing_soon_show_availability", !dsShowAvail)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${dsShowAvail ? "bg-emerald-500" : "bg-muted"}`}
+                      >
+                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${dsShowAvail ? "translate-x-5" : "translate-x-0.5"}`} />
+                      </button>
+                      <span className={`text-xs font-semibold ${dsShowAvail ? "text-emerald-600" : "text-muted-foreground"}`}>
+                        {dsShowAvail ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Number of slots */}
+                <tr className="hover:bg-muted/20 transition-colors">
+                  <td className="px-5 py-4 align-middle">
+                    <span className="text-xs font-medium text-foreground">Number of Slots to Show</span>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <p className="text-xs text-muted-foreground">
+                      How many upcoming departures appear in the widget (3&ndash;10). Discovery still scans
+                      all published+synced trips, then keeps the earliest N.
+                    </p>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex items-center">
+                        <input
+                          type="number"
+                          min={3} max={10} step={1}
+                          value={dsSlotCount}
+                          onChange={(e) => {
+                            const n = Math.max(3, Math.min(10, parseInt(e.target.value, 10) || 5))
+                            setKeys((k) => ({ ...k, departing_soon_slot_count: String(n) }))
+                          }}
+                          className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-12"
+                        />
+                        <span className="absolute right-3 text-xs text-muted-foreground/50 pointer-events-none">slots</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => saveDsKey("departing_soon_slot_count", String(dsSlotCount), "discovery")}
+                        disabled={dsSaving === "discovery"}
+                        className={`flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
+                          dsSavedKey === "departing_soon_slot_count"
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                            : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        }`}
+                      >
+                        {dsSavedKey === "departing_soon_slot_count"
+                          ? <><Check className="h-3.5 w-3.5" /> Saved</>
+                          : <><Save className="h-3.5 w-3.5" /> Save</>}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* Auto-update toggle */}
+                <tr className="hover:bg-muted/20 transition-colors">
+                  <td className="px-5 py-4 align-middle">
+                    <span className="text-xs font-medium text-foreground">Auto-Update Availability</span>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <p className="text-xs text-muted-foreground">
+                      When ON, a background cron refreshes spaces-remaining every <strong>{dsAvailSec}s</strong>.
+                      When OFF, availability still refreshes when the homepage is loaded (TTL-gated).
+                      <span className="block mt-1 text-muted-foreground/70">
+                        Requires &ldquo;Show Timeslot Availability&rdquo; to be ON.
+                      </span>
                     </p>
                   </td>
                   <td className="px-5 py-4 align-middle">
@@ -552,9 +667,9 @@ export default function IntegrationsPage() {
                         type="button"
                         role="switch"
                         aria-checked={keys.departing_soon_auto_update === "true"}
-                        disabled={dsToggling}
+                        disabled={dsToggling || !dsShowAvail}
                         onClick={() => toggleDsAutoUpdate(keys.departing_soon_auto_update !== "true")}
-                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-40 ${
                           keys.departing_soon_auto_update === "true" ? "bg-emerald-500" : "bg-muted"
                         }`}
                       >

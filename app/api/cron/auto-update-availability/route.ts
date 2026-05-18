@@ -14,6 +14,8 @@ import {
   availabilityCache,
   getAutoUpdateEnabled,
   getAutoUpdateIntervalSeconds,
+  getWidgetEnabled,
+  getShowAvailability,
   isAuthorizedCron,
 } from "@/lib/departing-soon-cache"
 
@@ -22,6 +24,14 @@ export const dynamic = "force-dynamic"
 async function handle(req: NextRequest) {
   if (!isAuthorizedCron(req)) {
     return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 })
+  }
+  // Master toggle gates the cron entirely
+  if (!(await getWidgetEnabled())) {
+    return NextResponse.json({ ok: true, skipped: "WIDGET_DISABLED" })
+  }
+  // Show-availability toggle: no point fetching if we won't display it
+  if (!(await getShowAvailability())) {
+    return NextResponse.json({ ok: true, skipped: "SHOW_AVAILABILITY_DISABLED" })
   }
   const enabled = await getAutoUpdateEnabled()
   if (!enabled) {
