@@ -23,13 +23,19 @@ import type { DealItem } from "@/app/api/last-minute-deals/route"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function urgencyLabel(hours: number): string {
-  if (hours < 1) return "< 1 hr left"
-  if (hours < 2) return "~1 hr left"
-  if (hours <= 6) return `${Math.floor(hours)}h left`
-  if (hours <= 24) return "Today"
-  if (hours <= 48) return "Tomorrow"
-  return `${Math.floor(hours / 24)}d away`
+/** Format the departure slot as a human-readable badge label.
+ *  Today → "16:00"  |  Tomorrow → "Tomorrow · 10:00"  |  Other → "May 20 · 10:00" */
+function formatSlotBadge(date: string, time: string): string {
+  const todayStr    = new Date().toISOString().slice(0, 10)
+  const tomorrowStr = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+  if (date === todayStr)    return time
+  if (date === tomorrowStr) return `Tomorrow · ${time}`
+  try {
+    const d = new Date(`${date}T00:00:00`)
+    return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${time}`
+  } catch {
+    return `${date} · ${time}`
+  }
 }
 
 /** "€7" | "14.00 EUR" → 7 | 14 */
@@ -68,7 +74,7 @@ function DynamicDealCard({ item }: { item: DealItem }) {
   const href = item.permalink
     ? `/trip/${item.permalink}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
     : `/trip/${item.tripId}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
-  const urLabel     = urgencyLabel(item.hoursUntilDeparture)
+  const slotLabel   = formatSlotBadge(item.date, item.time)
   const isVeryUrgent = item.hoursUntilDeparture <= 6
   const urgencyBg   = isVeryUrgent ? "bg-destructive text-white" : "bg-amber-500 text-white"
 
@@ -82,10 +88,10 @@ function DynamicDealCard({ item }: { item: DealItem }) {
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           loading="lazy"
         />
-        {/* Urgency badge — top left (replaces trip.badge) */}
+        {/* Departure slot badge — top left */}
         <span className={`absolute left-3 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold shadow-sm ${urgencyBg}`}>
           <Clock className="h-3 w-3" />
-          {urLabel}
+          {slotLabel}
         </span>
         {/* Seats remaining — top right (replaces discount %) */}
         <span className="absolute right-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-destructive-foreground">
@@ -151,7 +157,7 @@ function PreviewDealCard({ item }: { item: DealItem }) {
   const discountPct   = hasDiscount
     ? Math.round((1 - item.price / item.originalPrice!) * 100)
     : 0
-  const departureBadge = urgencyLabel(item.hoursUntilDeparture)
+  const departureBadge = formatSlotBadge(item.date, item.time)
 
   return (
     /* Exact same wrapper classes as TripCard default */
