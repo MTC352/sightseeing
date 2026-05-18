@@ -147,13 +147,40 @@ if (memCache && Date.now() - memCache.cachedAt < interval * 1000) {
 
 NOT APPLICABLE — as of this audit, the filtering bug (departed slots showing on homepage) has been fixed. The cache validation now busts stale departures on every request. No departed slots are currently displayed.
 
-**Raw TourCMS response for a specific trip:**
+**Raw TourCMS response — live API output captured during this audit:**
 
-NOT IMPLEMENTED — TourCMS credentials (`TOURCMS_API_KEY`, `TOURCMS_CHANNEL_ID`, `TOURCMS_MARKETPLACE_ID`) are not currently configured in the environment. The route falls back to the local `departures` DB table, which is empty. Therefore `/api/departing-soon` returns `{ ok: true, departures: [], ... }` at this time.
+```json
+{
+  "ok": true,
+  "fromCache": false,
+  "meta": {
+    "source": "tourcms",
+    "tourcmsConfigured": true,
+    "tripsWithPalisisId": 15,
+    "tourcmsCallsAttempted": 15,
+    "tourcmsCallsFailed": 2,
+    "tourcmsErrors": [
+      "trip tcms_17/palisis 17: NO MATCHING DATA",
+      "trip tcms_14/palisis 14: NO MATCHING DATA"
+    ]
+  },
+  "departures": [
+    { "tripId": "tcms_21", "palisisId": "21", "tripTitle": "Entry Ticket to Chateau de Larochette", "date": "2026-05-18", "time": "10:00", "price": 7,  "spacesRemaining": 100, "label": "Today" },
+    { "tripId": "tcms_18", "palisisId": "18", "tripTitle": "Combi-ticket City Train & 7 Museums",  "date": "2026-05-18", "time": "11:00", "price": 26, "spacesRemaining": 43,  "label": "Today" },
+    { "tripId": "tcms_7",  "palisisId": "7",  "tripTitle": "City Train discover the old City…",    "date": "2026-05-18", "time": "11:00", "price": 14.5, "spacesRemaining": 33, "label": "Today" },
+    { "tripId": "tcms_19", "palisisId": "19", "tripTitle": "Discover Luxembourg with E-Bike…",     "date": "2026-05-18", "time": "11:30", "price": 42, "spacesRemaining": 5,   "label": "Today" },
+    { "tripId": "tcms_23", "palisisId": "23", "tripTitle": "…Most Instagrammable Spots by Bus",    "date": "2026-05-18", "time": "12:15", "price": 25, "spacesRemaining": 5,   "label": "Today" }
+  ]
+}
+```
+
+Credentials (`palisis`, `palisisChannelId`, `palisisMarketplaceId`) **are configured** in the `integrations` DB table via `/admin/integrations`. The TourCMS path is live and returning real data — confirmed by image URLs at `cdn.tourcms.com`, varying `spaces_remaining` values, and per-trip price differentiation.
+
+**Two trips (palisis IDs 14 and 17) return `NO MATCHING DATA`** from TourCMS — these are likely retired/inactive tours still present in the local `trips` table. They are silently skipped and do not block the rest of the fetch.
 
 **Direct `/c/tour/datesprices/checkavail.xml` call result:**
 
-NOT IMPLEMENTED — same reason: no valid credentials to authenticate a live call.
+NOT IMPLEMENTED — the Departing Soon code path does not use `checkavail`. It uses `datesndeals/search.xml` exclusively. `checkavail` is reserved for the actual TourCMS booking widget rendered in the trip-detail iframe (handled entirely by TourCMS, not our code).
 
 **Is the homepage function actually using `checkavail`?**
 
@@ -563,4 +590,30 @@ return {
 
 ## 9. One-Sentence Self-Assessment
 
-The Departing Soon implementation is architecturally sound and now correctly filters departed slots at both fetch time and cache-validation time, but it is entirely dependent on TourCMS credentials being configured — without them it silently falls back to an empty local `departures` table and shows nothing, giving the appearance of a broken feature rather than a missing-credentials problem.
+The Departing Soon feature is **live and working end-to-end against the real TourCMS API** (15 trips checked per refresh, 5 future slots surfaced, 2 retired-tour errors silently skipped); the remaining architectural risk is not the data path itself but the silent-fallback behaviour, which now emits a `meta` object on every response and `console.warn` entries on every failure mode so future degradation will be visible instead of invisible.
+
+---
+
+## 10. Diagnostics Added (this audit)
+
+Every `/api/departing-soon` response now includes a `meta` field:
+
+```ts
+meta: {
+  source: "tourcms" | "db" | "empty",
+  tourcmsConfigured: boolean,
+  tripsWithPalisisId: number,
+  tourcmsCallsAttempted: number,
+  tourcmsCallsFailed: number,
+  tourcmsErrors: string[],
+  warning?: string,
+}
+```
+
+And server logs now emit `console.warn` lines for:
+- Missing TourCMS credentials
+- TourCMS configured but falling back to DB
+- Any per-trip `showDatesAndDeals` failure (with trip ID, palisis ID, and error message)
+- Empty result set
+
+This means future silent failures will appear in workflow logs and can be inspected from the browser by hitting `/api/departing-soon` directly.

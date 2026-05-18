@@ -19,9 +19,20 @@ export interface DepartingSoonItem {
   label: string
 }
 
+interface FetchMeta {
+  source: "tourcms" | "db" | "empty"
+  tourcmsConfigured: boolean
+  tripsWithPalisisId: number
+  tourcmsCallsAttempted: number
+  tourcmsCallsFailed: number
+  tourcmsErrors: string[]
+  warning?: string
+}
+
 interface MemCache {
   departures: DepartingSoonItem[]
   cachedAt: number
+  meta: FetchMeta
 }
 
 let memCache: MemCache | null = null
@@ -72,14 +83,27 @@ export async function GET() {
           interval,
           cachedAt: new Date(memCache.cachedAt).toISOString(),
           fromCache: true,
+          meta: memCache.meta,
         })
       }
       // One or more cached items have departed — invalidate and re-fetch below
       memCache = null
     }
 
-    const departures = await fetchFreshDepartures()
-    memCache = { departures, cachedAt: Date.now() }
+    const { departures, meta } = await fetchFreshDepartures()
+    memCache = { departures, cachedAt: Date.now(), meta }
+
+    // Surface failure modes loudly so silent fallbacks don't go unnoticed
+    if (meta.source === "empty") {
+      console.warn("[departing-soon] Returning empty list — meta:", meta)
+    } else if (meta.source === "db" && meta.tourcmsConfigured) {
+      console.warn("[departing-soon] TourCMS configured but fell back to DB — meta:", meta)
+    } else if (meta.tourcmsCallsFailed > 0) {
+      console.warn(
+        `[departing-soon] ${meta.tourcmsCallsFailed}/${meta.tourcmsCallsAttempted} TourCMS calls failed:`,
+        meta.tourcmsErrors.slice(0, 5),
+      )
+    }
 
     return NextResponse.json({
       ok: true,
@@ -88,6 +112,7 @@ export async function GET() {
       interval,
       cachedAt: new Date(memCache.cachedAt).toISOString(),
       fromCache: false,
+      meta,
     })
   } catch (err) {
     console.error("[departing-soon] GET:", err)
@@ -95,22 +120,70 @@ export async function GET() {
   }
 }
 
-async function fetchFreshDepartures(): Promise<DepartingSoonItem[]> {
+async function fetchFreshDepartures(): Promise<{ departures: DepartingSoonItem[]; meta: FetchMeta }> {
   const tourcms = await getTourCMSClient()
+  const tourcmsConfigured = tourcms !== null
+
+  if (!tourcmsConfigured) {
+    console.warn("[departing-soon] TourCMS client not configured (missing apiKey/channelId in integrations table) — using DB fallback")
+  }
+
   if (tourcms) {
     try {
-      const items = await fetchFromTourCMS(tourcms)
-      if (items.length > 0) return items
+      const { items, meta } = await fetchFromTourCMS(tourcms)
+      if (items.length > 0) {
+        return { departures: items, meta: { ...meta, source: "tourcms", tourcmsConfigured } }
+      }
+      // TourCMS returned nothing — fall through to DB but record the meta
+      const dbItems = await fetchFromDB()
+      return {
+        departures: dbItems,
+        meta: {
+          ...meta,
+          source: dbItems.length > 0 ? "db" : "empty",
+          tourcmsConfigured,
+          warning: meta.tripsWithPalisisId === 0
+            ? "No trips in DB have a palisis_id — run a Palisis import"
+            : "TourCMS returned no open future slots for any synced trip",
+        },
+      }
     } catch (err) {
-      console.warn("[departing-soon] TourCMS failed, falling back to DB:", err)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.warn("[departing-soon] TourCMS fetch threw, falling back to DB:", errMsg)
+      const dbItems = await fetchFromDB()
+      return {
+        departures: dbItems,
+        meta: {
+          source: dbItems.length > 0 ? "db" : "empty",
+          tourcmsConfigured,
+          tripsWithPalisisId: 0,
+          tourcmsCallsAttempted: 0,
+          tourcmsCallsFailed: 0,
+          tourcmsErrors: [errMsg],
+          warning: `TourCMS fetch failed: ${errMsg}`,
+        },
+      }
     }
   }
-  return fetchFromDB()
+
+  const dbItems = await fetchFromDB()
+  return {
+    departures: dbItems,
+    meta: {
+      source: dbItems.length > 0 ? "db" : "empty",
+      tourcmsConfigured: false,
+      tripsWithPalisisId: 0,
+      tourcmsCallsAttempted: 0,
+      tourcmsCallsFailed: 0,
+      tourcmsErrors: [],
+      warning: "TourCMS credentials not configured — set palisis + palisisChannelId in /admin/integrations",
+    },
+  }
 }
 
 async function fetchFromTourCMS(
   tourcms: NonNullable<Awaited<ReturnType<typeof getTourCMSClient>>>
-): Promise<DepartingSoonItem[]> {
+): Promise<{ items: DepartingSoonItem[]; meta: FetchMeta }> {
   const allTrips = (await dbListTrips()) as Array<{
     id: string
     title: string
@@ -121,21 +194,38 @@ async function fetchFromTourCMS(
     price?: number
   }>
   const syncedTrips = allTrips.filter((t) => t.palisis_id)
-  if (syncedTrips.length === 0) return []
 
-  const today = new Date()
+  const meta: FetchMeta = {
+    source: "tourcms",
+    tourcmsConfigured: true,
+    tripsWithPalisisId: syncedTrips.length,
+    tourcmsCallsAttempted: 0,
+    tourcmsCallsFailed: 0,
+    tourcmsErrors: [],
+  }
+
+  if (syncedTrips.length === 0) return { items: [], meta }
+
   const ts = todayStr()
   const in7Days = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
 
   const items: DepartingSoonItem[] = []
 
   for (const trip of syncedTrips) {
+    meta.tourcmsCallsAttempted++
     try {
       const result = await tourcms.showDatesAndDeals(trip.palisis_id!, {
         startdate_start: ts,
         startdate_end: in7Days,
       })
-      if (!result.ok || !Array.isArray(result.dates) || result.dates.length === 0) continue
+      if (!result.ok) {
+        meta.tourcmsCallsFailed++
+        const errStr = `trip ${trip.id}/palisis ${trip.palisis_id}: ${result.error ?? "unknown"}`
+        meta.tourcmsErrors.push(errStr)
+        console.warn("[departing-soon] showDatesAndDeals failed:", errStr)
+        continue
+      }
+      if (!Array.isArray(result.dates) || result.dates.length === 0) continue
 
       // Keep only open slots that haven't departed yet
       const openSlots = (result.dates as Record<string, unknown>[]).filter((d) => {
@@ -171,14 +261,19 @@ async function fetchFromTourCMS(
         spacesRemaining,
         label: getLabel(slot.start_date as string),
       })
-    } catch {
-      /* skip this trip */
+    } catch (err) {
+      meta.tourcmsCallsFailed++
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const errStr = `trip ${trip.id}/palisis ${trip.palisis_id}: ${errMsg}`
+      meta.tourcmsErrors.push(errStr)
+      console.warn("[departing-soon] showDatesAndDeals threw:", errStr)
     }
   }
 
-  return items
+  const sorted = items
     .sort((a, b) => `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`))
     .slice(0, 5)
+  return { items: sorted, meta }
 }
 
 async function fetchFromDB(): Promise<DepartingSoonItem[]> {
