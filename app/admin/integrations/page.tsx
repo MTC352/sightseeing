@@ -582,17 +582,17 @@ export default function IntegrationsPage() {
 
             {/* Compact status strip */}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-border bg-muted/20 px-5 py-2.5 text-[11px] text-muted-foreground">
-              <span><span className="text-muted-foreground/60">Discovery:</span> <strong className="text-foreground">{fmtTs(dsStatus.lastDiscoveryAt)}</strong></span>
+              <span><span className="text-muted-foreground/60">Last updated:</span> <strong className="text-foreground">{fmtTs(dsStatus.lastDiscoveryAt)}</strong></span>
               {dsStatus.tripsChecked !== undefined && (
                 <span className="text-muted-foreground/60">{dsStatus.tripsChecked - (dsStatus.failedTripCount ?? 0)}/{dsStatus.tripsChecked} tours</span>
               )}
               {dsStatus.discoveryExpiresAt && (
-                <span><span className="text-muted-foreground/60">Window expires:</span> <strong className="text-foreground">{fmtTs(dsStatus.discoveryExpiresAt ?? null)}</strong></span>
+                <span><span className="text-muted-foreground/60">Next auto-refresh:</span> <strong className="text-foreground">{fmtTs(dsStatus.discoveryExpiresAt ?? null)}</strong></span>
               )}
               {typeof dsStatus.totalSlotsCached === "number" && (
-                <span><span className="text-muted-foreground/60">Cached:</span> <strong className="text-foreground">{dsStatus.totalSlotsCached} slots</strong></span>
+                <span><span className="text-muted-foreground/60">Stored departures:</span> <strong className="text-foreground">{dsStatus.totalSlotsCached}</strong></span>
               )}
-              <span className="ml-auto"><span className="text-muted-foreground/60">Availability:</span> <strong className="text-foreground">{fmtTs(dsStatus.lastAvailabilityAt)}</strong></span>
+              <span className="ml-auto"><span className="text-muted-foreground/60">Availability checked:</span> <strong className="text-foreground">{fmtTs(dsStatus.lastAvailabilityAt)}</strong></span>
             </div>
 
             {/* ── Settings cascade ─────────────────────────────────── */}
