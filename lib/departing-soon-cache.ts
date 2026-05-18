@@ -206,8 +206,7 @@ function lxToUtcSeconds(date: string, time: string): number {
 
 // ── computeDisplayedSlots ──────────────────────────────────────────────────
 // The top-N earliest upcoming slots, one per trip, drawn from discoveryCache.allSlots.
-// Both the read endpoint AND the availability refresh use this so they always
-// agree on which slots are "displayed".
+// Used by the Departing Soon read endpoint to determine which cards to show.
 
 export async function computeDisplayedSlots(): Promise<DiscoverySlot[]> {
   if (!discoveryCache) return []
@@ -225,6 +224,26 @@ export async function computeDisplayedSlots(): Promise<DiscoverySlot[]> {
   return [...earliestPerTrip.values()]
     .sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
     .slice(0, slotCount)
+}
+
+// ── computeAllFirstSlots ───────────────────────────────────────────────────
+// The earliest upcoming slot for EVERY trip — no count limit.
+// Used by refreshAvailability (so the availability cache covers all trips)
+// and by the Last Minute Deals API (which filters by spaces, not by top-N).
+
+export function computeAllFirstSlots(): DiscoverySlot[] {
+  if (!discoveryCache) return []
+  const nowUtc = Math.floor(Date.now() / 1000)
+
+  const earliestPerTrip = new Map<string, DiscoverySlot>()
+  for (const s of discoveryCache.allSlots) {
+    if (s.startTimeUtcSeconds <= nowUtc) continue
+    const existing = earliestPerTrip.get(s.tripId)
+    if (!existing || s.startTimeUtcSeconds < existing.startTimeUtcSeconds) {
+      earliestPerTrip.set(s.tripId, s)
+    }
+  }
+  return [...earliestPerTrip.values()].sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
 }
 
 // ── refreshAvailability ────────────────────────────────────────────────────
@@ -247,20 +266,22 @@ export async function refreshAvailability(): Promise<void> {
       const ttl = await getAvailabilityTtlSeconds()
       if (availabilityCache && (Date.now() - availabilityCache.refreshedAt) / 1000 < ttl) return
 
-      const displayed = await computeDisplayedSlots()
-      if (displayed.length === 0) return
+      // Use ALL trips' first slots (not just the N displayed by Departing Soon)
+      // so the availability cache is complete for the Last Minute Deals widget.
+      const allFirst = computeAllFirstSlots()
+      if (allFirst.length === 0) return
 
       const tourcms = await getTourCMSClient()
       if (!tourcms) return
 
       const results = await Promise.allSettled(
-        displayed.map((s) => tourcms.checkAvailability(s.palisisId, { date: s.date, r1: 1 })),
+        allFirst.map((s) => tourcms.checkAvailability(s.palisisId, { date: s.date, r1: 1 })),
       )
 
       const newBySlotKey: Record<string, AvailabilityRecord> = {}
 
       results.forEach((r, i) => {
-        const slot = displayed[i]
+        const slot = allFirst[i]
         const key = slotKey(slot)
         if (r.status === "rejected") {
           // Transient — keep last known record if any, else mark sold-out

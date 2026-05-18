@@ -283,7 +283,7 @@ export function LastMinuteDealsSection() {
         <div className="rounded-2xl bg-primary/5 p-6 lg:p-8">
           <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
             <Zap className="h-5 w-5 text-primary" />
-            <EditableText id="home:deals:heading" defaultValue="Last Minute Deals" />
+            <EditableText id="home:deals:heading" defaultValue="Filling Up Fast" />
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             <EditableText id="home:deals:subheading" defaultValue="Grab these discounted experiences before they sell out!" />
@@ -305,7 +305,7 @@ export function LastMinuteDealsSection() {
             <div>
               <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
                 <Zap className="h-5 w-5 text-destructive" />
-                <EditableText id="home:deals:heading" defaultValue="Last Minute Deals" />
+                <EditableText id="home:deals:heading" defaultValue="Filling Up Fast" />
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 <EditableText id="home:deals:subheading" defaultValue="Grab these discounted experiences before they sell out!" />
@@ -335,7 +335,7 @@ export function LastMinuteDealsSection() {
           <div>
             <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
               <Zap className="h-5 w-5 text-primary" />
-              <EditableText id="home:deals:heading" defaultValue="Last Minute Deals" />
+              <EditableText id="home:deals:heading" defaultValue="Filling Up Fast" />
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               <EditableText id="home:deals:subheading" defaultValue="Grab these discounted experiences before they sell out!" />

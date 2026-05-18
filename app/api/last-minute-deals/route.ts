@@ -1,16 +1,21 @@
 /**
  * GET /api/last-minute-deals
  *
- * Evaluates admin-configurable Last Minute Deal rules against the
- * departing-soon discovery + availability caches.
+ * "Filling Up Fast" widget — shows trips whose earliest upcoming slot is
+ * running low on seats, sorted by fewest seats first (strongest FOMO first).
  *
- * Calls refreshAvailability() so spaces data is live (not just the initial
- * discovery snapshot), giving accurate seat counts for each slot.
+ * Data flow:
+ *   1. Availability cache covers ALL trips' first slots (refreshAvailability
+ *      now uses computeAllFirstSlots instead of the Departing Soon top-N).
+ *   2. For each trip's first slot we check live spaces from the avail cache,
+ *      falling back to the discovery snapshot when the cache is cold.
+ *   3. Only slots with 0 < spacesRemaining ≤ lmd_max_spaces qualify.
+ *      Sold-out (0) and unlimited seats are excluded.
+ *   4. Qualifying trips sorted ascending by spacesRemaining — least seats first.
+ *   5. When no trip qualifies the widget falls back to PREVIEW mode
+ *      (soonest upcoming slots, same TripCard design, no urgency rule).
  *
- * Both `deals` (urgency mode) and `previewDeals` (fallback) are enriched
- * with full DB trip data so the frontend can render TripCard-identical cards.
- *
- * On cold start (cache warming) returns cacheWarming:true → client retries.
+ * On cold start returns cacheWarming:true → client retries with back-off.
  */
 
 import { NextResponse } from "next/server"
@@ -25,6 +30,7 @@ import {
   isDiscoveryExpired,
   triggerDiscoveryBootstrap,
   refreshAvailability,
+  computeAllFirstSlots,
 } from "@/lib/departing-soon-cache"
 import { dbGetTrip } from "@/lib/db/queries"
 
@@ -66,24 +72,17 @@ async function enrichSlot(
   slot: {
     tripId: string; palisisId: string; tripTitle: string; tripImage: string
     tripCategory: string; tripCity: string; date: string; time: string
-    startTimeUtcSeconds: number; priceDisplay: string; initialSpacesRemaining: number | "UNLIMITED"
+    startTimeUtcSeconds: number; priceDisplay: string
   },
   spaces: number,
   hoursUntilDeparture: number,
 ): Promise<DealItem> {
   const db = await dbGetTrip(slot.tripId)
 
-  const rawTags = db?.tags
-  const _tags: string[] = Array.isArray(rawTags)
-    ? rawTags
-    : typeof rawTags === "string"
-      ? (rawTags as string).replace(/[{}"]/g, "").split(",").filter(Boolean)
-      : []
-
-  const dbPrice   = db?.price   != null ? Number(db.price)   : 0
+  const dbPrice   = db?.price         != null ? Number(db.price)         : 0
   const dbOrig    = db?.originalPrice != null ? Number(db.originalPrice) : undefined
-  const dbRating  = db?.rating  != null ? Number(db.rating)  : 0
-  const dbReviews = db?.reviewCount != null ? Number(db.reviewCount) : 0
+  const dbRating  = db?.rating        != null ? Number(db.rating)        : 0
+  const dbReviews = db?.reviewCount   != null ? Number(db.reviewCount)   : 0
 
   return {
     tripId: slot.tripId,
@@ -94,17 +93,17 @@ async function enrichSlot(
     priceDisplay: slot.priceDisplay,
     spacesRemaining: spaces,
     hoursUntilDeparture,
-    title:       db?.title    ?? slot.tripTitle,
-    image:       db?.image    ?? slot.tripImage,
-    category:    db?.category ?? slot.tripCategory,
-    city:        db?.city     ?? slot.tripCity,
-    price:       dbPrice,
+    title:        db?.title    ?? slot.tripTitle,
+    image:        db?.image    ?? slot.tripImage,
+    category:     db?.category ?? slot.tripCategory,
+    city:         db?.city     ?? slot.tripCity,
+    price:        dbPrice,
     originalPrice: dbOrig,
-    rating:      dbRating,
-    reviewCount: dbReviews,
-    duration:    db?.duration ?? "",
-    badge:       db?.badge    ?? undefined,
-    permalink:   db?.permalink ?? undefined,
+    rating:       dbRating,
+    reviewCount:  dbReviews,
+    duration:     db?.duration ?? "",
+    badge:        db?.badge    ?? undefined,
+    permalink:    db?.permalink ?? undefined,
   }
 }
 
@@ -130,55 +129,75 @@ export async function GET() {
       getLmdMaxSpaces(), getLmdMaxHours(), getLmdMaxCards(), getShowAvailability(),
     ])
 
-    // ── Pull live availability so seat counts are accurate ────────────────
+    // ── Refresh availability for ALL trips so cache is complete ──────────
     if (showAvail) await refreshAvailability()
 
     const nowUtc     = Math.floor(Date.now() / 1000)
     const horizonUtc = nowUtc + maxHours * 3600
 
-    // ── Live deals (all rules applied) ────────────────────────────────────
-    const deals: DealItem[] = []
+    // ── Get each trip's earliest upcoming slot ────────────────────────────
+    const allFirst = computeAllFirstSlots()
 
-    for (const slot of discoveryCache.allSlots) {
-      if (slot.startTimeUtcSeconds <= nowUtc) continue
+    // ── Live deals: filter by spaces ≤ maxSpaces, sort fewest first ───────
+    const dealCandidates: Array<{ slot: typeof allFirst[0]; spaces: number; hrs: number }> = []
+
+    for (const slot of allFirst) {
+      // Optional hours gate (admin can restrict to e.g. "departing within 24h")
       if (slot.startTimeUtcSeconds > horizonUtc) continue
 
-      let spaces: number | "UNLIMITED" | undefined
+      // Resolve live spaces — availability cache > discovery snapshot
+      let spaces: number
 
       if (showAvail && availabilityCache) {
-        const key  = `${slot.tripId}:${slot.date}:${slot.time}`
+        const key   = `${slot.tripId}:${slot.date}:${slot.time}`
         const avail = availabilityCache.bySlotKey[key]
+
         if (avail) {
-          if (!avail.stillBookable) continue
-          spaces = avail.spacesRemaining
+          if (!avail.stillBookable) continue  // sold out / closed
+          if (avail.spacesRemaining === "UNLIMITED") continue  // not filling up
+          spaces = avail.spacesRemaining as number
         } else {
-          spaces = slot.initialSpacesRemaining
+          // Avail cache hasn't covered this trip yet — use discovery snapshot
+          const raw = slot.initialSpacesRemaining
+          if (raw === "UNLIMITED") continue
+          spaces = raw ?? 0
         }
       } else {
-        spaces = slot.initialSpacesRemaining
+        const raw = slot.initialSpacesRemaining
+        if (raw === "UNLIMITED") continue
+        spaces = raw ?? 0
       }
 
-      if (spaces === "UNLIMITED" || spaces === undefined) continue
-      if (spaces > maxSpaces) continue
+      if (spaces <= 0) continue         // sold out
+      if (spaces > maxSpaces) continue  // not low enough to show
 
       const hrs = Math.round(((slot.startTimeUtcSeconds - nowUtc) / 3600) * 10) / 10
-      deals.push(await enrichSlot(slot, spaces, hrs))
-      if (deals.length >= maxCards) break
+      dealCandidates.push({ slot, spaces, hrs })
     }
 
-    // ── Preview deals (no urgency rules; one per unique trip) ─────────────
+    // Sort: fewest seats first (strongest FOMO first)
+    dealCandidates.sort((a, b) => a.spaces - b.spaces)
+
+    // Enrich top-N with DB trip data
+    const deals: DealItem[] = await Promise.all(
+      dealCandidates
+        .slice(0, maxCards)
+        .map(({ slot, spaces, hrs }) => enrichSlot(slot, spaces, hrs)),
+    )
+
+    // ── Preview deals — when no trip qualifies the urgency filter ─────────
+    // Shows soonest upcoming trips (one per trip, all trips, sorted by time).
     const previewDeals: DealItem[] = []
 
     if (deals.length === 0) {
       const seenTrips = new Set<string>()
 
-      for (const slot of discoveryCache.allSlots) {
-        if (slot.startTimeUtcSeconds <= nowUtc) continue
+      for (const slot of allFirst) {
         if (seenTrips.has(slot.tripId)) continue
         seenTrips.add(slot.tripId)
 
-        // Best available spaces — live avail cache > initial snapshot
-        let spaces: number = 0
+        // Best available spaces (avail cache > discovery snapshot)
+        let spaces = 0
         if (showAvail && availabilityCache) {
           const key   = `${slot.tripId}:${slot.date}:${slot.time}`
           const avail = availabilityCache.bySlotKey[key]
