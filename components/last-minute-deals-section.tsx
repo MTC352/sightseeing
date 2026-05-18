@@ -3,27 +3,47 @@
 /**
  * Last Minute Deals — homepage section.
  *
- * Two display modes:
+ * DYNAMIC mode  — live slots matching admin rules (≤N spaces, within X hrs).
+ *                 Same TripCard layout + urgency badge (amber/red) top-left
+ *                 + seats-remaining pill top-right + "Book Now" CTA.
  *
- *  DYNAMIC  – live slots that matched all admin rules (spaces ≤ N, within X hrs).
- *             Red/amber urgency theme — seat count + countdown badge.
+ * PREVIEW mode  — soonest upcoming slots (no urgency rules), enriched with
+ *                 full DB data. Layout is pixel-identical to TripCard default:
+ *                 aspect-[4/3] image, discount % badge, category, title,
+ *                 ⭐ rating · ⏱ duration row, strikethrough price, "Buy Tickets".
  *
- *  PREVIEW  – soonest upcoming slots, shown when no live deals qualify.
- *             Uses a PreviewDealCard that mirrors the TripCard default variant
- *             layout exactly (aspect-[4/3] image, same body padding, category
- *             text, title, info row, price + "Buy Tickets" CTA) so it looks
- *             identical to the original static DealsSection.
- *
- * Hidden entirely only when: admin toggle is OFF.
+ * Hidden entirely only when the admin toggle is OFF.
  */
 
 import React, { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { Zap, Clock, ArrowRight, CalendarDays } from "lucide-react"
+import { Star, Clock, Zap, ArrowRight } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
-import type { LastMinuteDealItem, PreviewDealItem } from "@/app/api/last-minute-deals/route"
+import type { DealItem } from "@/app/api/last-minute-deals/route"
 
-// ─── Skeleton — matches TripCard default dimensions ───────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function urgencyLabel(hours: number): string {
+  if (hours < 1) return "< 1 hr left"
+  if (hours < 2) return "~1 hr left"
+  if (hours <= 6) return `${Math.floor(hours)}h left`
+  if (hours <= 24) return "Today"
+  if (hours <= 48) return "Tomorrow"
+  return `${Math.floor(hours / 24)}d away`
+}
+
+/** "€7" | "14.00 EUR" → 7 | 14 */
+function parsePriceDisplay(display: string): number {
+  const n = parseFloat(display.replace(/[^0-9.]/g, ""))
+  return isNaN(n) ? 0 : n
+}
+
+function displayPrice(item: DealItem): string {
+  const p = item.price > 0 ? item.price : parsePriceDisplay(item.priceDisplay)
+  return p > 0 ? `From ${p.toFixed(2)} €` : item.priceDisplay
+}
+
+// ─── Skeleton — matches TripCard dimensions ───────────────────────────────────
 
 function SkeletonCard() {
   return (
@@ -42,71 +62,77 @@ function SkeletonCard() {
   )
 }
 
-// ─── Urgency helpers ──────────────────────────────────────────────────────────
+// ─── DYNAMIC deal card — TripCard layout + urgency indicators ─────────────────
 
-function urgencyLabel(hours: number): string {
-  if (hours < 1) return "< 1 hr left"
-  if (hours < 2) return "~1 hr left"
-  if (hours <= 6) return `${Math.floor(hours)}h left`
-  if (hours <= 24) return "Today"
-  if (hours <= 48) return "Tomorrow"
-  return `${Math.floor(hours / 24)}d away`
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    return new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-  } catch {
-    return dateStr
-  }
-}
-
-// ─── Dynamic deal card (live urgency mode) ────────────────────────────────────
-
-function DynamicDealCard({ deal }: { deal: LastMinuteDealItem }) {
-  const slotHref = `/trip/${deal.tripId}?date=${encodeURIComponent(deal.date)}&time=${encodeURIComponent(deal.time)}#booking`
-  const urLabel = urgencyLabel(deal.hoursUntilDeparture)
-  const isVeryUrgent = deal.hoursUntilDeparture <= 6
+function DynamicDealCard({ item }: { item: DealItem }) {
+  const href = item.permalink
+    ? `/trip/${item.permalink}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
+    : `/trip/${item.tripId}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
+  const urLabel     = urgencyLabel(item.hoursUntilDeparture)
+  const isVeryUrgent = item.hoursUntilDeparture <= 6
+  const urgencyBg   = isVeryUrgent ? "bg-destructive text-white" : "bg-amber-500 text-white"
 
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl border border-destructive/20 bg-card shadow-sm transition-shadow hover:shadow-md">
-      <Link href={slotHref} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
-        {deal.tripImage ? (
-          <img
-            src={deal.tripImage}
-            alt={deal.tripTitle}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-          />
-        ) : (
-          <div className="h-full w-full bg-secondary" />
-        )}
-        {/* Urgency badge — top left */}
-        <span
-          className={`absolute left-3 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold shadow ${
-            isVeryUrgent ? "bg-destructive text-white" : "bg-amber-500 text-white"
-          }`}
-        >
+      {/* Image wrapper — same aspect + rounded-b-none as TripCard */}
+      <Link href={href} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
+        <img
+          src={item.image || "/placeholder.svg"}
+          alt={item.title}
+          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          loading="lazy"
+        />
+        {/* Urgency badge — top left (replaces trip.badge) */}
+        <span className={`absolute left-3 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold shadow-sm ${urgencyBg}`}>
           <Clock className="h-3 w-3" />
           {urLabel}
         </span>
-        {/* Seats pill — top right */}
-        <span className="absolute right-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-white shadow">
-          {deal.spacesRemaining === 1 ? "1 seat left!" : `${deal.spacesRemaining} seats left`}
+        {/* Seats remaining — top right (replaces discount %) */}
+        <span className="absolute right-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-destructive-foreground">
+          {item.spacesRemaining === 1 ? "1 seat left!" : `${item.spacesRemaining} seats`}
         </span>
       </Link>
 
+      {/* Card body — identical padding to TripCard */}
       <div className="flex flex-1 flex-col p-[10px]">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{deal.tripCategory}</span>
-        <Link href={slotHref} className="mt-1 block text-sm font-semibold text-card-foreground line-clamp-2 group-hover:text-destructive transition-colors">
-          {deal.tripTitle}
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          {item.category}
+        </span>
+        <Link
+          href={href}
+          className="mt-1 block text-sm font-semibold text-card-foreground line-clamp-2 group-hover:text-destructive transition-colors"
+        >
+          {item.title}
         </Link>
+
+        {/* Info row — rating if available, then departure date·time */}
         <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />{deal.date} · {deal.time}</span>
+          {item.reviewCount > 0 && (
+            <span className="flex items-center gap-0.5">
+              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+              {item.rating} ({item.reviewCount})
+            </span>
+          )}
+          <span className="flex items-center gap-0.5">
+            <Clock className="h-3 w-3" />
+            {item.date} · {item.time}
+          </span>
         </div>
+
+        {/* Price + CTA — same layout as TripCard */}
         <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-          <span className="block text-base font-bold text-foreground">{deal.priceDisplay}</span>
-          <Link href={slotHref} className="rounded-xl bg-destructive px-5 py-2 text-center text-sm font-semibold text-white transition-colors hover:bg-destructive/90">
+          <div>
+            {item.originalPrice && item.originalPrice > item.price && (
+              <span className="text-xs text-muted-foreground line-through">
+                {item.originalPrice.toFixed(2)} &euro;
+              </span>
+            )}
+            <span className="block text-base font-bold text-foreground">{displayPrice(item)}</span>
+          </div>
+          <Link
+            href={href}
+            className="rounded-xl bg-destructive px-5 py-2 text-center text-sm font-semibold text-white transition-colors hover:bg-destructive/90"
+          >
             Book Now
           </Link>
         </div>
@@ -115,81 +141,101 @@ function DynamicDealCard({ deal }: { deal: LastMinuteDealItem }) {
   )
 }
 
-// ─── Preview deal card — mirrors TripCard default variant exactly ─────────────
-// Same structure: aspect-[4/3] image, same padding, category / title / info row,
-// price + "Buy Tickets" CTA. Uses reliable slot data — no broken zero-values.
+// ─── PREVIEW deal card — pixel-identical to TripCard default variant ──────────
 
-function PreviewDealCard({ item }: { item: PreviewDealItem }) {
-  const tripHref = item.trip.permalink
-    ? `/trip/${item.trip.permalink}`
+function PreviewDealCard({ item }: { item: DealItem }) {
+  const href = item.permalink
+    ? `/trip/${item.permalink}`
     : `/trip/${item.tripId}`
-  const depLabel = urgencyLabel(item.hoursUntilDeparture)
-  const dateLabel = formatDate(item.date)
-  const hasDiscount =
-    item.trip.originalPrice != null && item.trip.originalPrice > item.trip.price
+  const hasDiscount   = !!(item.originalPrice && item.originalPrice > item.price && item.price > 0)
+  const discountPct   = hasDiscount
+    ? Math.round((1 - item.price / item.originalPrice!) * 100)
+    : 0
+  const departureBadge = urgencyLabel(item.hoursUntilDeparture)
 
   return (
+    /* Exact same wrapper classes as TripCard default */
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
-      {/* Image — same aspect ratio as TripCard */}
-      <Link href={tripHref} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
+
+      {/* Image — rounded-b-none Link, same aspect-[4/3] */}
+      <Link href={href} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
         <img
-          src={item.trip.image || "/placeholder.svg"}
-          alt={item.trip.title}
+          src={item.image || "/placeholder.svg"}
+          alt={item.title}
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           loading="lazy"
         />
-        {/* Departure soon badge — top left (replaces trip.badge) */}
+
+        {/* Top-left: departure badge (primary, same style as trip.badge in TripCard) */}
         <span className="absolute left-3 top-3 rounded-full bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-sm">
-          {depLabel}
+          {departureBadge}
         </span>
-        {/* Discount % badge — top right, only when originalPrice is set */}
+
+        {/* Top-right: discount % badge — only when DB has originalPrice */}
         {hasDiscount && (
           <span className="absolute right-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-destructive-foreground">
-            -{Math.round((1 - item.trip.price / (item.trip.originalPrice ?? item.trip.price)) * 100)}%
+            -{discountPct}%
           </span>
         )}
       </Link>
 
-      {/* Card body — same p-[10px] as TripCard */}
+      {/* Card body — p-[10px] same as TripCard */}
       <div className="flex flex-1 flex-col p-[10px]">
         <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {item.trip.category}
+          {item.category}
         </span>
         <Link
-          href={tripHref}
+          href={href}
           className="mt-1 block text-sm font-semibold text-card-foreground line-clamp-2 group-hover:text-primary transition-colors"
         >
-          {item.trip.title}
+          {item.title}
         </Link>
-        {/* Info row — departure date + time instead of rating (no reliable rating data) */}
+
+        {/* Info row — exactly as TripCard: ⭐ rating (reviews) · ⏱ duration */}
         <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-0.5">
-            <CalendarDays className="h-3 w-3" />
-            {dateLabel} · {item.time}
-          </span>
-          {item.trip.duration && (
-            <span className="flex items-center gap-0.5">
-              <Clock className="h-3 w-3" />
-              {item.trip.duration}
-            </span>
+          {item.reviewCount > 0 ? (
+            <>
+              <span className="flex items-center gap-0.5">
+                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                {item.rating} ({item.reviewCount})
+              </span>
+              {item.duration && (
+                <span className="flex items-center gap-0.5">
+                  <Clock className="h-3 w-3" />
+                  {item.duration}
+                </span>
+              )}
+            </>
+          ) : (
+            /* Fallback when no rating data — show departure date + duration */
+            <>
+              <span className="flex items-center gap-0.5">
+                <Clock className="h-3 w-3" />
+                {item.date} · {item.time}
+              </span>
+              {item.duration && (
+                <span className="flex items-center gap-0.5 opacity-70">
+                  {item.duration}
+                </span>
+              )}
+            </>
           )}
         </div>
-        {/* Price + CTA row — mirrors TripCard exactly */}
+
+        {/* Price + CTA — same as TripCard */}
         <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
           <div>
             {hasDiscount && (
               <span className="text-xs text-muted-foreground line-through">
-                {(item.trip.originalPrice ?? 0).toFixed(2)} &euro;
+                {item.originalPrice!.toFixed(2)} &euro;
               </span>
             )}
             <span className="block text-base font-bold text-foreground">
-              {item.trip.price > 0
-                ? `From ${item.trip.price.toFixed(2)} \u20ac`
-                : item.priceDisplay}
+              {displayPrice(item)}
             </span>
           </div>
           <Link
-            href={tripHref}
+            href={href}
             className="rounded-xl bg-primary px-5 py-2 text-center text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Buy Tickets
@@ -203,39 +249,30 @@ function PreviewDealCard({ item }: { item: PreviewDealItem }) {
 // ─── Main section ─────────────────────────────────────────────────────────────
 
 export function LastMinuteDealsSection() {
-  const [deals, setDeals] = useState<LastMinuteDealItem[]>([])
-  const [previewDeals, setPreviewDeals] = useState<PreviewDealItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [hidden, setHidden] = useState(false)
+  const [deals,        setDeals]        = useState<DealItem[]>([])
+  const [previewDeals, setPreviewDeals] = useState<DealItem[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [hidden,       setHidden]       = useState(false)
 
   const fetchDeals = useCallback(async (attempt = 0) => {
     try {
-      const res = await fetch("/api/last-minute-deals", { cache: "no-store" })
+      const res  = await fetch("/api/last-minute-deals", { cache: "no-store" })
       const data = await res.json()
 
-      if (!data.ok || data.enabled === false) {
-        setHidden(true)
-        return
-      }
+      if (!data.ok || data.enabled === false) { setHidden(true); return }
 
-      // Cache still warming on cold start — retry with back-off (up to 3 times)
       if (data.cacheWarming && attempt < 3) {
         setTimeout(() => fetchDeals(attempt + 1), (attempt + 1) * 5000)
         return
       }
 
-      setDeals(Array.isArray(data.deals) ? data.deals : [])
+      setDeals(       Array.isArray(data.deals)        ? data.deals        : [])
       setPreviewDeals(Array.isArray(data.previewDeals) ? data.previewDeals : [])
-    } catch {
-      /* keep current state on network error */
-    } finally {
-      setLoading(false)
-    }
+    } catch { /* keep state on network error */ }
+    finally  { setLoading(false) }
   }, [])
 
-  useEffect(() => {
-    fetchDeals(0)
-  }, [fetchDeals])
+  useEffect(() => { fetchDeals(0) }, [fetchDeals])
 
   if (hidden) return null
 
@@ -252,14 +289,14 @@ export function LastMinuteDealsSection() {
             <EditableText id="home:deals:subheading" defaultValue="Grab these discounted experiences before they sell out!" />
           </p>
           <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
+            {[0,1,2].map((i) => <SkeletonCard key={i} />)}
           </div>
         </div>
       </section>
     )
   }
 
-  // ── DYNAMIC MODE — live urgent deals ─────────────────────────────────────
+  // ── DYNAMIC MODE — urgent live deals ─────────────────────────────────────
   if (deals.length > 0) {
     return (
       <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
@@ -280,7 +317,7 @@ export function LastMinuteDealsSection() {
           </div>
           <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {deals.map((d) => (
-              <DynamicDealCard key={`${d.tripId}-${d.date}-${d.time}`} deal={d} />
+              <DynamicDealCard key={`${d.tripId}-${d.date}-${d.time}`} item={d} />
             ))}
           </div>
         </div>
@@ -288,7 +325,7 @@ export function LastMinuteDealsSection() {
     )
   }
 
-  // ── PREVIEW MODE — upcoming trips, TripCard-identical layout ─────────────
+  // ── PREVIEW MODE — upcoming trips, exact TripCard design ─────────────────
   if (previewDeals.length === 0) return null
 
   return (
@@ -308,7 +345,7 @@ export function LastMinuteDealsSection() {
             All departures <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        {/* Same gap-6 grid as original DealsSection */}
+        {/* gap-6 identical to original DealsSection grid */}
         <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {previewDeals.map((item) => (
             <PreviewDealCard key={`${item.tripId}-${item.date}`} item={item} />
