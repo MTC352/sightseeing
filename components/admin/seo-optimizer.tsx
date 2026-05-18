@@ -4,20 +4,19 @@
  * SEO Optimizer — RankMath Pro-style widget for the trip admin edit page.
  *
  * Features:
+ *   • Focus Keyword input (top segment) — drives all keyword-based checks live
  *   • SERP preview (Google-style URL / title / description)
  *   • Edit Snippet panel (editable SEO title + meta description)
- *   • Focus Keyword input — drives all keyword-based checks live
  *   • Overall SEO score with circular gauge
  *   • 4 accordion sections: Basic SEO · Additional · Title Readability · Content Readability
  *   • Every check: ✓ green pass / ✗ red error icon + help tooltip
- *   • "Fix with AI" badge for AI-fixable checks → calls /api/admin/seo-fix
+ *   • All checks update live as the user edits the trip form
  */
 
-import React, { useState, useMemo, useCallback, useEffect } from "react"
+import React, { useState, useMemo, useEffect } from "react"
 import type { AdminTrip } from "@/lib/admin-store"
 import {
-  ChevronDown, ChevronUp, CheckCircle2, XCircle, HelpCircle,
-  Sparkles, Loader2, Eye, Edit3,
+  ChevronDown, ChevronUp, CheckCircle2, XCircle, HelpCircle, Eye, Edit3, Search,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -68,8 +67,6 @@ interface Check {
   id: string
   pass: boolean
   message: string
-  aiFixable?: boolean
-  fixType?: string
 }
 
 interface SectionDef {
@@ -86,54 +83,60 @@ interface Props {
 // ── Tooltip copy ──────────────────────────────────────────────────────────────
 
 const TOOLTIPS: Record<string, string> = {
-  "kw-in-title":      "Search engines give extra weight to keywords in the title tag. Including your focus keyword signals relevance.",
-  "kw-in-meta":       "The meta description appears in search results. Having your keyword helps searchers recognise your content as relevant.",
-  "kw-in-url":        "URLs with keywords are more readable and carry slight SEO weight. Use hyphens to separate words.",
-  "kw-in-intro":      "Mentioning your keyword in the first 100 characters signals its importance to search engines.",
-  "kw-in-content":    "Your focus keyword should appear naturally at least once throughout the body of your content.",
-  "content-length":   "Longer, more comprehensive content tends to rank higher. Aim for 600 or more words.",
-  "kw-in-headings":   "Keywords in subheadings (H2/H3) help search engines understand the structure of your content.",
-  "image-alt":        "Alt text on images helps search engines index visual content and improves accessibility.",
-  "keyword-density":  "Keyword density between 0.5–2.5% is ideal. Too little won't help; too much looks spammy.",
-  "url-length":       "Short, descriptive URLs are easier to read, share, and understand by search engines.",
-  "external-links":   "Linking to authoritative external sources adds credibility and helps search engines understand context.",
-  "dofollow-links":   "DoFollow links pass link equity. Make sure your external links aren't set to nofollow unnecessarily.",
-  "internal-links":   "Internal links help search engines discover more of your site and distribute link equity.",
-  "kw-set":           "A focus keyword lets you target a specific search query and drives all keyword-based checks.",
-  "kw-at-title-start":"Having your keyword at the beginning of the title gives it more SEO weight.",
-  "title-sentiment":  "Emotional words (positive or negative) increase click-through rates from search results.",
-  "title-power-word": "Power words like 'Ultimate', 'Best', or 'Essential' make titles more compelling and clickable.",
-  "title-number":     "Numbers in titles attract attention and suggest specific, structured content (e.g. 'Top 5 Spots').",
-  "toc":              "Structured sections or a table of contents improve UX and help search engines understand hierarchy.",
-  "short-paragraphs": "Short paragraphs (3-4 sentences) are easier to read, especially on mobile, and improve engagement.",
-  "rich-media":       "Images and videos improve engagement metrics which can positively impact search rankings.",
+  "kw-in-title":       "Search engines give extra weight to keywords in the title tag. Including your focus keyword signals relevance.",
+  "kw-in-meta":        "The meta description appears in search results. Having your keyword helps searchers recognise your content as relevant.",
+  "kw-in-url":         "URLs with keywords are more readable and carry slight SEO weight. Use hyphens to separate words.",
+  "kw-in-intro":       "Mentioning your keyword in the first 100 characters signals its importance to search engines.",
+  "kw-in-content":     "Your focus keyword should appear naturally at least once throughout the body of your content.",
+  "content-length":    "Longer, more comprehensive content tends to rank higher. Aim for 600 or more words.",
+  "kw-in-headings":    "Keywords in subheadings (H2/H3) help search engines understand the structure of your content.",
+  "image-alt":         "Alt text on images helps search engines index visual content and improves accessibility.",
+  "keyword-density":   "Keyword density between 0.5–2.5% is ideal. Too little won't help; too much looks spammy.",
+  "url-length":        "Short, descriptive URLs are easier to read, share, and understand by search engines.",
+  "external-links":    "Linking to authoritative external sources adds credibility and helps search engines understand context.",
+  "dofollow-links":    "DoFollow links pass link equity. Make sure your external links aren't set to nofollow unnecessarily.",
+  "internal-links":    "Internal links help search engines discover more of your site and distribute link equity.",
+  "kw-set":            "A focus keyword lets you target a specific search query and drives all keyword-based checks.",
+  "kw-at-title-start": "Having your keyword at the beginning of the title gives it more SEO weight.",
+  "title-sentiment":   "Emotional words (positive or negative) increase click-through rates from search results.",
+  "title-power-word":  "Power words like 'Ultimate', 'Best', or 'Essential' make titles more compelling and clickable.",
+  "title-number":      "Numbers in titles attract attention and suggest specific, structured content (e.g. 'Top 5 Spots').",
+  "toc":               "Structured sections or a table of contents improve UX and help search engines understand hierarchy.",
+  "short-paragraphs":  "Short paragraphs (3-4 sentences) are easier to read, especially on mobile, and improve engagement.",
+  "rich-media":        "Images and videos improve engagement metrics which can positively impact search rankings.",
 }
 
 // ── Score colours ─────────────────────────────────────────────────────────────
 
 function scoreColors(score: number) {
   if (score >= 80) return { text: "text-emerald-500", ring: "stroke-emerald-500", pill: "bg-emerald-500/10 text-emerald-600", label: "Good" }
-  if (score >= 60) return { text: "text-amber-500",  ring: "stroke-amber-500",  pill: "bg-amber-500/10 text-amber-600",   label: "Needs Work" }
-  return              { text: "text-red-500",    ring: "stroke-red-500",    pill: "bg-red-500/10 text-red-600",       label: "Poor" }
+  if (score >= 60) return { text: "text-amber-500",   ring: "stroke-amber-500",   pill: "bg-amber-500/10 text-amber-600",   label: "Needs Work" }
+  return               { text: "text-red-500",     ring: "stroke-red-500",     pill: "bg-red-500/10 text-red-600",       label: "Poor" }
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
-  const [focusKeyword, setFocusKeyword] = useState("")
-  const [seoTitle,    setSeoTitle]    = useState(tripData.title ?? "")
-  const [metaDesc,    setMetaDesc]    = useState((tripData.description ?? "").slice(0, 160))
-  const [editSnippet, setEditSnippet] = useState(false)
-  const [openSections, setOpenSections] = useState<Set<string>>(new Set(["basic"]))
-  const [aiLoading,  setAiLoading]   = useState<string | null>(null)
-  const [aiError,    setAiError]     = useState<string | null>(null)
-  const [visibleTip, setVisibleTip]  = useState<string | null>(null)
+  const [focusKeyword,  setFocusKeyword]  = useState("")
+  const [seoTitle,      setSeoTitle]      = useState(tripData.title ?? "")
+  const [metaDesc,      setMetaDesc]      = useState((tripData.description ?? "").slice(0, 160))
+  const [editSnippet,   setEditSnippet]   = useState(false)
+  const [openSections,  setOpenSections]  = useState<Set<string>>(new Set(["basic"]))
+  const [visibleTip,    setVisibleTip]    = useState<string | null>(null)
 
+  // Keep seoTitle in sync when the form title changes externally (but not while editing snippet)
   useEffect(() => {
     if (tripData.title && !editSnippet) setSeoTitle(tripData.title)
   }, [tripData.title, editSnippet])
 
-  // ── Derived values ──────────────────────────────────────────────────────────
+  // Keep metaDesc in sync when description changes externally (but not while editing snippet)
+  useEffect(() => {
+    if (tripData.description && !editSnippet) {
+      setMetaDesc((tripData.description ?? "").slice(0, 160))
+    }
+  }, [tripData.description, editSnippet])
+
+  // ── Derived values (all live) ────────────────────────────────────────────
   const kw          = focusKeyword.toLowerCase().trim()
   const permalink   = tripData.permalink ?? tripData.id ?? ""
   const description = tripData.description ?? ""
@@ -145,7 +148,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   const kwCount = useMemo(() => countOccurrences(description, kw), [description, kw])
   const density = words > 0 ? (kwCount / words) * 100 : 0
 
-  // ── Build all checks ────────────────────────────────────────────────────────
+  // ── Build all checks (recomputed instantly on any dependency change) ──────
   const sections: SectionDef[] = useMemo(() => {
     const tl = seoTitle.toLowerCase()
     const dl = description.toLowerCase()
@@ -153,56 +156,53 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
     const pl = permalink.toLowerCase()
 
     const basic: Check[] = [
-      { id: "kw-in-title",   pass: !!kw && tl.includes(kw),                                                          message: "Add Focus Keyword to the SEO title." },
-      { id: "kw-in-meta",    pass: !!kw && ml.includes(kw),                                                          message: "Add Focus Keyword to your SEO Meta Description." },
-      { id: "kw-in-url",     pass: !!kw && pl.includes(kw.replace(/\s+/g, "-")),                                     message: "Use Focus Keyword in the URL." },
-      { id: "kw-in-intro",   pass: !!kw && dl.slice(0, 100).includes(kw),                                            message: "Use Focus Keyword at the beginning of your content." },
-      { id: "kw-in-content", pass: !!kw && dl.includes(kw),                                                          message: "Use Focus Keyword in the content." },
-      { id: "content-length",pass: words >= 600,  aiFixable: words < 600, fixType: "content-expand",
+      { id: "kw-in-title",    pass: !!kw && tl.includes(kw),                                                        message: "Add Focus Keyword to the SEO title." },
+      { id: "kw-in-meta",     pass: !!kw && ml.includes(kw),                                                        message: "Add Focus Keyword to your SEO Meta Description." },
+      { id: "kw-in-url",      pass: !!kw && pl.includes(kw.replace(/\s+/g, "-")),                                   message: "Use Focus Keyword in the URL." },
+      { id: "kw-in-intro",    pass: !!kw && dl.slice(0, 100).includes(kw),                                          message: "Use Focus Keyword at the beginning of your content." },
+      { id: "kw-in-content",  pass: !!kw && dl.includes(kw),                                                        message: "Use Focus Keyword in the content." },
+      { id: "content-length", pass: words >= 600,
         message: `Content is ${words} words long. Consider using at least 600 words.` },
     ]
 
     const additional: Check[] = [
-      { id: "kw-in-headings",  pass: !!kw && highlights.some((h) => h.toLowerCase().includes(kw)),                   message: "Use Focus Keyword in subheadings like H2, H3, H4, etc." },
-      { id: "image-alt",       pass: !!image,                                                                         message: "Add an image with your Focus Keyword as alt text." },
+      { id: "kw-in-headings",  pass: !!kw && highlights.some((h) => h.toLowerCase().includes(kw)),                 message: "Use Focus Keyword in subheadings like H2, H3, H4, etc." },
+      { id: "image-alt",       pass: !!image,                                                                       message: "Add an image with your Focus Keyword as alt text." },
       { id: "keyword-density", pass: !!kw && density >= 0.5 && density <= 2.5,
         message: `Keyword Density is ${density.toFixed(1)}%. Aim for around 1% Keyword Density.` },
       { id: "url-length",      pass: permalink.length > 0 && permalink.length <= 75,
-        message: permalink.length <= 75 ? `URL is ${permalink.length} characters long. Kudos!` : `URL is ${permalink.length} characters long. Consider shortening it.` },
-      { id: "external-links",  pass: /https?:\/\/[^s]/.test(description),                                            message: "Link out to external resources." },
-      { id: "dofollow-links",  pass: /https?:\/\/[^s]/.test(description),                                            message: "Add DoFollow links pointing to external resources." },
-      { id: "internal-links",  pass: /\/(trip|blog|explore|departures|help)\//.test(description),                    message: "Add internal links in your content." },
-      { id: "kw-set",          pass: !!kw,                                                                            message: "Set a Focus Keyword for this content." },
+        message: permalink.length <= 75
+          ? `URL is ${permalink.length} characters long. Kudos!`
+          : `URL is ${permalink.length} characters long. Consider shortening it.` },
+      { id: "external-links",  pass: /https?:\/\/[^s]/.test(description),                                          message: "Link out to external resources." },
+      { id: "dofollow-links",  pass: /https?:\/\/[^s]/.test(description),                                          message: "Add DoFollow links pointing to external resources." },
+      { id: "internal-links",  pass: /\/(trip|blog|explore|departures|help)\//.test(description),                  message: "Add internal links in your content." },
+      { id: "kw-set",          pass: !!kw,                                                                          message: "Set a Focus Keyword for this content." },
     ]
 
     const titleReadability: Check[] = [
-      { id: "kw-at-title-start", pass: !!kw && (tl.startsWith(kw) || tl.indexOf(kw) < Math.ceil(tl.length / 2)),   message: "Use the Focus Keyword near the beginning of SEO title." },
-      { id: "title-sentiment",   pass: hasWordFrom(seoTitle, SENTIMENT_WORDS), aiFixable: true, fixType: "title-sentiment",
-        message: "Your title doesn't contain a positive or a negative sentiment word." },
-      { id: "title-power-word",  pass: hasWordFrom(seoTitle, POWER_WORDS),    aiFixable: true, fixType: "title-power-word",
-        message: "Your title doesn't contain a power word. Add at least one." },
-      { id: "title-number",      pass: /\d/.test(seoTitle),                   aiFixable: true, fixType: "title-number",
-        message: "Your SEO title doesn't contain a number." },
+      { id: "kw-at-title-start", pass: !!kw && (tl.startsWith(kw) || tl.indexOf(kw) < Math.ceil(tl.length / 2)), message: "Use the Focus Keyword near the beginning of SEO title." },
+      { id: "title-sentiment",   pass: hasWordFrom(seoTitle, SENTIMENT_WORDS),                                     message: "Your title doesn't contain a positive or a negative sentiment word." },
+      { id: "title-power-word",  pass: hasWordFrom(seoTitle, POWER_WORDS),                                        message: "Your title doesn't contain a power word. Add at least one." },
+      { id: "title-number",      pass: /\d/.test(seoTitle),                                                        message: "Your SEO title doesn't contain a number." },
     ]
 
     const contentReadability: Check[] = [
-      { id: "toc",             pass: highlights.length >= 3,                                                          message: "You don't seem to be using a Table of Contents plugin." },
-      { id: "short-paragraphs",
-        pass: !description.split(/\n\n+/).some((p) => wordCount(p) > 100),
-        aiFixable: description.split(/\n\n+/).some((p) => wordCount(p) > 100), fixType: "short-paragraphs",
+      { id: "toc",             pass: highlights.length >= 3,                                                        message: "You don't seem to be using a Table of Contents plugin." },
+      { id: "short-paragraphs",pass: !description.split(/\n\n+/).some((p) => wordCount(p) > 100),
         message: "At least one paragraph is long. Consider using short paragraphs." },
-      { id: "rich-media",      pass: !!image,                                                                         message: "You are not using rich media like images or videos." },
+      { id: "rich-media",      pass: !!image,                                                                       message: "You are not using rich media like images or videos." },
     ]
 
     return [
-      { id: "basic",      label: "Basic SEO",           checks: basic },
-      { id: "additional", label: "Additional",           checks: additional },
-      { id: "title",      label: "Title Readability",    checks: titleReadability },
-      { id: "content",    label: "Content Readability",  checks: contentReadability },
+      { id: "basic",      label: "Basic SEO",          checks: basic },
+      { id: "additional", label: "Additional",          checks: additional },
+      { id: "title",      label: "Title Readability",   checks: titleReadability },
+      { id: "content",    label: "Content Readability", checks: contentReadability },
     ]
   }, [kw, seoTitle, metaDesc, description, permalink, image, highlights, words, density])
 
-  // ── Score ──────────────────────────────────────────────────────────────────
+  // ── Score ─────────────────────────────────────────────────────────────────
   const allChecks    = sections.flatMap((s) => s.checks)
   const passingCount = allChecks.filter((c) => c.pass).length
   const totalCount   = allChecks.length
@@ -212,44 +212,6 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   const circleC      = 2 * Math.PI * circleR
   const strokeDash   = (score / 100) * circleC
 
-  // ── AI fix ─────────────────────────────────────────────────────────────────
-  const fixWithAI = useCallback(async (fixType: string) => {
-    setAiLoading(fixType)
-    setAiError(null)
-    try {
-      const currentValue =
-        fixType.startsWith("title")      ? seoTitle :
-        fixType === "meta-description"   ? metaDesc :
-                                           description
-
-      const res = await fetch("/api/admin/seo-fix", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fixType, currentValue, focusKeyword,
-          tripData: { title: seoTitle, description, category: tripData.category, city: tripData.city },
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? "AI request failed")
-      if (!data.result) throw new Error("No result from AI")
-
-      if (fixType.startsWith("title")) {
-        setSeoTitle(data.result)
-        onApplyOptimization("title", data.result)
-      } else if (fixType === "meta-description") {
-        setMetaDesc(data.result.slice(0, 160))
-      } else {
-        onApplyOptimization("description", data.result)
-      }
-    } catch (err) {
-      setAiError(err instanceof Error ? err.message : "AI request failed")
-      setTimeout(() => setAiError(null), 4000)
-    } finally {
-      setAiLoading(null)
-    }
-  }, [seoTitle, metaDesc, description, focusKeyword, tripData.category, tripData.city, onApplyOptimization])
-
   function toggleSection(id: string) {
     setOpenSections((prev) => {
       const next = new Set(prev)
@@ -258,13 +220,12 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
     })
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
 
-      {/* ── Header: score + title ─────────────────────────────────────────── */}
+      {/* ── Header: score + label ───────────────────────────────────────── */}
       <div className="flex items-center gap-4 border-b border-border px-5 py-4">
-        {/* Circular gauge */}
         <div className="relative h-14 w-14 shrink-0">
           <svg className="h-14 w-14 -rotate-90" viewBox="0 0 64 64">
             <circle cx="32" cy="32" r={circleR} fill="none" strokeWidth="6" className="stroke-border" />
@@ -287,30 +248,60 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
         </span>
       </div>
 
-      {/* ── AI error toast ────────────────────────────────────────────────── */}
-      {aiError && (
-        <div className="border-b border-destructive/20 bg-destructive/10 px-5 py-2.5 text-xs text-destructive">
-          {aiError}
+      {/* ── Focus Keyword (primary segment) ────────────────────────────── */}
+      <div className="border-b border-border bg-secondary/20 px-5 py-4">
+        <div className="mb-2 flex items-center gap-2">
+          <Search className="h-3.5 w-3.5 text-primary" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">Focus Keyword</span>
         </div>
-      )}
+        <p className="mb-3 text-[11px] text-muted-foreground">
+          Set the primary keyword for this trip. All SEO checks below update live as you type here or edit the form content.
+        </p>
+        <input
+          type="text"
+          value={focusKeyword}
+          onChange={(e) => setFocusKeyword(e.target.value)}
+          placeholder="e.g. Luxembourg city tour"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+        />
+        {focusKeyword ? (
+          <div className="mt-2 flex items-center gap-3 text-[10px]">
+            <span className="text-muted-foreground">
+              Density:{" "}
+              <span className={cn("font-semibold", density >= 0.5 && density <= 2.5 ? "text-emerald-500" : "text-amber-500")}>
+                {density.toFixed(1)}%
+              </span>
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="text-muted-foreground">
+              {kwCount} occurrence{kwCount !== 1 ? "s" : ""} in {words} words
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className={cn("font-semibold", density >= 0.5 && density <= 2.5 ? "text-emerald-500" : density === 0 ? "text-red-400" : "text-amber-500")}>
+              {density === 0 ? "Not found" : density >= 0.5 && density <= 2.5 ? "Good density" : density < 0.5 ? "Too low" : "Too high"}
+            </span>
+          </div>
+        ) : (
+          <p className="mt-2 text-[10px] text-muted-foreground/60">
+            Without a focus keyword, keyword-based checks will fail.
+          </p>
+        )}
+      </div>
 
-      {/* ── SERP preview ─────────────────────────────────────────────────── */}
+      {/* ── SERP Preview ────────────────────────────────────────────────── */}
       <div className="border-b border-border px-5 py-4">
         <div className="mb-2.5 flex items-center justify-between">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Preview</span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setEditSnippet((v) => !v)}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-secondary/60 transition-colors"
-            >
-              {editSnippet ? <Eye className="h-3 w-3" /> : <Edit3 className="h-3 w-3" />}
-              {editSnippet ? "Preview" : "Edit Snippet"}
-            </button>
-          </div>
+          <button
+            onClick={() => setEditSnippet((v) => !v)}
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-secondary/60 transition-colors"
+          >
+            {editSnippet ? <Eye className="h-3 w-3" /> : <Edit3 className="h-3 w-3" />}
+            {editSnippet ? "Preview" : "Edit Snippet"}
+          </button>
         </div>
 
         {!editSnippet ? (
-          /* Google-style SERP card */
           <div className="rounded-lg border border-border bg-white p-3 font-sans shadow-sm dark:bg-secondary/20">
             <p className="mb-0.5 truncate text-[11px] text-green-700 dark:text-green-400">{url}</p>
             <p className="text-sm font-medium leading-snug text-blue-700 dark:text-blue-400">
@@ -321,7 +312,6 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
             </p>
           </div>
         ) : (
-          /* Snippet editor */
           <div className="space-y-3">
             <div>
               <label className="mb-1 flex items-center justify-between text-[11px] font-medium text-muted-foreground">
@@ -353,47 +343,17 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
                 className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { onApplyOptimization("title", seoTitle); setEditSnippet(false) }}
-                className="flex-1 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-              >
-                Apply to Form
-              </button>
-              <button
-                onClick={() => fixWithAI("meta-description")}
-                disabled={!!aiLoading}
-                className="flex items-center gap-1.5 rounded-lg bg-violet-500/10 px-3 py-2 text-xs font-semibold text-violet-600 hover:bg-violet-500/20 transition-colors disabled:opacity-50 dark:text-violet-400"
-              >
-                {aiLoading === "meta-description" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                AI Meta
-              </button>
-            </div>
+            <button
+              onClick={() => { onApplyOptimization("title", seoTitle); setEditSnippet(false) }}
+              className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Apply to Form
+            </button>
           </div>
         )}
       </div>
 
-      {/* ── Focus Keyword ─────────────────────────────────────────────────── */}
-      <div className="border-b border-border px-5 py-4">
-        <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Focus Keyword
-        </label>
-        <input
-          type="text"
-          value={focusKeyword}
-          onChange={(e) => setFocusKeyword(e.target.value)}
-          placeholder="e.g. Luxembourg city tour"
-          className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-        />
-        {focusKeyword && (
-          <p className="mt-1.5 text-[10px] text-muted-foreground">
-            Density: <span className={cn(density >= 0.5 && density <= 2.5 ? "text-emerald-500" : "text-amber-500")}>{density.toFixed(1)}%</span>
-            {" · "}{kwCount} occurrence{kwCount !== 1 ? "s" : ""} in {words} words
-          </p>
-        )}
-      </div>
-
-      {/* ── Accordions ───────────────────────────────────────────────────── */}
+      {/* ── Accordion sections ───────────────────────────────────────────── */}
       <div className="divide-y divide-border">
         {sections.map((section) => {
           const errors = section.checks.filter((c) => !c.pass).length
@@ -401,7 +361,6 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
 
           return (
             <div key={section.id}>
-              {/* Section header */}
               <button
                 onClick={() => toggleSection(section.id)}
                 className={cn(
@@ -424,11 +383,10 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
                   )}
                 </div>
                 {isOpen
-                  ? <ChevronUp  className="h-4 w-4 text-muted-foreground" />
+                  ? <ChevronUp   className="h-4 w-4 text-muted-foreground" />
                   : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
               </button>
 
-              {/* Check list */}
               {isOpen && (
                 <div className="bg-background px-5 pb-4 pt-2">
                   <div className="space-y-3.5">
@@ -440,29 +398,15 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
                           ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
                           : <XCircle      className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />}
 
-                        {/* Message + AI fix button */}
-                        <div className="min-w-0 flex-1">
-                          <span className={cn(
-                            "text-[13px] leading-snug",
-                            check.pass ? "text-muted-foreground line-through decoration-muted-foreground/30" : "text-foreground"
-                          )}>
-                            {check.message}
-                          </span>
-
-                          {/* "Fix with AI" — only for fixable failing checks */}
-                          {check.aiFixable && !check.pass && check.fixType && (
-                            <button
-                              onClick={() => fixWithAI(check.fixType!)}
-                              disabled={!!aiLoading}
-                              className="mt-1.5 flex items-center gap-1.5 rounded-full bg-violet-100 px-2.5 py-0.5 text-[11px] font-semibold text-violet-600 transition-colors hover:bg-violet-200 disabled:opacity-50 dark:bg-violet-500/15 dark:text-violet-400 dark:hover:bg-violet-500/25"
-                            >
-                              {aiLoading === check.fixType
-                                ? <Loader2  className="h-3 w-3 animate-spin" />
-                                : <Sparkles className="h-3 w-3" />}
-                              {aiLoading === check.fixType ? "Fixing…" : "Fix with AI"}
-                            </button>
-                          )}
-                        </div>
+                        {/* Message */}
+                        <span className={cn(
+                          "flex-1 text-[13px] leading-snug",
+                          check.pass
+                            ? "text-muted-foreground line-through decoration-muted-foreground/30"
+                            : "text-foreground"
+                        )}>
+                          {check.message}
+                        </span>
 
                         {/* Help tooltip */}
                         <div className="relative shrink-0">
