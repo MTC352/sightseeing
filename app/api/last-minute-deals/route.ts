@@ -10,6 +10,11 @@
  *   3. slot is still bookable
  *
  * Returns up to lmd_max_cards qualifying slots, sorted soonest-first.
+ * When no live deals qualify, also returns `previewDeals` (soonest upcoming
+ * slots with no rules applied) so the widget always has content to show.
+ *
+ * When the discovery cache is still warming (cold start), returns
+ * `cacheWarming: true` so the client retries after a short delay.
  */
 
 import { NextResponse } from "next/server"
@@ -21,6 +26,8 @@ import {
   getLmdMaxHours,
   getLmdMaxCards,
   getShowAvailability,
+  isDiscoveryExpired,
+  triggerDiscoveryBootstrap,
 } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
@@ -44,15 +51,24 @@ export async function GET() {
   try {
     const widgetEnabled = await getLmdWidgetEnabled()
     if (!widgetEnabled) {
-      return NextResponse.json({ ok: true, enabled: false, deals: [] })
+      return NextResponse.json({ ok: true, enabled: false, deals: [], previewDeals: [] })
+    }
+
+    // Mirror the departing-soon bootstrap pattern: trigger a background refresh
+    // when stale/absent, but only block (return cacheWarming) on true cold start.
+    if (isDiscoveryExpired()) {
+      triggerDiscoveryBootstrap()
     }
 
     if (!discoveryCache) {
+      // Cache is still warming (cold start). Tell the client to retry.
       return NextResponse.json({
         ok: true,
         enabled: true,
+        cacheWarming: true,
         deals: [],
-        hint: "Discovery cache not yet populated — departing soon widget must load first.",
+        previewDeals: [],
+        hint: "Discovery cache is warming — retry in a few seconds.",
       })
     }
 
@@ -83,7 +99,6 @@ export async function GET() {
           if (!avail.stillBookable) continue
           spaces = avail.spacesRemaining
         } else {
-          // Avail cache exists but hasn't fetched this slot yet — use snapshot
           spaces = slot.initialSpacesRemaining
         }
       } else {
@@ -115,16 +130,48 @@ export async function GET() {
       if (deals.length >= maxCards) break
     }
 
+    // When no live deals qualify, build a preview from the soonest upcoming slots
+    // (no rules applied) so the widget always has something to show.
+    const previewDeals: LastMinuteDealItem[] = []
+    if (deals.length === 0) {
+      for (const slot of discoveryCache.allSlots) {
+        if (slot.startTimeUtcSeconds <= nowUtc) continue
+        const hoursUntilDeparture =
+          Math.round(((slot.startTimeUtcSeconds - nowUtc) / 3600) * 10) / 10
+        const spaces =
+          showAvail && availabilityCache
+            ? (availabilityCache.bySlotKey[`${slot.tripId}:${slot.date}:${slot.time}`]
+                ?.spacesRemaining ?? slot.initialSpacesRemaining)
+            : slot.initialSpacesRemaining
+        previewDeals.push({
+          tripId: slot.tripId,
+          palisisId: slot.palisisId,
+          tripTitle: slot.tripTitle,
+          tripImage: slot.tripImage,
+          tripCategory: slot.tripCategory,
+          tripCity: slot.tripCity,
+          date: slot.date,
+          time: slot.time,
+          startTimeUtcSeconds: slot.startTimeUtcSeconds,
+          priceDisplay: slot.priceDisplay,
+          spacesRemaining: spaces === "UNLIMITED" ? 999 : (spaces ?? 0),
+          hoursUntilDeparture,
+        })
+        if (previewDeals.length >= maxCards) break
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       enabled: true,
       deals,
+      previewDeals,
       rules: { maxSpaces, maxHours, maxCards },
     })
   } catch (err) {
     console.error("[last-minute-deals] GET threw:", err)
     return NextResponse.json(
-      { ok: false, deals: [], error: err instanceof Error ? err.message : String(err) },
+      { ok: false, deals: [], previewDeals: [], error: err instanceof Error ? err.message : String(err) },
       { status: 500 },
     )
   }
