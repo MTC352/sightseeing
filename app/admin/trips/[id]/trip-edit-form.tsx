@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
-import { SEOAnalysisWidget } from "@/components/admin/seo-analysis-widget"
+import { SEOOptimizer } from "@/components/admin/seo-optimizer"
 
 const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
 const COMMON_TAGS = ["popular", "outdoor", "indoor", "family", "sport", "culture", "food", "night", "free", "premium", "adventure", "museum", "music", "car", "popular"]
@@ -470,8 +470,8 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           </div>
         </section>
 
-        {/* AI SEO Analysis */}
-        <SEOAnalysisWidget
+        {/* SEO Optimizer */}
+        <SEOOptimizer
           tripData={form}
           onApplyOptimization={(field, value) => {
             if (field === "highlights" && Array.isArray(value)) {
