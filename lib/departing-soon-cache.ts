@@ -154,6 +154,10 @@ export async function getWidgetEnabled(): Promise<boolean> {
 export async function getShowAvailability(): Promise<boolean> {
   return getBoolSetting("departing_soon_show_availability", true)
 }
+/** Spaces-remaining threshold below which the pill is shown. Default 15. */
+export async function getAvailabilityThreshold(): Promise<number> {
+  return getNumericSetting("departing_soon_availability_threshold", 15, 1, 999)
+}
 
 /** True when the discovery window is empty or has elapsed. */
 export function isDiscoveryExpired(): boolean {

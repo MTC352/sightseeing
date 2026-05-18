@@ -240,6 +240,7 @@ export default function IntegrationsPage() {
         departing_soon_discovery_window_days: String(dsWindowDays),
         departing_soon_availability_ttl_seconds: String(dsAvailTtlSec),
         departing_soon_auto_update_interval_seconds: String(dsAvailSec),
+        departing_soon_availability_threshold: String(dsAvailThreshold),
       }
       await fetch("/api/admin/settings", {
         method: "PATCH",
@@ -360,6 +361,7 @@ export default function IntegrationsPage() {
   const dsAvailSec       = parseInt(keys.departing_soon_auto_update_interval_seconds ?? "30", 10) || 30
   const dsAvailTtlSec    = parseInt(keys.departing_soon_availability_ttl_seconds ?? "20", 10) || 20
   const dsSlotCount      = parseInt(keys.departing_soon_slot_count ?? "5", 10) || 5
+  const dsAvailThreshold = parseInt(keys.departing_soon_availability_threshold ?? "15", 10) || 15
   // Defaults: widget ON, show-availability ON, auto-update OFF
   const dsWidgetEnabled  = (keys.departing_soon_widget_enabled ?? "true") === "true"
   const dsShowAvail      = (keys.departing_soon_show_availability ?? "true") === "true"
@@ -700,6 +702,26 @@ export default function IntegrationsPage() {
 
                     {dsShowAvail && (
                       <div className="flex flex-wrap items-end gap-3">
+                        <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                          <div className="flex items-center gap-1.5">
+                            <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Availability Pill Threshold</label>
+                            <InfoTip text="Cards show an availability pill when spaces remaining is below this number. Upper half of the range shows amber, lower half shows red. Default: 15." />
+                          </div>
+                          <div className="relative flex items-center">
+                            <input
+                              type="number"
+                              min={1} max={999} step={1}
+                              value={dsAvailThreshold}
+                              onChange={(e) => {
+                                const n = Math.max(1, Math.min(999, parseInt(e.target.value, 10) || 15))
+                                setKeys((k) => ({ ...k, departing_soon_availability_threshold: String(n) }))
+                                setDsDirty(true)
+                              }}
+                              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-16"
+                            />
+                            <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">spaces</span>
+                          </div>
+                        </div>
                         <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
                           <div className="flex items-center gap-1.5">
                             <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Read-Time Availability TTL</label>

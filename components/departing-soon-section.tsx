@@ -34,17 +34,26 @@ function SkeletonCard() {
   )
 }
 
-/** Render the availability pill:
- *   UNLIMITED / ≥15  → no pill
- *   5–14             → amber  "N left"
- *   1–4              → red    "N left"
- *   0                → red    "Full"
+/** Render the availability pill.
+ *   ≥ threshold or UNLIMITED → no pill
+ *   (threshold/2) … (threshold-1) → amber "N left"
+ *   1 … (threshold/2 - 1)         → red   "N left"
+ *   0                             → red   "Full"
+ *
+ *  The "red zone" is the lower half of the threshold; amber is the upper half.
  */
-function UrgencyBadge({ spaces }: { spaces: number | "UNLIMITED" | undefined }) {
+function UrgencyBadge({
+  spaces,
+  threshold = 15,
+}: {
+  spaces: number | "UNLIMITED" | undefined
+  threshold?: number
+}) {
   if (spaces === undefined || spaces === "UNLIMITED") return null
-  if (typeof spaces === "number" && spaces >= 15) return null
+  if (typeof spaces === "number" && spaces >= threshold) return null
+  const redLimit = Math.floor(threshold / 2)
   const colour =
-    spaces === 0 || spaces <= 4
+    spaces === 0 || spaces <= redLimit
       ? "bg-destructive text-white"
       : "bg-amber-500 text-white"
   const label = spaces === 0 ? "Full" : `${spaces} left`
@@ -79,6 +88,7 @@ export function DeparturesSoonSection() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [hidden, setHidden] = useState(false)
+  const [threshold, setThreshold] = useState(15)
   const retryCount = React.useRef(0)
   const retryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -115,6 +125,9 @@ export function DeparturesSoonSection() {
       setLoading(false)
       if (data.ok && Array.isArray(data.departures)) {
         setDepartures(data.departures)
+        if (typeof data.availabilityThreshold === "number") {
+          setThreshold(data.availabilityThreshold)
+        }
       }
     } catch {
       /* Network error — don't change anything; keep whatever state we had */
@@ -215,7 +228,7 @@ export function DeparturesSoonSection() {
                     </div>
 
                     {/* Urgency badge — top right (only 1-9 spaces) */}
-                    <UrgencyBadge spaces={dep.spacesRemaining} />
+                    <UrgencyBadge spaces={dep.spacesRemaining} threshold={threshold} />
                   </div>
 
                   {/* Content */}

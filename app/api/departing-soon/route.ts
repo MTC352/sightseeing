@@ -20,6 +20,7 @@ import {
   getAutoUpdateIntervalSeconds,
   getWidgetEnabled,
   getShowAvailability,
+  getAvailabilityThreshold,
 } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
@@ -131,6 +132,7 @@ export async function GET() {
 
     const autoUpdate = await getAutoUpdateEnabled()
     const intervalSecs = await getAutoUpdateIntervalSeconds()
+    const availabilityThreshold = await getAvailabilityThreshold()
 
     return NextResponse.json({
       ok: true,
@@ -139,6 +141,7 @@ export async function GET() {
       showAvailability,
       autoUpdate,
       intervalSecs,
+      availabilityThreshold,
       tourcmsConfigured: true,
       partial: departures.length < displayed.length,
       tripsChecked: discoveryCache?.tripsChecked ?? 0,
