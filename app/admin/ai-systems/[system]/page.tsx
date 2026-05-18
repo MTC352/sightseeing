@@ -20,7 +20,7 @@ const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
   },
   chat: {
     label: "Trip Chat",
-    hint: "Used on individual trip detail pages (/trip/[id]). Receives the specific trip context as part of the system prompt.",
+    hint: "Used on individual trip detail pages (/trip/[id]). At runtime it receives: the full current trip context, all published trips catalog, blog articles, and open job listings as a knowledge base. For complex itinerary questions it redirects to /planner. Use the system prompt to customise tone, restrict topics, or add operator-specific instructions.",
   },
   help: {
     label: "Help & FAQ Chat",
