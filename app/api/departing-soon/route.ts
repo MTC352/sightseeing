@@ -62,14 +62,20 @@ export async function GET() {
     const interval = isNaN(rawInterval) || rawInterval < 60 ? 300 : rawInterval
 
     if (memCache && Date.now() - memCache.cachedAt < interval * 1000) {
-      return NextResponse.json({
-        ok: true,
-        departures: memCache.departures,
-        autoUpdate,
-        interval,
-        cachedAt: new Date(memCache.cachedAt).toISOString(),
-        fromCache: true,
-      })
+      // Validate cached items — bust if any departure has already passed
+      const stillValid = memCache.departures.every((d) => isInFuture(d.date, d.time))
+      if (stillValid) {
+        return NextResponse.json({
+          ok: true,
+          departures: memCache.departures,
+          autoUpdate,
+          interval,
+          cachedAt: new Date(memCache.cachedAt).toISOString(),
+          fromCache: true,
+        })
+      }
+      // One or more cached items have departed — invalidate and re-fetch below
+      memCache = null
     }
 
     const departures = await fetchFreshDepartures()
