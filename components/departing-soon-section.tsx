@@ -34,15 +34,15 @@ function SkeletonCard() {
   )
 }
 
-/** Render the availability pill — original style:
- *   UNLIMITED / ≥9   → no pill
- *   5–8              → amber  "N left"
+/** Render the availability pill:
+ *   UNLIMITED / ≥15  → no pill
+ *   5–14             → amber  "N left"
  *   1–4              → red    "N left"
  *   0                → red    "Full"
  */
 function UrgencyBadge({ spaces }: { spaces: number | "UNLIMITED" | undefined }) {
   if (spaces === undefined || spaces === "UNLIMITED") return null
-  if (typeof spaces === "number" && spaces >= 9) return null
+  if (typeof spaces === "number" && spaces >= 15) return null
   const colour =
     spaces === 0 || spaces <= 4
       ? "bg-destructive text-white"
