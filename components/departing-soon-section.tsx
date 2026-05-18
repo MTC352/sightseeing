@@ -72,32 +72,62 @@ function dayLabel(dateIso: string): string {
   }
 }
 
+const RETRY_INTERVAL_MS = 4_000
+const MAX_RETRIES = 12   // 12 × 4s = 48s window — covers the ~35s cold-start discovery build
+
 export function DeparturesSoonSection() {
   const [departures, setDepartures] = useState<DepartingSoonItem[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [hidden, setHidden] = useState(false)
+  const retryCount = React.useRef(0)
+  const retryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchDepartures = useCallback(async () => {
+  const fetchDepartures = useCallback(async (isRetry = false) => {
     try {
       const res = await fetch("/api/departing-soon", { cache: "no-store" })
       const data = await res.json()
+
       // Administratively unavailable → hide widget (master toggle OFF or no TourCMS creds)
       if (data.widgetEnabled === false || data.tourcmsConfigured === false) {
         setHidden(true)
         setDepartures([])
+        setLoading(false)
+        retryCount.current = 0
         return
       }
+
+      // Server is bootstrapping discovery cache (cold start) — keep the skeleton
+      // visible and retry automatically every RETRY_INTERVAL_MS until ready.
+      if (res.status === 503 || data.error === "DISCOVERY_NOT_INITIALIZED") {
+        if (retryCount.current < MAX_RETRIES) {
+          retryCount.current += 1
+          // Keep loading=true so the skeleton stays on screen during retry wait
+          retryTimer.current = setTimeout(() => fetchDepartures(true), RETRY_INTERVAL_MS)
+        } else {
+          // Exhausted retries — stop showing skeleton, widget stays hidden
+          setLoading(false)
+        }
+        return
+      }
+
+      // Success
+      retryCount.current = 0
+      setLoading(false)
       if (data.ok && Array.isArray(data.departures)) {
         setDepartures(data.departures)
       }
     } catch {
-      /* ignore — render whatever we last had */
+      /* Network error — don't change anything; keep whatever state we had */
+      if (!isRetry) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    fetchDepartures().finally(() => setLoading(false))
+    fetchDepartures()
+    return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    }
   }, [fetchDepartures])
 
   async function manualRefresh() {
