@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
-  LayoutDashboard, Map, FileText, Briefcase, Tag, Bot,
+  LayoutDashboard, Map, FileText, Briefcase, Bot,
   Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings,
 } from "lucide-react"
 
@@ -26,7 +26,6 @@ const NAV: NavItem[] = [
     icon: Map,
     children: [
       { href: "/admin/trips/archived", label: "Archived", icon: Archive },
-      { href: "/admin/taxonomies", label: "Taxonomies", icon: Tag },
     ],
   },
   { href: "/admin/blog", label: "Blog", icon: FileText },
