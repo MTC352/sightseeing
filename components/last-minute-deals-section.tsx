@@ -71,9 +71,7 @@ function SkeletonCard() {
 // ─── DYNAMIC deal card — TripCard layout + urgency indicators ─────────────────
 
 function DynamicDealCard({ item }: { item: DealItem }) {
-  const href = item.permalink
-    ? `/trip/${item.permalink}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
-    : `/trip/${item.tripId}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
+  const href = `/trip/${item.tripId}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
   const slotLabel   = formatSlotBadge(item.date, item.time)
   const isVeryUrgent = item.hoursUntilDeparture <= 6
   const urgencyBg   = isVeryUrgent ? "bg-destructive text-white" : "bg-amber-500 text-white"
@@ -150,9 +148,7 @@ function DynamicDealCard({ item }: { item: DealItem }) {
 // ─── PREVIEW deal card — pixel-identical to TripCard default variant ──────────
 
 function PreviewDealCard({ item }: { item: DealItem }) {
-  const href = item.permalink
-    ? `/trip/${item.permalink}`
-    : `/trip/${item.tripId}`
+  const href = `/trip/${item.tripId}`
   const hasDiscount   = !!(item.originalPrice && item.originalPrice > item.price && item.price > 0)
   const discountPct   = hasDiscount
     ? Math.round((1 - item.price / item.originalPrice!) * 100)
