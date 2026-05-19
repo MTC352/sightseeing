@@ -17,16 +17,20 @@ import type { TourDetail, TourSummary } from "@/lib/tourcms"
 
 // ── TourCMS lookup tables ─────────────────────────────────────────────────────
 
-/** product_type code → user-friendly label */
+/**
+ * product_type code → label. MUST match the verbatim Palisis "Tour type"
+ * radio list (mirrored in TOUR_TYPE_OPTIONS in trip-edit-form.tsx) so the
+ * edit-form `<select>` can match the stored value.
+ */
 const PRODUCT_TYPE_LABELS: Record<number, string> = {
-  1: "Accommodation",
-  2: "Transport / Transfer",
-  3: "Multi-day Tour or Cruise",
-  4: "Day Tour / Attraction",
-  5: "Tailor Made",
+  1: "Accommodation (hotel/campsite/villa/ski chalet/lodge)",
+  2: "Transport/Transfer",
+  3: "Tour/cruise - Including overnight stay",
+  4: "Day tour/trip/activity/attraction - No overnight stay",
+  5: "Tailor made",
   6: "Event",
-  7: "Training / Education",
-  8: "Restaurant / Meal",
+  7: "Training/education",
+  8: "Restaurant/meal alternative",
   9: "Other",
 }
 
