@@ -876,7 +876,7 @@ export default function PlannerPage() {
 
           {/* ── Center Itinerary Panel (desktop slide-in) ── */}
           {centerItinerary && (
-            <div className="absolute inset-0 z-20 hidden bg-card lg:flex lg:flex-col">
+            <div className="absolute inset-0 z-[60] hidden bg-card lg:flex lg:flex-col">
               <ItineraryPanel
                 itinerary={centerItinerary}
                 onClose={() => setCenterItinerary(null)}
@@ -1006,7 +1006,7 @@ export default function PlannerPage() {
                 </button>
                 {/* Keep map mounted always so Mapbox persists and fitBounds fires immediately on result changes */}
                 <div className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
-                  <SightseeingMap trips={resultTrips} onSelect={handleTripSelect} visible={mapExpanded} />
+                  <SightseeingMap trips={resultTrips} onSelect={handleTripSelect} visible={mapExpanded} suppressFullscreen={!!centerItinerary} />
                 </div>
               </div>
 

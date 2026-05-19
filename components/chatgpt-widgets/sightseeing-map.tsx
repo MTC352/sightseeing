@@ -53,9 +53,11 @@ interface SightseeingMapProps {
   trips: Trip[]
   onSelect?: (trip: Trip) => void
   visible?: boolean
+  /** When true, forces the map to exit fullscreen so a sibling overlay (e.g. the itinerary panel) is not obscured. */
+  suppressFullscreen?: boolean
 }
 
-export function SightseeingMap({ trips, onSelect, visible = true }: SightseeingMapProps) {
+export function SightseeingMap({ trips, onSelect, visible = true, suppressFullscreen = false }: SightseeingMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapboxRef = useRef<any>(null)
@@ -68,6 +70,11 @@ export function SightseeingMap({ trips, onSelect, visible = true }: SightseeingM
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
+
+  // Auto-exit fullscreen whenever the parent flags a higher-priority overlay (e.g. the itinerary panel)
+  useEffect(() => {
+    if (suppressFullscreen && isFullscreen) setIsFullscreen(false)
+  }, [suppressFullscreen, isFullscreen])
 
   // Init map once
   useEffect(() => {
