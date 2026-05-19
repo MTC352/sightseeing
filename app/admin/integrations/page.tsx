@@ -5,8 +5,9 @@ import Link from "next/link"
 import {
   Save, Check, Eye, EyeOff, ExternalLink, AlertCircle,
   Cloud, Map, Bot, Zap, Globe, Star, RefreshCw, Calendar,
-  KeyRound, Settings2, ChevronDown, Info,
+  KeyRound, Settings2, ChevronDown, Info, Sliders,
 } from "lucide-react"
+import TripFieldsPanel from "@/components/admin/trip-fields-panel"
 
 interface ApiKeyField {
   key: string
@@ -145,7 +146,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
 ]
 
 type ApiKeys = Record<string, string>
-type Tab = "keys" | "settings"
+type Tab = "keys" | "settings" | "trip-fields"
 
 const inputBase =
   "w-full rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -472,7 +473,21 @@ export default function IntegrationsPage() {
           <Settings2 className="h-3.5 w-3.5" />
           Settings
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("trip-fields")}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "trip-fields"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Sliders className="h-3.5 w-3.5" />
+          Manage Trip Fields
+        </button>
       </div>
+
+      {tab === "trip-fields" && <TripFieldsPanel />}
 
       {/* ── API KEYS TAB ─────────────────────────────────────────── */}
       {tab === "keys" && (

@@ -1,16 +1,17 @@
 "use client"
 
 /**
- * /admin/settings/trips
+ * Trip Field Editability panel.
+ * Rendered inside `/admin/integrations` (Trip Fields tab).
  *
- * Per-field editability policy for the trip edit form.
- * Read-only fields here are still updated by Palisis sync — this only
- * affects the admin UI.
+ * Note: read-only is UI-only. Palisis sync still writes every field to our DB
+ * (see lib/palisis-sync.ts). This setting only affects which inputs are
+ * editable in the admin trip-edit form.
  */
 import { useEffect, useMemo, useState } from "react"
 import { TRIP_FIELDS, type FieldMode, type TripFieldPolicy } from "@/lib/trip-field-policy"
 
-export default function TripFieldsSettingsPage() {
+export default function TripFieldsPanel() {
   const [policy, setPolicy] = useState<TripFieldPolicy>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -75,10 +76,10 @@ export default function TripFieldsSettingsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-4 flex items-start justify-between gap-4">
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Choose which fields admins can edit on the trip edit page. Read-only fields are still updated
-          automatically by every Palisis sync — this only controls the editing UI.
+          Choose which fields admins can edit on the trip edit page. Read-only fields are still
+          updated automatically by every Palisis sync — this only controls the editing UI.
         </p>
         <button
           onClick={save}
@@ -96,7 +97,9 @@ export default function TripFieldsSettingsPage() {
             key={k}
             onClick={() => setFilter(k)}
             className={`rounded-full px-3 py-1 font-medium transition-colors ${
-              filter === k ? "bg-primary/15 text-primary ring-1 ring-primary/30" : "border border-border text-muted-foreground hover:text-foreground"
+              filter === k
+                ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                : "border border-border text-muted-foreground hover:text-foreground"
             }`}
           >
             {k === "all" ? "All fields" : k === "palisis" ? "Palisis-sourced" : "Local-only"}
@@ -128,13 +131,20 @@ export default function TripFieldsSettingsPage() {
               {fields.map(f => {
                 const mode: FieldMode = policy[f.key] === "readonly" ? "readonly" : "editable"
                 return (
-                  <li key={f.key} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2">
+                  <li
+                    key={f.key}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2"
+                  >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-foreground">{f.label}</span>
-                        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                          f.source === "palisis" ? "bg-blue-50 text-blue-600 ring-1 ring-blue-200" : "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200"
-                        }`}>
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                            f.source === "palisis"
+                              ? "bg-blue-50 text-blue-600 ring-1 ring-blue-200"
+                              : "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200"
+                          }`}
+                        >
                           {f.source}
                         </span>
                       </div>
@@ -144,7 +154,9 @@ export default function TripFieldsSettingsPage() {
                       <button
                         onClick={() => setMode(f.key, "editable")}
                         className={`px-2.5 py-1 font-medium transition-colors ${
-                          mode === "editable" ? "bg-emerald-500/15 text-emerald-700" : "bg-background text-muted-foreground hover:text-foreground"
+                          mode === "editable"
+                            ? "bg-emerald-500/15 text-emerald-700"
+                            : "bg-background text-muted-foreground hover:text-foreground"
                         }`}
                       >
                         Editable
@@ -152,7 +164,9 @@ export default function TripFieldsSettingsPage() {
                       <button
                         onClick={() => setMode(f.key, "readonly")}
                         className={`border-l border-border px-2.5 py-1 font-medium transition-colors ${
-                          mode === "readonly" ? "bg-amber-500/15 text-amber-700" : "bg-background text-muted-foreground hover:text-foreground"
+                          mode === "readonly"
+                            ? "bg-amber-500/15 text-amber-700"
+                            : "bg-background text-muted-foreground hover:text-foreground"
                         }`}
                       >
                         Read-only
