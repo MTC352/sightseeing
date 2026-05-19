@@ -1,65 +1,10 @@
 import { NextResponse } from "next/server"
 import { getTourCMSClient } from "@/lib/tourcms"
-import type { TourDetail, TourSummary } from "@/lib/tourcms"
+import type { TourSummary } from "@/lib/tourcms"
+import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper"
 import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog } from "@/lib/db/queries"
 
 export const dynamic = "force-dynamic"
-
-// ── Field mapping: TourCMS tour response → our trips DB schema ────────────────
-function mapTourDetail(t: TourDetail | TourSummary) {
-  const full = t as TourDetail
-
-  const tourId = String(t.tour_id ?? "")
-  const title  = String(t.tour_name_long ?? t.tour_name ?? "")
-
-  const desc = String(
-    full.shortdesc ?? full.summary ?? (t as TourSummary).description ?? (t as TourSummary).tagline ?? ""
-  )
-
-  const price = parseFloat(String(t.from_price ?? "0")) || 0
-
-  // Extract all gallery images from Palisis (xlarge → large → url → thumbnail)
-  const rawImages = full.images?.image
-  const imageList = Array.isArray(rawImages) ? rawImages : (rawImages ? [rawImages] : [])
-  const galleryUrls: string[] = imageList
-    .map(img => String(img.url_xlarge ?? img.url_large ?? img.url ?? img.url_thumbnail ?? ""))
-    .filter(Boolean)
-
-  const image = galleryUrls[0]
-    ?? String((t as TourSummary).image_url ?? full.thumbnail_image ?? "")
-  const gallery = galleryUrls.length > 0
-    ? galleryUrls
-    : (full.thumbnail_image ? [String(full.thumbnail_image)] : [])
-
-  const duration = String(full.duration_desc ?? t.duration ?? (t as TourSummary).duration_description ?? "")
-  const location = String(t.location ?? (t as TourSummary).location_summary ?? "Luxembourg")
-  const supplier = String((t as TourSummary).supplier_name ?? "Sightseeing.lu")
-
-  const palisisBookUrl = String(full.book_url ?? t.tour_url ?? "")
-
-  return {
-    palisisId:         tourId,
-    title,
-    description:       desc,
-    price,
-    duration,
-    category:          "Tours",
-    tags:              [] as string[],
-    city:              location,
-    provider:          supplier,
-    image,
-    gallery,
-    highlights:        [] as string[],
-    badge:             null,
-    rating:            0,
-    reviewCount:       0,
-    featured:          false,
-    featuredDeparture: false,
-    status:            "published" as const,
-    permalink:         palisisBookUrl || null,
-    originalPrice:     null,
-  }
-}
 
 // ── POST /api/admin/palisis-import ────────────────────────────────────────────
 export async function POST(req: Request) {
@@ -205,13 +150,13 @@ export async function POST(req: Request) {
         if (!detail.ok || !detail.tour) {
           // Fall back to lean (list) data — fewer fields but always available
           logs.push(`[${ts()}] WARN: showTour failed for ${palisisId} (${detail.error}) — using lean data`)
-          const mapped = mapTourDetail(lean)
+          const mapped = mapTourDetailToTrip(lean)
           await dbCreateTrip({ ...mapped, palisisId, title: leanTitle || mapped.title })
           tourResults.push({ palisisId, title: leanTitle || palisisId, action: "created_lean", error: detail.error })
           apiErrors++
         } else {
           // Use full detail, but ALWAYS use the lean tour_id as the DB key
-          const mapped      = mapTourDetail(detail.tour)
+          const mapped      = mapTourDetailToTrip(detail.tour)
           const displayTitle = String(detail.tour.tour_name_long ?? detail.tour.tour_name ?? leanTitle)
           await dbCreateTrip({ ...mapped, palisisId, title: displayTitle || leanTitle })
           tourResults.push({ palisisId, title: displayTitle || leanTitle, action: "created" })
@@ -232,19 +177,11 @@ export async function POST(req: Request) {
           continue
         }
 
-        const mapped       = mapTourDetail(detail.tour)
+        const mapped       = mapTourDetailToTrip(detail.tour)
         const displayTitle = String(detail.tour.tour_name_long ?? detail.tour.tour_name ?? leanTitle)
-        await dbUpdateTrip(localTrip.id, {
-          title:       displayTitle || leanTitle || mapped.title,
-          description: mapped.description,
-          price:       mapped.price,
-          duration:    mapped.duration,
-          image:       mapped.image,
-          gallery:     mapped.gallery,
-          city:        mapped.city,
-          provider:    mapped.provider,
-          ...(localTrip.permalink ? {} : { permalink: mapped.permalink }),
-        })
+        const payload      = mappedToUpdatePayload(mapped, { preservePermalink: !!localTrip.permalink })
+        payload.title      = displayTitle || leanTitle || mapped.title
+        await dbUpdateTrip(localTrip.id, payload)
         tourResults.push({ palisisId, title: displayTitle || leanTitle, action: "updated" })
         logs.push(`[${ts()}] Updated trip ${palisisId}: "${displayTitle || leanTitle}"`)
         updated++

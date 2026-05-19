@@ -10,6 +10,7 @@ import { trips as seedTrips } from "./data"
 
 export interface AdminTrip {
   id: string
+  palisis_id?: string
   title: string
   description: string
   price: number
@@ -30,6 +31,43 @@ export interface AdminTrip {
   featured: boolean
   featuredDeparture: boolean
   status: "published" | "draft"
+
+  // ── Rich Palisis fields (imported from showTour, editable in admin) ────────
+  tourType?: string | null
+  tourTypeCode?: number | null
+  tourLeader?: string | null
+  grade?: string | null
+  accommodationRating?: string | null
+  tripTags?: string[]
+  languages?: string[]
+  departureLocation?: string | null
+  departureGeocode?: string | null
+  endLocation?: string | null
+  endGeocode?: string | null
+  country?: string | null
+  commercialPriority?: string | null
+  shortDescription?: string | null
+  longDescription?: string | null
+  experienceHighlights?: string | null
+  included?: string[]
+  excluded?: string[]
+  essentialInformation?: string | null
+  hotelPickupInstructions?: string | null
+  voucherRedemptionInstructions?: string | null
+  restrictions?: string | null
+  extras?: string | null
+  itinerary?: string | null
+  receiptInformation?: string | null
+  pdfUrl?: string | null
+  videoUrl?: string | null
+  cancellationPolicy?: string | null
+  minBookingSize?: number | null
+  maxBookingSize?: number | null
+  nonRefundable?: boolean
+  nextBookableDate?: string | null
+  lastBookableDate?: string | null
+  lastSyncedAt?: string | null
+  syncSource?: string | null
 }
 
 export interface AdminJob {

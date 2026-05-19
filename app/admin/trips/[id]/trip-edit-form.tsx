@@ -11,6 +11,71 @@ import { RichTextEditor } from "@/components/admin/rich-text-editor"
 const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
 const COMMON_TAGS = ["popular", "outdoor", "indoor", "family", "sport", "culture", "food", "night", "free", "premium", "adventure", "museum", "music", "car", "popular"]
 
+// ── Palisis / TourCMS friendly-label vocabularies ──────────────────────────────
+const TOUR_TYPE_OPTIONS = [
+  "Accommodation",
+  "Transport / Transfer",
+  "Multi-day Tour or Cruise",
+  "Day Tour / Attraction",
+  "Tailor Made",
+  "Event",
+  "Training / Education",
+  "Restaurant / Meal",
+  "Other",
+]
+const TOUR_LEADER_OPTIONS = [
+  "Guided (tour guide / driver)",
+  "Independent / Self-drive",
+  "Not applicable",
+]
+const GRADE_OPTIONS = [
+  "All ages / Not applicable",
+  "Moderate",
+  "Fit",
+  "Challenging",
+  "Extreme",
+]
+const COMMERCIAL_PRIORITY_OPTIONS = ["HIGH", "MEDIUM", "LOW"]
+/** Full TourCMS trip-tag vocabulary. Tokens stored as-is in DB. */
+const TRIP_TAG_VOCAB: { token: string; label: string }[] = [
+  { token: "adults-only", label: "Adults only" },
+  { token: "animals", label: "Animals" },
+  { token: "audio-guide", label: "Audio guide" },
+  { token: "beaches", label: "Beaches" },
+  { token: "bike-tours", label: "Bike tours" },
+  { token: "boat-tours", label: "Boat tours" },
+  { token: "city-cards", label: "City cards" },
+  { token: "classes", label: "Classes" },
+  { token: "day-trips", label: "Day trips" },
+  { token: "family-friendly", label: "Family friendly" },
+  { token: "fast-track", label: "Fast-track" },
+  { token: "food", label: "Food" },
+  { token: "history", label: "History" },
+  { token: "hop-on-hop-off", label: "Hop-on hop-off" },
+  { token: "literature", label: "Literature" },
+  { token: "live-music", label: "Live music" },
+  { token: "museums", label: "Museums" },
+  { token: "nightlife", label: "Nightlife" },
+  { token: "outdoors", label: "Outdoors" },
+  { token: "private-tours", label: "Private tours" },
+  { token: "romantic", label: "Romantic" },
+  { token: "small-group-tours", label: "Small group tours" },
+  { token: "sports", label: "Sports" },
+  { token: "suitable-for-solo", label: "Suitable for solo" },
+  { token: "suitable-for-couples", label: "Suitable for couples" },
+  { token: "suitable-for-children", label: "Suitable for children" },
+  { token: "suitable-for-groups", label: "Suitable for groups" },
+  { token: "suitable-for-students", label: "Suitable for students" },
+  { token: "suitable-for-business", label: "Suitable for business" },
+  { token: "suitable-for-wheelchairs", label: "Wheelchair accessible" },
+  { token: "theme-parks", label: "Theme parks" },
+  { token: "walking-tours", label: "Walking tours" },
+  { token: "official-ticket", label: "Official ticket" },
+  { token: "operator-direct-product", label: "Operator-direct" },
+  { token: "transfer", label: "Transfer" },
+  { token: "entrance-ticket", label: "Entrance ticket" },
+]
+
 export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
@@ -36,6 +101,10 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
       featured: false,
       featuredDeparture: false,
       status: "draft",
+      tripTags: [],
+      languages: [],
+      included: [],
+      excluded: [],
     }
   )
 
@@ -405,6 +474,294 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
             <button type="button" onClick={() => addHighlight(highlightInput)} className="rounded-lg border border-border px-3 text-muted-foreground hover:bg-secondary hover:text-foreground">
               <Plus className="h-4 w-4" />
             </button>
+          </div>
+        </section>
+
+        {/* ── Palisis-imported fields ─────────────────────────────────────────── */}
+        {trip?.palisis_id && (
+          <section className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-[11px] text-muted-foreground">
+            <span className="font-semibold text-primary">Palisis ID:</span> {trip.palisis_id}
+            {form.lastSyncedAt && (
+              <> · <span className="font-semibold">Last synced:</span> {new Date(form.lastSyncedAt).toLocaleString()}</>
+            )}
+            <span className="ml-2 text-muted-foreground/70">— edits stay on our site only; Palisis is the upstream source.</span>
+          </section>
+        )}
+
+        {/* Tour Type & Classification */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Tour Classification</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>Tour Type</label>
+              <select className={inputClass} value={form.tourType ?? ""} onChange={(e) => set("tourType", e.target.value || null)}>
+                <option value="">—</option>
+                {TOUR_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Tour Leader</label>
+              <select className={inputClass} value={form.tourLeader ?? ""} onChange={(e) => set("tourLeader", e.target.value || null)}>
+                <option value="">—</option>
+                {TOUR_LEADER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Grade</label>
+              <select className={inputClass} value={form.grade ?? ""} onChange={(e) => set("grade", e.target.value || null)}>
+                <option value="">—</option>
+                {GRADE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Commercial Priority</label>
+              <select className={inputClass} value={form.commercialPriority ?? ""} onChange={(e) => set("commercialPriority", e.target.value || null)}>
+                <option value="">—</option>
+                {COMMERCIAL_PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Accommodation Rating</label>
+              <input type="text" className={inputClass} placeholder="e.g. Luxury" value={form.accommodationRating ?? ""} onChange={(e) => set("accommodationRating", e.target.value || null)} />
+            </div>
+            <div>
+              <label className={labelClass}>Country (code)</label>
+              <input type="text" className={inputClass} placeholder="LU" value={form.country ?? ""} onChange={(e) => set("country", e.target.value || null)} />
+            </div>
+          </div>
+        </section>
+
+        {/* Trip Tags (friendly label for tour_tags) */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-1 text-sm font-semibold text-foreground">Trip Tags</h2>
+          <p className="mb-3 text-[11px] text-muted-foreground">Click to select the tags that apply to this trip.</p>
+          <div className="flex flex-wrap gap-1.5">
+            {TRIP_TAG_VOCAB.map(({ token, label }) => {
+              const selected = (form.tripTags ?? []).includes(token)
+              return (
+                <button
+                  key={token}
+                  type="button"
+                  onClick={() => {
+                    const cur = form.tripTags ?? []
+                    set("tripTags", selected ? cur.filter((t) => t !== token) : [...cur, token])
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    selected
+                      ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                      : "border border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                  }`}
+                >
+                  {selected ? "✓ " : ""}{label}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* Departure Location (friendly label for geocode_start_point) */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Departure & End Location</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>Departure Location</label>
+              <input type="text" className={inputClass} placeholder="e.g. Sightseeing.lu office" value={form.departureLocation ?? ""} onChange={(e) => set("departureLocation", e.target.value || null)} />
+            </div>
+            <div>
+              <label className={labelClass}>Departure Geocode (lat,lng)</label>
+              <input type="text" className={inputClass} placeholder="49.603207,6.089869" value={form.departureGeocode ?? ""} onChange={(e) => set("departureGeocode", e.target.value || null)} />
+            </div>
+            <div>
+              <label className={labelClass}>End Location</label>
+              <input type="text" className={inputClass} placeholder="Same as departure or other" value={form.endLocation ?? ""} onChange={(e) => set("endLocation", e.target.value || null)} />
+            </div>
+            <div>
+              <label className={labelClass}>End Geocode (lat,lng)</label>
+              <input type="text" className={inputClass} placeholder="49.603207,6.089869" value={form.endGeocode ?? ""} onChange={(e) => set("endGeocode", e.target.value || null)} />
+            </div>
+          </div>
+        </section>
+
+        {/* Languages */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-1 text-sm font-semibold text-foreground">Languages Spoken</h2>
+          <p className="mb-3 text-[11px] text-muted-foreground">Comma-separated (e.g. English, French, German).</p>
+          <input
+            type="text"
+            className={inputClass}
+            placeholder="English, French, German"
+            value={(form.languages ?? []).join(", ")}
+            onChange={(e) => set("languages", e.target.value.split(/,/).map((s) => s.trim()).filter(Boolean))}
+          />
+        </section>
+
+        {/* Included / Excluded */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">What's Included &amp; Excluded</h2>
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className={labelClass}>Included (one per line)</label>
+              <textarea
+                className={`${inputClass} min-h-[120px] font-sans`}
+                placeholder={"E-Bike rental\nHelmet"}
+                value={(form.included ?? []).join("\n")}
+                onChange={(e) => set("included", e.target.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean))}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Excluded (one per line)</label>
+              <textarea
+                className={`${inputClass} min-h-[120px] font-sans`}
+                placeholder={"Food & drinks\nSnacks"}
+                value={(form.excluded ?? []).join("\n")}
+                onChange={(e) => set("excluded", e.target.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean))}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Long-form text fields */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Detailed Descriptions</h2>
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className={labelClass}>Short Description</label>
+              <textarea
+                className={`${inputClass} min-h-[80px] font-sans`}
+                value={form.shortDescription ?? ""}
+                onChange={(e) => set("shortDescription", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Long Description</label>
+              <textarea
+                className={`${inputClass} min-h-[160px] font-sans`}
+                value={form.longDescription ?? ""}
+                onChange={(e) => set("longDescription", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Experience / Highlights (raw text)</label>
+              <textarea
+                className={`${inputClass} min-h-[100px] font-sans`}
+                value={form.experienceHighlights ?? ""}
+                onChange={(e) => set("experienceHighlights", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Itinerary</label>
+              <textarea
+                className={`${inputClass} min-h-[120px] font-sans`}
+                value={form.itinerary ?? ""}
+                onChange={(e) => set("itinerary", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Essential Information</label>
+              <textarea
+                className={`${inputClass} min-h-[100px] font-sans`}
+                value={form.essentialInformation ?? ""}
+                onChange={(e) => set("essentialInformation", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Hotel Pickup Instructions</label>
+              <textarea
+                className={`${inputClass} min-h-[80px] font-sans`}
+                value={form.hotelPickupInstructions ?? ""}
+                onChange={(e) => set("hotelPickupInstructions", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Voucher Redemption Instructions</label>
+              <textarea
+                className={`${inputClass} min-h-[80px] font-sans`}
+                value={form.voucherRedemptionInstructions ?? ""}
+                onChange={(e) => set("voucherRedemptionInstructions", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Restrictions</label>
+              <textarea
+                className={`${inputClass} min-h-[80px] font-sans`}
+                value={form.restrictions ?? ""}
+                onChange={(e) => set("restrictions", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Extras / Upgrades</label>
+              <textarea
+                className={`${inputClass} min-h-[80px] font-sans`}
+                value={form.extras ?? ""}
+                onChange={(e) => set("extras", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Receipt Information</label>
+              <textarea
+                className={`${inputClass} min-h-[80px] font-sans`}
+                value={form.receiptInformation ?? ""}
+                onChange={(e) => set("receiptInformation", e.target.value || null)}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Cancellation Policy</label>
+              <textarea
+                className={`${inputClass} min-h-[80px] font-sans`}
+                value={form.cancellationPolicy ?? ""}
+                onChange={(e) => set("cancellationPolicy", e.target.value || null)}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Booking constraints */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Booking Constraints</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>Min Booking Size</label>
+              <input type="number" min="0" className={inputClass} value={form.minBookingSize ?? ""} onChange={(e) => set("minBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
+            </div>
+            <div>
+              <label className={labelClass}>Max Booking Size</label>
+              <input type="number" min="0" className={inputClass} value={form.maxBookingSize ?? ""} onChange={(e) => set("maxBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
+            </div>
+            <div>
+              <label className={labelClass}>Next Bookable Date</label>
+              <input type="date" className={inputClass} value={form.nextBookableDate ?? ""} onChange={(e) => set("nextBookableDate", e.target.value || null)} />
+            </div>
+            <div>
+              <label className={labelClass}>Last Bookable Date</label>
+              <input type="date" className={inputClass} value={form.lastBookableDate ?? ""} onChange={(e) => set("lastBookableDate", e.target.value || null)} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass}>Non-refundable</label>
+              <button
+                type="button"
+                onClick={() => set("nonRefundable", !form.nonRefundable)}
+                className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.nonRefundable ? "bg-primary" : "bg-border"}`}
+                role="switch"
+                aria-checked={form.nonRefundable}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.nonRefundable ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Media files: PDF + Video */}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Additional Media</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>PDF Document URL</label>
+              <input type="url" className={inputClass} placeholder="https://…" value={form.pdfUrl ?? ""} onChange={(e) => set("pdfUrl", e.target.value || null)} />
+            </div>
+            <div>
+              <label className={labelClass}>Video URL</label>
+              <input type="url" className={inputClass} placeholder="https://…" value={form.videoUrl ?? ""} onChange={(e) => set("videoUrl", e.target.value || null)} />
+            </div>
           </div>
         </section>
 

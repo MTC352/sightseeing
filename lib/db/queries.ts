@@ -14,27 +14,42 @@ import { query, queryOne } from "@/lib/db"
  *                          (use for all public/frontend reads + TourCMS integrations).
  *                          When false/omitted, returns drafts + published (admin use).
  */
+// Full SELECT list for trips — kept centralized so all read paths stay in sync.
+const TRIP_SELECT = `
+  id, palisis_id, title, title_override, description, description_override,
+  price::float, original_price::float as "originalPrice", duration, category, tags, city,
+  provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
+  permalink, google_business_url as "googleBusinessUrl",
+  featured, featured_departure as "featuredDeparture", status,
+  tour_type as "tourType", tour_type_code as "tourTypeCode",
+  tour_leader as "tourLeader", grade, accommodation_rating as "accommodationRating",
+  trip_tags as "tripTags", languages,
+  departure_location as "departureLocation", departure_geocode as "departureGeocode",
+  end_location as "endLocation", end_geocode as "endGeocode",
+  country, commercial_priority as "commercialPriority",
+  short_description as "shortDescription", long_description as "longDescription",
+  experience_highlights as "experienceHighlights",
+  included, excluded,
+  essential_information as "essentialInformation",
+  hotel_pickup_instructions as "hotelPickupInstructions",
+  voucher_redemption_instructions as "voucherRedemptionInstructions",
+  restrictions, extras, itinerary, receipt_information as "receiptInformation",
+  pdf_url as "pdfUrl", video_url as "videoUrl",
+  cancellation_policy as "cancellationPolicy",
+  min_booking_size as "minBookingSize", max_booking_size as "maxBookingSize",
+  non_refundable as "nonRefundable",
+  next_bookable_date as "nextBookableDate", last_bookable_date as "lastBookableDate",
+  last_synced_at as "lastSyncedAt", sync_source as "syncSource",
+  created_at, updated_at
+`
+
 export async function dbListTrips(opts: { publicOnly?: boolean } = {}) {
   const where = opts.publicOnly ? "status = 'published'" : "status != 'archived'"
-  return query(`
-    SELECT id, palisis_id, title, title_override, description, description_override,
-           price::float, original_price::float as "originalPrice", duration, category, tags, city,
-           provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
-           permalink, google_business_url as "googleBusinessUrl",
-           featured, featured_departure as "featuredDeparture", status, created_at, updated_at
-    FROM trips WHERE ${where} ORDER BY created_at DESC
-  `)
+  return query(`SELECT ${TRIP_SELECT} FROM trips WHERE ${where} ORDER BY created_at DESC`)
 }
 
 export async function dbListArchivedTrips() {
-  return query(`
-    SELECT id, palisis_id, title, title_override, description, description_override,
-           price::float, original_price::float as "originalPrice", duration, category, tags, city,
-           provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
-           permalink, google_business_url as "googleBusinessUrl",
-           featured, featured_departure as "featuredDeparture", status, created_at, updated_at
-    FROM trips WHERE status = 'archived' ORDER BY created_at DESC
-  `)
+  return query(`SELECT ${TRIP_SELECT} FROM trips WHERE status = 'archived' ORDER BY created_at DESC`)
 }
 
 /**
@@ -43,14 +58,7 @@ export async function dbListArchivedTrips() {
  */
 export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {}) {
   const extra = opts.publicOnly ? "AND status = 'published'" : ""
-  return queryOne(`
-    SELECT id, palisis_id, title, title_override, description, description_override,
-           price::float, original_price::float as "originalPrice", duration, category, tags, city,
-           provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
-           permalink, google_business_url as "googleBusinessUrl",
-           featured, featured_departure as "featuredDeparture", status, created_at, updated_at
-    FROM trips WHERE id = $1 ${extra}
-  `, [id])
+  return queryOne(`SELECT ${TRIP_SELECT} FROM trips WHERE id = $1 ${extra}`, [id])
 }
 
 export async function dbCreateTrip(data: Record<string, unknown>) {
@@ -63,10 +71,39 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
   const tripId    = (data.id as string | undefined)
                  ?? (palisisId ? `tcms_${palisisId}` : `t_${Date.now()}_${Math.random().toString(36).slice(2,8)}`)
   const rows = await query(`
-    INSERT INTO trips (id, palisis_id, title, description, price, original_price, duration, category,
+    INSERT INTO trips (
+      id, palisis_id, title, description, price, original_price, duration, category,
       tags, city, provider, image, gallery, highlights, badge, rating, review_count,
-      permalink, google_business_url, featured, featured_departure, status)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+      permalink, google_business_url, featured, featured_departure, status,
+      tour_type, tour_type_code, tour_leader, grade, accommodation_rating,
+      trip_tags, languages,
+      departure_location, departure_geocode, end_location, end_geocode,
+      country, commercial_priority,
+      short_description, long_description, experience_highlights,
+      included, excluded,
+      essential_information, hotel_pickup_instructions, voucher_redemption_instructions,
+      restrictions, extras, itinerary, receipt_information,
+      pdf_url, video_url, cancellation_policy,
+      min_booking_size, max_booking_size, non_refundable,
+      next_bookable_date, last_bookable_date,
+      palisis_raw, sync_source, last_synced_at
+    )
+    VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+      $18,$19,$20,$21,$22,
+      $23,$24,$25,$26,$27,
+      $28,$29,
+      $30,$31,$32,$33,
+      $34,$35,
+      $36,$37,$38,
+      $39,$40,
+      $41,$42,$43,
+      $44,$45,$46,$47,
+      $48,$49,$50,
+      $51,$52,$53,
+      $54,$55,
+      $56,$57,$58
+    )
     RETURNING *
   `, [
     tripId, palisisId ?? tripId,
@@ -76,6 +113,25 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
     data.highlights ?? [], data.badge ?? null, data.rating ?? 0,
     data.reviewCount ?? 0, data.permalink ?? null, data.googleBusinessUrl ?? null,
     data.featured ?? false, data.featuredDeparture ?? false, data.status ?? 'draft',
+    data.tourType ?? null, data.tourTypeCode ?? null, data.tourLeader ?? null,
+    data.grade ?? null, data.accommodationRating ?? null,
+    data.tripTags ?? [], data.languages ?? [],
+    data.departureLocation ?? null, data.departureGeocode ?? null,
+    data.endLocation ?? null, data.endGeocode ?? null,
+    data.country ?? null, data.commercialPriority ?? null,
+    data.shortDescription ?? null, data.longDescription ?? null,
+    data.experienceHighlights ?? null,
+    data.included ?? [], data.excluded ?? [],
+    data.essentialInformation ?? null, data.hotelPickupInstructions ?? null,
+    data.voucherRedemptionInstructions ?? null,
+    data.restrictions ?? null, data.extras ?? null,
+    data.itinerary ?? null, data.receiptInformation ?? null,
+    data.pdfUrl ?? null, data.videoUrl ?? null, data.cancellationPolicy ?? null,
+    data.minBookingSize ?? null, data.maxBookingSize ?? null,
+    data.nonRefundable ?? false,
+    data.nextBookableDate ?? null, data.lastBookableDate ?? null,
+    data.palisisRaw ?? null, data.syncSource ?? null,
+    data.lastSyncedAt ? new Date(data.lastSyncedAt as string) : null,
   ])
   return rows[0]
 }
@@ -92,6 +148,28 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     badge: 'badge', rating: 'rating', reviewCount: 'review_count', permalink: 'permalink',
     googleBusinessUrl: 'google_business_url', featured: 'featured',
     featuredDeparture: 'featured_departure', status: 'status',
+    // ── Palisis-rich fields ────────────────────────────────────────────────
+    tourType: 'tour_type', tourTypeCode: 'tour_type_code',
+    tourLeader: 'tour_leader', grade: 'grade', accommodationRating: 'accommodation_rating',
+    tripTags: 'trip_tags', languages: 'languages',
+    departureLocation: 'departure_location', departureGeocode: 'departure_geocode',
+    endLocation: 'end_location', endGeocode: 'end_geocode',
+    country: 'country', commercialPriority: 'commercial_priority',
+    shortDescription: 'short_description', longDescription: 'long_description',
+    experienceHighlights: 'experience_highlights',
+    included: 'included', excluded: 'excluded',
+    essentialInformation: 'essential_information',
+    hotelPickupInstructions: 'hotel_pickup_instructions',
+    voucherRedemptionInstructions: 'voucher_redemption_instructions',
+    restrictions: 'restrictions', extras: 'extras',
+    itinerary: 'itinerary', receiptInformation: 'receipt_information',
+    pdfUrl: 'pdf_url', videoUrl: 'video_url',
+    cancellationPolicy: 'cancellation_policy',
+    minBookingSize: 'min_booking_size', maxBookingSize: 'max_booking_size',
+    nonRefundable: 'non_refundable',
+    nextBookableDate: 'next_bookable_date', lastBookableDate: 'last_bookable_date',
+    palisisRaw: 'palisis_raw', syncSource: 'sync_source',
+    lastSyncedAt: 'last_synced_at',
   }
   for (const [key, col] of Object.entries(fieldMap)) {
     if (key in data) {

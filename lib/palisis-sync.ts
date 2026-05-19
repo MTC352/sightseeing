@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getTourCMSClient } from "@/lib/tourcms"
-import type { TourDetail } from "@/lib/tourcms"
+import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper"
 import {
   dbListTrips,
   dbCreateTrip,
@@ -25,58 +25,13 @@ export interface SingleSyncResult {
   duration_ms: number
 }
 
-function mapTourDetail(t: TourDetail) {
-  const tourId = String(t.tour_id ?? "")
-  const title  = String(t.tour_name_long ?? t.tour_name ?? "")
-  const desc   = String(t.shortdesc ?? t.summary ?? "")
-  const price  = parseFloat(String(t.from_price ?? "0")) || 0
-
-  // Extract all gallery images from Palisis — images.image is an array of image objects
-  const rawImages = t.images?.image
-  const imageList = Array.isArray(rawImages) ? rawImages : (rawImages ? [rawImages] : [])
-  // Pick the best URL for each image (xlarge → large → url → thumbnail)
-  const galleryUrls: string[] = imageList
-    .map(img => String(img.url_xlarge ?? img.url_large ?? img.url ?? img.url_thumbnail ?? ""))
-    .filter(Boolean)
-
-  // Featured image = first gallery image, or thumbnail fallback
-  const image = galleryUrls[0] ?? String(t.thumbnail_image ?? "")
-  // Full gallery = all distinct images; include thumbnail if nothing else
-  const gallery = galleryUrls.length > 0
-    ? galleryUrls
-    : (t.thumbnail_image ? [String(t.thumbnail_image)] : [])
-
-  const duration = String(t.duration_desc ?? t.duration ?? "")
-  const location = String(t.location ?? "Luxembourg")
-  const supplier = String((t as { supplier_name?: string }).supplier_name ?? "Sightseeing.lu")
-
-  return {
-    palisisId:   tourId,
-    title,
-    description: desc,
-    price,
-    duration,
-    category:    "Tours",
-    tags:        [] as string[],
-    city:        location,
-    provider:    supplier,
-    image,
-    gallery,
-    highlights:  [] as string[],
-    badge:       null,
-    rating:      0,
-    reviewCount: 0,
-    featured:    false,
-    featuredDeparture: false,
-    status:      "published" as const,
-    permalink:   String(t.book_url ?? t.tour_url ?? "") || null,
-    originalPrice: null,
-  }
-}
-
 /**
  * Sync a single trip from Palisis/TourCMS into our DB by palisis_id.
  * Always overrides existing row (or creates one if missing).
+ *
+ * Pulls the FULL `showTour` response (all rich fields — tour type, trip tags,
+ * departure location, included/excluded, itinerary, etc.) and stores them via
+ * the shared mapper.
  *
  * @param triggerType — "webhook" | "manual" — recorded in palisis_sync_log
  * @param channelId   — optional TourCMS channel_id for the tour
@@ -119,7 +74,7 @@ export async function syncSingleTripFromPalisis(
     return { ok: false, action: "error", palisisId: id, error, duration_ms: Date.now() - startedAt }
   }
 
-  const mapped = mapTourDetail(detail.tour)
+  const mapped = mapTourDetailToTrip(detail.tour)
   const title  = mapped.title || `Tour ${id}`
 
   // Find existing trip by palisis_id
@@ -134,18 +89,10 @@ export async function syncSingleTripFromPalisis(
     tripId = (created as { id: string }).id
     action = "created"
   } else {
-    await dbUpdateTrip(local.id, {
-      title:       title,
-      description: mapped.description,
-      price:       mapped.price,
-      duration:    mapped.duration,
-      image:       mapped.image,
-      gallery:     mapped.gallery,
-      city:        mapped.city,
-      provider:    mapped.provider,
-      // Preserve manually-set permalink if present
-      ...(local.permalink ? {} : { permalink: mapped.permalink }),
-    })
+    // Preserve manually-set permalink if present
+    const payload = mappedToUpdatePayload(mapped, { preservePermalink: !!local.permalink })
+    payload.title = title
+    await dbUpdateTrip(local.id, payload)
     tripId = local.id
     action = "updated"
   }
