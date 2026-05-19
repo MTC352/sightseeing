@@ -5,9 +5,14 @@ import Link from "next/link"
 import {
   Save, Check, Eye, EyeOff, ExternalLink, AlertCircle,
   Cloud, Map, Bot, Zap, Globe, Star, RefreshCw, Calendar,
-  KeyRound, Settings2, ChevronDown, Info, Sliders,
+  KeyRound, Settings2, ChevronDown, Info, Sliders, SlidersHorizontal,
 } from "lucide-react"
 import TripFieldsPanel from "@/components/admin/trip-fields-panel"
+import {
+  type SearchFilterKey,
+  configKeyFor as searchFilterConfigKey,
+  readSearchFiltersConfig,
+} from "@/lib/search-filters-config"
 
 interface ApiKeyField {
   key: string
@@ -173,6 +178,9 @@ export default function IntegrationsPage() {
   const [lmdSaving, setLmdSaving] = useState(false)
   const [lmdSaved, setLmdSaved] = useState(false)
   const [lmdToggling, setLmdToggling] = useState(false)
+  // Trip Search Filters widget
+  const [sfCollapsed, setSfCollapsed] = useState(false)
+  const [sfToggling, setSfToggling] = useState(false)
   const [dsStatus, setDsStatus] = useState<{
     tourcmsConfigured: boolean | null
     lastDiscoveryAt: string | null
@@ -407,6 +415,25 @@ export default function IntegrationsPage() {
   // Defaults: widget ON, show-availability ON, auto-update OFF
   const dsWidgetEnabled  = (keys.departing_soon_widget_enabled ?? "true") === "true"
   const dsShowAvail      = (keys.departing_soon_show_availability ?? "true") === "true"
+  // Trip Search Filters — current config derived from apiKeys
+  const sfConfig = readSearchFiltersConfig(keys as Record<string, string>)
+  async function toggleSearchFilter(name: SearchFilterKey, enabled: boolean) {
+    const k = searchFilterConfigKey(name)
+    setSfToggling(true)
+    setKeys((prev) => ({ ...prev, [k]: enabled ? "true" : "false" }))
+    try {
+      await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "apiKeys", data: { [k]: enabled ? "true" : "false" } }),
+      })
+    } catch {
+      setKeys((prev) => ({ ...prev, [k]: enabled ? "false" : "true" }))
+    } finally {
+      setSfToggling(false)
+    }
+  }
+
   // LMD derived values
   const lmdEnabled    = (keys.lmd_widget_enabled ?? "true") === "true"
   const lmdMaxSpaces  = parseInt(keys.lmd_max_spaces ?? "3", 10) || 3
@@ -1038,6 +1065,119 @@ export default function IntegrationsPage() {
                     {lmdSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
                     {lmdSaved ? "Saved" : lmdSaving ? "Saving…" : "Save"}
                   </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* ── Trip Search Filters Widget ─────────────────────────────
+              Controls which filter widgets appear inside the Filters modal
+              on the public /search page. Each toggle persists immediately. */}
+          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <button
+              type="button"
+              onClick={() => setSfCollapsed((c) => !c)}
+              className="flex w-full items-center gap-3 border-b border-border px-5 py-3.5 text-left transition-colors hover:bg-muted/30"
+              aria-expanded={!sfCollapsed}
+            >
+              <SlidersHorizontal className="h-4 w-4 text-muted-foreground/50" />
+              <h2 className="text-sm font-semibold text-foreground">Trip Search Filters</h2>
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {(Object.values(sfConfig).filter(Boolean) as boolean[]).length} of {Object.keys(sfConfig).length} on
+              </span>
+              <span className="ml-auto text-[11px] text-muted-foreground/50">/search filter modal</span>
+              <ChevronDown className={`h-4 w-4 text-muted-foreground/60 transition-transform ${sfCollapsed ? "" : "rotate-180"}`} />
+            </button>
+
+            {!sfCollapsed && (
+              <>
+                <p className="border-b border-border bg-muted/10 px-5 py-3 text-[11px] text-muted-foreground">
+                  Toggle which filter widgets appear in the Filters modal on the
+                  public Search Results page. Disabled filters are hidden from
+                  end users AND ignored by the result list (so stale URL values
+                  cannot accidentally hide trips).
+                </p>
+
+                <div className="divide-y divide-border">
+                  {([
+                    {
+                      key: "location" as SearchFilterKey,
+                      label: "Location",
+                      hint: "Address autocomplete input. Uses Mapbox forward geocoding to resolve a lat/lng for the user. Required for the Radius filter to work.",
+                    },
+                    {
+                      key: "radius" as SearchFilterKey,
+                      label: "Search radius",
+                      hint: "Pills (1 / 2 / 5 / 10 / 20 / 50 km). Filters trips by haversine distance from the resolved user location to each trip's Palisis departure geocode. Disabled when Location is OFF.",
+                      requires: "location" as SearchFilterKey,
+                    },
+                    {
+                      key: "price" as SearchFilterKey,
+                      label: "Price range",
+                      hint: "Min/Max € inputs. Filters trips by their list price (Palisis trip price).",
+                    },
+                    {
+                      key: "rating" as SearchFilterKey,
+                      label: "Minimum rating",
+                      hint: "HOLD — keep OFF until Google Business linkage is wired up. We need a real rating per trip (from Google Reviews via google_business_url) before this becomes useful. Enabling it now would hide most trips because their rating is 0.",
+                      hold: true,
+                    },
+                    {
+                      key: "duration" as SearchFilterKey,
+                      label: "Max duration",
+                      hint: "Pills (Up to 1h / 2h / 3h / 4h / 6h / 8h / Any). Smart parser handles 'Full Day', 'Half Day', '1 - 2 hours', '75 minutes' and the multi-option strings (e.g. 'Full Day: 7H / Half Day: 4H' → keeps trip if 4h fits). Trips with unknown duration ('TBC', 'check timetable') are kept visible.",
+                    },
+                    {
+                      key: "tags" as SearchFilterKey,
+                      label: "Tour Tags",
+                      hint: "Multi-select pills built from Palisis trip_tags. Internal flags (e.g. operator-direct-product) are auto-hidden.",
+                    },
+                    {
+                      key: "type" as SearchFilterKey,
+                      label: "Tour Type",
+                      hint: "Multi-select pills built from Palisis tour_type (e.g. 'Day tour/trip/activity/attraction'). Optional.",
+                    },
+                  ] as { key: SearchFilterKey; label: string; hint: string; requires?: SearchFilterKey; hold?: boolean }[])
+                    .map((row) => {
+                      const enabled = sfConfig[row.key]
+                      const blocked = row.requires ? !sfConfig[row.requires] : false
+                      return (
+                        <div key={row.key} className="flex flex-col gap-2 px-5 py-3.5 md:flex-row md:items-start md:gap-4">
+                          <label className="flex items-start gap-2 md:min-w-[220px]">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={enabled}
+                              disabled={sfToggling || blocked}
+                              onClick={() => toggleSearchFilter(row.key, !enabled)}
+                              className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                enabled ? "bg-emerald-500" : "bg-muted"
+                              }`}
+                            >
+                              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                            </button>
+                            <span className="text-xs font-medium text-foreground">
+                              {row.label}
+                              {row.hold && (
+                                <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600">
+                                  Hold
+                                </span>
+                              )}
+                            </span>
+                            <InfoTip text={row.hint} />
+                          </label>
+                          <p className="text-[11px] leading-relaxed text-muted-foreground/70 md:flex-1">
+                            {row.hint}
+                            {blocked && (
+                              <span className="ml-1 font-medium text-amber-600">
+                                Enable Location first.
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      )
+                    })}
                 </div>
               </>
             )}

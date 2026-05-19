@@ -18,15 +18,42 @@ import { DateTimeModal } from "@/components/date-time-modal"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  type SearchFiltersConfig,
+  DEFAULT_SEARCH_FILTERS_CONFIG,
+} from "@/lib/search-filters-config"
+import { parseDurationHoursMin } from "@/lib/duration-parser"
+import { haversineKm, parseGeocode, geocodeAddress } from "@/lib/geo-distance"
+
+/** Extended trip shape used on the search page (includes Palisis-rich fields
+ *  needed for the new location/tags/type filters). */
+export interface SearchTrip extends Trip {
+  tourType?: string
+  tripTags?: string[]
+  departureGeocode?: string
+}
 
 interface Filters {
   priceMin: number; priceMax: number; ratingMin: number; durationMax: number
   persons: number; locationAddress: string; locationRadius: number
   dateFrom: string; dateTo: string; timeFrom: string; timeTo: string
+  tags: string[]; types: string[]
 }
 const DEFAULT_FILTERS: Filters = {
   priceMin: 0, priceMax: 500, ratingMin: 0, durationMax: 24, persons: 1,
   locationAddress: "", locationRadius: 10, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "",
+  tags: [], types: [],
+}
+
+const RADIUS_OPTIONS = [1, 2, 5, 10, 20, 50] as const
+const RATING_OPTIONS = [0, 3, 3.5, 4, 4.5, 5] as const
+const DURATION_OPTIONS = [1, 2, 3, 4, 6, 8, 24] as const // 24 = "Any"
+
+/** Tags imported from Palisis include internal flags like `operator-direct-product`
+ *  that aren't meaningful to end users. Hide them from the filter UI. */
+const HIDDEN_TRIP_TAGS = new Set(["operator-direct-product"])
+function isVisibleTripTag(t: string): boolean {
+  return Boolean(t) && !HIDDEN_TRIP_TAGS.has(t.toLowerCase())
 }
 
 interface Timeslot { time: string; spotsLeft: number; spotsTotal: number }
@@ -77,47 +104,215 @@ function slotFitsTime(slot: Timeslot, timeFrom: string, timeTo: string): boolean
   return true
 }
 
-/* ── Filter modal ── */
-function FilterModal({ open, onClose, filters, onChange }: {
-  open: boolean; onClose: () => void; filters: Filters; onChange: (f: Filters) => void
+/* ── Filter modal ──────────────────────────────────────────────────
+ * Widget visibility is controlled per-section by `config` (admin panel).
+ * Apply/Reset commit changes upstream; live editing stays local until then. */
+function FilterModal({
+  open, onClose, filters, onChange, config, tagOptions, typeOptions,
+}: {
+  open: boolean
+  onClose: () => void
+  filters: Filters
+  onChange: (f: Filters) => void
+  config: SearchFiltersConfig
+  tagOptions: string[]
+  typeOptions: string[]
 }) {
   const [local, setLocal] = useState<Filters>(filters)
   useEffect(() => { if (open) setLocal(filters) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!open) return null
-  const set = (k: keyof Filters, v: number | string) => setLocal((p) => ({ ...p, [k]: v }))
+  const set = <K extends keyof Filters>(k: K, v: Filters[K]) =>
+    setLocal((p) => ({ ...p, [k]: v }))
+
+  const toggleArr = (key: "tags" | "types", value: string) =>
+    setLocal((p) => ({
+      ...p,
+      [key]: p[key].includes(value) ? p[key].filter((v) => v !== value) : [...p[key], value],
+    }))
+
+  const pill = (active: boolean) =>
+    `rounded-full px-3 py-1.5 text-xs font-medium border transition-colors ${
+      active
+        ? "border-primary bg-primary/10 text-primary"
+        : "border-border bg-background text-foreground hover:bg-secondary"
+    }`
+
+  // At least one widget enabled?
+  const anyEnabled =
+    config.location || config.price || config.rating || config.duration ||
+    config.tags || config.type
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-foreground/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-background shadow-2xl">
+      <div className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col rounded-t-2xl bg-background shadow-2xl sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="font-semibold text-foreground">Filters</h2>
-          <button type="button" onClick={onClose} className="rounded-full p-1 hover:bg-secondary"><X className="h-4 w-4" /></button>
+          <div className="flex items-center gap-2">
+            <button type="button"
+              onClick={() => { setLocal(DEFAULT_FILTERS); onChange(DEFAULT_FILTERS) }}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground">
+              Clear all
+            </button>
+            <button type="button" onClick={onClose}
+              className="rounded-full p-1 hover:bg-secondary">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-        <div className="flex flex-col gap-5 px-5 py-5">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Price range</label>
-            <div className="flex items-center gap-3">
-              <input type="number" min={0} max={500} value={local.priceMin} onChange={(e) => set("priceMin", +e.target.value)}
-                className="w-24 rounded-lg border border-border bg-background px-3 py-1.5 text-sm" placeholder="Min €" />
-              <span className="text-muted-foreground">–</span>
-              <input type="number" min={0} max={500} value={local.priceMax} onChange={(e) => set("priceMax", +e.target.value)}
-                className="w-24 rounded-lg border border-border bg-background px-3 py-1.5 text-sm" placeholder="Max €" />
+
+        <div className="flex flex-col gap-6 overflow-y-auto px-5 py-5">
+          {/* Location + Radius */}
+          {config.location && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">Location</label>
+              <div className="relative">
+                <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={local.locationAddress}
+                  onChange={(e) => set("locationAddress", e.target.value)}
+                  placeholder="Enter an address or area…"
+                  className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+              {config.radius && (
+                <>
+                  <p className="mb-1.5 mt-3 text-xs text-muted-foreground">Search radius</p>
+                  <div className="flex flex-wrap gap-2">
+                    {RADIUS_OPTIONS.map((r) => (
+                      <button key={r} type="button"
+                        onClick={() => set("locationRadius", r)}
+                        disabled={!local.locationAddress.trim()}
+                        className={`${pill(local.locationRadius === r && !!local.locationAddress.trim())} disabled:cursor-not-allowed disabled:opacity-50`}>
+                        {r} km
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Min. rating: {local.ratingMin > 0 ? `${local.ratingMin}+` : "Any"}</label>
-            <input type="range" min={0} max={5} step={0.5} value={local.ratingMin} onChange={(e) => set("ratingMin", +e.target.value)} className="w-full" />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Max duration: {local.durationMax < 24 ? `${local.durationMax}h` : "Any"}</label>
-            <input type="range" min={1} max={24} step={0.5} value={local.durationMax} onChange={(e) => set("durationMax", +e.target.value)} className="w-full" />
-          </div>
+          )}
+
+          {/* Price */}
+          {config.price && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">Price range</label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="mb-1 block text-[11px] text-muted-foreground">Min (€)</span>
+                  <input type="number" min={0} max={5000} value={local.priceMin}
+                    onChange={(e) => set("priceMin", Math.max(0, +e.target.value || 0))}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <span className="mb-1 block text-[11px] text-muted-foreground">Max (€)</span>
+                  <input type="number" min={0} max={5000} value={local.priceMax}
+                    onChange={(e) => set("priceMax", Math.max(0, +e.target.value || 0))}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Rating */}
+          {config.rating && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">Minimum rating</label>
+              <div className="flex flex-wrap gap-2">
+                {RATING_OPTIONS.map((r) => (
+                  <button key={r} type="button"
+                    onClick={() => set("ratingMin", r)}
+                    className={pill(local.ratingMin === r)}>
+                    {r === 0 ? "Any" : (
+                      <span className="inline-flex items-center gap-1">
+                        <Star className="h-3 w-3 fill-amber-400 text-amber-400" />{r}+
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Max duration */}
+          {config.duration && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">Max duration</label>
+              <div className="flex flex-wrap gap-2">
+                {DURATION_OPTIONS.map((h) => (
+                  <button key={h} type="button"
+                    onClick={() => set("durationMax", h)}
+                    className={pill(local.durationMax === h)}>
+                    {h >= 24 ? "Any" : `Up to ${h}h`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tags */}
+          {config.tags && tagOptions.length > 0 && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">
+                Tags {local.tags.length > 0 && (
+                  <span className="ml-1 text-[11px] font-normal text-muted-foreground">
+                    ({local.tags.length} selected)
+                  </span>
+                )}
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {tagOptions.map((tag) => (
+                  <button key={tag} type="button"
+                    onClick={() => toggleArr("tags", tag)}
+                    className={pill(local.tags.includes(tag))}>
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tour Type */}
+          {config.type && typeOptions.length > 0 && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">
+                Type {local.types.length > 0 && (
+                  <span className="ml-1 text-[11px] font-normal text-muted-foreground">
+                    ({local.types.length} selected)
+                  </span>
+                )}
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {typeOptions.map((t) => (
+                  <button key={t} type="button"
+                    onClick={() => toggleArr("types", t)}
+                    className={`${pill(local.types.includes(t))} max-w-full text-left`}>
+                    <span className="line-clamp-1">{t}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!anyEnabled && (
+            <p className="text-center text-sm text-muted-foreground">
+              No filters are currently enabled. An administrator can enable them
+              in Admin → Integrations → Settings → Trip Search Filters.
+            </p>
+          )}
         </div>
+
         <div className="flex items-center gap-3 border-t border-border px-5 py-4">
-          <button type="button" onClick={() => { setLocal(DEFAULT_FILTERS); onChange(DEFAULT_FILTERS) }}
-            className="flex-1 rounded-full border border-border py-2 text-sm font-medium text-foreground hover:bg-secondary">Reset</button>
+          <button type="button"
+            onClick={() => { setLocal(DEFAULT_FILTERS); onChange(DEFAULT_FILTERS) }}
+            className="flex-1 rounded-full border border-border py-2 text-sm font-medium text-foreground hover:bg-secondary">
+            Reset
+          </button>
           <button type="button" onClick={() => { onChange(local); onClose() }}
-            className="flex-1 rounded-full bg-primary py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">Apply</button>
+            className="flex-1 rounded-full bg-primary py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+            Show results
+          </button>
         </div>
       </div>
     </div>
@@ -502,7 +697,13 @@ function SearchListCard({
 }
 
 /* ── Main component ── */
-export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
+export function SearchContent({
+  initialTrips,
+  filtersConfig = DEFAULT_SEARCH_FILTERS_CONFIG,
+}: {
+  initialTrips: SearchTrip[]
+  filtersConfig?: SearchFiltersConfig
+}) {
   const searchParams = useSearchParams()
   const router       = useRouter()
   const query        = searchParams.get("q") || ""
@@ -513,6 +714,11 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
   const [personsOpen, setPersonsOpen]       = useState(false)
   const [viewMode, setViewMode]             = useState<"grid" | "list">("list")
   const [availability, setAvailability]     = useState<AvailabilityMap>({})
+
+  // Geocoding state for the Location filter (resolved address → lat/lng).
+  // Re-fetched whenever the address changes (debounced).
+  const [userCoord, setUserCoord] = useState<{ lat: number; lng: number } | null>(null)
+  const [mapboxToken, setMapboxToken] = useState<string>("")
   // Start as true so skeleton shows on the very first render — prevents dummy
   // departure data from flashing before the initial availability fetch resolves.
   const [availLoading, setAvailLoading]     = useState(true)
@@ -584,18 +790,73 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
       .sort()
   }, [initialTrips])
 
+  /* Tag options (filtered: hide internal Palisis flags). */
+  const tagOptions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const t of initialTrips) {
+      for (const tg of t.tripTags ?? []) {
+        if (isVisibleTripTag(tg)) seen.add(tg)
+      }
+    }
+    return Array.from(seen).sort()
+  }, [initialTrips])
+
+  /* Tour-type options. */
+  const typeOptions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const t of initialTrips) {
+      if (t.tourType && t.tourType.trim()) seen.add(t.tourType.trim())
+    }
+    return Array.from(seen).sort()
+  }, [initialTrips])
+
+  /* Load Mapbox token once (used for forward geocoding of the address input). */
+  useEffect(() => {
+    if (!filtersConfig.location) return
+    fetch("/api/mapbox-token")
+      .then((r) => r.ok ? r.json() : { token: "" })
+      .then((d: { token?: string }) => setMapboxToken(d.token ?? ""))
+      .catch(() => setMapboxToken(""))
+  }, [filtersConfig.location])
+
   const dateFilterActive = activeFilters.dateFrom !== ""
   const dateFilter = dateFilterActive
     ? { date: activeFilters.dateFrom, timeFrom: activeFilters.timeFrom, timeTo: activeFilters.timeTo }
     : null
   const persons = activeFilters.persons
 
+  // Location only counts as an "active" filter when it can actually narrow
+  // results: Radius widget must also be enabled AND the address must have
+  // resolved to a coordinate (userCoord != null). Otherwise the input is a
+  // no-op and would falsely inflate the badge count.
+  const locationActive =
+    filtersConfig.location &&
+    filtersConfig.radius &&
+    activeFilters.locationAddress !== "" &&
+    userCoord !== null
+
   const activeFilterCount = [
-    activeFilters.priceMin > 0 || activeFilters.priceMax < 500,
-    activeFilters.ratingMin > 0,
-    activeFilters.durationMax < 24,
-    activeFilters.locationAddress !== "",
+    filtersConfig.price && (activeFilters.priceMin > 0 || activeFilters.priceMax < 500),
+    filtersConfig.rating && activeFilters.ratingMin > 0,
+    filtersConfig.duration && activeFilters.durationMax < 24,
+    locationActive,
+    filtersConfig.tags && activeFilters.tags.length > 0,
+    filtersConfig.type && activeFilters.types.length > 0,
   ].filter(Boolean).length
+
+  /* Debounced geocoding of the address input → user lat/lng for radius filter. */
+  useEffect(() => {
+    if (!filtersConfig.location || !filtersConfig.radius) { setUserCoord(null); return }
+    const addr = activeFilters.locationAddress.trim()
+    if (!addr) { setUserCoord(null); return }
+    if (!mapboxToken) return
+    const ctrl = new AbortController()
+    const t = setTimeout(async () => {
+      const res = await geocodeAddress(addr, mapboxToken, { signal: ctrl.signal })
+      setUserCoord(res)
+    }, 400)
+    return () => { clearTimeout(t); ctrl.abort() }
+  }, [activeFilters.locationAddress, mapboxToken, filtersConfig.location, filtersConfig.radius])
 
   const hasDate    = activeFilters.dateFrom !== "" || activeFilters.timeFrom !== ""
   const hasPersons = persons > 1
@@ -621,17 +882,39 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     })
   }, [query, initialTrips])
 
-  /* Full filter chain */
+  /* Full filter chain — each clause is gated by its config flag so disabled
+     filters can't accidentally hide trips even if the URL or stale state
+     contains a value. */
   const filtered = useMemo(() => {
     let result = keywordMatched.filter((t) => {
       if (activeCategory && t.category !== activeCategory) return false
-      if (t.price < activeFilters.priceMin || t.price > activeFilters.priceMax) return false
-      if (t.rating < activeFilters.ratingMin) return false
-      if (activeFilters.locationAddress &&
-        !t.title.toLowerCase().includes(activeFilters.locationAddress.toLowerCase()) &&
-        !t.category.toLowerCase().includes(activeFilters.locationAddress.toLowerCase())) return false
-      const dHours = parseFloat(t.duration?.replace(/[^\d.]/g, "") || "99")
-      if (activeFilters.durationMax < 24 && dHours > activeFilters.durationMax) return false
+
+      if (filtersConfig.price) {
+        if (t.price < activeFilters.priceMin || t.price > activeFilters.priceMax) return false
+      }
+      if (filtersConfig.rating && activeFilters.ratingMin > 0) {
+        if (t.rating < activeFilters.ratingMin) return false
+      }
+      if (filtersConfig.duration && activeFilters.durationMax < 24) {
+        // Use the SHORTEST parsed option so multi-option trips
+        // ("Full Day:7H / Half Day:4H") stay visible whenever ANY option
+        // fits the user's cap. Unknown duration ("TBC", "check timetable")
+        // → keep visible (don't hide trips we can't classify).
+        const dHours = parseDurationHoursMin(t.duration)
+        if (dHours != null && dHours > activeFilters.durationMax) return false
+      }
+      if (filtersConfig.location && filtersConfig.radius && userCoord) {
+        const coord = parseGeocode(t.departureGeocode)
+        if (!coord) return false // no geocode → can't be inside any radius
+        if (haversineKm(userCoord.lat, userCoord.lng, coord.lat, coord.lng) > activeFilters.locationRadius) return false
+      }
+      if (filtersConfig.tags && activeFilters.tags.length > 0) {
+        const have = new Set((t.tripTags ?? []).filter(isVisibleTripTag))
+        if (!activeFilters.tags.some((tg) => have.has(tg))) return false
+      }
+      if (filtersConfig.type && activeFilters.types.length > 0) {
+        if (!t.tourType || !activeFilters.types.includes(t.tourType.trim())) return false
+      }
       return true
     })
 
@@ -662,13 +945,13 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
     }
 
     return result
-  }, [keywordMatched, activeCategory, activeFilters, dateFilterActive, availability, availLoading, persons])
+  }, [keywordMatched, activeCategory, activeFilters, dateFilterActive, availability, availLoading, persons, filtersConfig, userCoord])
 
   /* ── Smooth exit animation state ── */
-  const [displayedTrips, setDisplayedTrips] = useState<Trip[]>(filtered)
+  const [displayedTrips, setDisplayedTrips] = useState<SearchTrip[]>(filtered)
   const [exitingIds, setExitingIds]         = useState<Set<string>>(new Set())
-  const displayedRef  = useRef<Trip[]>(filtered)
-  const filteredRef   = useRef<Trip[]>(filtered)   // always latest — avoids stale closures in setTimeout
+  const displayedRef  = useRef<SearchTrip[]>(filtered)
+  const filteredRef   = useRef<SearchTrip[]>(filtered)   // always latest — avoids stale closures in setTimeout
   const exitTimer     = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Keep refs in sync with current state/derived values
@@ -712,6 +995,9 @@ export function SearchContent({ initialTrips }: { initialTrips: Trip[] }) {
       <FilterModal
         open={filtersOpen} onClose={() => setFiltersOpen(false)}
         filters={activeFilters} onChange={(f) => setActiveFilters(f)}
+        config={filtersConfig}
+        tagOptions={tagOptions}
+        typeOptions={typeOptions}
       />
       <DateTimeModal
         open={dateOpen}
