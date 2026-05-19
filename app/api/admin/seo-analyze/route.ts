@@ -47,16 +47,52 @@ export async function POST(request: Request) {
   try {
     const { tripData } = await request.json()
 
+    // Build the SEO input from BOTH the basic fields and the Palisis-imported
+    // classification + long-form fields so suggestions can reference real
+    // catalog data (tour type, leader style, included items, itinerary, etc.).
+    const lines: string[] = [
+      `Title: ${tripData.title || "No title"}`,
+      `Short Description: ${tripData.shortDescription || "—"}`,
+      `Description: ${tripData.description || "No description"}`,
+      tripData.longDescription ? `Long Description: ${tripData.longDescription}` : "",
+      `Category: ${tripData.category || "Unknown"}`,
+      tripData.tourType ? `Tour Type: ${tripData.tourType}` : "",
+      tripData.tourLeader ? `Tour Leader: ${tripData.tourLeader}` : "",
+      tripData.grade ? `Difficulty / Grade: ${tripData.grade}` : "",
+      tripData.accommodationRating ? `Accommodation Rating: ${tripData.accommodationRating}` : "",
+      `City: ${tripData.city || "Luxembourg"}`,
+      tripData.country ? `Country: ${tripData.country}` : "",
+      tripData.departureLocation ? `Departure Location: ${tripData.departureLocation}` : "",
+      tripData.endLocation ? `End Location: ${tripData.endLocation}` : "",
+      `Duration: ${tripData.duration || "Not specified"}`,
+      `Price: €${tripData.price || 0}`,
+      `Tags: ${(tripData.tags || []).join(", ") || "No tags"}`,
+      Array.isArray(tripData.tripTags) && tripData.tripTags.length
+        ? `Trip Tags (Palisis): ${tripData.tripTags.join(", ")}` : "",
+      Array.isArray(tripData.languages) && tripData.languages.length
+        ? `Languages: ${tripData.languages.join(", ")}` : "",
+      `Highlights: ${(tripData.highlights || []).join("; ") || "No highlights"}`,
+      Array.isArray(tripData.included) && tripData.included.length
+        ? `Includes: ${tripData.included.join("; ")}` : "",
+      Array.isArray(tripData.excluded) && tripData.excluded.length
+        ? `Excludes: ${tripData.excluded.join("; ")}` : "",
+      tripData.itinerary ? `Itinerary: ${tripData.itinerary}` : "",
+      tripData.essentialInformation ? `Essential Information: ${tripData.essentialInformation}` : "",
+      tripData.hotelPickupInstructions ? `Hotel Pickup: ${tripData.hotelPickupInstructions}` : "",
+      tripData.voucherRedemptionInstructions ? `Voucher Redemption: ${tripData.voucherRedemptionInstructions}` : "",
+      tripData.restrictions ? `Restrictions: ${tripData.restrictions}` : "",
+      tripData.extras ? `Extras / Upgrades: ${tripData.extras}` : "",
+      tripData.cancellationPolicy ? `Cancellation Policy: ${tripData.cancellationPolicy}` : "",
+      tripData.minBookingSize != null || tripData.maxBookingSize != null
+        ? `Group Size: ${tripData.minBookingSize ?? "any"}–${tripData.maxBookingSize ?? "any"}` : "",
+      tripData.nonRefundable === true ? `Refundable: No (non-refundable)` : "",
+      tripData.nextBookableDate ? `Next Bookable Date: ${tripData.nextBookableDate}` : "",
+      tripData.lastBookableDate ? `Last Bookable Date: ${tripData.lastBookableDate}` : "",
+    ].filter(Boolean)
+
     const userMessage = `Analyze this trip/tour page for SEO optimization:
 
-Title: ${tripData.title || "No title"}
-Description: ${tripData.description || "No description"}
-Category: ${tripData.category || "Unknown"}
-City: ${tripData.city || "Luxembourg"}
-Duration: ${tripData.duration || "Not specified"}
-Price: €${tripData.price || 0}
-Tags: ${(tripData.tags || []).join(", ") || "No tags"}
-Highlights: ${(tripData.highlights || []).join("; ") || "No highlights"}
+${lines.join("\n")}
 
 Provide SEO analysis and optimization suggestions. Return ONLY the JSON object, nothing else.`
 

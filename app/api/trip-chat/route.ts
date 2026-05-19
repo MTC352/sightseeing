@@ -36,7 +36,8 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ error: "Trip not found" }), { status: 404 })
     }
 
-    // Merge DB + static for richest context
+    // Merge DB + static for richest context. DB row is canonical (Palisis-synced);
+    // staticDetail is a legacy fallback for trips not yet in the DB.
     const title      = dbTrip?.title_override ?? dbTrip?.title ?? staticTrip?.title ?? ""
     const category   = dbTrip?.category ?? staticTrip?.category ?? "Tours"
     const city       = dbTrip?.city ?? staticTrip?.city ?? "Luxembourg"
@@ -53,30 +54,79 @@ export async function POST(req: Request) {
       : (staticTrip?.tags ?? [])
     const permalink   = dbTrip?.permalink ?? staticTrip?.permalink ?? null
 
-    // Build the current-trip context block
+    // Palisis-imported fields (prefer DB; fall back to legacy staticDetail where applicable)
+    const included     = (Array.isArray(dbTrip?.included)  && dbTrip.included.length  > 0) ? dbTrip.included  : (staticDetail?.includes ?? [])
+    const excluded     = (Array.isArray(dbTrip?.excluded)  && dbTrip.excluded.length  > 0) ? dbTrip.excluded  : (staticDetail?.notIncluded ?? [])
+    const languagesArr = (Array.isArray(dbTrip?.languages) && dbTrip.languages.length > 0) ? dbTrip.languages : (staticDetail?.languages ?? [])
+    const tripTags     = Array.isArray(dbTrip?.tripTags) ? dbTrip.tripTags : []
+
+    const tourType            = dbTrip?.tourType ?? null
+    const tourLeader          = dbTrip?.tourLeader ?? null
+    const grade               = dbTrip?.grade ?? null
+    const accommodationRating = dbTrip?.accommodationRating ?? null
+    const country             = dbTrip?.country ?? null
+    const departureLocation   = dbTrip?.departureLocation ?? null
+    const endLocation         = dbTrip?.endLocation ?? null
+    const shortDesc           = dbTrip?.shortDescription ?? null
+    const longDesc            = dbTrip?.longDescription ?? null
+    const itineraryText       = dbTrip?.itinerary ?? null
+    const essentialInfo       = dbTrip?.essentialInformation ?? null
+    const pickupInstr         = dbTrip?.hotelPickupInstructions ?? null
+    const redemptionInstr     = dbTrip?.voucherRedemptionInstructions ?? null
+    const restrictions        = dbTrip?.restrictions ?? null
+    const extras              = dbTrip?.extras ?? null
+    const cancellationPolicy  = dbTrip?.cancellationPolicy
+      ?? (staticDetail?.cancellationPolicy?.length ? staticDetail.cancellationPolicy.join(". ") : null)
+    const minBooking          = dbTrip?.minBookingSize ?? null
+    const maxBooking          = dbTrip?.maxBookingSize ?? (staticDetail?.maxGroupSize ?? null)
+    const nonRefundable       = dbTrip?.nonRefundable ?? null
+    const nextBookableDate    = dbTrip?.nextBookableDate ?? null
+    const lastBookableDate    = dbTrip?.lastBookableDate ?? null
+
+    // Build the current-trip context block (Palisis-rich)
     const tripContext = [
       `Title: ${title}`,
       `Category: ${category}`,
+      tourType ? `Tour Type: ${tourType}` : "",
+      tourLeader ? `Tour Leader: ${tourLeader}` : "",
+      grade ? `Difficulty / Grade: ${grade}` : "",
+      accommodationRating ? `Accommodation Rating: ${accommodationRating}` : "",
       `City: ${city}`,
+      country ? `Country: ${country}` : "",
+      departureLocation ? `Departure Location: ${departureLocation}` : "",
+      endLocation && endLocation !== departureLocation ? `End Location: ${endLocation}` : "",
       `Duration: ${duration}`,
       `Price: ${price > 0 ? price + " EUR per person" : "Free"}`,
       `Rating: ${rating}/5 (${reviews} reviews)`,
+      shortDesc ? `Short Description: ${shortDesc}` : "",
       description ? `Description: ${description}` : "",
+      longDesc && longDesc !== description ? `Long Description: ${longDesc}` : "",
       (highlights as string[]).length ? `Highlights: ${(highlights as string[]).join(", ")}` : "",
-      staticDetail?.includes?.length ? `Includes: ${staticDetail.includes.join(", ")}` : "",
-      staticDetail?.notIncluded?.length ? `Not included: ${staticDetail.notIncluded.join(", ")}` : "",
-      staticDetail?.itinerary?.length
-        ? `Itinerary: ${staticDetail.itinerary.map(s => `${s.title}${s.duration ? " (" + s.duration + ")" : ""}`).join(" → ")}`
+      (included as string[]).length ? `Includes: ${(included as string[]).join(", ")}` : "",
+      (excluded as string[]).length ? `Not included: ${(excluded as string[]).join(", ")}` : "",
+      itineraryText
+        ? `Itinerary: ${itineraryText}`
+        : (staticDetail?.itinerary?.length
+            ? `Itinerary: ${staticDetail.itinerary.map(s => `${s.title}${s.duration ? " (" + s.duration + ")" : ""}`).join(" → ")}`
+            : ""),
+      essentialInfo ? `Essential Information: ${essentialInfo}` : "",
+      pickupInstr ? `Hotel Pickup: ${pickupInstr}` : "",
+      redemptionInstr ? `Voucher Redemption: ${redemptionInstr}` : "",
+      restrictions ? `Restrictions: ${restrictions}` : "",
+      extras ? `Extras / Upgrades: ${extras}` : "",
+      cancellationPolicy ? `Cancellation Policy: ${cancellationPolicy}` : "",
+      minBooking != null || maxBooking != null
+        ? `Group Size: ${minBooking ?? "any"}–${maxBooking ?? "any"} people`
         : "",
+      nonRefundable === true ? `Refundable: No (non-refundable)` : "",
+      nextBookableDate ? `Next Bookable Date: ${nextBookableDate}` : "",
+      lastBookableDate ? `Last Bookable Date: ${lastBookableDate}` : "",
+      (languagesArr as string[]).length ? `Languages: ${(languagesArr as string[]).join(", ")}` : "",
       staticDetail?.goodToKnow?.length
         ? `FAQ:\n${staticDetail.goodToKnow.map(q => `  Q: ${q.question}\n  A: ${q.answer}`).join("\n")}`
         : "",
-      staticDetail?.maxGroupSize ? `Max group size: ${staticDetail.maxGroupSize}` : "",
-      staticDetail?.languages?.length ? `Languages: ${staticDetail.languages.join(", ")}` : "",
-      staticDetail?.cancellationPolicy?.length
-        ? `Cancellation policy: ${staticDetail.cancellationPolicy.join(". ")}`
-        : "",
       tags.length ? `Tags: ${(tags as string[]).join(", ")}` : "",
+      (tripTags as string[]).length ? `Trip Tags: ${(tripTags as string[]).join(", ")}` : "",
       permalink ? `Booking URL: ${permalink}` : "",
     ].filter(Boolean).join("\n")
 
