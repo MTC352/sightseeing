@@ -74,12 +74,24 @@
   body { @apply bg-background text-foreground; }
 }
 
-/* Booking iframe: hide Palisis header via negative margin + clip, scrollable but no visible scrollbar */
+/* Booking iframe — responsive wrapper.
+   We hide the Palisis header by offsetting the iframe upward, but keep the
+   offset modest (24px) so legitimate booking content (calendar header,
+   "Select tickets", category controls) is never cropped.
+   Height scales with viewport: tall enough to show calendar + ticket controls
+   without forcing the user to scroll inside the iframe on mobile. */
 .booking-iframe-wrap {
-  overflow: auto;
-  height: 560px;
+  overflow: hidden;
+  height: clamp(640px, 80vh, 880px);
   scrollbar-width: none;          /* Firefox */
   -ms-overflow-style: none;       /* IE/Edge */
+  border-radius: inherit;
+}
+
+@media (max-width: 640px) {
+  .booking-iframe-wrap {
+    height: clamp(720px, 90vh, 1000px);
+  }
 }
 
 .booking-iframe-wrap::-webkit-scrollbar {
@@ -87,9 +99,10 @@
 }
 
 .booking-iframe {
+  display: block;
   width: 100%;
-  height: calc(100% + 80px);
-  margin-top: -80px;
+  height: calc(100% + 24px);
+  margin-top: -24px;
   border: 0;
 }
 
