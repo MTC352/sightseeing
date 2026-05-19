@@ -12,31 +12,59 @@ import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { TripChat } from "@/components/trip-chat"
 import { GoogleReviews } from "@/components/google-reviews"
 import { useCart } from "@/lib/cart-context"
-import { trips, getTripById, getTripDetail, type Trip } from "@/lib/data"
+import { getTripById, getTripDetail, type Trip } from "@/lib/data"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 
 const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
 
+/* ─── Types shared with the server page ─────────────────────────────── */
+export type TripDbDetail = {
+  shortDescription?: string
+  longDescription?: string
+  experienceHighlights?: string
+  included: string[]
+  excluded: string[]
+  itineraryText?: string
+  essentialInformation?: string
+  hotelPickupInstructions?: string
+  voucherRedemptionInstructions?: string
+  restrictions?: string
+  extras?: string
+  cancellationPolicy?: string
+  languages: string[]
+  tourType?: string
+  tourLeader?: string
+  grade?: string
+  departureLocation?: string
+  endLocation?: string
+  country?: string
+  pdfUrl?: string
+  videoUrl?: string
+  minBookingSize?: number
+  maxBookingSize?: number
+  nonRefundable?: boolean
+}
+
+export type TripFaq = { question: string; answer: string }
+
+export type RelatedTrip = {
+  id: string
+  title: string
+  image: string
+  price: number
+  originalPrice?: number
+  rating: number
+  reviewCount: number
+  duration: string
+  category: string
+  tags: string[]
+  badge?: string
+  city?: string
+}
+
 /**
- * Memoized so that parent re-renders (weather loading, cart updates, gallery
- * index changes) never unmount/remount the iframe — which would reset the
- * TourCMS booking widget's internal state (person count, selected date, etc.).
- * React will only recreate the iframe if `src` actually changes.
- */
-/**
- * Append the TourCMS `month_year=MM_YYYY` parameter so the reservation
- * widget (r1.php) opens on the calendar month the user clicked.
- *
- * TourCMS r1.php does NOT support pre-selecting a specific day or time
- * slot via URL — only the calendar month. The selected day + time are
- * still surfaced to the user via the "Your selected slot" banner above
- * the iframe.
- *
- * Input date format: "YYYY-MM-DD". If no date is passed (or parsing
- * fails), falls back to the current month/year so the calendar always
- * opens on a meaningful month rather than TourCMS's default
- * "next available" month.
+ * Memoized so that parent re-renders never unmount/remount the iframe.
  */
 function substitutePlaceholders(url: string, date?: string, _time?: string): string {
   if (!url) return url
@@ -55,7 +83,6 @@ function substitutePlaceholders(url: string, date?: string, _time?: string): str
   return `${url}${sep}month_year=${month}_${year}`
 }
 
-/** Format YYYY-MM-DD as "Sun, 17 May 2026" for the slot-context banner. */
 function formatSelectedDate(iso: string): string {
   try {
     const [y, m, d] = iso.split("-").map(Number)
@@ -87,27 +114,30 @@ const BookingIframe = memo(function BookingIframe({ src, title }: { src: string;
 export default function TripDetailClient({
   id,
   trip: serverTrip,
+  dbDetail,
+  faqs,
+  relatedTrips,
   selectedDate,
   selectedTime,
 }: {
   id: string
   trip: Trip | null
+  dbDetail: TripDbDetail | null
+  faqs: TripFaq[]
+  relatedTrips: RelatedTrip[]
   selectedDate?: string
   selectedTime?: string
 }) {
   const trip = serverTrip ?? getTripById(id)
   const detail = getTripDetail(id)
-  
-  console.log("[v0] TripDetailClient trip:", trip?.title, "googleBusinessUrl:", trip?.googleBusinessUrl)
+
   const { addItem, isInCart } = useCart()
   const [galleryIdx, setGalleryIdx] = useState(0)
   const { weather, isLoading: weatherLoading } = useWeather()
-  const related = trips.filter((t) => t.id !== id).slice(0, 3)
   const router = useRouter()
   const [canGoBack, setCanGoBack] = useState(false)
 
   useEffect(() => {
-    // history.length > 2 means there is at least one previous page in the session
     setCanGoBack(window.history.length > 2)
   }, [])
 
@@ -124,7 +154,8 @@ export default function TripDetailClient({
   }
 
   const inCart = isInCart(trip.id)
-  // Priority: DB gallery (from Palisis sync or admin upload) → static detail gallery → featured image only
+
+  // Gallery priority: DB → legacy static detail gallery → featured image only
   const gallery: string[] = (
     (trip.gallery ?? []).length > 0
       ? trip.gallery!
@@ -132,6 +163,42 @@ export default function TripDetailClient({
         ? detail!.gallery
         : [trip.image]
   ).filter(Boolean)
+
+  /* ─── Merge DB + static for displayed fields ────────────────────────── */
+  // Description: DB long → DB short → static detail → trip.description
+  const mergedDescription =
+    dbDetail?.longDescription ??
+    dbDetail?.shortDescription ??
+    detail?.description ??
+    trip.description ??
+    ""
+
+  // Highlights: DB experience_highlights (text) preferred, else trip.highlights[]
+  const highlightsList: string[] =
+    dbDetail?.experienceHighlights
+      ? dbDetail.experienceHighlights.split(/\r?\n+/).map((x) => x.trim()).filter(Boolean)
+      : (trip.highlights ?? [])
+
+  // Includes / Not included: merge DB + static (DB first)
+  const includes: string[] = dbDetail?.included.length ? dbDetail.included : (detail?.includes ?? [])
+  const notIncludes: string[] = dbDetail?.excluded.length ? dbDetail.excluded : (detail?.notIncluded ?? [])
+
+  // Languages
+  const languages: string[] = dbDetail?.languages.length ? dbDetail.languages : (detail?.languages ?? [])
+
+  // Group size
+  const maxGroupSize: number | undefined = dbDetail?.maxBookingSize ?? detail?.maxGroupSize
+
+  // Cancellation policy: DB single string preferred; legacy is string[]
+  const cancellationPolicyItems: string[] =
+    dbDetail?.cancellationPolicy
+      ? [dbDetail.cancellationPolicy]
+      : (detail?.cancellationPolicy ?? [])
+
+  // Itinerary: static structured itinerary wins (it has titles/durations);
+  // otherwise render DB free-text itinerary as a paragraph.
+  const hasStaticItinerary = (detail?.itinerary ?? []).length > 0
+  const dbItineraryText = dbDetail?.itineraryText
 
   return (
     <div className="min-h-screen bg-background">
@@ -166,35 +233,63 @@ export default function TripDetailClient({
           {/* Main content */}
           <div className="flex-1">
 
-            {/* Gallery */}
-            <div className="group relative aspect-[16/9] overflow-hidden rounded-2xl bg-muted">
-              <Image
-                src={gallery[galleryIdx] || "/placeholder.svg"}
-                alt={`${trip.title} — photo ${galleryIdx + 1}`}
-                fill
-                priority
-                className="object-cover transition-opacity duration-300"
-                sizes="(max-width: 1024px) 100vw, 66vw"
-              />
+            {/*
+              Gallery — all images are mounted simultaneously in absolute layers
+              so switching is INSTANT (no re-fetch on next/prev). Only the active
+              layer is visible; the rest sit at opacity-0 but are already loaded
+              by the browser. The first image gets `priority` so the LCP isn't
+              hurt; the rest load eagerly because they're inside the viewport.
+            */}
+            <div
+              className="group relative aspect-[16/9] overflow-hidden rounded-2xl bg-muted"
+              data-testid="trip-gallery"
+            >
+              {gallery.map((src, i) => {
+                // Preload the active image, plus the immediate neighbours, so
+                // forward/back is instant without paying to fully load every
+                // photo in a long gallery upfront.
+                const n = gallery.length
+                const distance = Math.min(
+                  Math.abs(i - galleryIdx),
+                  n - Math.abs(i - galleryIdx),
+                )
+                const eager = i === 0 || distance <= 1
+                const isActive = i === galleryIdx
+                return (
+                  <Image
+                    key={`${src}-${i}`}
+                    src={src || "/placeholder.svg"}
+                    alt={`${trip.title} — photo ${i + 1}`}
+                    fill
+                    priority={i === 0}
+                    loading={eager ? "eager" : "lazy"}
+                    aria-hidden={isActive ? undefined : true}
+                    className={`object-cover transition-opacity duration-300 ${isActive ? "opacity-100" : "opacity-0"}`}
+                    sizes="(max-width: 1024px) 100vw, 66vw"
+                  />
+                )
+              })}
               {gallery.length > 1 && (
                 <>
                   <button
                     type="button"
                     onClick={() => setGalleryIdx((p) => (p - 1 + gallery.length) % gallery.length)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
+                    className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
                     aria-label="Previous image"
+                    data-testid="gallery-prev"
                   >
                     <ChevronLeft className="h-5 w-5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setGalleryIdx((p) => (p + 1) % gallery.length)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
+                    className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow-sm backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
                     aria-label="Next image"
+                    data-testid="gallery-next"
                   >
                     <ChevronRight className="h-5 w-5" />
                   </button>
-                  <div className="absolute bottom-3 right-3 rounded-full bg-foreground/60 px-2.5 py-1 text-[11px] font-medium text-background backdrop-blur-sm">
+                  <div className="absolute bottom-3 right-3 z-10 rounded-full bg-foreground/60 px-2.5 py-1 text-[11px] font-medium text-background backdrop-blur-sm">
                     {galleryIdx + 1} / {gallery.length}
                   </div>
                 </>
@@ -228,23 +323,23 @@ export default function TripDetailClient({
                 <span className="text-xs text-muted-foreground">({trip.reviewCount} reviews)</span>
                 {trip.badge && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">{trip.badge}</span>}
               </div>
-              <h1 className="mt-2 text-2xl font-bold text-foreground lg:text-3xl">{trip.title}</h1>
+              <h1 className="mt-2 text-2xl font-bold text-foreground lg:text-3xl" data-testid="trip-title">{trip.title}</h1>
               <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{trip.duration}</span>
-                {detail?.maxGroupSize && <span className="flex items-center gap-1"><Users className="h-4 w-4" />Max {detail.maxGroupSize} people</span>}
-                {(detail?.languages ?? []).length > 0 && <span className="flex items-center gap-1"><Globe className="h-4 w-4" />{detail!.languages.join(", ")}</span>}
+                {maxGroupSize && <span className="flex items-center gap-1"><Users className="h-4 w-4" />Max {maxGroupSize} people</span>}
+                {languages.length > 0 && <span className="flex items-center gap-1"><Globe className="h-4 w-4" />{languages.join(", ")}</span>}
                 <span className="flex items-center gap-1"><MapPin className="h-4 w-4" />{trip.city ?? "Luxembourg"}</span>
               </div>
             </div>
 
             {/* Description */}
             <div className="mt-6">
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}.{detail?.description || trip.description ? ` ${detail?.description ?? trip.description}` : ""}
+              <p className="text-sm text-muted-foreground leading-relaxed trip-answer-first" data-testid="trip-description">
+                {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}.{mergedDescription ? ` ${mergedDescription}` : ""}
               </p>
             </div>
 
-            {/* Guides */}
+            {/* Guides (static-only field — preserved for legacy seed trips) */}
             {(detail?.guides ?? []).length > 0 && (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Meet your guides</h2>
@@ -275,7 +370,7 @@ export default function TripDetailClient({
               </div>
             )}
 
-            {/* Reasons to book */}
+            {/* Reasons to book (static legacy + DB tag fallback) */}
             {(detail?.reasons ?? []).length > 0 && (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Reasons to book</h2>
@@ -290,12 +385,12 @@ export default function TripDetailClient({
               </div>
             )}
 
-            {/* Highlights from DB */}
-            {(detail?.itinerary ?? []).length === 0 && (trip.highlights ?? []).length > 0 && (
-              <div className="mt-8">
+            {/* Highlights — show when no structured itinerary */}
+            {!hasStaticItinerary && highlightsList.length > 0 && (
+              <div className="mt-8 trip-highlights">
                 <h2 className="text-lg font-bold text-foreground">Highlights</h2>
-                <ul className="mt-4 flex flex-col gap-2">
-                  {(trip.highlights as string[]).map((h, i) => (
+                <ul className="mt-4 flex flex-col gap-2" data-testid="trip-highlights">
+                  {highlightsList.map((h, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{h}
                     </li>
@@ -304,8 +399,8 @@ export default function TripDetailClient({
               </div>
             )}
 
-            {/* Itinerary */}
-            {(detail?.itinerary ?? []).length > 0 && (
+            {/* Itinerary — structured static OR free-text DB */}
+            {hasStaticItinerary ? (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">This is the plan</h2>
                 <div className="mt-4 flex flex-col">
@@ -324,16 +419,23 @@ export default function TripDetailClient({
                   ))}
                 </div>
               </div>
-            )}
+            ) : dbItineraryText ? (
+              <div className="mt-8">
+                <h2 className="text-lg font-bold text-foreground">This is the plan</h2>
+                <p className="mt-3 whitespace-pre-line text-sm text-muted-foreground leading-relaxed" data-testid="trip-itinerary">
+                  {dbItineraryText}
+                </p>
+              </div>
+            ) : null}
 
             {/* Includes / Not included */}
-            {((detail?.includes ?? []).length > 0 || (detail?.notIncluded ?? []).length > 0) && (
+            {(includes.length > 0 || notIncludes.length > 0) && (
               <div className="mt-8 grid gap-6 sm:grid-cols-2">
-                {(detail?.includes ?? []).length > 0 && (
+                {includes.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">{"What's included"}</h3>
-                    <ul className="mt-2 flex flex-col gap-1.5">
-                      {detail!.includes.map((item) => (
+                    <ul className="mt-2 flex flex-col gap-1.5" data-testid="trip-includes">
+                      {includes.map((item) => (
                         <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Check className="h-3.5 w-3.5 text-primary" />{item}
                         </li>
@@ -341,11 +443,11 @@ export default function TripDetailClient({
                     </ul>
                   </div>
                 )}
-                {(detail?.notIncluded ?? []).length > 0 && (
+                {notIncludes.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">Not included</h3>
-                    <ul className="mt-2 flex flex-col gap-1.5">
-                      {detail!.notIncluded.map((item) => (
+                    <ul className="mt-2 flex flex-col gap-1.5" data-testid="trip-excludes">
+                      {notIncludes.map((item) => (
                         <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
                           <span className="h-3.5 w-3.5 text-center text-xs text-destructive">&times;</span>{item}
                         </li>
@@ -356,15 +458,15 @@ export default function TripDetailClient({
               </div>
             )}
 
-            {/* Cancellation */}
-            {(detail?.cancellationPolicy ?? []).length > 0 && (
+            {/* Cancellation policy */}
+            {cancellationPolicyItems.length > 0 && (
               <div className="mt-8 rounded-xl border border-border bg-card p-4">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <Shield className="h-4 w-4 text-primary" /> Cancellation policy
                 </h3>
                 <ul className="mt-2 flex flex-col gap-1">
-                  {detail!.cancellationPolicy.map((p) => (
-                    <li key={p} className="text-sm text-muted-foreground">&bull; {p}</li>
+                  {cancellationPolicyItems.map((p) => (
+                    <li key={p} className="text-sm text-muted-foreground whitespace-pre-line">&bull; {p}</li>
                   ))}
                 </ul>
               </div>
@@ -378,8 +480,8 @@ export default function TripDetailClient({
               reviewCount={trip.reviewCount}
             />
 
-            {/* FAQ + AI Chat */}
-            <TripChat tripId={id} tripTitle={trip.title} faqs={detail?.goodToKnow ?? []} />
+            {/* FAQ + AI Chat — faqs are now dynamic, built server-side from DB */}
+            <TripChat tripId={id} tripTitle={trip.title} faqs={faqs} />
 
             {/* Getting there */}
             <div className="mt-10">
@@ -406,7 +508,7 @@ export default function TripDetailClient({
                 </button>
               </div>
 
-              {/* TourCMS / Palisis booking form — memoized to prevent re-mount on parent re-renders */}
+              {/* TourCMS / Palisis booking form */}
               {trip.permalink ? (
                 <div id="booking" className="space-y-3">
                   {selectedDate && selectedTime && (
@@ -484,12 +586,12 @@ export default function TripDetailClient({
           </div>
         </div>
 
-        {/* Related trips */}
-        {related.length > 0 && (
+        {/* Related trips — now from DB via server prop */}
+        {relatedTrips.length > 0 && (
           <div className="mt-12">
             <h2 className="text-lg font-bold text-foreground">Other things to do</h2>
-            <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {related.map((t) => <TripCard key={t.id} trip={t} />)}
+            <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3" data-testid="related-trips">
+              {relatedTrips.map((t) => <TripCard key={t.id} trip={t} />)}
             </div>
           </div>
         )}
