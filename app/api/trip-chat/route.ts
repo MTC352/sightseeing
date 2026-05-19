@@ -195,9 +195,17 @@ export async function POST(req: Request) {
     // ── Admin-configurable system prompt ─────────────────────────────────────
     const chatCfg = (settings.ai as Record<string, Record<string, unknown>>)?.chat ?? {}
     const adminPrompt  = (chatCfg.systemPrompt as string)?.trim() || ""
-    const rawModel     = ((chatCfg.model as string) || "claude-sonnet-4-5").trim()
-    // Strip any "anthropic/" prefix left over from the old Vercel AI Gateway config
-    const modelId      = rawModel.startsWith("anthropic/") ? rawModel.slice("anthropic/".length) : rawModel
+    const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5"
+    const rawModel     = ((chatCfg.model as string) || DEFAULT_ANTHROPIC_MODEL).trim()
+    // Strip any "anthropic/" prefix left over from the old Vercel AI Gateway config.
+    // If admin saved a non-Anthropic model (openai/gpt-*, google/gemini-*, etc.) the
+    // direct Anthropic provider would 500 — fall back to a sensible default instead.
+    let modelId = rawModel.startsWith("anthropic/") ? rawModel.slice("anthropic/".length) : rawModel
+    const looksAnthropic = /^claude/i.test(modelId)
+    if (!looksAnthropic) {
+      console.warn(`[trip-chat] Configured model "${rawModel}" is not Anthropic; falling back to "${DEFAULT_ANTHROPIC_MODEL}".`)
+      modelId = DEFAULT_ANTHROPIC_MODEL
+    }
     const temperature  = typeof chatCfg.temperature === "number" ? chatCfg.temperature : 0.5
     const maxTokens    = typeof chatCfg.maxTokens  === "number" ? chatCfg.maxTokens  : 512
 
