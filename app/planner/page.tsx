@@ -12,7 +12,7 @@ import { TravelOffers } from "@/components/travel-offers"
 import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { SidebarItinerary, ItineraryPanel, type Itinerary } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
-import { trips as allTrips, weatherData, type Trip } from "@/lib/data"
+import { trips as staticTripsFallback, weatherData, type Trip } from "@/lib/data"
 import Image from "next/image"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
@@ -258,6 +258,21 @@ export default function PlannerPage() {
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "up" | "down">>({})
   const [centerItinerary, setCenterItinerary] = useState<Itinerary | null>(null)
   const [itineraryRegenerating, setItineraryRegenerating] = useState(false)
+  // Dynamic trips catalog — hydrated from DB on mount.
+  // Bootstraps from the static seed so the first render isn't empty and so
+  // the page still works if the DB endpoint is unreachable.
+  const [allTrips, setAllTrips] = useState<Trip[]>(staticTripsFallback)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/planner/trips", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { ok?: boolean; trips?: Trip[] } | null) => {
+        if (cancelled || !data?.ok || !Array.isArray(data.trips) || data.trips.length === 0) return
+        setAllTrips(data.trips)
+      })
+      .catch(() => { /* keep static fallback */ })
+    return () => { cancelled = true }
+  }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const handleOpenItinerary = useCallback((itinerary: Itinerary) => {
@@ -332,7 +347,10 @@ export default function PlannerPage() {
         const { tripId } = toolCall.input as { tripId: string; tripTitle: string }
         // Resolve from static catalog first, then from the most recent searchTrips
         // tool output (covers DB-only trips with tcms_* ids).
-        let trip: Trip | undefined = allTrips.find((t) => t.id === tripId)
+        // Read from refs — useChat captures onToolCall's closure on mount, so
+        // direct `allTrips` / `aiTrips` reads would see stale values after the
+        // DB hydration replaces the catalog.
+        let trip: Trip | undefined = allTripsRef.current.find((t) => t.id === tripId)
         if (!trip) trip = aiTripsRef.current.find((t) => t.id === tripId)
         if (trip) addItem(trip)
         addToolOutput({
@@ -422,7 +440,7 @@ export default function PlannerPage() {
       }
     }
     return found
-  }, [messages])
+  }, [messages, allTrips])
 
   /* Client-side fallback trips */
   const fallbackTrips = useMemo(() => {
@@ -446,7 +464,7 @@ export default function PlannerPage() {
     })
     scored.sort((a, b) => b.score - a.score)
     return scored.slice(0, 8).map((s) => s.trip)
-  }, [prefs])
+  }, [prefs, allTrips])
 
   const resultTrips = aiTrips.length > 0 ? aiTrips : fallbackTrips
 
@@ -455,6 +473,9 @@ export default function PlannerPage() {
   // closure captures stale values, so we read latest via this ref.
   const aiTripsRef = useRef<Trip[]>([])
   useEffect(() => { aiTripsRef.current = aiTrips }, [aiTrips])
+  // Same staleness issue for the DB-hydrated catalog — mirror it into a ref.
+  const allTripsRef = useRef<Trip[]>(staticTripsFallback)
+  useEffect(() => { allTripsRef.current = allTrips }, [allTrips])
   const isStreaming = status === "streaming" || status === "submitted"
   const showResults = resultTrips.length > 0
 
