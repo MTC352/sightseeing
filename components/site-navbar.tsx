@@ -41,7 +41,7 @@ function IconHelp({ className }: { className?: string }) {
 
 const NAV_LINKS = [
   { href: "/", label: "Home", icon: IconHome },
-  { href: "/explore", label: "Explore", icon: IconExplore },
+  // { href: "/explore", label: "Explore", icon: IconExplore }, // Temporarily hidden
   { href: "/planner", label: "Trip Planner", icon: IconTripPlanner },
   { href: "/help", label: "Help", icon: IconHelp },
 ]
