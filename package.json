@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.78",
     "@ai-sdk/gateway": "^3.0.104",
     "@ai-sdk/react": "^3.0.0",
     "@hookform/resolvers": "^3.9.1",

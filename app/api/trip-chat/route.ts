@@ -1,4 +1,5 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
+import { createAnthropic } from "@ai-sdk/anthropic"
 import { dbGetTrip, dbGetSettings, dbListTrips, dbListPosts, dbListJobs, dbTripStatus } from "@/lib/db/queries"
 import { getTripById, getTripDetail } from "@/lib/data"
 
@@ -194,9 +195,28 @@ export async function POST(req: Request) {
     // ── Admin-configurable system prompt ─────────────────────────────────────
     const chatCfg = (settings.ai as Record<string, Record<string, unknown>>)?.chat ?? {}
     const adminPrompt  = (chatCfg.systemPrompt as string)?.trim() || ""
-    const model        = (chatCfg.model as string) || "anthropic/claude-opus-4.6"
+    const rawModel     = ((chatCfg.model as string) || "claude-sonnet-4-5").trim()
+    // Strip any "anthropic/" prefix left over from the old Vercel AI Gateway config
+    const modelId      = rawModel.startsWith("anthropic/") ? rawModel.slice("anthropic/".length) : rawModel
     const temperature  = typeof chatCfg.temperature === "number" ? chatCfg.temperature : 0.5
     const maxTokens    = typeof chatCfg.maxTokens  === "number" ? chatCfg.maxTokens  : 512
+
+    // Resolve Anthropic API key: prefer DB-stored integration, fall back to env secret
+    const apiKeys = (settings.apiKeys ?? {}) as Record<string, string>
+    const dbAnthropicKey =
+      apiKeys.anthropic ||
+      apiKeys.anthropic_api_key ||
+      apiKeys.anthropicApiKey ||
+      ""
+    const apiKey = (dbAnthropicKey || process.env.ANTHROPIC_API_KEY || "").trim()
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: "Anthropic API key not configured. Set ANTHROPIC_API_KEY or add it under Admin → Integrations." }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      )
+    }
+
+    const anthropic = createAnthropic({ apiKey })
 
     // ── Compose full system prompt ────────────────────────────────────────────
     const systemPrompt = `You are the AI concierge for sightseeing.lu — a curated tourism platform for Luxembourg. You are embedded on the booking page for the following trip and should answer questions about it.
@@ -223,10 +243,10 @@ ${jobLines || "(none)"}
 7. If you do not know a specific detail, say so honestly and suggest contacting the provider directly.${adminPrompt ? `\n\n## OPERATOR INSTRUCTIONS\n${adminPrompt}` : ""}`
 
     const result = streamText({
-      model,
+      model: anthropic(modelId),
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
-      maxTokens,
+      maxOutputTokens: maxTokens,
       temperature,
     })
 
