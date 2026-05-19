@@ -490,17 +490,6 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           )}
         </fieldset>
 
-        {/* ── Palisis-imported fields ─────────────────────────────────────────── */}
-        {trip?.palisis_id && (
-          <section className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-[11px] text-muted-foreground">
-            <span className="font-semibold text-primary">Palisis ID:</span> {trip.palisis_id}
-            {form.lastSyncedAt && (
-              <> · <span className="font-semibold">Last synced:</span> {new Date(form.lastSyncedAt).toLocaleString()}</>
-            )}
-            <span className="ml-2 text-muted-foreground/70">— edits stay on our site only; Palisis is the upstream source.</span>
-          </section>
-        )}
-
         {/* Tour Type & Classification */}
         <section className="rounded-xl border border-border bg-card p-5">
           <h2 className="mb-4 text-sm font-semibold text-foreground">Tour Classification</h2>
