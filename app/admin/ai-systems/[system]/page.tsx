@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Settings2, ChevronRight } from "lucide-react"
@@ -56,15 +56,18 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
 
-  useState(() => {
+  useEffect(() => {
+    let cancelled = false
     fetch("/api/admin/settings")
       .then((r) => r.json())
       .then((s) => {
+        if (cancelled) return
         const config = s?.ai?.[system]
         if (config) setForm({ ...DEFAULT_CONFIG, ...config })
       })
       .catch(() => {})
-  })
+    return () => { cancelled = true }
+  }, [system])
 
   async function save() {
     setSaving(true)

@@ -62,9 +62,56 @@ const ACCOM_RATING_LABELS: Record<number, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Defense-in-depth HTML entity decoder.
+ *
+ * fast-xml-parser already handles XML+HTML entities in well-formed payloads,
+ * but TourCMS occasionally double-encodes user-entered text (e.g. the source
+ * value is literally `l&amp;apos;Etat`, which decodes once to `l&apos;Etat`
+ * and would then ship straight to our DB). Running a second pass here is
+ * cheap and catches that case without breaking already-clean strings.
+ *
+ * Only handles the entities we've actually seen in production payloads.
+ */
+const HTML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&apos;": "'",
+  "&#39;": "'",
+  "&#039;": "'",
+  "&nbsp;": " ",
+  "&eacute;": "é",
+  "&egrave;": "è",
+  "&ecirc;": "ê",
+  "&euml;": "ë",
+  "&agrave;": "à",
+  "&acirc;": "â",
+  "&ccedil;": "ç",
+  "&ocirc;": "ô",
+  "&ucirc;": "û",
+  "&iuml;": "ï",
+}
+
+function decodeHtmlEntities(s: string): string {
+  if (!s || s.indexOf("&") === -1) return s
+  let out = s.replace(/&[a-zA-Z]+;|&#0?\d{2,4};/g, (m) => HTML_ENTITIES[m.toLowerCase()] ?? m)
+  // Numeric character references (decimal + hex) not covered by the map.
+  out = out.replace(/&#(\d+);/g, (_, d) => {
+    const code = parseInt(d, 10)
+    return Number.isFinite(code) ? String.fromCodePoint(code) : _
+  })
+  out = out.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => {
+    const code = parseInt(h, 16)
+    return Number.isFinite(code) ? String.fromCodePoint(code) : _
+  })
+  return out
+}
+
 function asString(v: unknown): string {
   if (v === null || v === undefined) return ""
-  if (typeof v === "string") return v
+  if (typeof v === "string") return decodeHtmlEntities(v)
   if (typeof v === "number" || typeof v === "boolean") return String(v)
   return ""
 }

@@ -35,6 +35,13 @@ const xmlParser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   textNodeName: "#text",
+  // Decode standard XML entities (&lt; &gt; &amp; &quot; &apos;) AND common
+  // HTML entities (&nbsp; &copy; &eacute; …). TourCMS responses frequently
+  // contain HTML entities in description fields (e.g. "l&apos;Etat") that
+  // would otherwise be persisted verbatim into our DB and bleed through to
+  // the admin UI and the public site.
+  processEntities: true,
+  htmlEntities: true,
   isArray: (name) =>
     [
       "tour", "date", "departure", "rate", "image", "language",
