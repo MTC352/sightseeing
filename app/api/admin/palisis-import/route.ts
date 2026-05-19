@@ -69,15 +69,17 @@ export async function POST(req: Request) {
     }
 
   } else {
-    // ── Tour Operator mode fallback: /c/tours/list.xml ───────────────────────
+    // ── Tour Operator mode fallback: /c/tours/search.xml ─────────────────────
     //
     // /p/tours/list.xml requires a Marketplace Partner account — Tour Operator
     // accounts receive HTTP 401. The correct operator endpoint is
-    // /c/tours/list.xml which uses the operator's own channelId (not 0).
-    // This returns all tours (both on-sale and draft) for the channel.
+    // /c/tours/search.xml (NOT /c/tours/list.xml — that path doesn't exist and
+    // returns HTTP 502 from the TourCMS gateway). listChannelTours() passes
+    // has_sale=0 so we still receive tours that don't currently have bookable
+    // dates, matching the broad behaviour of the marketplace list endpoint.
     //
     importMode = "operator"
-    logs.push(`[${ts()}] Marketplace endpoint not available (${firstPageMP.error}) — switching to Tour Operator mode /c/tours/list.xml`)
+    logs.push(`[${ts()}] Marketplace endpoint not available (${firstPageMP.error}) — switching to Tour Operator mode /c/tours/search.xml`)
 
     let page = 1
     while (true) {

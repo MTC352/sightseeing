@@ -452,29 +452,34 @@ export async function listTours(
 
 /**
  * List Channel Tours  (Tour Operator catalog import)
- * Endpoint: GET /c/tours/list.xml
+ * Endpoint: GET /c/tours/search.xml
  *
- * Returns ALL tours for the operator's own channel — both on-sale and draft.
- * This is the correct import endpoint for Tour Operator accounts that cannot
- * use /p/tours/list.xml (which requires a Marketplace Partner account).
+ * The Tour Operator-side catalog endpoint. /c/tours/list.xml does NOT exist
+ * in the TourCMS API — that path returns HTTP 502 from the upstream gateway.
+ * The correct endpoint for an operator to enumerate their own channel's tours
+ * is /c/tours/search.xml.
+ *
+ * Defaults applied to mirror the broad "list everything" behaviour of
+ * /p/tours/list.xml as closely as possible:
+ *   - has_sale=0   → include tours that don't currently have bookable dates
+ *   - order=name   → stable pagination
  *
  * Uses the configured channelId (not 0) in both the URL path and signature.
- * marketplaceId defaults to 0 when not supplied.
  */
 export async function listChannelTours(
   config: TourCMSConfig,
   params: Record<string, string | number> = {},
 ): Promise<{ ok: boolean; tours: TourSummary[]; total_tour_count: number; error?: string }> {
-  const qs   = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString()
-  const path = `/c/tours/list.xml${qs ? "?" + qs : ""}`
+  const merged: Record<string, string | number> = { has_sale: 0, order: "name", ...params }
+  const qs    = new URLSearchParams(Object.entries(merged).map(([k, v]) => [k, String(v)])).toString()
+  const path  = `/c/tours/search.xml${qs ? "?" + qs : ""}`
 
   // /c/ endpoint — uses the operator's own channelId (not 0)
   const res = await apiRequest<Record<string, unknown>>(config, "GET", path)
   if (isError(res)) return { ok: false, tours: [], total_tour_count: 0, error: res.error }
 
-  // /c/tours/list.xml returns <tour> elements directly under <response> —
-  // no <tours> wrapper like /p/tours/list.xml. Parser produces root.tour.
-  const rawTours = res.tour
+  // /c/tours/search.xml wraps results in <tours><tour>…</tour></tours>.
+  const rawTours = (res.tours as Record<string, unknown> | undefined)?.tour ?? res.tour
   const tours: TourSummary[] = Array.isArray(rawTours)
     ? rawTours as TourSummary[]
     : rawTours ? [rawTours as TourSummary] : []
