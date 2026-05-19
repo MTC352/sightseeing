@@ -25,14 +25,14 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
  * React will only recreate the iframe if `src` actually changes.
  */
 /**
- * Append slot-context (date/time) to the booking iframe URL so the
- * TourCMS/Palisis widget loads pre-selected. Both must be present, otherwise
- * the URL is returned unchanged.
+ * Return the booking iframe URL as-is. The TourCMS/Palisis reservation
+ * widget (r1.php) does not support `date` / `time` query parameters for
+ * pre-selection — appending them caused the calendar to land on an
+ * unrelated month. Pre-selection is communicated via the banner above
+ * the iframe instead.
  */
-function substitutePlaceholders(url: string, date?: string, time?: string): string {
-  if (!url || !date || !time) return url
-  const sep = url.includes("?") ? "&" : "?"
-  return `${url}${sep}date=${encodeURIComponent(date)}&time=${encodeURIComponent(time)}`
+function substitutePlaceholders(url: string, _date?: string, _time?: string): string {
+  return url
 }
 
 /** Format YYYY-MM-DD as "Sun, 17 May 2026" for the slot-context banner. */
@@ -390,12 +390,17 @@ export default function TripDetailClient({
               {trip.permalink ? (
                 <div id="booking" className="space-y-3">
                   {selectedDate && selectedTime && (
-                    <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
-                      <p className="font-semibold text-foreground">
-                        You selected: {formatSelectedDate(selectedDate)} at {selectedTime}
+                    <div className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+                        Your selected slot
                       </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        Confirm and complete booking in the widget below.
+                      <p className="mt-1 text-base font-bold text-foreground">
+                        {formatSelectedDate(selectedDate)} · {selectedTime}
+                      </p>
+                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                        Pick this date in the calendar below, then choose the
+                        <span className="font-semibold text-foreground"> {selectedTime} </span>
+                        time slot to complete your booking.
                       </p>
                     </div>
                   )}
