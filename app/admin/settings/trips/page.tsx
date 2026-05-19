@@ -8,7 +8,6 @@
  * affects the admin UI.
  */
 import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { TRIP_FIELDS, type FieldMode, type TripFieldPolicy } from "@/lib/trip-field-policy"
 
 export default function TripFieldsSettingsPage() {
@@ -71,32 +70,23 @@ export default function TripFieldsSettingsPage() {
   }
 
   if (loading) {
-    return <div className="p-6 lg:p-10 text-sm text-muted-foreground">Loading…</div>
+    return <div className="text-sm text-muted-foreground">Loading…</div>
   }
 
   return (
-    <div className="p-6 lg:p-10">
+    <div>
       <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Settings</p>
-          <h1 className="mt-1 text-2xl font-bold text-foreground">Trip Field Editability</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Choose which fields admins can edit on the trip edit page. Read-only fields are still updated
-            automatically by every Palisis sync — this only controls the editing UI.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/admin/trips" className="rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground">
-            Back to Trips
-          </Link>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
-          </button>
-        </div>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Choose which fields admins can edit on the trip edit page. Read-only fields are still updated
+          automatically by every Palisis sync — this only controls the editing UI.
+        </p>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+        </button>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">

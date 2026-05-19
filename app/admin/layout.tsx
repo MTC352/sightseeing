@@ -27,7 +27,6 @@ const NAV: NavItem[] = [
     children: [
       { href: "/admin/trips/archived", label: "Archived", icon: Archive },
       { href: "/admin/taxonomies", label: "Taxonomies", icon: Tag },
-      { href: "/admin/settings/trips", label: "Field Editability", icon: Settings },
     ],
   },
   { href: "/admin/blog", label: "Blog", icon: FileText },
@@ -39,6 +38,7 @@ const NAV: NavItem[] = [
   { href: "/admin/integrations", label: "Integrations", icon: Plug },
   { href: "/admin/header-footer", label: "Header / Footer", icon: Code2 },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
   { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare },
 ]
 
