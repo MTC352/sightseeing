@@ -2,7 +2,6 @@ import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { DeparturesClient } from "./departures-client"
 import { dbListTrips } from "@/lib/db/queries"
-import { trips as staticTrips } from "@/lib/data"
 import type { Trip } from "@/lib/data"
 import type { Metadata } from "next"
 
@@ -38,7 +37,9 @@ export default async function DeparturesPage() {
       googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
     }))
 
-  const tripList = dbTrips.length > 0 ? dbTrips : staticTrips
+  // Fail-closed: never fall back to static seed data, which would resurface
+  // archived/draft trips. If the DB returns nothing, render an empty list.
+  const tripList = dbTrips
 
   return (
     <div className="min-h-screen bg-background">

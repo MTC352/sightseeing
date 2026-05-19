@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { trips } from "@/lib/data"
+import type { Trip } from "@/lib/data"
 import {
   MapPin, Clock, Calendar, ArrowRight, Users, ChevronRight,
   Search, X, ChevronDown, SlidersHorizontal,
@@ -24,8 +24,8 @@ const DEPARTURE_TIMES: Record<string, { time: string; date: string; spots: numbe
   "31532": { time: "10:00", date: "Fri, 28 Mar", spots: 30 },
 }
 
-function groupByCity(tripList: typeof trips) {
-  const map: Record<string, typeof trips> = {}
+function groupByCity(tripList: Trip[]): [string, Trip[]][] {
+  const map: Record<string, Trip[]> = {}
   for (const trip of tripList) {
     const city = trip.city ?? "Luxembourg City"
     if (!map[city]) map[city] = []
@@ -34,13 +34,13 @@ function groupByCity(tripList: typeof trips) {
   return Object.entries(map).sort((a, b) => b[1].length - a[1].length)
 }
 
-function cityStats(cityTrips: typeof trips) {
-  const withDeparture = cityTrips.filter((t) => DEPARTURE_TIMES[t.id])
+function cityStats(cityTrips: Trip[]) {
+  const withDeparture = cityTrips.filter((t: Trip) => DEPARTURE_TIMES[t.id])
   const soonest =
-    withDeparture.find((t) => DEPARTURE_TIMES[t.id]?.date === "Today") ??
-    withDeparture.find((t) => DEPARTURE_TIMES[t.id]?.date === "Tomorrow") ??
+    withDeparture.find((t: Trip) => DEPARTURE_TIMES[t.id]?.date === "Today") ??
+    withDeparture.find((t: Trip) => DEPARTURE_TIMES[t.id]?.date === "Tomorrow") ??
     withDeparture[0]
-  const minPrice = Math.min(...cityTrips.map((t) => t.price).filter((p) => p > 0))
+  const minPrice = Math.min(...cityTrips.map((t: Trip) => t.price).filter((p: number) => p > 0))
   return { soonest, minPrice }
 }
 
@@ -52,7 +52,7 @@ function ProductSelector({
 }: {
   selected: string | null
   onSelect: (id: string | null) => void
-  allTrips: typeof trips
+  allTrips: Trip[]
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -168,8 +168,9 @@ function ProductSelector({
 }
 
 /* ── Main component ────────────────────────────────────────────── */
-export function DeparturesClient({ initialTrips }: { initialTrips?: typeof trips }) {
-  const tripList = initialTrips ?? trips
+export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
+  // Fail-closed: never fall back to the static seed catalog.
+  const tripList: Trip[] = initialTrips ?? []
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
 
   const grouped = useMemo(() => {
@@ -177,7 +178,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: typeof trips
     const product = tripList.find((t) => t.id === selectedProductId)
     if (!product) return groupByCity(tripList)
     const city = product.city ?? "Luxembourg City"
-    return [[city, tripList.filter((t) => (t.city ?? "Luxembourg City") === city)]] as [string, typeof trips][]
+    return [[city, tripList.filter((t) => (t.city ?? "Luxembourg City") === city)]] as [string, Trip[]][]
   }, [selectedProductId, tripList])
 
   const selectedTrip = tripList.find((t) => t.id === selectedProductId)

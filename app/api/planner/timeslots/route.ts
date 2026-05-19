@@ -34,11 +34,12 @@ function addDaysYMD(ymd: string, days: number): string {
 }
 
 async function resolvePalisisId(tripId: string): Promise<string | null> {
-  let row = (await dbGetTrip(tripId).catch(() => null)) as Record<string, unknown> | null
+  // publicOnly: archived/draft trips must not be bookable / timeslot-queryable
+  let row = (await dbGetTrip(tripId, { publicOnly: true }).catch(() => null)) as Record<string, unknown> | null
   if (!row && /^\d+$/.test(tripId)) {
     try {
       const rows = (await query(
-        `SELECT id, palisis_id FROM trips WHERE palisis_id = $1 LIMIT 1`,
+        `SELECT id, palisis_id FROM trips WHERE palisis_id = $1 AND status = 'published' LIMIT 1`,
         [tripId],
       )) as Array<Record<string, unknown>>
       if (rows && rows.length > 0) row = rows[0]
@@ -49,8 +50,21 @@ async function resolvePalisisId(tripId: string): Promise<string | null> {
     (row?.palisisId as string | undefined) ??
     null
   if (fromRow) return String(fromRow)
-  if (tripId.startsWith("tcms_")) return tripId.slice("tcms_".length)
-  if (/^\d+$/.test(tripId)) return tripId
+  if (tripId.startsWith("tcms_") || /^\d+$/.test(tripId)) {
+    // Heuristic only allowed when the trip does NOT exist in DB at all.
+    // Archived/draft trips must NOT be queryable for timeslots.
+    const candidate = tripId.startsWith("tcms_") ? tripId.slice("tcms_".length) : tripId
+    try {
+      const rows = (await query(
+        `SELECT 1 FROM trips WHERE (id = $1 OR palisis_id = $2) AND status != 'published' LIMIT 1`,
+        [tripId, candidate],
+      )) as Array<Record<string, unknown>>
+      if (rows.length === 0) return candidate
+    } catch {
+      // Fail-closed: refuse heuristic if we can't verify status.
+      return null
+    }
+  }
   return null
 }
 

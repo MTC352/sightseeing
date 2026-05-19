@@ -1,5 +1,4 @@
 import type { Metadata } from "next"
-import { trips as staticTrips } from "@/lib/data"
 import type { Trip } from "@/lib/data"
 import ExploreClient from "./explore-client"
 import { dbListTrips } from "@/lib/db/queries"
@@ -47,7 +46,9 @@ export default async function ExplorePage() {
       googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
     }))
 
-  const tripList = dbTrips.length > 0 ? dbTrips : staticTrips
+  // Fail-closed: never fall back to static seed data, which would resurface
+  // archived/draft trips. If the DB returns nothing, render an empty catalog.
+  const tripList = dbTrips
 
   const itemListLd = {
     "@context": "https://schema.org",

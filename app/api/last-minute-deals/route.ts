@@ -76,8 +76,12 @@ async function enrichSlot(
   },
   spaces: number,
   hoursUntilDeparture: number,
-): Promise<DealItem> {
-  const db = await dbGetTrip(slot.tripId)
+): Promise<DealItem | null> {
+  // publicOnly: archived/draft trips must never surface in last-minute deals.
+  // Caller filters out nulls (see GET handler) so a freshly-archived trip
+  // disappears from cards even before the discovery cache refreshes.
+  const db = await dbGetTrip(slot.tripId, { publicOnly: true })
+  if (!db) return null
 
   const dbPrice   = db?.price         != null ? Number(db.price)         : 0
   const dbOrig    = db?.originalPrice != null ? Number(db.originalPrice) : undefined
@@ -178,12 +182,15 @@ export async function GET() {
     // Sort: fewest seats first (strongest FOMO first)
     dealCandidates.sort((a, b) => a.spaces - b.spaces)
 
-    // Enrich top-N with DB trip data
-    const deals: DealItem[] = await Promise.all(
+    // Enrich top-N with DB trip data. enrichSlot returns null when the trip
+    // is no longer published (e.g. archived after the discovery cache was
+    // built) — drop those so stale cards don't leak through.
+    const enrichedDeals = await Promise.all(
       dealCandidates
         .slice(0, maxCards)
         .map(({ slot, spaces, hrs }) => enrichSlot(slot, spaces, hrs)),
     )
+    const deals: DealItem[] = enrichedDeals.filter((d): d is DealItem => d !== null)
 
     // ── Preview deals — when no trip qualifies the urgency filter ─────────
     // Shows soonest upcoming trips (one per trip, all trips, sorted by time).
@@ -209,7 +216,8 @@ export async function GET() {
         }
 
         const hrs = Math.round(((slot.startTimeUtcSeconds - nowUtc) / 3600) * 10) / 10
-        previewDeals.push(await enrichSlot(slot, spaces, hrs))
+        const enriched = await enrichSlot(slot, spaces, hrs)
+        if (enriched) previewDeals.push(enriched)
         if (previewDeals.length >= maxCards) break
       }
     }

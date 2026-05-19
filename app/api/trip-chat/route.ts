@@ -1,5 +1,5 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
-import { dbGetTrip, dbGetSettings, dbListTrips, dbListPosts, dbListJobs } from "@/lib/db/queries"
+import { dbGetTrip, dbGetSettings, dbListTrips, dbListPosts, dbListJobs, dbTripStatus } from "@/lib/db/queries"
 import { getTripById, getTripDetail } from "@/lib/data"
 
 export const maxDuration = 30
@@ -19,21 +19,52 @@ export async function POST(req: Request) {
 
     // Load everything in parallel: DB trip, site-wide config, knowledge base
     const [dbRow, settings, allTrips, allPosts, allJobs] = await Promise.all([
-      dbGetTrip(tripId).catch(() => null),
+      // publicOnly: never expose archived/draft trip data to the AI concierge
+      dbGetTrip(tripId, { publicOnly: true }).catch(() => null),
       dbGetSettings(),
       dbListTrips({ publicOnly: true }).catch(() => []),
       dbListPosts().catch(() => []),
       dbListJobs().catch(() => []),
     ])
 
-    // Trip data: DB row is canonical; fall back to static lib/data.ts
+    // Trip data: DB row is canonical; fall back to static lib/data.ts ONLY
+    // when the trip does NOT exist in our DB at all. If it exists but is
+    // archived/draft, dbRow is null but we must NOT leak static-seed content.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dbTrip = dbRow as Record<string, any> | null
-    const staticTrip = getTripById(tripId)
-    const staticDetail = getTripDetail(tripId)
+    let staticTrip = getTripById(tripId)
+    let staticDetail = getTripDetail(tripId)
+
+    if (!dbTrip) {
+      // Alias-aware probe: matches id OR palisis_id so an archived
+      // `tcms_<palisisId>` cannot be reached via the raw numeric id and
+      // shadowed by static seed content.
+      let anyStatus: string | null = null
+      try {
+        anyStatus = await dbTripStatus(tripId)
+      } catch {
+        // Fail-closed: if we can't verify status, refuse rather than risk
+        // leaking archived/draft content via static seed.
+        return new Response(JSON.stringify({ error: "Trip lookup failed" }), { status: 503 })
+      }
+      if (anyStatus !== null) {
+        // Trip exists in our DB under either identifier but is not published
+        // — refuse to expose any content. Treat as not-found.
+        return new Response(JSON.stringify({ error: "Trip not found" }), { status: 404 })
+      }
+    }
 
     if (!dbTrip && !staticTrip) {
       return new Response(JSON.stringify({ error: "Trip not found" }), { status: 404 })
+    }
+    // When DB row is present, static seed must NOT shadow archive semantics —
+    // but it's fine to use it for legacy enrichment alongside a published row.
+    if (!dbTrip) {
+      // Pure static fallback path: trip is unknown to our DB; keep static.
+    } else {
+      // DB-backed published trip: prefer DB; static is supplemental enrichment.
+      staticTrip = staticTrip ?? undefined
+      staticDetail = staticDetail ?? undefined
     }
 
     // Merge DB + static for richest context. DB row is canonical (Palisis-synced);

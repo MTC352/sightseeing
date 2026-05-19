@@ -4,8 +4,28 @@ import React from "react"
 
 import Link from "next/link"
 import { TripCard } from "./trip-card"
-import { tripSummaries as trips, categories, reviews } from "@/lib/data"
+import { tripSummaries as staticTrips, categories, reviews } from "@/lib/data"
+import { useGetPublicTripsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
+
+/**
+ * Hook: returns ONLY trip summaries whose IDs are currently published in the
+ * DB. Fail-closed: while the query is loading or errors, returns [] so we
+ * never render archived/draft trips from the static seed.
+ */
+function usePublishedTrips(): typeof staticTrips {
+  const { data, isLoading, isError } = useGetPublicTripsQuery()
+  if (isLoading || isError || !data) return []
+  // /api/trips returns { trips: [{id, ...}] } — RTK fetchBaseQuery unwraps JSON,
+  // but the response shape is the full object, so look for either array or .trips.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const arr: Array<{ id: string | number }> = Array.isArray(data as any)
+    ? (data as any)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    : ((data as any)?.trips ?? [])
+  const publishedIds = new Set(arr.map((t) => String(t.id)))
+  return staticTrips.filter((t) => publishedIds.has(String(t.id)))
+}
 import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import { DeparturesSoonSection } from "@/components/departing-soon-section"
@@ -17,6 +37,7 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
 
 /* Trending Section */
 export function TrendingSection() {
+  const trips = usePublishedTrips()
   const trending = trips.filter((t) => t.tags.includes("popular")).slice(0, 3)
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
@@ -40,6 +61,7 @@ export function TrendingSection() {
 /* Weather Widget Section */
 export function WeatherSection() {
   const { weather, isLoading } = useWeather()
+  const trips = usePublishedTrips()
 
   // Fallback skeleton icon while loading
   const icon = weather?.current.icon ?? "cloud-sun"
@@ -212,6 +234,7 @@ export function CategoriesSection() {
 
 /* Deals Section */
 export function DealsSection() {
+  const trips = usePublishedTrips()
   const deals = trips.filter((t) => t.originalPrice).slice(0, 3)
   if (deals.length === 0) return null
   return (
@@ -259,19 +282,28 @@ export function ReviewsSection() {
           </div>
         </div>
         {/* Bestseller sidebar */}
-        <div className="shrink-0 lg:w-80">
-          <h3 className="text-lg font-bold text-foreground">
-            <EditableText id="home:bestseller:heading" defaultValue="This week's bestseller" />
-          </h3>
-          <div className="mt-4"><TripCard trip={trips[0]} priority /></div>
-        </div>
+        <BestsellerSidebar />
       </div>
     </section>
   )
 }
 
+function BestsellerSidebar() {
+  const trips = usePublishedTrips()
+  if (!trips[0]) return null
+  return (
+    <div className="shrink-0 lg:w-80">
+      <h3 className="text-lg font-bold text-foreground">
+        <EditableText id="home:bestseller:heading" defaultValue="This week's bestseller" />
+      </h3>
+      <div className="mt-4"><TripCard trip={trips[0]} priority /></div>
+    </div>
+  )
+}
+
 /* Recently Viewed (small card format) */
 export function RecentlyViewed() {
+  const trips = usePublishedTrips()
   const recent = trips.slice(0, 4)
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">

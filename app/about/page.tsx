@@ -3,11 +3,16 @@ import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
-import { trips, categories, reviews } from "@/lib/data"
+import { categories, reviews } from "@/lib/data"
+import { dbListTrips } from "@/lib/db/queries"
 import { MapPin, Users, Star, Award, Globe, Shield, Heart, ArrowRight } from "lucide-react"
 import { AboutHeroText, AboutStoryText, AboutValuesHeading, AboutOfferHeading, AboutReviewsHeading } from "./about-content"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
+
+// Dynamic — counts/prices/aggregate-rating reflect only currently-published
+// trips so archived/draft trips never contribute to public stats or JSON-LD.
+export const dynamic = "force-dynamic"
 
 export const metadata: Metadata = {
   title: "About Us",
@@ -20,13 +25,6 @@ export const metadata: Metadata = {
   },
 }
 
-const stats = [
-  { label: "Experiences", value: `${trips.length}+` },
-  { label: "Happy Travellers", value: "12,000+" },
-  { label: "Customer Rating", value: "4.7/5" },
-  { label: "Local Guides", value: "25+" },
-]
-
 const values = [
   { icon: Heart, title: "Passion for Luxembourg", description: "Every experience is handpicked by our team of locals who are passionate about showcasing the very best of the Grand Duchy." },
   { icon: Shield, title: "Quality Guarantee", description: "We personally vet every tour provider and guide. If an experience doesn't meet our standards, it doesn't make the cut." },
@@ -34,8 +32,26 @@ const values = [
   { icon: Users, title: "Small Groups", description: "We prioritize intimate group sizes so every traveller gets a personal, authentic experience." },
 ]
 
-export default function AboutPage() {
-  const totalReviews = trips.reduce((sum, t) => sum + t.reviewCount, 0)
+type AboutTrip = {
+  id: string
+  category?: string | null
+  price?: number | null
+  reviewCount?: number | null
+}
+
+export default async function AboutPage() {
+  // Fail-closed: empty array on DB error so no static/archived data leaks.
+  const publishedTrips = (await dbListTrips({ publicOnly: true }).catch(() => [])) as AboutTrip[]
+
+  const totalReviews = publishedTrips.reduce((sum, t) => sum + Number(t.reviewCount ?? 0), 0)
+  const experienceCount = publishedTrips.length
+
+  const stats = [
+    { label: "Experiences", value: experienceCount > 0 ? `${experienceCount}+` : "—" },
+    { label: "Happy Travellers", value: "12,000+" },
+    { label: "Customer Rating", value: "4.7/5" },
+    { label: "Local Guides", value: "25+" },
+  ]
 
   const aboutLd = {
     "@context": "https://schema.org",
@@ -57,11 +73,11 @@ export default function AboutPage() {
       contactType: "customer service",
       availableLanguage: ["English", "French", "German", "Luxembourgish"],
     },
-    aggregateRating: {
+    aggregateRating: totalReviews > 0 ? {
       "@type": "AggregateRating",
       ratingValue: "4.7",
       reviewCount: totalReviews.toString(),
-    },
+    } : undefined,
     areaServed: {
       "@type": "Country",
       name: "Luxembourg",
@@ -134,13 +150,16 @@ export default function AboutPage() {
           <AboutOfferHeading />
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {categories.map((cat) => {
-              const catTrips = trips.filter((t) => t.category === cat.name)
-              const minPrice = Math.min(...catTrips.map((t) => t.price).filter((p) => p > 0))
+              const catTrips = publishedTrips.filter((t) => String(t.category ?? "") === cat.name)
+              const positivePrices = catTrips.map((t) => Number(t.price ?? 0)).filter((p) => p > 0)
+              const minPrice = positivePrices.length > 0 ? Math.min(...positivePrices) : null
               return (
                 <Link key={cat.name} href={`/experiences/${cat.name.toLowerCase().replace(/ & /g, "-").replace(/ /g, "-")}`} className="flex items-center justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30">
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">{cat.name}</h3>
-                    <p className="text-xs text-muted-foreground">{catTrips.length} experiences from {minPrice.toFixed(0)} EUR</p>
+                    <p className="text-xs text-muted-foreground">
+                      {catTrips.length} experiences{minPrice != null ? ` from ${minPrice.toFixed(0)} EUR` : ""}
+                    </p>
                   </div>
                   <ArrowRight className="h-4 w-4 text-muted-foreground" />
                 </Link>

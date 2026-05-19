@@ -12,7 +12,12 @@ import { TravelOffers } from "@/components/travel-offers"
 import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { SidebarItinerary, ItineraryPanel, type Itinerary } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
-import { trips as staticTripsFallback, weatherData, type Trip } from "@/lib/data"
+import { weatherData, type Trip } from "@/lib/data"
+
+// Fail-closed: NEVER bootstrap the AI planner with static seed data — it
+// would expose archived/draft trips that have been removed from the DB.
+// The planner starts empty and is populated by /api/planner/trips (publicOnly).
+const staticTripsFallback: Trip[] = []
 import Image from "next/image"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,

@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next"
-import { trips, categories } from "@/lib/data"
+import { categories } from "@/lib/data"
+import { dbListTrips } from "@/lib/db/queries"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -7,7 +8,11 @@ function slugify(name: string) {
   return name.toLowerCase().replace(/ & /g, "-").replace(/ /g, "-")
 }
 
-export default function sitemap(): MetadataRoute.Sitemap {
+// Must be dynamic — sitemap reflects only currently-published trips. Archiving
+// a trip in the admin removes it from the next crawler hit.
+export const dynamic = "force-dynamic"
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date().toISOString()
 
   const staticPages: MetadataRoute.Sitemap = [
@@ -26,8 +31,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.85,
   }))
 
-  const tripPages: MetadataRoute.Sitemap = trips.map((trip) => ({
-    url: `${BASE}/trip/${trip.id}`,
+  // DB-backed: archived/draft trips are excluded by publicOnly. Fail-closed
+  // on DB error so we never list non-public trips in the crawler sitemap.
+  const rows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as Array<{ id: string }>
+  const tripPages: MetadataRoute.Sitemap = rows.map((trip) => ({
+    url: `${BASE}/trip/${String(trip.id)}`,
     lastModified: now,
     changeFrequency: "weekly" as const,
     priority: 0.8,

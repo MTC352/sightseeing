@@ -58,7 +58,30 @@ export async function dbListArchivedTrips() {
  */
 export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {}) {
   const extra = opts.publicOnly ? "AND status = 'published'" : ""
-  return queryOne(`SELECT ${TRIP_SELECT} FROM trips WHERE id = $1 ${extra}`, [id])
+  // Alias-aware lookup: imported trips have id=`tcms_<palisisId>` but may be
+  // referenced publicly by their raw palisis_id (e.g. `/trip/31898`). Match
+  // on either column so archived/draft status cannot be bypassed by alias.
+  return queryOne(
+    `SELECT ${TRIP_SELECT} FROM trips
+       WHERE (id = $1 OR palisis_id = $1)
+       ${extra}
+       LIMIT 1`,
+    [id]
+  )
+}
+
+/**
+ * Alias-aware existence probe — returns the row's status if a trip exists
+ * under either `id` or `palisis_id`, or null if no such trip exists.
+ * Throws on DB error so callers can fail-CLOSED rather than treat errors as
+ * "not found". Used by public/AI surfaces to gate static-seed fallback.
+ */
+export async function dbTripStatus(id: string): Promise<string | null> {
+  const row = await queryOne<{ status: string }>(
+    `SELECT status FROM trips WHERE id = $1 OR palisis_id = $1 LIMIT 1`,
+    [id]
+  )
+  return row ? String(row.status ?? "") : null
 }
 
 export async function dbCreateTrip(data: Record<string, unknown>) {

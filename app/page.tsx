@@ -3,9 +3,14 @@ import { HeroSection } from "@/components/hero-section"
 import { TrendingSection, WeatherSection, CategoriesSection, ReviewsSection, RecentlyViewed, StatsBar, DeparturesSoonSection } from "@/components/home-sections"
 import { LastMinuteDealsSection } from "@/components/last-minute-deals-section"
 import { SiteFooter } from "@/components/site-footer"
+import { dbListTrips } from "@/lib/db/queries"
+
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
-/* JSON-LD: Organization — kept small to stay under the 128 kB page data limit */
+// Dynamic — itemListLd reflects only currently-published trips so archived
+// items disappear from homepage structured data immediately.
+export const dynamic = "force-dynamic"
+
 const organizationLd = {
   "@context": "https://schema.org",
   "@type": "Organization",
@@ -13,20 +18,6 @@ const organizationLd = {
   url: BASE,
   description: "Handpicked tours, activities, and experiences in and around Luxembourg.",
   areaServed: { "@type": "Country", name: "Luxembourg" },
-}
-
-/* Hardcoded top-5 for the ItemList — avoids importing + serializing the full trips array */
-const itemListLd = {
-  "@context": "https://schema.org",
-  "@type": "ItemList",
-  name: "Popular Experiences in Luxembourg",
-  itemListElement: [
-    { "@type": "ListItem", position: 1, url: `${BASE}/trip/31898`, name: "Sightseeing City Tour" },
-    { "@type": "ListItem", position: 2, url: `${BASE}/trip/31464`, name: "Guided Tour - Printing Museum in Grevenmacher" },
-    { "@type": "ListItem", position: 3, url: `${BASE}/trip/31318`, name: "Climbing Initiation in Echternach" },
-    { "@type": "ListItem", position: 4, url: `${BASE}/trip/32018`, name: "Guided E-Bike Tour" },
-    { "@type": "ListItem", position: 5, url: `${BASE}/trip/31967`, name: "Dinner Hopping - Italian" },
-  ],
 }
 
 const websiteLd = {
@@ -41,12 +32,41 @@ const websiteLd = {
   },
 }
 
-export default function Page() {
+export default async function Page() {
+  // Top-5 published trips for the ItemList JSON-LD. Fail-closed: empty list
+  // on DB error so we never expose archived/draft trip references.
+  const rows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as Array<{
+    id: string
+    title: string
+    title_override?: string | null
+    reviewCount?: number
+  }>
+  const top = rows
+    .slice()
+    .sort((a, b) => Number(b.reviewCount ?? 0) - Number(a.reviewCount ?? 0))
+    .slice(0, 5)
+
+  const itemListLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "Popular Experiences in Luxembourg",
+    itemListElement: top.map((t, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      url: `${BASE}/trip/${String(t.id)}`,
+      name: t.title_override ?? t.title,
+    })),
+  }
+
+  const schemas = top.length > 0
+    ? [organizationLd, itemListLd, websiteLd]
+    : [organizationLd, websiteLd]
+
   return (
     <div className="min-h-screen bg-background">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify([organizationLd, itemListLd, websiteLd]) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }}
       />
       <Navbar />
       <HeroSection />

@@ -12,7 +12,7 @@ import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { TripChat } from "@/components/trip-chat"
 import { GoogleReviews } from "@/components/google-reviews"
 import { useCart } from "@/lib/cart-context"
-import { getTripById, getTripDetail, type Trip } from "@/lib/data"
+import { getTripDetail, type Trip } from "@/lib/data"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 
@@ -128,7 +128,10 @@ export default function TripDetailClient({
   selectedDate?: string
   selectedTime?: string
 }) {
-  const trip = serverTrip ?? getTripById(id)
+  // Fail-closed: only honor the server-supplied trip. Never fall back to the
+  // static seed catalog — the server gate (dbGetTrip publicOnly) is the sole
+  // source of truth for whether this trip is publishable.
+  const trip = serverTrip
   const detail = getTripDetail(id)
 
   const { addItem, isInCart } = useCart()

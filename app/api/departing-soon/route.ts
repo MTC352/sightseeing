@@ -94,6 +94,22 @@ export async function GET() {
     const showAvailability = await getShowAvailability()
     const displayed = await computeDisplayedSlots()
 
+    // Re-validate publication status against the live DB so that trips
+    // archived AFTER the discovery cache was built drop out immediately
+    // (otherwise they'd leak until the next discovery refresh window).
+    let publishedIds: Set<string> | null = null
+    try {
+      const { query } = await import("@/lib/db")
+      const rows = (await query(
+        `SELECT id FROM trips WHERE status = 'published'`,
+      )) as Array<{ id: string }>
+      publishedIds = new Set(rows.map((r) => String(r.id)))
+    } catch {
+      // Fail-closed for safety: if we can't verify, hide the widget rather
+      // than risk surfacing archived trips.
+      publishedIds = null
+    }
+
     // 3. Refresh availability only when the toggle says so (TTL-gated, deduped)
     if (showAvailability) {
       await refreshAvailability()
@@ -102,6 +118,8 @@ export async function GET() {
     // 4. Build response — drop sold-out only when we are tracking availability
     const departures: DepartingSoonItem[] = []
     for (const slot of displayed) {
+      // Hard gate: drop any slot whose trip is no longer in the published set.
+      if (publishedIds === null || !publishedIds.has(String(slot.tripId))) continue
       let spacesRemaining: number | "UNLIMITED" | undefined
       if (showAvailability) {
         const key = `${slot.tripId}:${slot.date}:${slot.time}`

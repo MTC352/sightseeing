@@ -1,24 +1,56 @@
-import { trips, categories } from "@/lib/data"
 import { type NextRequest, NextResponse } from "next/server"
+import { dbListTrips } from "@/lib/db/queries"
+import { categories } from "@/lib/data"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
+export const dynamic = "force-dynamic"
+
+type TripRow = {
+  id: string
+  title: string
+  title_override?: string | null
+  price: number
+  originalPrice?: number | null
+  duration: string | null
+  rating: number
+  reviewCount: number
+  category: string
+  city?: string | null
+  provider?: string | null
+  description?: string | null
+  tags?: string[] | null
+  badge?: string | null
+  image?: string | null
+}
+
 /**
  * Public API endpoint for AI agents and developers.
- * Returns the full trip catalog as structured JSON.
- *
- * Query params:
- *   category – filter by category name (case-insensitive)
- *   city     – filter by city name (case-insensitive)
- *   minPrice – minimum price (inclusive)
- *   maxPrice – maximum price (inclusive)
- *   limit    – max results (default: all)
- *   sort     – "price" | "rating" | "reviews" (default: reviews desc)
+ * Returns the full PUBLISHED trip catalog from the DB as structured JSON.
+ * Archived and draft trips are excluded.
  */
-export function GET(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
 
-  let results = [...trips]
+  // DB-backed (publicOnly) — archived/draft trips are excluded at the query level.
+  const rows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as TripRow[]
+
+  let results = rows.map((r) => ({
+    id: String(r.id),
+    title: r.title_override ?? r.title,
+    price: Number(r.price ?? 0),
+    originalPrice: r.originalPrice != null ? Number(r.originalPrice) : undefined,
+    duration: r.duration ?? "",
+    rating: Number(r.rating ?? 0),
+    reviewCount: Number(r.reviewCount ?? 0),
+    category: r.category,
+    city: r.city ?? "Luxembourg",
+    provider: r.provider ?? "sightseeing.lu",
+    description: r.description ?? null,
+    tags: Array.isArray(r.tags) ? r.tags : [],
+    badge: r.badge ?? null,
+    image: r.image ?? "/placeholder.svg",
+  }))
 
   /* Filters */
   const category = searchParams.get("category")
@@ -61,7 +93,7 @@ export function GET(request: NextRequest) {
     meta: {
       total: results.length,
       categories: categories.map((c) => c.name),
-      cities: [...new Set(trips.map((t) => t.city).filter(Boolean))],
+      cities: [...new Set(rows.map((t) => t.city).filter(Boolean))],
       generatedAt: new Date().toISOString(),
       source: "sightseeing.lu",
       docs: `${BASE}/llms.txt`,
@@ -76,11 +108,11 @@ export function GET(request: NextRequest) {
       rating: t.rating,
       reviewCount: t.reviewCount,
       category: t.category,
-      city: t.city ?? "Luxembourg",
-      provider: t.provider ?? "sightseeing.lu",
-      description: t.description ?? null,
+      city: t.city,
+      provider: t.provider,
+      description: t.description,
       tags: t.tags,
-      badge: t.badge ?? null,
+      badge: t.badge,
       image: t.image.startsWith("/") ? `${BASE}${t.image}` : t.image,
     })),
   }
@@ -90,7 +122,7 @@ export function GET(request: NextRequest) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
-      "Cache-Control": "public, max-age=3600, s-maxage=3600",
+      "Cache-Control": "public, max-age=300, s-maxage=300",
     },
   })
 }

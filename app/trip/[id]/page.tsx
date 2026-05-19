@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import { getTripById, getTripDetail } from "@/lib/data"
 import type { Trip } from "@/lib/data"
 import TripDetailClient, { type TripDbDetail, type TripFaq, type RelatedTrip } from "./trip-detail-view"
-import { dbGetTrip, dbListTrips } from "@/lib/db/queries"
+import { dbGetTrip, dbListTrips, dbTripStatus } from "@/lib/db/queries"
 
 function mapDbTrip(r: Record<string, unknown>): Trip {
   return {
@@ -146,15 +146,58 @@ const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
 export const dynamic = "force-dynamic"
 
+/**
+ * Resolve the trip strictly through the DB gate.
+ *
+ * Returns:
+ *   - the published Trip if dbGetTrip(publicOnly) returns a row
+ *   - null if the DB confirms either "no such trip" OR "trip exists but is
+ *     archived/draft" — both must yield not-found to the public
+ *   - null if any DB call throws (fail-CLOSED; never resurface static seed
+ *     data on a DB outage)
+ *
+ * Static seed fallback (getTripById) is only allowed when the DB has been
+ * successfully queried and confirms the ID is unknown to the DB entirely
+ * (legacy seed IDs that were never imported).
+ */
+async function resolveTrip(id: string): Promise<{
+  trip: Trip | null
+  dbRow: Record<string, unknown> | null
+}> {
+  let dbRow: Record<string, unknown> | null = null
+  try {
+    dbRow = (await dbGetTrip(id, { publicOnly: true })) as Record<string, unknown> | null
+  } catch (e) {
+    console.error(`[trip/${id}] dbGetTrip(publicOnly) failed — fail-closed:`, e)
+    return { trip: null, dbRow: null }
+  }
+  if (dbRow) return { trip: mapDbTrip(dbRow), dbRow }
+
+  // Alias-aware existence probe (matches id OR palisis_id). Required because
+  // imports use id=`tcms_<palisisId>` while the public URL may use the raw
+  // numeric palisis_id — without this, an archived `tcms_123` would be
+  // missed by a `/trip/123` lookup and fall through to static seed.
+  let anyStatus: string | null = null
+  try {
+    anyStatus = await dbTripStatus(id)
+  } catch (e) {
+    console.error(`[trip/${id}] dbTripStatus failed — fail-closed:`, e)
+    return { trip: null, dbRow: null }
+  }
+  // DB has the row under either identifier but it isn't published → not-found.
+  if (anyStatus !== null) return { trip: null, dbRow: null }
+
+  // DB successfully confirmed the ID is unknown under both id and palisis_id
+  // → safe to use static seed for legacy IDs never imported into the DB.
+  const seed = getTripById(id)
+  return { trip: seed ?? null, dbRow: null }
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
-  const dbRow = await dbGetTrip(id, { publicOnly: true }).catch(() => null)
-  const dbRowAny = await dbGetTrip(id).catch(() => null)
-  const trip = dbRow
-    ? mapDbTrip(dbRow as Record<string, unknown>)
-    : (dbRowAny ? null : getTripById(id))
+  const { trip, dbRow } = await resolveTrip(id)
   const detail = getTripDetail(id)
-  const dbDetail = dbRow ? mapDbDetail(dbRow as Record<string, unknown>) : null
+  const dbDetail = dbRow ? mapDbDetail(dbRow) : null
 
   if (!trip) {
     return { title: "Trip not found" }
@@ -203,16 +246,9 @@ export default async function TripPage({
   const selectedDate = typeof sp.date === "string" ? sp.date : undefined
   const selectedTime = typeof sp.time === "string" ? sp.time : undefined
 
-  const dbRow = await dbGetTrip(id, { publicOnly: true }).catch(() => null)
-  // CRITICAL: only fall back to the static seed data when the trip exists
-  // there but isn't in the DB at all (legacy seed IDs). NEVER fall back when
-  // the DB has the trip with non-published status — that would expose drafts.
-  const dbRowAny = await dbGetTrip(id).catch(() => null)
-  const trip = dbRow
-    ? mapDbTrip(dbRow as Record<string, unknown>)
-    : (dbRowAny ? null : getTripById(id))
+  const { trip, dbRow } = await resolveTrip(id)
   const detail = getTripDetail(id)
-  const dbDetail = dbRow ? mapDbDetail(dbRow as Record<string, unknown>) : null
+  const dbDetail = dbRow ? mapDbDetail(dbRow) : null
   const faqs = trip ? buildFaqs(dbDetail, trip, detail?.goodToKnow) : []
 
   // Related trips: pull from DB (same category preferred, then others), exclude current

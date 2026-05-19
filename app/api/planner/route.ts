@@ -8,7 +8,7 @@ import {
   validateUIMessages,
 } from "ai"
 import { z } from "zod"
-import { trips as staticTrips, weatherData as staticWeatherData, type Trip } from "@/lib/data"
+import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 
@@ -92,7 +92,12 @@ function jsonToText(v: unknown): string {
   try { return JSON.stringify(v) } catch { return "" }
 }
 
-/** Load the unified trip catalog: DB first, fallback to static if DB is empty. */
+/**
+ * Load the unified trip catalog from the DB (publicOnly).
+ * Fail-CLOSED: returns [] on DB error or empty result. We never fall back to
+ * the static seed catalog because that would expose archived/draft trips to
+ * the AI planner.
+ */
 async function loadTripCatalog(): Promise<RichTrip[]> {
   try {
     const rows = (await dbListTrips({ publicOnly: true })) as Array<Record<string, unknown>>
@@ -146,10 +151,10 @@ async function loadTripCatalog(): Promise<RichTrip[]> {
       }))
     }
   } catch (e) {
-    console.error("[planner] dbListTrips failed, falling back to static:", e)
+    console.error("[planner] dbListTrips failed — returning empty catalog (fail-closed):", e)
   }
-  // Fallback: static seed trips (no Palisis enrichment)
-  return staticTrips.map((t) => ({ ...t }))
+  // Fail-closed: never expose static seed (could include archived/draft trips).
+  return []
 }
 
 const searchTripsTool = tool({
@@ -332,8 +337,9 @@ async function resolvePalisisId(tripId: string): Promise<{
   palisisId: string | null
   tripRow: Record<string, unknown> | null
 }> {
-  // 1) Try direct PK lookup (handles "tcms_22" and any other internal id)
-  let tripRow = (await dbGetTrip(tripId).catch(() => null)) as Record<string, unknown> | null
+  // 1) Try direct PK lookup (handles "tcms_22" and any other internal id).
+  //    publicOnly: archived/draft trips must never be plannable from the frontend.
+  let tripRow = (await dbGetTrip(tripId, { publicOnly: true }).catch(() => null)) as Record<string, unknown> | null
 
   // 2) If not found and the input looks like a raw Palisis tour_id, look up by palisis_id
   if (!tripRow && /^\d+$/.test(tripId)) {
@@ -342,7 +348,8 @@ async function resolvePalisisId(tripId: string): Promise<{
       const rows = (await query(
         // Re-select the same shape as dbGetTrip for consistency.
         // We include palisis_id explicitly so both keys are always present.
-        `SELECT id, palisis_id, title, duration FROM trips WHERE palisis_id = $1 LIMIT 1`,
+        // status = 'published' mirrors the publicOnly gate above.
+        `SELECT id, palisis_id, title, duration FROM trips WHERE palisis_id = $1 AND status = 'published' LIMIT 1`,
         [tripId],
       )) as Array<Record<string, unknown>>
       if (rows && rows.length > 0) tripRow = rows[0]
@@ -356,9 +363,27 @@ async function resolvePalisisId(tripId: string): Promise<{
     (tripRow?.palisis_id as string | undefined) ??
     (tripRow?.palisisId as string | undefined) ??
     null
-  if (fromRow) palisisId = String(fromRow)
-  else if (tripId.startsWith("tcms_")) palisisId = tripId.slice("tcms_".length)
-  else if (/^\d+$/.test(tripId)) palisisId = tripId
+  if (fromRow) {
+    palisisId = String(fromRow)
+  } else if (tripId.startsWith("tcms_") || /^\d+$/.test(tripId)) {
+    // Heuristic fallback: only when the trip does NOT exist in our DB at all.
+    // If the trip exists but is archived/draft, the publicOnly lookups above
+    // returned null — we must NOT silently bypass that via this heuristic.
+    const candidatePalisis = tripId.startsWith("tcms_") ? tripId.slice("tcms_".length) : tripId
+    try {
+      const { query } = await import("@/lib/db")
+      const rows = (await query(
+        `SELECT 1 FROM trips WHERE (id = $1 OR palisis_id = $2) AND status != 'published' LIMIT 1`,
+        [tripId, candidatePalisis],
+      )) as Array<Record<string, unknown>>
+      if (rows.length === 0) palisisId = candidatePalisis
+      // else: trip exists in DB but is archived/draft — block.
+    } catch {
+      // Fail-closed: if we can't verify status, refuse the heuristic rather
+      // than risk leaking archived/draft content.
+      palisisId = null
+    }
+  }
 
   return { palisisId, tripRow }
 }

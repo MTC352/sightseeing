@@ -4,9 +4,35 @@ import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { TripCard } from "@/components/trip-card"
-import { trips, categories } from "@/lib/data"
+import { categories, type Trip } from "@/lib/data"
+import { dbListTrips } from "@/lib/db/queries"
 import { Star, Clock, MapPin, ArrowRight } from "lucide-react"
 import { notFound } from "next/navigation"
+
+// Must be dynamic — published trip set changes with admin archive/draft actions.
+export const dynamic = "force-dynamic"
+
+async function getPublishedTrips(): Promise<Trip[]> {
+  const rows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as Array<Record<string, unknown>>
+  return rows.map((r) => ({
+    id: String(r.id),
+    title: String((r.title_override ?? r.title) ?? ""),
+    image: String(r.image ?? "/images/placeholder.jpg"),
+    price: Number(r.price ?? 0),
+    originalPrice: r.originalPrice != null ? Number(r.originalPrice) : undefined,
+    rating: Number(r.rating ?? 0),
+    reviewCount: Number(r.reviewCount ?? 0),
+    duration: String(r.duration ?? ""),
+    category: String(r.category ?? ""),
+    tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+    badge: r.badge != null ? String(r.badge) : undefined,
+    city: r.city != null ? String(r.city) : undefined,
+    description: r.description != null ? String(r.description) : undefined,
+    permalink: r.permalink != null ? String(r.permalink) : undefined,
+    provider: r.provider != null ? String(r.provider) : undefined,
+    highlights: Array.isArray(r.highlights) ? (r.highlights as string[]) : [],
+  } as Trip))
+}
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -72,7 +98,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const cat = unslugify(slug)
   if (!cat) return { title: "Category not found" }
 
-  const catTrips = trips.filter((t) => t.category === cat.name)
+  const allTrips = await getPublishedTrips()
+  const catTrips = allTrips.filter((t) => t.category === cat.name)
   const description = `${cat.name} in Luxembourg: ${catTrips.length} experiences from ${Math.min(...catTrips.map((t) => t.price).filter((p) => p > 0)).toFixed(0)} EUR. ${CATEGORY_INTROS[cat.name]?.split(".")[0] ?? ""}.`
 
   return {
@@ -93,7 +120,11 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   const cat = unslugify(slug)
   if (!cat) notFound()
 
-  const catTrips = trips.filter((t) => t.category === cat.name).sort((a, b) => b.reviewCount - a.reviewCount)
+  // Published-only via DB — archived/draft trips never surface.
+  const allTrips = await getPublishedTrips()
+  const catTrips = allTrips
+    .filter((t) => t.category === cat.name)
+    .sort((a, b) => b.reviewCount - a.reviewCount)
   const prices = catTrips.map((t) => t.price).filter((p) => p > 0)
   const faqs = CATEGORY_FAQS[cat.name] ?? []
 

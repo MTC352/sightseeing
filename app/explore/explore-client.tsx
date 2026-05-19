@@ -5,7 +5,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
-import { trips, categories } from "@/lib/data"
+import { categories } from "@/lib/data"
 import { Star, Clock, ChevronDown, ChevronUp, MapPin, Utensils, Bike, Landmark, Map, Users, Wine, Sparkles, Heart, SlidersHorizontal, X, ChevronRight, CalendarDays, ChevronLeft, Search, Check, Plus, Sun, LayoutGrid, List } from "lucide-react"
 import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"
@@ -574,7 +574,9 @@ const INSIDER_TIPS = [
 
 /* ── Main component ── */
 export default function ExplorePage({ initialTrips }: { initialTrips?: Trip[] }) {
-  const tripList = initialTrips ?? trips
+  // Fail-closed: server always passes DB-backed publicOnly trips. Never fall
+  // back to the static seed catalog (would resurface archived/draft trips).
+  const tripList: Trip[] = initialTrips ?? []
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [dateOpen, setDateOpen] = useState(false)
