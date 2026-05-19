@@ -9,7 +9,8 @@ import {
 } from "ai"
 import { z } from "zod"
 import { trips as staticTrips, weatherData as staticWeatherData, type Trip } from "@/lib/data"
-import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
+import { dbGetSettings, dbGetTrip, dbListTrips } from "@/lib/db/queries"
+import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -322,6 +323,188 @@ const buildItineraryTool = tool({
   },
 })
 
+/**
+ * Resolve a tripId (either our internal id "tcms_22" or a raw Palisis tour_id "22")
+ * into the Palisis tour_id used by TourCMS API calls. Returns null when the trip
+ * has no Palisis link (e.g. legacy static seed trip).
+ */
+async function resolvePalisisId(tripId: string): Promise<{
+  palisisId: string | null
+  tripRow: Record<string, unknown> | null
+}> {
+  // 1) Try direct PK lookup (handles "tcms_22" and any other internal id)
+  let tripRow = (await dbGetTrip(tripId).catch(() => null)) as Record<string, unknown> | null
+
+  // 2) If not found and the input looks like a raw Palisis tour_id, look up by palisis_id
+  if (!tripRow && /^\d+$/.test(tripId)) {
+    try {
+      const { query } = await import("@/lib/db")
+      const rows = (await query(
+        // Re-select the same shape as dbGetTrip for consistency.
+        // We include palisis_id explicitly so both keys are always present.
+        `SELECT id, palisis_id, title, duration FROM trips WHERE palisis_id = $1 LIMIT 1`,
+        [tripId],
+      )) as Array<Record<string, unknown>>
+      if (rows && rows.length > 0) tripRow = rows[0]
+    } catch { /* DB miss — fall through to heuristic */ }
+  }
+
+  // 3) Resolve the Palisis tour_id from the row (TRIP_SELECT exposes it as
+  //    snake_case `palisis_id`; allow camelCase too for safety).
+  let palisisId: string | null = null
+  const fromRow =
+    (tripRow?.palisis_id as string | undefined) ??
+    (tripRow?.palisisId as string | undefined) ??
+    null
+  if (fromRow) palisisId = String(fromRow)
+  else if (tripId.startsWith("tcms_")) palisisId = tripId.slice("tcms_".length)
+  else if (/^\d+$/.test(tripId)) palisisId = tripId
+
+  return { palisisId, tripRow }
+}
+
+/** YYYY-MM-DD for today (UTC, good enough for date-range queries). */
+function todayYMD(): string {
+  return new Date().toISOString().split("T")[0]
+}
+
+/** Add N days to a YYYY-MM-DD string and return YYYY-MM-DD. */
+function addDaysYMD(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().split("T")[0]
+}
+
+const getTripDatesAndDealsTool = tool({
+  description:
+    "Fetch the BOOKABLE-DATES CALENDAR (with prices, deals, spaces remaining, and duration) for ONE trip across a date range. Use when the user asks 'when can I book', 'is there a date on Friday', 'any deals next week', 'cheapest day', 'what dates are available', or wants to plan a trip on a specific upcoming date. This is the wide calendar view — use getTripTimeslots after the user picks a specific date for exact timeslots.",
+  inputSchema: z.object({
+    tripId: z.string().describe("Internal trip id (e.g. 'tcms_22') or Palisis tour_id (e.g. '22')"),
+    startDate: z.string().optional().describe("YYYY-MM-DD start of the date range. Defaults to today."),
+    endDate: z.string().optional().describe("YYYY-MM-DD end of the date range. Defaults to 14 days from start."),
+  }),
+  execute: async ({ tripId, startDate, endDate }) => {
+    const start = startDate || todayYMD()
+    const end   = endDate   || addDaysYMD(start, 14)
+    const config = await getTourCMSConfig()
+    if (!config) {
+      return { ok: false, error: "TOURCMS_NOT_CONFIGURED", tripId, dates: [] }
+    }
+    const { palisisId, tripRow } = await resolvePalisisId(tripId)
+    if (!palisisId) {
+      return { ok: false, error: "NO_PALISIS_LINK", tripId, dates: [] }
+    }
+    const res = await showTourDatesAndDeals(config, palisisId, {
+      startdate_start: start,
+      startdate_end:   end,
+    })
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: "TOURCMS_ERROR",
+        providerError: res.error ?? null,
+        tripId,
+        dates: [],
+      }
+    }
+    // Compact, AI-friendly shape: keep prices, deals, spots, time, and dedupe noise
+    const dates = res.dates.map((d) => {
+      const raw = d.spaces_remaining
+      const unlimited = raw === "UNLIMITED"
+      const spotsLeft = unlimited ? null : Math.max(0, parseInt(raw ?? "0", 10))
+      return {
+        date: d.start_date,
+        endDate: d.end_date && d.end_date !== d.start_date ? d.end_date : undefined,
+        startTime: d.start_time,
+        endTime: d.end_time,
+        priceDisplay: d.price_1_display,
+        priceNumeric: parseFloat(d.price_1 ?? "0") || 0,
+        spacesRemaining: unlimited ? "UNLIMITED" : spotsLeft,
+        hasOffer: d.has_offer === "1" || !!d.special_offer_type,
+        offerType: d.special_offer_type ?? undefined,
+        originalPriceDisplay: d.original_price_1_display ?? undefined,
+        offerPriceDisplay: d.offer_price_1_display ?? undefined,
+      }
+    })
+    return {
+      ok: true,
+      tripId,
+      palisisId,
+      dateRange: { start, end },
+      totalDateCount: res.total_date_count,
+      // Duration text from DB (e.g. "2 hours", "Half day", "Full day", "3 nights")
+      duration: (tripRow?.duration as string | undefined) ?? null,
+      title: (tripRow?.title as string | undefined) ?? null,
+      dates,
+    }
+  },
+})
+
+const getTripTimeslotsTool = tool({
+  description:
+    "Fetch REAL-TIME BOOKABLE TIMESLOTS for ONE trip on a SPECIFIC date — exact start/end times, current spaces, and live pricing. Use when the user picks a date and asks 'what times are available on Friday', 'is there a morning slot', 'when does it start tomorrow', or before recommending a precise booking. Never cache the result. For wider date-range planning use getTripDatesAndDeals instead.",
+  inputSchema: z.object({
+    tripId: z.string().describe("Internal trip id (e.g. 'tcms_22') or Palisis tour_id (e.g. '22')"),
+    date: z.string().describe("YYYY-MM-DD specific date to check"),
+  }),
+  execute: async ({ tripId, date }) => {
+    const config = await getTourCMSConfig()
+    if (!config) {
+      return { ok: false, error: "TOURCMS_NOT_CONFIGURED", tripId, date, timeslots: [] }
+    }
+    const { palisisId, tripRow } = await resolvePalisisId(tripId)
+    if (!palisisId) {
+      return { ok: false, error: "NO_PALISIS_LINK", tripId, date, timeslots: [] }
+    }
+    const res = await checkAvailability(config, palisisId, { date, show_pickups: "0" })
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: "TOURCMS_ERROR",
+        providerError: res.error ?? null,
+        tripId,
+        date,
+        timeslots: [],
+      }
+    }
+    const timeslots = res.components
+      .slice()
+      .sort((a, b) => {
+        const aT = a.start_time_utcseconds ? parseInt(a.start_time_utcseconds, 10) : 0
+        const bT = b.start_time_utcseconds ? parseInt(b.start_time_utcseconds, 10) : 0
+        return aT - bT
+      })
+      .map((c) => {
+        const raw = c.spaces_remaining
+        const unlimited = raw === "UNLIMITED"
+        const spotsLeft = unlimited ? null : Math.max(0, parseInt(raw ?? "0", 10))
+        return {
+          startDate: c.start_date,
+          endDate: c.end_date && c.end_date !== c.start_date ? c.end_date : undefined,
+          startTime: c.start_time,
+          endTime: c.end_time,
+          startTimeUtcSeconds: c.start_time_utcseconds ? parseInt(c.start_time_utcseconds, 10) : undefined,
+          spacesRemaining: unlimited ? "UNLIMITED" : spotsLeft,
+          priceDisplay: c.total_price_display ?? undefined,
+          priceNumeric: c.total_price ? parseFloat(c.total_price) : undefined,
+          currency: c.sale_currency ?? undefined,
+          specialOfferNote: c.special_offer_note ?? undefined,
+        }
+      })
+    return {
+      ok: true,
+      tripId,
+      palisisId,
+      date,
+      duration: (tripRow?.duration as string | undefined) ?? null,
+      title: (tripRow?.title as string | undefined) ?? null,
+      componentKeyValidForSeconds: res.component_key_valid_for ?? null,
+      timeslotCount: timeslots.length,
+      timeslots,
+    }
+  },
+})
+
 const addToCartTool = tool({
   description: "Add a trip to the user's cart. Only call when user explicitly says add, book, or save.",
   inputSchema: z.object({
@@ -338,6 +521,8 @@ const tools = {
   showTransitPlanner: showTransitPlannerTool,
   showWeatherAlert: showWeatherAlertTool,
   buildItinerary: buildItineraryTool,
+  getTripDatesAndDeals: getTripDatesAndDealsTool,
+  getTripTimeslots: getTripTimeslotsTool,
   addToCart: addToCartTool,
 } as const
 
@@ -549,6 +734,18 @@ export async function POST(req: Request) {
       "8. For follow-up requests that ask for DIFFERENT options or NEW filtering (e.g. \"show me cheaper ones\", \"any outdoor instead\", \"what about tomorrow\"), call searchTrips again with adjusted query/tags. Do NOT re-search for factual questions about trips already shown — answer those from the rich fields in the previous tool output (see rule 9a).",
       "9. Be proactive: suggest categories, ask follow-up questions, help narrow down choices.",
       "9a. RICH TRIP KNOWLEDGE: searchTrips returns rich Palisis fields for each trip — tourType, tourLeader, grade, accommodationRating, languages, departureLocation, endLocation, country, shortDescription, longDescription, experienceHighlights, itinerary, essentialInformation, hotelPickupInstructions, voucherRedemptionInstructions, restrictions, extras, included, excluded, cancellationPolicy, minBookingSize, maxBookingSize, nonRefundable, nextBookableDate, lastBookableDate, tripTags. Use these to answer follow-up questions accurately (e.g. \"what's included\", \"what languages\", \"can I cancel\", \"is there hotel pickup\", \"any age restrictions\", \"how long\", \"where does it start\") WITHOUT re-searching. Reference these facts in plain conversational language; never dump raw field names.",
+      "9b. LIVE AVAILABILITY (DATES, DEALS, TIMESLOTS):",
+      "    - For questions about WHEN a specific trip runs, which dates have deals, the cheapest day, or general availability over a date range, call getTripDatesAndDeals with the tripId (and optionally startDate / endDate, YYYY-MM-DD). Default range is today + 14 days. The response contains date, startTime/endTime, priceDisplay, priceNumeric, spacesRemaining (or 'UNLIMITED'), hasOffer, offerType, originalPriceDisplay, offerPriceDisplay, plus the trip's duration string.",
+      "    - For a SPECIFIC date the user has chosen (e.g. 'Friday', 'tomorrow', 'next Saturday'), call getTripTimeslots with the tripId and date (YYYY-MM-DD). The response contains exact startTime/endTime, spacesRemaining, priceDisplay, currency, specialOfferNote — these are real-time and never cached.",
+      "    - Always resolve relative dates ('tomorrow', 'this Friday', 'next weekend') to YYYY-MM-DD using the DATE & TIME context above before calling these tools.",
+      "    - Prefer getTripDatesAndDeals first when the user is still exploring; switch to getTripTimeslots once they've narrowed to one date.",
+      "    - If the tool returns ok:false (e.g. TOURCMS_NOT_CONFIGURED, NO_PALISIS_LINK, TOURCMS_ERROR), tell the user availability data is temporarily unavailable and fall back to general guidance from the trip's stored fields (nextBookableDate, lastBookableDate, duration).",
+      "    - When summarising results, mention the duration in user-friendly terms — trips vary: hour-based (e.g. '2 hours'), half-day, full-day, or multi-day (e.g. '3 nights'). Match the recommendation tone to the duration (a 2-hour walk fits into a packed day; a full-day tour does not).",
+      "9c. DURATION AWARENESS: Each trip has a `duration` field that may be hour-based ('2 hours', '90 minutes'), session-based ('Half day', 'Full day'), or multi-day ('2 days', '3 nights'). When building itineraries or recommending combinations:",
+      "    - Hour-based trips can be stacked within a day (respect the buffer between stops).",
+      "    - Half-day trips cap the day at roughly one other short activity.",
+      "    - Full-day or multi-day trips should NOT be combined with other activities the same day — spread them across days instead.",
+      "    - Always factor duration into time-window suggestions and into the buildItinerary tool's `durationMinutes`.",
       "10. COUPON STRATEGY: Call offerCoupon ONCE per conversation to drive a booking. Deploy it strategically:",
       "   - After the user's 2nd or 3rd message when they show interest",
       "   - When recommending your top pick",
