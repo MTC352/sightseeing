@@ -18,6 +18,16 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
   if (!palisisId) return null
 
   async function sync() {
+    const confirmed = window.confirm(
+      "Sync from Palisis will OVERRIDE this trip's local data.\n\n" +
+      "All fields (title, description, pricing, classification, included/excluded, " +
+      "itinerary, policies, languages, etc.) will be replaced with the latest data " +
+      "from Palisis. Any unsaved edits and any fields you edited manually here will be lost.\n\n" +
+      "This action cannot be undone.\n\n" +
+      "Do you want to continue?"
+    )
+    if (!confirmed) return
+
     setPending(true)
     setStatus("idle")
     setMessage("")
