@@ -13,15 +13,16 @@ import { RichTextEditor } from "@/components/admin/rich-text-editor"
 const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
 
 // ── Palisis / TourCMS friendly-label vocabularies ──────────────────────────────
+// Tour-type labels — must match the Palisis "Tour type" radio list verbatim.
 const TOUR_TYPE_OPTIONS = [
-  "Accommodation",
-  "Transport / Transfer",
-  "Multi-day Tour or Cruise",
-  "Day Tour / Attraction",
-  "Tailor Made",
+  "Accommodation (hotel/campsite/villa/ski chalet/lodge)",
+  "Transport/Transfer",
+  "Tour/cruise - Including overnight stay",
+  "Day tour/trip/activity/attraction - No overnight stay",
+  "Tailor made",
   "Event",
-  "Training / Education",
-  "Restaurant / Meal",
+  "Training/education",
+  "Restaurant/meal alternative",
   "Other",
 ]
 const TOUR_LEADER_OPTIONS = [
@@ -49,10 +50,10 @@ const TRIP_TAG_VOCAB: { token: string; label: string }[] = [
   { token: "classes", label: "Classes" },
   { token: "day-trips", label: "Day trips" },
   { token: "family-friendly", label: "Family friendly" },
-  { token: "fast-track", label: "Fast-track" },
+  { token: "fast-track", label: "Fast track" },
   { token: "food", label: "Food" },
   { token: "history", label: "History" },
-  { token: "hop-on-hop-off", label: "Hop-on hop-off" },
+  { token: "hop-on-hop-off", label: "Hop on hop off" },
   { token: "literature", label: "Literature" },
   { token: "live-music", label: "Live music" },
   { token: "museums", label: "Museums" },
@@ -68,11 +69,11 @@ const TRIP_TAG_VOCAB: { token: string; label: string }[] = [
   { token: "suitable-for-groups", label: "Suitable for groups" },
   { token: "suitable-for-students", label: "Suitable for students" },
   { token: "suitable-for-business", label: "Suitable for business" },
-  { token: "suitable-for-wheelchairs", label: "Wheelchair accessible" },
+  { token: "suitable-for-wheelchairs", label: "Suitable for wheelchairs" },
   { token: "theme-parks", label: "Theme parks" },
   { token: "walking-tours", label: "Walking tours" },
   { token: "official-ticket", label: "Official ticket" },
-  { token: "operator-direct-product", label: "Operator-direct" },
+  { token: "operator-direct-product", label: "Operator direct product" },
   { token: "transfer", label: "Transfer" },
   { token: "entrance-ticket", label: "Entrance ticket" },
 ]
