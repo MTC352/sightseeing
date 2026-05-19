@@ -185,8 +185,8 @@ export default function TripFieldsPanel() {
         </button>
       </div>
 
-      {/* Collapsible groups */}
-      <div className="space-y-2">
+      {/* Collapsible groups — 2 columns on md+ */}
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {groups.length === 0 && (
           <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
             No fields match your filter.
