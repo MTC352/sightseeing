@@ -16,6 +16,7 @@ export default function TripFieldsPanel() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [filter, setFilter] = useState<"all" | "palisis" | "local">("all")
+  const [modeFilter, setModeFilter] = useState<"all" | "editable" | "readonly">("all")
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState<Record<string, boolean>>({})
 
@@ -31,22 +32,24 @@ export default function TripFieldsPanel() {
     const q = query.trim().toLowerCase()
     for (const f of TRIP_FIELDS) {
       if (filter !== "all" && f.source !== filter) continue
+      const fMode: FieldMode = policy[f.key] === "readonly" ? "readonly" : "editable"
+      if (modeFilter !== "all" && fMode !== modeFilter) continue
       if (q && !f.label.toLowerCase().includes(q) && !f.key.toLowerCase().includes(q)) continue
       const arr = map.get(f.group) ?? []
       arr.push(f)
       map.set(f.group, arr)
     }
     return Array.from(map.entries())
-  }, [filter, query])
+  }, [filter, modeFilter, query, policy])
 
-  // Auto-collapse all groups by default; expand all when searching.
+  // Auto-collapse all groups by default; expand all when searching or filtering.
   useEffect(() => {
-    if (query.trim()) {
+    if (query.trim() || modeFilter !== "all" || filter !== "all") {
       const next: Record<string, boolean> = {}
       for (const [g] of groups) next[g] = true
       setOpen(next)
     }
-  }, [query, groups])
+  }, [query, modeFilter, filter, groups])
 
   function toggleGroup(g: string) {
     setOpen(p => ({ ...p, [g]: !p[g] }))
@@ -122,6 +125,7 @@ export default function TripFieldsPanel() {
           />
         </div>
         <div className="flex items-center gap-1 text-[11px]">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Source</span>
           {(["all", "palisis", "local"] as const).map(k => (
             <button
               key={k}
@@ -133,6 +137,27 @@ export default function TripFieldsPanel() {
               }`}
             >
               {k === "all" ? "All" : k === "palisis" ? "Palisis" : "Local"}
+            </button>
+          ))}
+        </div>
+        <div className="h-4 w-px bg-border" />
+        <div className="flex items-center gap-1 text-[11px]">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">Mode</span>
+          {(["all", "editable", "readonly"] as const).map(k => (
+            <button
+              key={k}
+              onClick={() => setModeFilter(k)}
+              className={`rounded-md px-2 py-1 font-medium transition-colors ${
+                modeFilter === k
+                  ? k === "editable"
+                    ? "bg-emerald-500/15 text-emerald-700"
+                    : k === "readonly"
+                    ? "bg-amber-500/15 text-amber-700"
+                    : "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {k === "all" ? "All" : k === "editable" ? "Editable" : "Read-only"}
             </button>
           ))}
         </div>
