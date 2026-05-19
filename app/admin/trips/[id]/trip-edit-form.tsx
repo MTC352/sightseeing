@@ -283,12 +283,12 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           <h2 className="mb-4 text-sm font-semibold text-foreground">Core Information</h2>
           <div className="flex flex-col gap-4">
             <div>
-              <label className={labelClass}>Title</label>
+              <label className={labelClass}>Title {!can("title") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("title")} className={inputClass} placeholder="Trip title" value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} />
               {!can("title") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
             <div>
-              <label className={labelClass}>Description</label>
+              <label className={labelClass}>Description {!can("description") && <ReadOnlyBadge />}</label>
               <div>
                 <RichTextEditor
                   value={form.description ?? ""}
@@ -301,23 +301,23 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelClass}>Category</label>
+                <label className={labelClass}>Category {!can("category") && <ReadOnlyBadge />}</label>
                 <select disabled={!can("category")} className={inputClass} value={form.category ?? "Tours"} onChange={(e) => set("category", e.target.value)}>
                   {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
-                <label className={labelClass}>Duration</label>
+                <label className={labelClass}>Duration {!can("duration") && <ReadOnlyBadge />}</label>
                 <input type="text" readOnly={!can("duration")} className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelClass}>City</label>
+                <label className={labelClass}>City {!can("city") && <ReadOnlyBadge />}</label>
                 <input type="text" readOnly={!can("city")} className={inputClass} placeholder="Luxembourg City" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
               </div>
               <div>
-                <label className={labelClass}>Provider</label>
+                <label className={labelClass}>Provider {!can("provider") && <ReadOnlyBadge />}</label>
                 <input type="text" readOnly={!can("provider")} className={inputClass} placeholder="Provider name" value={form.provider ?? ""} onChange={(e) => set("provider", e.target.value)} />
               </div>
             </div>
@@ -329,11 +329,11 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           <h2 className="mb-4 text-sm font-semibold text-foreground">Pricing</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Price (€)</label>
+              <label className={labelClass}>Price (€) {!can("price") && <ReadOnlyBadge />}</label>
               <input type="number" min="0" step="0.01" readOnly={!can("price")} className={inputClass} value={form.price ?? 0} onChange={(e) => set("price", parseFloat(e.target.value) || 0)} />
             </div>
             <div>
-              <label className={labelClass}>Original Price (€) — optional</label>
+              <label className={labelClass}>Original Price (€) — optional {!can("originalPrice") && <ReadOnlyBadge />}</label>
               <input type="number" min="0" step="0.01" readOnly={!can("originalPrice")} className={inputClass} placeholder="For strikethrough" value={form.originalPrice ?? ""} onChange={(e) => set("originalPrice", e.target.value ? parseFloat(e.target.value) : undefined)} />
             </div>
           </div>
@@ -496,39 +496,39 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           <h2 className="mb-4 text-sm font-semibold text-foreground">Tour Classification</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Tour Type</label>
+              <label className={labelClass}>Tour Type {!can("tourType") && <ReadOnlyBadge />}</label>
               <select disabled={!can("tourType")} className={inputClass} value={form.tourType ?? ""} onChange={(e) => set("tourType", e.target.value || null)}>
                 <option value="">—</option>
                 {TOUR_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelClass}>Tour Leader</label>
+              <label className={labelClass}>Tour Leader {!can("tourLeader") && <ReadOnlyBadge />}</label>
               <select disabled={!can("tourLeader")} className={inputClass} value={form.tourLeader ?? ""} onChange={(e) => set("tourLeader", e.target.value || null)}>
                 <option value="">—</option>
                 {TOUR_LEADER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelClass}>Grade</label>
+              <label className={labelClass}>Grade {!can("grade") && <ReadOnlyBadge />}</label>
               <select disabled={!can("grade")} className={inputClass} value={form.grade ?? ""} onChange={(e) => set("grade", e.target.value || null)}>
                 <option value="">—</option>
                 {GRADE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelClass}>Commercial Priority</label>
+              <label className={labelClass}>Commercial Priority {!can("commercialPriority") && <ReadOnlyBadge />}</label>
               <select disabled={!can("commercialPriority")} className={inputClass} value={form.commercialPriority ?? ""} onChange={(e) => set("commercialPriority", e.target.value || null)}>
                 <option value="">—</option>
                 {COMMERCIAL_PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelClass}>Accommodation Rating</label>
+              <label className={labelClass}>Accommodation Rating {!can("accommodationRating") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("accommodationRating")} className={inputClass} placeholder="e.g. Luxury" value={form.accommodationRating ?? ""} onChange={(e) => set("accommodationRating", e.target.value || null)} />
             </div>
             <div>
-              <label className={labelClass}>Country (code)</label>
+              <label className={labelClass}>Country (code) {!can("country") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("country")} className={inputClass} placeholder="LU" value={form.country ?? ""} onChange={(e) => set("country", e.target.value || null)} />
             </div>
           </div>
@@ -613,19 +613,19 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           <h2 className="mb-4 text-sm font-semibold text-foreground">Departure & End Location</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Departure Location</label>
+              <label className={labelClass}>Departure Location {!can("departureLocation") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("departureLocation")} className={inputClass} placeholder="e.g. Sightseeing.lu office" value={form.departureLocation ?? ""} onChange={(e) => set("departureLocation", e.target.value || null)} />
             </div>
             <div>
-              <label className={labelClass}>Departure Geocode (lat,lng)</label>
+              <label className={labelClass}>Departure Geocode (lat,lng) {!can("departureGeocode") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("departureGeocode")} className={inputClass} placeholder="49.603207,6.089869" value={form.departureGeocode ?? ""} onChange={(e) => set("departureGeocode", e.target.value || null)} />
             </div>
             <div>
-              <label className={labelClass}>End Location</label>
+              <label className={labelClass}>End Location {!can("endLocation") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("endLocation")} className={inputClass} placeholder="Same as departure or other" value={form.endLocation ?? ""} onChange={(e) => set("endLocation", e.target.value || null)} />
             </div>
             <div>
-              <label className={labelClass}>End Geocode (lat,lng)</label>
+              <label className={labelClass}>End Geocode (lat,lng) {!can("endGeocode") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("endGeocode")} className={inputClass} placeholder="49.603207,6.089869" value={form.endGeocode ?? ""} onChange={(e) => set("endGeocode", e.target.value || null)} />
             </div>
           </div>
@@ -675,7 +675,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           <h2 className="mb-4 text-sm font-semibold text-foreground">What's Included &amp; Excluded</h2>
           <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className={labelClass}>Included (one per line)</label>
+              <label className={labelClass}>Included (one per line) {!can("included") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("included")}
                 className={`${inputClass} min-h-[120px] font-sans`}
@@ -685,7 +685,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
               />
             </div>
             <div>
-              <label className={labelClass}>Excluded (one per line)</label>
+              <label className={labelClass}>Excluded (one per line) {!can("excluded") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("excluded")}
                 className={`${inputClass} min-h-[120px] font-sans`}
