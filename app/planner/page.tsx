@@ -284,6 +284,18 @@ export default function PlannerPage() {
     setCenterItinerary(itinerary)
   }, [])
 
+  // Global ESC handler — closes the itinerary modal regardless of which
+  // element currently has focus (the backdrop's local onKeyDown only fires
+  // when the backdrop itself is focused, which is rare in practice).
+  useEffect(() => {
+    if (!centerItinerary) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setCenterItinerary(null)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [centerItinerary])
+
   const handleRegenerateItinerary = useCallback(async () => {
     setItineraryRegenerating(true)
     try {
@@ -884,7 +896,7 @@ export default function PlannerPage() {
         </div>
 
         {/* ───── CENTER: Results Area ───── */}
-        <div className={`relative flex-1 ${centerItinerary ? "overflow-hidden" : "overflow-y-auto"}`}>
+        <div className="relative flex-1 overflow-y-auto">
           {/* Mobile toggles */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-4 py-2 backdrop-blur-sm sm:hidden">
             {!sidebarOpen && (
@@ -900,17 +912,7 @@ export default function PlannerPage() {
             </button>
           </div>
 
-          {/* ── Center Itinerary Panel (desktop slide-in) ── */}
-          {centerItinerary && (
-            <div className="absolute inset-0 z-[60] hidden bg-card lg:flex lg:flex-col">
-              <ItineraryPanel
-                itinerary={centerItinerary}
-                onClose={() => setCenterItinerary(null)}
-                onRegenerate={handleRegenerateItinerary}
-                regenerating={itineraryRegenerating}
-              />
-            </div>
-          )}
+          {/* (Itinerary now opens as a full-screen modal — see bottom of file) */}
 
           {!showResults ? (
             /* ── Welcome / Waiting ── */
@@ -1070,48 +1072,50 @@ export default function PlannerPage() {
           </div>
         </div>
 
-        {/* Mobile cart drawer — full width, includes itinerary */}
+        {/* Mobile cart drawer — full width */}
         {cartOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <div className="absolute inset-0 bg-foreground/40" onClick={() => setCartOpen(false)} onKeyDown={() => {}} role="button" tabIndex={0} aria-label="Close cart" />
             <div className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-96">
-              {/* If itinerary is open on mobile, show itinerary panel */}
-              {centerItinerary ? (
-                <>
-                  <ItineraryPanel
-                    itinerary={centerItinerary}
-                    onClose={() => setCenterItinerary(null)}
-                    onRegenerate={handleRegenerateItinerary}
-                    regenerating={itineraryRegenerating}
-                  />
-                  {/* Footer close button */}
-                  <div className="shrink-0 border-t border-border px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => setCartOpen(false)}
-                      className="w-full rounded-lg border border-border py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <ShoppingBag className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-semibold text-foreground">My Trip</span>
-                    </div>
-                    <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto">
-                    <TripCart />
-                    <SidebarItinerary onOpenItinerary={handleOpenItinerary} />
-                  </div>
-                </>
-              )}
+              <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <ShoppingBag className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-semibold text-foreground">My Trip</span>
+                </div>
+                <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <TripCart />
+                <SidebarItinerary onOpenItinerary={handleOpenItinerary} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Full-screen Itinerary Modal ──
+            Renders on EVERY screen size so the View Itinerary button is
+            never a no-op (the previous lg-only overlay left the panel
+            invisible on narrower viewports — including the Replit preview
+            iframe — and let underlying search results bleed through). */}
+        {centerItinerary && (
+          <div className="fixed inset-0 z-[70] flex items-stretch justify-center bg-foreground/50 backdrop-blur-sm sm:items-center sm:p-4">
+            <div
+              className="absolute inset-0"
+              role="button"
+              tabIndex={0}
+              aria-label="Close itinerary"
+              onClick={() => setCenterItinerary(null)}
+              onKeyDown={(e) => { if (e.key === "Escape" || e.key === "Enter") setCenterItinerary(null) }}
+            />
+            <div className="relative z-[1] flex h-full w-full flex-col overflow-hidden bg-card shadow-2xl sm:h-[min(90vh,860px)] sm:max-w-2xl sm:rounded-2xl">
+              <ItineraryPanel
+                itinerary={centerItinerary}
+                onClose={() => setCenterItinerary(null)}
+                onRegenerate={handleRegenerateItinerary}
+                regenerating={itineraryRegenerating}
+              />
             </div>
           </div>
         )}
