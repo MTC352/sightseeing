@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useCallback, useState } from "react"
 import { useCart } from "@/lib/cart-context"
 import Link from "next/link"
 import Image from "next/image"
@@ -160,6 +160,46 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
 }
 
 /* ─────────────────────────────────────────────── */
+/* STEP CARD — handles its own real-time snap state */
+/* ─────────────────────────────────────────────── */
+function ItineraryStepCard({ step }: { step: ItineraryStep }) {
+  const [snapped, setSnapped] = useState<{ time: string; day: "today" | "tomorrow" } | null>(null)
+  const handleSnap = useCallback(
+    (next: { time: string; day: "today" | "tomorrow" }) => {
+      setSnapped((prev) =>
+        prev && prev.time === next.time && prev.day === next.day ? prev : next,
+      )
+    },
+    [],
+  )
+  const displayTime = snapped?.time ?? step.time
+  const dayLabel = snapped?.day === "tomorrow" ? "Tomorrow " : ""
+  return (
+    <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm font-bold text-primary">
+          <span className="text-[10px] font-medium text-muted-foreground">
+            {snapped ? "Recommended: " : "Suggested: "}
+          </span>
+          {dayLabel}
+          {displayTime}
+        </span>
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          {step.durationMinutes} min
+        </span>
+      </div>
+      <p className="mt-1 text-sm font-semibold text-foreground">{step.tripTitle}</p>
+      <ItineraryTimeslots
+        tripId={step.tripId}
+        suggestedTime={step.time}
+        onSnap={handleSnap}
+      />
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────── */
 /* ITINERARY PANEL — rendered in the center column */
 /* ─────────────────────────────────────────────── */
 export function ItineraryPanel({
@@ -210,20 +250,7 @@ export function ItineraryPanel({
               <div className="absolute -left-[17px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-primary bg-background">
                 <span className="text-[8px] font-bold text-primary">{i + 1}</span>
               </div>
-              <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
-                <div className="flex items-baseline justify-between">
-                  <span className="text-sm font-bold text-primary">
-                    <span className="text-[10px] font-medium text-muted-foreground">Suggested: </span>
-                    {step.time}
-                  </span>
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    {step.durationMinutes} min
-                  </span>
-                </div>
-                <p className="mt-1 text-sm font-semibold text-foreground">{step.tripTitle}</p>
-                <ItineraryTimeslots tripId={step.tripId} />
-              </div>
+              <ItineraryStepCard step={step} />
               {/* Transit connector */}
               {step.travelToNext && (
                 <div className="ml-2 mt-2 space-y-1">

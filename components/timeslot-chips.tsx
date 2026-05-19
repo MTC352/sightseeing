@@ -1,127 +1,270 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { Sparkles } from "lucide-react"
+import type { PlannerTimeslot, PlannerTimeslotsResponse } from "@/app/api/planner/timeslots/route"
 
 /* ── Types ── */
-export interface Timeslot {
-  time: string
-  spotsLeft: number
-  spotsTotal: number
-}
+export type Timeslot = PlannerTimeslot
 export interface TripDepartures {
   today: Timeslot[]
   tomorrow: Timeslot[]
 }
 
-/* ── Deterministic dummy data generator ── */
-export function getDummyDepartures(tripId: string): TripDepartures {
-  const hash = tripId.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
-  const times = ["09:00", "10:30", "11:00", "13:00", "14:30", "15:00", "16:30", "18:00", "19:30"]
+/* ── Helpers ── */
+/** Parse "HH:MM" to minutes-since-midnight; null if invalid. */
+function timeToMinutes(t: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(t)
+  if (!m) return null
+  const h = parseInt(m[1], 10)
+  const mm = parseInt(m[2], 10)
+  if (Number.isNaN(h) || Number.isNaN(mm)) return null
+  return h * 60 + mm
+}
 
-  const pickSlots = (seed: number, count: number): Timeslot[] => {
-    const slots: Timeslot[] = []
-    for (let i = 0; i < count; i++) {
-      const idx = (seed + i * 3) % times.length
-      const total = 10 + ((seed + i) % 15)
-      const booked = Math.floor(total * (0.2 + ((seed * (i + 1)) % 80) / 100))
-      slots.push({ time: times[idx], spotsLeft: Math.max(0, total - booked), spotsTotal: total })
-    }
-    return slots.sort((a, b) => a.time.localeCompare(b.time))
+/**
+ * Pick the recommended slot index from a list, given a desired "suggested" time.
+ * Strategy: prefer the earliest slot whose start time is >= suggested time AND
+ * still has spots; if none, fall back to the closest-by-absolute-distance slot
+ * with spots; if all are sold out, the closest by time.
+ */
+function pickRecommendedIndex(slots: Timeslot[], suggested: string | undefined): number {
+  if (!slots.length) return -1
+  const target = suggested ? timeToMinutes(suggested) : null
+  if (target == null) {
+    // No target — first bookable slot, else first
+    const firstOpen = slots.findIndex((s) => s.spotsLeft === null || s.spotsLeft > 0)
+    return firstOpen >= 0 ? firstOpen : 0
   }
+  const bookable = slots
+    .map((s, i) => ({ s, i, t: timeToMinutes(s.time) }))
+    .filter((x) => x.t != null) as Array<{ s: Timeslot; i: number; t: number }>
 
-  return {
-    today: pickSlots(hash, 1 + (hash % 4)),
-    tomorrow: pickSlots(hash + 7, 1 + ((hash + 2) % 5)),
-  }
+  const open = bookable.filter((x) => x.s.spotsLeft === null || x.s.spotsLeft > 0)
+  const onOrAfter = open.filter((x) => x.t >= target).sort((a, b) => a.t - b.t)
+  if (onOrAfter.length) return onOrAfter[0].i
+
+  const closestOpen = open
+    .slice()
+    .sort((a, b) => Math.abs(a.t - target) - Math.abs(b.t - target))
+  if (closestOpen.length) return closestOpen[0].i
+
+  const closestAny = bookable
+    .slice()
+    .sort((a, b) => Math.abs(a.t - target) - Math.abs(b.t - target))
+  return closestAny.length ? closestAny[0].i : 0
 }
 
 /* ── Single chip ── */
 export function TimeslotChip({
   slot,
   selected,
+  recommended,
   onClick,
 }: {
   slot: Timeslot
   selected?: boolean
+  recommended?: boolean
   onClick?: (slot: Timeslot) => void
 }) {
-  const pct = slot.spotsLeft / slot.spotsTotal
-  const colorClass = slot.spotsLeft === 0
+  const unlimited = slot.spotsLeft === null
+  const pct = unlimited ? 1 : (slot.spotsTotal && slot.spotsTotal > 0 ? slot.spotsLeft! / slot.spotsTotal : 1)
+  const soldOut = !unlimited && slot.spotsLeft === 0
+  const lowStock = !unlimited && !soldOut && (slot.spotsLeft! <= 3 || pct <= 0.2)
+
+  const colorClass = soldOut
     ? "border-red-200 bg-red-50 text-red-700"
-    : pct <= 0.2
+    : lowStock
     ? "border-amber-200 bg-amber-50 text-amber-700"
     : "border-emerald-200 bg-emerald-50 text-emerald-700"
-  const dotColor = slot.spotsLeft === 0
+  const dotColor = soldOut
     ? "bg-red-500"
-    : pct <= 0.2
+    : lowStock
     ? "bg-amber-500"
     : "bg-emerald-500"
   const selectedRing = selected ? "ring-2 ring-primary ring-offset-1" : ""
+  const recommendedRing =
+    recommended && !selected
+      ? "ring-2 ring-primary/70 ring-offset-1 shadow-sm"
+      : ""
 
   return (
     <button
       type="button"
       onClick={() => onClick?.(slot)}
-      disabled={slot.spotsLeft === 0}
+      disabled={soldOut}
       className={[
-        "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all",
+        "relative flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all",
         colorClass,
         selectedRing,
-        slot.spotsLeft === 0 ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:shadow-sm active:scale-95",
+        recommendedRing,
+        soldOut ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:shadow-sm active:scale-95",
       ].join(" ")}
     >
+      {recommended && !soldOut && (
+        <span className="absolute -top-1.5 -right-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+          <Sparkles className="h-2 w-2" />
+        </span>
+      )}
       <span className="font-semibold">{slot.time}</span>
       <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
       <span className="text-[11px]">
-        {slot.spotsLeft === 0 ? "Sold out" : `${slot.spotsLeft} left`}
+        {soldOut
+          ? "Sold out"
+          : unlimited
+          ? "Open"
+          : `${slot.spotsLeft} left`}
       </span>
     </button>
   )
 }
 
-/* ── Today / Tomorrow timeslot rows for a single trip ── */
-export function ItineraryTimeslots({ tripId }: { tripId: string }) {
+/* ── Today / Tomorrow timeslot rows for a single trip — REAL-TIME ── */
+export function ItineraryTimeslots({
+  tripId,
+  suggestedTime,
+  onSnap,
+}: {
+  tripId: string
+  /** AI-suggested time ("HH:MM"). Used to highlight the recommended slot. */
+  suggestedTime?: string
+  /** Called when the recommended slot is resolved — lets the parent
+   *  replace the "Suggested" label with the actual recommended slot time. */
+  onSnap?: (snapped: { time: string; day: "today" | "tomorrow" }) => void
+}) {
+  const [data, setData] = useState<PlannerTimeslotsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
-  const departures = getDummyDepartures(tripId)
 
-  const hasSlots = departures.today.length > 0 || departures.tomorrow.length > 0
-  if (!hasSlots) return null
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setData(null)
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/planner/timeslots?tripId=${encodeURIComponent(tripId)}`,
+          { cache: "no-store" },
+        )
+        const json = (await res.json()) as PlannerTimeslotsResponse
+        if (!cancelled) setData(json)
+      } catch {
+        if (!cancelled) {
+          setData({
+            ok: false,
+            tripId,
+            palisisId: null,
+            today: [],
+            tomorrow: [],
+            error: "FETCH_FAILED",
+          })
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [tripId])
 
-  const handleClick = (label: string, slot: Timeslot) => {
+  const todaySlots = data?.today ?? []
+  const tomorrowSlots = data?.tomorrow ?? []
+  const hasSlots = todaySlots.length > 0 || tomorrowSlots.length > 0
+
+  // Recommended slot: prefer today, else tomorrow
+  const recommended = useMemo(() => {
+    if (todaySlots.length) {
+      const idx = pickRecommendedIndex(todaySlots, suggestedTime)
+      if (idx >= 0) return { day: "today" as const, index: idx, slot: todaySlots[idx] }
+    }
+    if (tomorrowSlots.length) {
+      const idx = pickRecommendedIndex(tomorrowSlots, suggestedTime)
+      if (idx >= 0) return { day: "tomorrow" as const, index: idx, slot: tomorrowSlots[idx] }
+    }
+    return null
+  }, [todaySlots, tomorrowSlots, suggestedTime])
+
+  // Notify parent whenever the recommended slot resolves/changes
+  useEffect(() => {
+    if (recommended && onSnap) {
+      onSnap({ time: recommended.slot.time, day: recommended.day })
+    }
+    // Intentionally exclude `onSnap` from deps — parents pass inline callbacks;
+    // re-running on identity changes would be redundant since the snap value is
+    // already stabilized by the parent's setState equality guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recommended])
+
+  if (loading) {
+    return (
+      <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-border bg-background/60 px-3 py-2.5 text-[11px] text-muted-foreground">
+        <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        Loading real-time availability...
+      </div>
+    )
+  }
+
+  if (!data?.ok || !hasSlots) {
+    const reason = data?.error === "NO_PALISIS_LINK"
+      ? "No live availability for this experience yet."
+      : data?.error === "TOURCMS_NOT_CONFIGURED"
+      ? "Live availability unavailable."
+      : data?.error === "TOURCMS_ERROR"
+      ? "Could not load real-time slots."
+      : "No timeslots available right now."
+    return (
+      <div className="mt-2.5 rounded-xl border border-border bg-background/60 px-3 py-2.5 text-[11px] text-muted-foreground">
+        {reason}
+      </div>
+    )
+  }
+
+  const handleClick = (label: "today" | "tomorrow", slot: Timeslot) => {
     const key = `${label}-${slot.time}`
-    setSelected(prev => prev === key ? null : key)
+    setSelected((prev) => (prev === key ? null : key))
   }
 
   return (
     <div className="mt-2.5 rounded-xl border border-border bg-background/60 px-3 py-2.5">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Available Timeslots
-      </p>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Available Timeslots
+        </p>
+        <span className="flex items-center gap-1 text-[9px] font-medium uppercase tracking-wider text-primary">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+          Live
+        </span>
+      </div>
       <div className="flex flex-col gap-2">
-        {departures.today.length > 0 && (
+        {todaySlots.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="w-16 shrink-0 text-[11px] font-semibold text-foreground">Today</span>
             <div className="flex flex-wrap gap-1.5">
-              {departures.today.map((slot, i) => (
+              {todaySlots.map((slot, i) => (
                 <TimeslotChip
-                  key={i}
+                  key={`t-${i}-${slot.time}`}
                   slot={slot}
                   selected={selected === `today-${slot.time}`}
+                  recommended={recommended?.day === "today" && recommended.index === i}
                   onClick={() => handleClick("today", slot)}
                 />
               ))}
             </div>
           </div>
         )}
-        {departures.tomorrow.length > 0 && (
+        {tomorrowSlots.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="w-16 shrink-0 text-[11px] font-semibold text-foreground">Tomorrow</span>
             <div className="flex flex-wrap gap-1.5">
-              {departures.tomorrow.map((slot, i) => (
+              {tomorrowSlots.map((slot, i) => (
                 <TimeslotChip
-                  key={i}
+                  key={`tm-${i}-${slot.time}`}
                   slot={slot}
                   selected={selected === `tomorrow-${slot.time}`}
+                  recommended={
+                    recommended?.day === "tomorrow" && recommended.index === i
+                  }
                   onClick={() => handleClick("tomorrow", slot)}
                 />
               ))}
@@ -129,9 +272,16 @@ export function ItineraryTimeslots({ tripId }: { tripId: string }) {
           </div>
         )}
       </div>
+      {recommended && (
+        <p className="mt-2 flex items-center gap-1 text-[10px] font-medium text-primary">
+          <Sparkles className="h-2.5 w-2.5" />
+          Recommended: {recommended.day === "today" ? "Today" : "Tomorrow"} at{" "}
+          {recommended.slot.time}
+        </p>
+      )}
       {selected && (
-        <p className="mt-2 text-[10px] text-primary font-medium">
-          Timeslot {selected.split("-").slice(1).join(":")} selected
+        <p className="mt-1 text-[10px] font-medium text-primary">
+          Selected {selected.replace("-", " ")}
         </p>
       )}
     </div>

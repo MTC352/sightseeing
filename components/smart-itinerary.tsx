@@ -182,7 +182,7 @@ export function SmartItinerary() {
                       </span>
                     </div>
                     <p className="mt-0.5 text-sm font-semibold text-foreground">{step.tripTitle}</p>
-                    <ItineraryTimeslots tripId={step.tripId} />
+                    <ItineraryTimeslots tripId={step.tripId} suggestedTime={step.time} />
                   </div>
 
                   {/* Travel connector */}
