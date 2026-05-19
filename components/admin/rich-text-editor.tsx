@@ -39,6 +39,7 @@ interface Props {
   onChange: (html: string) => void
   placeholder?: string
   minHeight?: number
+  editable?: boolean
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export function RichTextEditor({
   onChange,
   placeholder = "Write your trip description here…",
   minHeight = 260,
+  editable = true,
 }: Props) {
   const [linkOpen,  setLinkOpen]  = useState(false)
   const [linkUrl,   setLinkUrl]   = useState("")
@@ -56,6 +58,7 @@ export function RichTextEditor({
   const lastValue    = useRef(value)
 
   const editor = useEditor({
+    editable,
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3, 4] },
@@ -92,6 +95,12 @@ export function RichTextEditor({
     if (value !== cur) editor.commands.setContent(value ?? "", false)
     lastValue.current = value
   }, [editor, value])
+
+  // Sync editable flag when the policy changes at runtime
+  useEffect(() => {
+    if (!editor) return
+    if (editor.isEditable !== editable) editor.setEditable(editable)
+  }, [editor, editable])
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -1,11 +1,28 @@
-import { dbGetTrip } from "@/lib/db/queries"
+import { dbGetTrip, dbGetIntegration } from "@/lib/db/queries"
 import { notFound } from "next/navigation"
 import { TripEditForm } from "./trip-edit-form"
 import { TripSyncButton } from "../trip-sync-button"
+import { resolvePolicy, type TripFieldPolicy } from "@/lib/trip-field-policy"
+
+async function loadPolicy(): Promise<TripFieldPolicy> {
+  try {
+    const row = (await dbGetIntegration("trip_field_policy")) as { value?: string } | null
+    let stored: Partial<TripFieldPolicy> | null = null
+    if (row?.value) {
+      try { stored = JSON.parse(row.value) } catch { stored = null }
+    }
+    return resolvePolicy(stored)
+  } catch {
+    return resolvePolicy(null)
+  }
+}
 
 export default async function TripEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const trip = id === "new" ? null : await dbGetTrip(id)
+  const [trip, policy] = await Promise.all([
+    id === "new" ? Promise.resolve(null) : dbGetTrip(id),
+    loadPolicy(),
+  ])
   if (id !== "new" && !trip) notFound()
 
   const tripData = trip as { id: string; palisis_id?: string | null } | null
@@ -27,7 +44,7 @@ export default async function TripEditPage({ params }: { params: Promise<{ id: s
         {palisisId && <TripSyncButton palisisId={palisisId} variant="full" />}
       </div>
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      <TripEditForm trip={trip as any} />
+      <TripEditForm trip={trip as any} policy={policy} />
     </div>
   )
 }

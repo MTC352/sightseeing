@@ -3,13 +3,14 @@
 import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
+import { isFieldEditable, resolvePolicy, type TripFieldPolicy } from "@/lib/trip-field-policy"
+import { Lock } from "lucide-react"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { SEOOptimizer } from "@/components/admin/seo-optimizer"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 
 const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
-const COMMON_TAGS = ["popular", "outdoor", "indoor", "family", "sport", "culture", "food", "night", "free", "premium", "adventure", "museum", "music", "car", "popular"]
 
 // ── Palisis / TourCMS friendly-label vocabularies ──────────────────────────────
 const TOUR_TYPE_OPTIONS = [
@@ -76,7 +77,15 @@ const TRIP_TAG_VOCAB: { token: string; label: string }[] = [
   { token: "entrance-ticket", label: "Entrance ticket" },
 ]
 
-export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
+export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | null; policy?: TripFieldPolicy }) {
+  const policy = policyProp ?? resolvePolicy(null)
+  const can = (key: string) => isFieldEditable(policy, key)
+  /** Tiny inline indicator next to a section title when its primary field is read-only. */
+  const ReadOnlyBadge = () => (
+    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+      <Lock className="h-2.5 w-2.5" /> Read-only
+    </span>
+  )
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -108,8 +117,9 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
     }
   )
 
-  const [tagInput, setTagInput] = useState("")
+  const [tripTagInput, setTripTagInput] = useState("")
   const [highlightInput, setHighlightInput] = useState("")
+  const [languageInput, setLanguageInput] = useState("")
   const [uploadingFeatured, setUploadingFeatured] = useState(false)
   const [uploadingGallery, setUploadingGallery] = useState(false)
   const featuredInputRef = useRef<HTMLInputElement>(null)
@@ -153,14 +163,25 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
-  function addTag(tag: string) {
-    const t = tag.trim().toLowerCase()
-    if (t && !form.tags?.includes(t)) set("tags", [...(form.tags ?? []), t])
-    setTagInput("")
+  function addTripTag(tag: string) {
+    // Slugify: lowercase, spaces → dashes, strip junk. Matches TourCMS token style.
+    const t = tag.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
+    if (t && !(form.tripTags ?? []).includes(t)) set("tripTags", [...(form.tripTags ?? []), t])
+    setTripTagInput("")
   }
 
-  function removeTag(tag: string) {
-    set("tags", (form.tags ?? []).filter((t) => t !== tag))
+  function removeTripTag(tag: string) {
+    set("tripTags", (form.tripTags ?? []).filter((t) => t !== tag))
+  }
+
+  function addLanguage(lang: string) {
+    const l = lang.trim()
+    if (l && !(form.languages ?? []).includes(l)) set("languages", [...(form.languages ?? []), l])
+    setLanguageInput("")
+  }
+
+  function removeLanguage(lang: string) {
+    set("languages", (form.languages ?? []).filter((x) => x !== lang))
   }
 
   function addHighlight(h: string) {
@@ -254,36 +275,41 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <div className="flex flex-col gap-4">
             <div>
               <label className={labelClass}>Title</label>
-              <input type="text" className={inputClass} placeholder="Trip title" value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} />
+              <input type="text" disabled={!can("title")} className={inputClass} placeholder="Trip title" value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} />
+              {!can("title") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
             <div>
               <label className={labelClass}>Description</label>
-              <RichTextEditor
-                value={form.description ?? ""}
-                onChange={(html) => set("description", html)}
-                placeholder="Write your trip description here…"
-              />
+              <div className={!can("description") ? "opacity-70" : ""}>
+                <RichTextEditor
+                  value={form.description ?? ""}
+                  onChange={(html) => set("description", html)}
+                  placeholder="Write your trip description here…"
+                  editable={can("description")}
+                />
+              </div>
+              {!can("description") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Category</label>
-                <select className={inputClass} value={form.category ?? "Tours"} onChange={(e) => set("category", e.target.value)}>
+                <select disabled={!can("category")} className={inputClass} value={form.category ?? "Tours"} onChange={(e) => set("category", e.target.value)}>
                   {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
                 <label className={labelClass}>Duration</label>
-                <input type="text" className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />
+                <input type="text" disabled={!can("duration")} className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>City</label>
-                <input type="text" className={inputClass} placeholder="Luxembourg City" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
+                <input type="text" disabled={!can("city")} className={inputClass} placeholder="Luxembourg City" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
               </div>
               <div>
                 <label className={labelClass}>Provider</label>
-                <input type="text" className={inputClass} placeholder="Provider name" value={form.provider ?? ""} onChange={(e) => set("provider", e.target.value)} />
+                <input type="text" disabled={!can("provider")} className={inputClass} placeholder="Provider name" value={form.provider ?? ""} onChange={(e) => set("provider", e.target.value)} />
               </div>
             </div>
           </div>
@@ -295,22 +321,25 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Price (€)</label>
-              <input type="number" min="0" step="0.01" className={inputClass} value={form.price ?? 0} onChange={(e) => set("price", parseFloat(e.target.value) || 0)} />
+              <input type="number" min="0" step="0.01" disabled={!can("price")} className={inputClass} value={form.price ?? 0} onChange={(e) => set("price", parseFloat(e.target.value) || 0)} />
             </div>
             <div>
               <label className={labelClass}>Original Price (€) — optional</label>
-              <input type="number" min="0" step="0.01" className={inputClass} placeholder="For strikethrough" value={form.originalPrice ?? ""} onChange={(e) => set("originalPrice", e.target.value ? parseFloat(e.target.value) : undefined)} />
+              <input type="number" min="0" step="0.01" disabled={!can("originalPrice")} className={inputClass} placeholder="For strikethrough" value={form.originalPrice ?? ""} onChange={(e) => set("originalPrice", e.target.value ? parseFloat(e.target.value) : undefined)} />
             </div>
           </div>
         </section>
 
         {/* Media */}
         <section className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-foreground">Media</h2>
+          <h2 className="mb-4 text-sm font-semibold text-foreground flex items-center">
+            Media
+            {!can("image") && !can("gallery") && <ReadOnlyBadge />}
+          </h2>
 
           {/* Featured Image */}
-          <div className="mb-6">
-            <label className={labelClass}>Featured Image</label>
+          <fieldset disabled={!can("image")} className={`mb-6 ${!can("image") ? "opacity-80" : ""}`}>
+            <label className={labelClass}>Featured Image {!can("image") && <ReadOnlyBadge />}</label>
             <input ref={featuredInputRef} type="file" accept="image/*" className="hidden" onChange={handleFeaturedUpload} />
 
             {form.image ? (
@@ -364,11 +393,11 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
                 onChange={(e) => set("image", e.target.value)}
               />
             </div>
-          </div>
+          </fieldset>
 
           {/* Image Gallery */}
-          <div>
-            <label className={labelClass}>Image Gallery</label>
+          <fieldset disabled={!can("gallery")} className={!can("gallery") ? "opacity-80" : ""}>
+            <label className={labelClass}>Image Gallery {!can("gallery") && <ReadOnlyBadge />}</label>
             <input ref={galleryInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleGalleryUpload} />
 
             {(form.gallery ?? []).length > 0 && (
@@ -415,67 +444,43 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
                 <span className="text-[10px] text-muted-foreground/60">Select multiple images — max 8MB each</span>
               </button>
             )}
-          </div>
-        </section>
-
-        {/* Tags */}
-        <section className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-foreground">Tags</h2>
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            {(form.tags ?? []).map((tag) => (
-              <span key={tag} className="flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
-                {tag}
-                <button type="button" onClick={() => removeTag(tag)} className="ml-0.5 text-primary/60 hover:text-primary"><X className="h-3 w-3" /></button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className={`${inputClass} flex-1`}
-              placeholder="Add tag and press Enter"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(tagInput) }}}
-            />
-            <button type="button" onClick={() => addTag(tagInput)} className="rounded-lg border border-border px-3 text-muted-foreground hover:bg-secondary hover:text-foreground">
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {COMMON_TAGS.filter((t) => !(form.tags ?? []).includes(t)).slice(0, 10).map((t) => (
-              <button key={t} type="button" onClick={() => addTag(t)} className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground">
-                + {t}
-              </button>
-            ))}
-          </div>
+          </fieldset>
         </section>
 
         {/* Highlights */}
-        <section className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-foreground">Highlights</h2>
+        <fieldset disabled={!can("highlights")} className={`rounded-xl border border-border bg-card p-5 ${!can("highlights") ? "opacity-80" : ""}`}>
+          <h2 className="mb-4 text-sm font-semibold text-foreground flex items-center">
+            Highlights {!can("highlights") && <ReadOnlyBadge />}
+          </h2>
           <div className="mb-3 flex flex-col gap-2">
             {(form.highlights ?? []).map((h, i) => (
               <div key={i} className="flex items-center justify-between rounded-lg bg-secondary px-3 py-2">
                 <span className="text-sm text-foreground">{h}</span>
-                <button type="button" onClick={() => removeHighlight(h)} className="text-muted-foreground/40 hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                {can("highlights") && (
+                  <button type="button" onClick={() => removeHighlight(h)} className="text-muted-foreground/40 hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                )}
               </div>
             ))}
+            {(form.highlights ?? []).length === 0 && (
+              <p className="text-[11px] text-muted-foreground/70">No highlights yet.</p>
+            )}
           </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className={`${inputClass} flex-1`}
-              placeholder="Add a highlight"
-              value={highlightInput}
-              onChange={(e) => setHighlightInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addHighlight(highlightInput) }}}
-            />
-            <button type="button" onClick={() => addHighlight(highlightInput)} className="rounded-lg border border-border px-3 text-muted-foreground hover:bg-secondary hover:text-foreground">
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-        </section>
+          {can("highlights") && (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className={`${inputClass} flex-1`}
+                placeholder="Add a highlight"
+                value={highlightInput}
+                onChange={(e) => setHighlightInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addHighlight(highlightInput) }}}
+              />
+              <button type="button" onClick={() => addHighlight(highlightInput)} className="rounded-lg border border-border px-3 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </fieldset>
 
         {/* ── Palisis-imported fields ─────────────────────────────────────────── */}
         {trip?.palisis_id && (
@@ -494,70 +499,116 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass}>Tour Type</label>
-              <select className={inputClass} value={form.tourType ?? ""} onChange={(e) => set("tourType", e.target.value || null)}>
+              <select disabled={!can("tourType")} className={inputClass} value={form.tourType ?? ""} onChange={(e) => set("tourType", e.target.value || null)}>
                 <option value="">—</option>
                 {TOUR_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
               <label className={labelClass}>Tour Leader</label>
-              <select className={inputClass} value={form.tourLeader ?? ""} onChange={(e) => set("tourLeader", e.target.value || null)}>
+              <select disabled={!can("tourLeader")} className={inputClass} value={form.tourLeader ?? ""} onChange={(e) => set("tourLeader", e.target.value || null)}>
                 <option value="">—</option>
                 {TOUR_LEADER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
               <label className={labelClass}>Grade</label>
-              <select className={inputClass} value={form.grade ?? ""} onChange={(e) => set("grade", e.target.value || null)}>
+              <select disabled={!can("grade")} className={inputClass} value={form.grade ?? ""} onChange={(e) => set("grade", e.target.value || null)}>
                 <option value="">—</option>
                 {GRADE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
               <label className={labelClass}>Commercial Priority</label>
-              <select className={inputClass} value={form.commercialPriority ?? ""} onChange={(e) => set("commercialPriority", e.target.value || null)}>
+              <select disabled={!can("commercialPriority")} className={inputClass} value={form.commercialPriority ?? ""} onChange={(e) => set("commercialPriority", e.target.value || null)}>
                 <option value="">—</option>
                 {COMMERCIAL_PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
               <label className={labelClass}>Accommodation Rating</label>
-              <input type="text" className={inputClass} placeholder="e.g. Luxury" value={form.accommodationRating ?? ""} onChange={(e) => set("accommodationRating", e.target.value || null)} />
+              <input type="text" disabled={!can("accommodationRating")} className={inputClass} placeholder="e.g. Luxury" value={form.accommodationRating ?? ""} onChange={(e) => set("accommodationRating", e.target.value || null)} />
             </div>
             <div>
               <label className={labelClass}>Country (code)</label>
-              <input type="text" className={inputClass} placeholder="LU" value={form.country ?? ""} onChange={(e) => set("country", e.target.value || null)} />
+              <input type="text" disabled={!can("country")} className={inputClass} placeholder="LU" value={form.country ?? ""} onChange={(e) => set("country", e.target.value || null)} />
             </div>
           </div>
         </section>
 
-        {/* Trip Tags (friendly label for tour_tags) */}
-        <section className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-1 text-sm font-semibold text-foreground">Trip Tags</h2>
-          <p className="mb-3 text-[11px] text-muted-foreground">Click to select the tags that apply to this trip.</p>
-          <div className="flex flex-wrap gap-1.5">
-            {TRIP_TAG_VOCAB.map(({ token, label }) => {
-              const selected = (form.tripTags ?? []).includes(token)
-              return (
-                <button
-                  key={token}
-                  type="button"
-                  onClick={() => {
-                    const cur = form.tripTags ?? []
-                    set("tripTags", selected ? cur.filter((t) => t !== token) : [...cur, token])
-                  }}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    selected
-                      ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                      : "border border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                  }`}
-                >
-                  {selected ? "✓ " : ""}{label}
-                </button>
-              )
-            })}
-          </div>
-        </section>
+        {/* Trip Tags — vocabulary chips + free-text add (when editable) */}
+        <fieldset disabled={!can("tripTags")} className={`rounded-xl border border-border bg-card p-5 ${!can("tripTags") ? "opacity-80" : ""}`}>
+          <h2 className="mb-1 text-sm font-semibold text-foreground flex items-center">
+            Trip Tags {!can("tripTags") && <ReadOnlyBadge />}
+          </h2>
+          <p className="mb-3 text-[11px] text-muted-foreground">
+            {can("tripTags")
+              ? "Toggle suggested tags below, or type a custom one and press Enter to add it."
+              : "These tags are managed via Palisis sync. Enable editing under Settings → Trip Field Editability."}
+          </p>
+
+          {/* Selected tags */}
+          {(form.tripTags ?? []).length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {(form.tripTags ?? []).map((token) => {
+                const def = TRIP_TAG_VOCAB.find((v) => v.token === token)
+                return (
+                  <span key={token} className="flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
+                    {def?.label ?? token}
+                    {can("tripTags") && (
+                      <button type="button" onClick={() => removeTripTag(token)} className="ml-0.5 text-primary/60 hover:text-primary">
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Free-text add (editable only) */}
+          {can("tripTags") && (
+            <div className="mb-3 flex gap-2">
+              <input
+                type="text"
+                className={`${inputClass} flex-1`}
+                placeholder="Add a custom tag and press Enter"
+                value={tripTagInput}
+                onChange={(e) => setTripTagInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTripTag(tripTagInput) }}}
+              />
+              <button type="button" onClick={() => addTripTag(tripTagInput)} className="rounded-lg border border-border px-3 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Suggested vocabulary (toggle on/off, only when editable) */}
+          {can("tripTags") && (
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Suggested</div>
+              <div className="flex flex-wrap gap-1.5">
+                {TRIP_TAG_VOCAB.map(({ token, label }) => {
+                  const selected = (form.tripTags ?? []).includes(token)
+                  return (
+                    <button
+                      key={token}
+                      type="button"
+                      onClick={() => selected ? removeTripTag(token) : set("tripTags", [...(form.tripTags ?? []), token])}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                        selected
+                          ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                          : "border border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                      }`}
+                    >
+                      {selected ? "✓ " : "+ "}{label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </fieldset>
 
         {/* Departure Location (friendly label for geocode_start_point) */}
         <section className="rounded-xl border border-border bg-card p-5">
@@ -565,35 +616,61 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass}>Departure Location</label>
-              <input type="text" className={inputClass} placeholder="e.g. Sightseeing.lu office" value={form.departureLocation ?? ""} onChange={(e) => set("departureLocation", e.target.value || null)} />
+              <input type="text" disabled={!can("departureLocation")} className={inputClass} placeholder="e.g. Sightseeing.lu office" value={form.departureLocation ?? ""} onChange={(e) => set("departureLocation", e.target.value || null)} />
             </div>
             <div>
               <label className={labelClass}>Departure Geocode (lat,lng)</label>
-              <input type="text" className={inputClass} placeholder="49.603207,6.089869" value={form.departureGeocode ?? ""} onChange={(e) => set("departureGeocode", e.target.value || null)} />
+              <input type="text" disabled={!can("departureGeocode")} className={inputClass} placeholder="49.603207,6.089869" value={form.departureGeocode ?? ""} onChange={(e) => set("departureGeocode", e.target.value || null)} />
             </div>
             <div>
               <label className={labelClass}>End Location</label>
-              <input type="text" className={inputClass} placeholder="Same as departure or other" value={form.endLocation ?? ""} onChange={(e) => set("endLocation", e.target.value || null)} />
+              <input type="text" disabled={!can("endLocation")} className={inputClass} placeholder="Same as departure or other" value={form.endLocation ?? ""} onChange={(e) => set("endLocation", e.target.value || null)} />
             </div>
             <div>
               <label className={labelClass}>End Geocode (lat,lng)</label>
-              <input type="text" className={inputClass} placeholder="49.603207,6.089869" value={form.endGeocode ?? ""} onChange={(e) => set("endGeocode", e.target.value || null)} />
+              <input type="text" disabled={!can("endGeocode")} className={inputClass} placeholder="49.603207,6.089869" value={form.endGeocode ?? ""} onChange={(e) => set("endGeocode", e.target.value || null)} />
             </div>
           </div>
         </section>
 
-        {/* Languages */}
-        <section className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-1 text-sm font-semibold text-foreground">Languages Spoken</h2>
-          <p className="mb-3 text-[11px] text-muted-foreground">Comma-separated (e.g. English, French, German).</p>
-          <input
-            type="text"
-            className={inputClass}
-            placeholder="English, French, German"
-            value={(form.languages ?? []).join(", ")}
-            onChange={(e) => set("languages", e.target.value.split(/,/).map((s) => s.trim()).filter(Boolean))}
-          />
-        </section>
+        {/* Languages — chip + add input */}
+        <fieldset disabled={!can("languages")} className={`rounded-xl border border-border bg-card p-5 ${!can("languages") ? "opacity-80" : ""}`}>
+          <h2 className="mb-1 text-sm font-semibold text-foreground flex items-center">
+            Languages Spoken {!can("languages") && <ReadOnlyBadge />}
+          </h2>
+          <p className="mb-3 text-[11px] text-muted-foreground">
+            {can("languages") ? "Type a language and press Enter to add it." : "Synced from Palisis."}
+          </p>
+          {(form.languages ?? []).length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {(form.languages ?? []).map((lang) => (
+                <span key={lang} className="flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
+                  {lang}
+                  {can("languages") && (
+                    <button type="button" onClick={() => removeLanguage(lang)} className="ml-0.5 text-primary/60 hover:text-primary">
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+          {can("languages") && (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className={`${inputClass} flex-1`}
+                placeholder="e.g. English"
+                value={languageInput}
+                onChange={(e) => setLanguageInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLanguage(languageInput) }}}
+              />
+              <button type="button" onClick={() => addLanguage(languageInput)} className="rounded-lg border border-border px-3 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </fieldset>
 
         {/* Included / Excluded */}
         <section className="rounded-xl border border-border bg-card p-5">
@@ -602,6 +679,7 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
             <div>
               <label className={labelClass}>Included (one per line)</label>
               <textarea
+                disabled={!can("included")}
                 className={`${inputClass} min-h-[120px] font-sans`}
                 placeholder={"E-Bike rental\nHelmet"}
                 value={(form.included ?? []).join("\n")}
@@ -611,6 +689,7 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
             <div>
               <label className={labelClass}>Excluded (one per line)</label>
               <textarea
+                disabled={!can("excluded")}
                 className={`${inputClass} min-h-[120px] font-sans`}
                 placeholder={"Food & drinks\nSnacks"}
                 value={(form.excluded ?? []).join("\n")}
@@ -625,88 +704,99 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <h2 className="mb-4 text-sm font-semibold text-foreground">Detailed Descriptions</h2>
           <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className={labelClass}>Short Description</label>
+              <label className={labelClass}>Short Description {!can("shortDescription") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("shortDescription")}
                 className={`${inputClass} min-h-[80px] font-sans`}
                 value={form.shortDescription ?? ""}
                 onChange={(e) => set("shortDescription", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Long Description</label>
+              <label className={labelClass}>Long Description {!can("longDescription") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("longDescription")}
                 className={`${inputClass} min-h-[160px] font-sans`}
                 value={form.longDescription ?? ""}
                 onChange={(e) => set("longDescription", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Experience / Highlights (raw text)</label>
+              <label className={labelClass}>Experience / Highlights (raw text) {!can("experienceHighlights") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("experienceHighlights")}
                 className={`${inputClass} min-h-[100px] font-sans`}
                 value={form.experienceHighlights ?? ""}
                 onChange={(e) => set("experienceHighlights", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Itinerary</label>
+              <label className={labelClass}>Itinerary {!can("itinerary") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("itinerary")}
                 className={`${inputClass} min-h-[120px] font-sans`}
                 value={form.itinerary ?? ""}
                 onChange={(e) => set("itinerary", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Essential Information</label>
+              <label className={labelClass}>Essential Information {!can("essentialInformation") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("essentialInformation")}
                 className={`${inputClass} min-h-[100px] font-sans`}
                 value={form.essentialInformation ?? ""}
                 onChange={(e) => set("essentialInformation", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Hotel Pickup Instructions</label>
+              <label className={labelClass}>Hotel Pickup Instructions {!can("hotelPickupInstructions") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("hotelPickupInstructions")}
                 className={`${inputClass} min-h-[80px] font-sans`}
                 value={form.hotelPickupInstructions ?? ""}
                 onChange={(e) => set("hotelPickupInstructions", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Voucher Redemption Instructions</label>
+              <label className={labelClass}>Voucher Redemption Instructions {!can("voucherRedemptionInstructions") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("voucherRedemptionInstructions")}
                 className={`${inputClass} min-h-[80px] font-sans`}
                 value={form.voucherRedemptionInstructions ?? ""}
                 onChange={(e) => set("voucherRedemptionInstructions", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Restrictions</label>
+              <label className={labelClass}>Restrictions {!can("restrictions") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("restrictions")}
                 className={`${inputClass} min-h-[80px] font-sans`}
                 value={form.restrictions ?? ""}
                 onChange={(e) => set("restrictions", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Extras / Upgrades</label>
+              <label className={labelClass}>Extras / Upgrades {!can("extras") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("extras")}
                 className={`${inputClass} min-h-[80px] font-sans`}
                 value={form.extras ?? ""}
                 onChange={(e) => set("extras", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Receipt Information</label>
+              <label className={labelClass}>Receipt Information {!can("receiptInformation") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("receiptInformation")}
                 className={`${inputClass} min-h-[80px] font-sans`}
                 value={form.receiptInformation ?? ""}
                 onChange={(e) => set("receiptInformation", e.target.value || null)}
               />
             </div>
             <div>
-              <label className={labelClass}>Cancellation Policy</label>
+              <label className={labelClass}>Cancellation Policy {!can("cancellationPolicy") && <ReadOnlyBadge />}</label>
               <textarea
+                disabled={!can("cancellationPolicy")}
                 className={`${inputClass} min-h-[80px] font-sans`}
                 value={form.cancellationPolicy ?? ""}
                 onChange={(e) => set("cancellationPolicy", e.target.value || null)}
@@ -720,27 +810,28 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <h2 className="mb-4 text-sm font-semibold text-foreground">Booking Constraints</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Min Booking Size</label>
-              <input type="number" min="0" className={inputClass} value={form.minBookingSize ?? ""} onChange={(e) => set("minBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
+              <label className={labelClass}>Min Booking Size {!can("minBookingSize") && <ReadOnlyBadge />}</label>
+              <input type="number" min="0" disabled={!can("minBookingSize")} className={inputClass} value={form.minBookingSize ?? ""} onChange={(e) => set("minBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
             </div>
             <div>
-              <label className={labelClass}>Max Booking Size</label>
-              <input type="number" min="0" className={inputClass} value={form.maxBookingSize ?? ""} onChange={(e) => set("maxBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
+              <label className={labelClass}>Max Booking Size {!can("maxBookingSize") && <ReadOnlyBadge />}</label>
+              <input type="number" min="0" disabled={!can("maxBookingSize")} className={inputClass} value={form.maxBookingSize ?? ""} onChange={(e) => set("maxBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
             </div>
             <div>
-              <label className={labelClass}>Next Bookable Date</label>
-              <input type="date" className={inputClass} value={form.nextBookableDate ?? ""} onChange={(e) => set("nextBookableDate", e.target.value || null)} />
+              <label className={labelClass}>Next Bookable Date {!can("nextBookableDate") && <ReadOnlyBadge />}</label>
+              <input type="date" disabled={!can("nextBookableDate")} className={inputClass} value={form.nextBookableDate ?? ""} onChange={(e) => set("nextBookableDate", e.target.value || null)} />
             </div>
             <div>
-              <label className={labelClass}>Last Bookable Date</label>
-              <input type="date" className={inputClass} value={form.lastBookableDate ?? ""} onChange={(e) => set("lastBookableDate", e.target.value || null)} />
+              <label className={labelClass}>Last Bookable Date {!can("lastBookableDate") && <ReadOnlyBadge />}</label>
+              <input type="date" disabled={!can("lastBookableDate")} className={inputClass} value={form.lastBookableDate ?? ""} onChange={(e) => set("lastBookableDate", e.target.value || null)} />
             </div>
             <div className="sm:col-span-2">
-              <label className={labelClass}>Non-refundable</label>
+              <label className={labelClass}>Non-refundable {!can("nonRefundable") && <ReadOnlyBadge />}</label>
               <button
                 type="button"
-                onClick={() => set("nonRefundable", !form.nonRefundable)}
-                className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.nonRefundable ? "bg-primary" : "bg-border"}`}
+                disabled={!can("nonRefundable")}
+                onClick={() => can("nonRefundable") && set("nonRefundable", !form.nonRefundable)}
+                className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${form.nonRefundable ? "bg-primary" : "bg-border"}`}
                 role="switch"
                 aria-checked={form.nonRefundable}
               >
@@ -755,12 +846,12 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <h2 className="mb-4 text-sm font-semibold text-foreground">Additional Media</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>PDF Document URL</label>
-              <input type="url" className={inputClass} placeholder="https://…" value={form.pdfUrl ?? ""} onChange={(e) => set("pdfUrl", e.target.value || null)} />
+              <label className={labelClass}>PDF Document URL {!can("pdfUrl") && <ReadOnlyBadge />}</label>
+              <input type="url" disabled={!can("pdfUrl")} className={inputClass} placeholder="https://…" value={form.pdfUrl ?? ""} onChange={(e) => set("pdfUrl", e.target.value || null)} />
             </div>
             <div>
-              <label className={labelClass}>Video URL</label>
-              <input type="url" className={inputClass} placeholder="https://…" value={form.videoUrl ?? ""} onChange={(e) => set("videoUrl", e.target.value || null)} />
+              <label className={labelClass}>Video URL {!can("videoUrl") && <ReadOnlyBadge />}</label>
+              <input type="url" disabled={!can("videoUrl")} className={inputClass} placeholder="https://…" value={form.videoUrl ?? ""} onChange={(e) => set("videoUrl", e.target.value || null)} />
             </div>
           </div>
         </section>
@@ -769,13 +860,14 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
         <section className="rounded-xl border border-border bg-card p-5">
           <h2 className="mb-4 text-sm font-semibold text-foreground">Google Reviews</h2>
           <div>
-            <label className={labelClass}>Google Business URL</label>
-            <input 
-              type="url" 
-              className={inputClass} 
-              placeholder="https://www.google.com/maps/place/..." 
-              value={form.googleBusinessUrl ?? ""} 
-              onChange={(e) => set("googleBusinessUrl", e.target.value || undefined)} 
+            <label className={labelClass}>Google Business URL {!can("googleBusinessUrl") && <ReadOnlyBadge />}</label>
+            <input
+              type="url"
+              disabled={!can("googleBusinessUrl")}
+              className={inputClass}
+              placeholder="https://www.google.com/maps/place/..."
+              value={form.googleBusinessUrl ?? ""}
+              onChange={(e) => set("googleBusinessUrl", e.target.value || undefined)}
             />
             <p className="mt-1.5 text-[10px] text-muted-foreground">
               <strong>How to get the correct link:</strong> Open the location on Google Maps, copy the full URL from the address bar (e.g., <code className="inline bg-secondary px-1">https://www.google.com/maps/place/Business+Name/...</code>). The business name must be visible in the URL.
@@ -788,8 +880,8 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
           <h2 className="mb-4 text-sm font-semibold text-foreground">Options</h2>
           <div className="flex flex-col gap-4">
             <div>
-              <label className={labelClass}>Badge text (optional)</label>
-              <input type="text" className={inputClass} placeholder='e.g. "New", "Popular", "Free"' value={form.badge ?? ""} onChange={(e) => set("badge", e.target.value || undefined)} />
+              <label className={labelClass}>Badge text (optional) {!can("badge") && <ReadOnlyBadge />}</label>
+              <input type="text" disabled={!can("badge")} className={inputClass} placeholder='e.g. "New", "Popular", "Free"' value={form.badge ?? ""} onChange={(e) => set("badge", e.target.value || undefined)} />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               {(
@@ -798,18 +890,19 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
                 ] as const
               ).map(({ key, label, options }) => (
                 <div key={key}>
-                  <label className={labelClass}>{label}</label>
-                  <select className={inputClass} value={(form[key] as string) ?? "draft"} onChange={(e) => set(key, e.target.value as "published" | "draft")}>
+                  <label className={labelClass}>{label} {!can("status") && <ReadOnlyBadge />}</label>
+                  <select disabled={!can("status")} className={inputClass} value={(form[key] as string) ?? "draft"} onChange={(e) => set(key, e.target.value as "published" | "draft")}>
                     {options.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
               ))}
               <div>
-                <label className={labelClass}>Featured on homepage</label>
+                <label className={labelClass}>Featured on homepage {!can("featured") && <ReadOnlyBadge />}</label>
                 <button
                   type="button"
-                  onClick={() => set("featured", !form.featured)}
-                  className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.featured ? "bg-primary" : "bg-border"}`}
+                  disabled={!can("featured")}
+                  onClick={() => can("featured") && set("featured", !form.featured)}
+                  className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${form.featured ? "bg-primary" : "bg-border"}`}
                   role="switch"
                   aria-checked={form.featured}
                 >
@@ -817,11 +910,12 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
                 </button>
               </div>
               <div>
-                <label className={labelClass}>Show in Departures</label>
+                <label className={labelClass}>Show in Departures {!can("featuredDeparture") && <ReadOnlyBadge />}</label>
                 <button
                   type="button"
-                  onClick={() => set("featuredDeparture", !form.featuredDeparture)}
-                  className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.featuredDeparture ? "bg-primary" : "bg-border"}`}
+                  disabled={!can("featuredDeparture")}
+                  onClick={() => can("featuredDeparture") && set("featuredDeparture", !form.featuredDeparture)}
+                  className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${form.featuredDeparture ? "bg-primary" : "bg-border"}`}
                   role="switch"
                   aria-checked={form.featuredDeparture}
                 >
@@ -836,12 +930,13 @@ export function TripEditForm({ trip }: { trip: AdminTrip | null }) {
         <SEOOptimizer
           tripData={form}
           onApplyOptimization={(field, value) => {
+            // Gate every SEO write through the field policy — UI must respect read-only.
             if (field === "highlights" && Array.isArray(value)) {
-              set("highlights", value as string[])
+              if (can("highlights")) set("highlights", value as string[])
             } else if (field === "tags" && Array.isArray(value)) {
-              set("tags", value as string[])
+              if (can("tripTags")) set("tripTags", value as string[])
             } else if (typeof value === "string") {
-              set(field as "title" | "description", value)
+              if (can(field as string)) set(field as "title" | "description", value)
             }
           }}
         />
