@@ -185,14 +185,16 @@ export default function TripFieldsPanel() {
         </button>
       </div>
 
-      {/* Collapsible groups — masonry-style 2 columns on md+ (no row gaps) */}
-      <div className="gap-2 md:columns-2 [&>*]:mb-2 [&>*]:break-inside-avoid">
-        {groups.length === 0 && (
-          <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-            No fields match your filter.
-          </div>
-        )}
-        {groups.map(([group, fields]) => {
+      {/* Collapsible groups — two fixed columns (groups never swap sides). */}
+      {groups.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+          No fields match your filter.
+        </div>
+      )}
+      <div className="flex flex-col gap-2 md:flex-row md:items-start">
+        {[0, 1].map((col) => (
+          <div key={col} className="flex flex-1 flex-col gap-2">
+            {groups.filter((_, i) => i % 2 === col).map(([group, fields]) => {
           const isOpen = !!open[group]
           const s = summary(fields)
           return (
@@ -291,6 +293,8 @@ export default function TripFieldsPanel() {
             </section>
           )
         })}
+          </div>
+        ))}
       </div>
     </div>
   )
