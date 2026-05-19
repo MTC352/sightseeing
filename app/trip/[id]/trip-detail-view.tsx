@@ -25,14 +25,24 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
  * React will only recreate the iframe if `src` actually changes.
  */
 /**
- * Return the booking iframe URL as-is. The TourCMS/Palisis reservation
- * widget (r1.php) does not support `date` / `time` query parameters for
- * pre-selection — appending them caused the calendar to land on an
- * unrelated month. Pre-selection is communicated via the banner above
- * the iframe instead.
+ * Append the TourCMS `month_year=MM_YYYY` parameter so the reservation
+ * widget (r1.php) opens on the calendar month the user clicked.
+ *
+ * TourCMS r1.php does NOT support pre-selecting a specific day or time
+ * slot via URL — only the calendar month. The selected day + time are
+ * still surfaced to the user via the "Your selected slot" banner above
+ * the iframe.
+ *
+ * Input date format: "YYYY-MM-DD". If parsing fails, returns url
+ * unchanged so we never break the iframe.
  */
-function substitutePlaceholders(url: string, _date?: string, _time?: string): string {
-  return url
+function substitutePlaceholders(url: string, date?: string, _time?: string): string {
+  if (!url || !date) return url
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(date)
+  if (!m) return url
+  const [, year, month] = m
+  const sep = url.includes("?") ? "&" : "?"
+  return `${url}${sep}month_year=${month}_${year}`
 }
 
 /** Format YYYY-MM-DD as "Sun, 17 May 2026" for the slot-context banner. */
@@ -398,9 +408,10 @@ export default function TripDetailClient({
                         {formatSelectedDate(selectedDate)} · {selectedTime}
                       </p>
                       <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                        Pick this date in the calendar below, then choose the
+                        The calendar below is opened on the right month — just
+                        click your date and pick the
                         <span className="font-semibold text-foreground"> {selectedTime} </span>
-                        time slot to complete your booking.
+                        time slot.
                       </p>
                     </div>
                   )}
