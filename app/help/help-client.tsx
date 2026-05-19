@@ -7,199 +7,65 @@ import type { UIMessage } from "ai"
 import {
   Search, ChevronDown, ChevronRight, Bot, Send, MessageCircle,
   HelpCircle, CreditCard, Calendar, Smartphone, Bus, MapPin,
-  Users, Clock, Globe, Mail, Phone, FileText, ExternalLink,
-  X, Ticket, Download
+  Mail, Phone, FileText, Clock, Ticket, Download, Users, Globe,
+  Accessibility as AccessibilityIcon, X,
 } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 
 /* ─────────────────────────────────────────────────────────────
-   FAQ DATA — extracted from sightseeing.lu/help
+   TYPES — articles come from the DB (admin panel)
 ───────────────────────────────────────────────────────────── */
 
-interface FaqItem { id: string; question: string; answer: string }
-interface FaqCategory { id: string; name: string; icon: React.ElementType; description: string; items: FaqItem[] }
+export interface HelpArticle {
+  id: string
+  question: string
+  answer: string
+  category: string
+  status?: string | null
+  order?: number | null
+}
 
-const FAQ_DATA: FaqCategory[] = [
-  {
-    id: "general",
-    name: "General",
-    icon: HelpCircle,
-    description: "About sightseeing.lu and what we offer",
-    items: [
-      {
-        id: "what-is-sightseeing",
-        question: "What is sightseeing.lu?",
-        answer: "Sightseeing.lu, created in 2019 and part of the SLG group, has quickly positioned itself as the leading online booking platform for activities in Luxembourg. Both locals and tourists can buy tickets, audio guides, city tours, and more with just a few clicks. Via the website you will find all the information you need, and you can book your tour or activity online — the ticket will be sent to your mailbox. Some activities require you to download the sightseeing.lu App to retrieve the tour content on your phone (route, audio, and text content)."
-      },
-      {
-        id: "what-offering",
-        question: "What is sightseeing.lu offering?",
-        answer: "Sightseeing.lu plays a significant role for tourism in Luxembourg. We have been offering tours, namely City Tour and City Train Tours for nearly 20 years! However, we now have much more to offer than those classic sightseeing tours. We extended our product range with a focus on tours with audio guide, bike tours, day tours and walking tours. This way you can choose whether you want to use your smartphone as guide, or if you prefer a live guide to show you around. Make sure to check our website frequently as we are constantly adding new activities."
-      },
-      {
-        id: "operating-hours",
-        question: "What are your operating hours?",
-        answer: "Our office in Merl-Luxembourg is open Monday to Friday from 8:30 am to 5:30 pm. All our self-guided tours can be booked throughout the whole year — all you need is a smartphone and our app. Activities that depend on weather (City Tour, City Train) have up-to-date calendars on our website."
-      },
-      {
-        id: "languages",
-        question: "Are your activities available in different languages?",
-        answer: "Yes! We use country flags to show you in what languages each activity or tour is available. These flags appear on the product cards and on each activity page. The content available in those languages is either the audio guide in our vehicles or the content referring to the points of interest in our app."
-      },
-      {
-        id: "blue-pinpoint",
-        question: "What does the blue pinpoint on a product card mean?",
-        answer: "The pinpoint represents a key feature of our logo. We use it on product cards to mark our personal recommendations and bestsellers. Products marked with a pinpoint are either recommendations by sightseeing.lu or the most popular activities among travelers in Luxembourg."
-      },
-    ]
-  },
-  {
-    id: "booking",
-    name: "Booking & Payments",
-    icon: CreditCard,
-    description: "Payments, refunds, and booking issues",
-    items: [
-      {
-        id: "payment-problems",
-        question: "I have problems with my payment. What can I do?",
-        answer: "Please double check that you've entered your details correctly and try again. If your purchase still can't be completed, please try a different payment method or contact your bank. Feel free to email us at hello@sightseeing.lu if you have any questions about making a payment."
-      },
-      {
-        id: "pay-on-arrival",
-        question: "Can I pay on arrival, in cash or by credit card?",
-        answer: "It is possible to pay on arrival, but we prefer the payment process to be done on our website sightseeing.lu to avoid any problems or queues at the starting point."
-      },
-      {
-        id: "lost-confirmation",
-        question: "I have lost my booking confirmation. What can I do?",
-        answer: "Please contact our team directly at hello@sightseeing.lu and we'll send you a new confirmation by email."
-      },
-      {
-        id: "group-discount",
-        question: "Is there a group discount on tour tickets?",
-        answer: "For our Luxembourg City Bus Tour and for the City Train, you can find group tickets in the booking widget. You can also ask for a discount if you are traveling in a group of min. 10 people. Please send your request including your name, phone number, number of participants, and date & time to hello@sightseeing.lu."
-      },
-    ]
-  },
-  {
-    id: "cancellation",
-    name: "Cancellations & Refunds",
-    icon: Calendar,
-    description: "Cancellation policies and refund information",
-    items: [
-      {
-        id: "cancellation-policy",
-        question: "What is your cancellation policy?",
-        answer: "Your booking will either be fully refundable, partially refundable or non-refundable depending on the supplier's policy. All cancelable bookings will display a deadline for cancellation on the product page."
-      },
-      {
-        id: "supplier-cancels",
-        question: "What happens if the supplier cancels my booking?",
-        answer: "If the supplier cancels your booking, please contact us directly at hello@sightseeing.lu to receive a full refund."
-      },
-      {
-        id: "refund-question",
-        question: "I have a question regarding my refund",
-        answer: "Refunds can take 3-4 business days to appear in your account. However, some credit card companies have different processing times. Also, refunds within Luxembourg will be faster than abroad. Please contact us at hello@sightseeing.lu if you have any questions regarding refunds."
-      },
-    ]
-  },
-  {
-    id: "app",
-    name: "About the App",
-    icon: Smartphone,
-    description: "Using the sightseeing.lu mobile app",
-    items: [
-      {
-        id: "why-download-app",
-        question: "Why/when do I need to download the APP sightseeing.lu?",
-        answer: "For classic tours like the Luxembourg City Bus Tour and City Train, you can book tickets online without the app — tickets are sent via email. However, for new activities like Walking or e-Bike tours, you will need the app to validate your ticket and access the tour contents. After booking, you'll receive a QR code via email. Download the app, scan the QR code, and the content (route, GPS map, audio, texts) will appear on your phone."
-      },
-      {
-        id: "app-login",
-        question: "The App asks me to enter a username and password - where do I get that information?",
-        answer: "In addition to the QR code, your ticket also contains login credentials. If you booked the tour with your phone and cannot scan the QR code, you can copy and paste the login credentials from your ticket into the dedicated fields inside the app to get access to the contents."
-      },
-      {
-        id: "full-vs-light",
-        question: "What is the difference between the 'full' and 'light' version of the app?",
-        answer: "Both versions are free to download. The only difference is that the 'light' version requires an internet connection to use, while the 'full' version allows you to access audio, images, and text even when you're offline after downloading your purchased activity."
-      },
-    ]
-  },
-  {
-    id: "city-tours",
-    name: "City Bus Tour & City Train",
-    icon: Bus,
-    description: "Information about our signature tours",
-    items: [
-      {
-        id: "recognize-bus-stop",
-        question: "How do I recognize a City Bus stop?",
-        answer: "The City Bus stops look like normal bus stops and contain a sign. The City Bus stop is on the Montée de Clausen, Um Bock (near the entrance to Casemates du Bock) and can be easily recognized. This is also the departure point for the City Train."
-      },
-      {
-        id: "bring-dog",
-        question: "Is it allowed to bring a dog?",
-        answer: "It depends on the size of the dog. If it's a small dog which can be kept on your lap, it's possible. In any case, please send us an email to hello@sightseeing.lu to confirm."
-      },
-      {
-        id: "wifi-on-buses",
-        question: "Is there Wi-Fi on your buses?",
-        answer: "Yes, all our Bus Tours have free Wi-Fi."
-      },
-      {
-        id: "48-hour-tickets",
-        question: "Can 48-hour tickets be used on two separate days of the week?",
-        answer: "No – the 48-hour ticket is valid for 48 consecutive hours from the first validation. This concerns all our combination tickets with the museums of the city of Luxembourg. Please note that the 48-hour validity applies only to the entrance ticket for the 7 museums. The ticket for the Luxembourg City Bus Tour has a validity of only 24 hours, and for the City Train the ticket is valid for a single trip."
-      },
-    ]
-  },
-  {
-    id: "meeting-points",
-    name: "Meeting Points & Locations",
-    icon: MapPin,
-    description: "Pickup information and meeting points",
-    items: [
-      {
-        id: "pickup-info",
-        question: "Where can I find pick-up information?",
-        answer: "For most of our products, the location of the meeting point can be found in the product description. It will also appear on the booking confirmation."
-      },
-      {
-        id: "change-meeting-point",
-        question: "Can I change the meeting point?",
-        answer: "You can only change the meeting point in case of a private tour. Otherwise, it is not possible."
-      },
-      {
-        id: "coach-parking",
-        question: "Where can I park my coach?",
-        answer: "Coach parking and facilities information is available on our dedicated parking map. Please contact us at hello@sightseeing.lu for the detailed map."
-      },
-      {
-        id: "free-parking",
-        question: "Where can I park for free in the city?",
-        answer: "There are some free car parks in Luxembourg City. Visit the city's official parking information for more details."
-      },
-    ]
-  },
-  {
-    id: "other",
-    name: "Other Information",
-    icon: FileText,
-    description: "Additional policies and information",
-    items: [
-      {
-        id: "cleaning-fees",
-        question: "Are there additional cleaning fees for private hire?",
-        answer: "Any damage to the equipment during service will be charged. Damage to interior equipment or other damage inflicted on the vehicle will be the responsibility of the person who made the booking. In case of extra cleaning (e.g. due to voluntary spraying of liquid, vomiting) a fee of €300.00 will apply."
-      },
-    ]
-  },
-]
+interface FaqCategory {
+  id: string
+  name: string
+  icon: React.ElementType
+  description: string
+  items: HelpArticle[]
+}
 
 /* ─────────────────────────────────────────────────────────────
-   QUICK LINKS
+   CATEGORY ICON / DESCRIPTION MAP
+   Falls back to a generic icon for any category the admin adds.
+───────────────────────────────────────────────────────────── */
+
+const CATEGORY_META: Record<string, { icon: React.ElementType; description: string }> = {
+  general:        { icon: HelpCircle,         description: "About sightseeing.lu and what we offer" },
+  booking:        { icon: CreditCard,         description: "Payments, refunds, and booking issues" },
+  payments:       { icon: CreditCard,         description: "Payment methods, refunds, and billing" },
+  cancellation:   { icon: Calendar,           description: "Cancellation policies and refund information" },
+  cancellations:  { icon: Calendar,           description: "Cancellation policies and refund information" },
+  app:            { icon: Smartphone,         description: "Using the sightseeing.lu mobile app" },
+  "city-tours":   { icon: Bus,                description: "Information about our signature tours" },
+  tours:          { icon: Bus,                description: "Information about our tours" },
+  "meeting-points": { icon: MapPin,           description: "Pickup information and meeting points" },
+  locations:      { icon: MapPin,             description: "Locations and meeting points" },
+  accessibility:  { icon: AccessibilityIcon,  description: "Accessibility information and accommodations" },
+  groups:         { icon: Users,              description: "Group bookings and special arrangements" },
+  languages:      { icon: Globe,              description: "Available languages and translations" },
+  other:          { icon: FileText,           description: "Additional policies and information" },
+}
+
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
+}
+
+function metaForCategory(name: string): { icon: React.ElementType; description: string } {
+  const slug = slugify(name)
+  return CATEGORY_META[slug] ?? { icon: FileText, description: `Articles about ${name}` }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   QUICK LINKS & SUGGESTIONS
 ───────────────────────────────────────────────────────────── */
 
 const QUICK_LINKS = [
@@ -208,10 +74,6 @@ const QUICK_LINKS = [
   { label: "Contact Us", href: "#contact", icon: Mail },
   { label: "Explore Tours", href: "/explore", icon: Ticket },
 ]
-
-/* ─────────────────────────────────────────────────────────────
-   HELP SUGGESTIONS FOR AI CHAT
-───────────────────────────────────────────────────────────── */
 
 const HELP_SUGGESTIONS = [
   "How do I cancel my booking?",
@@ -237,7 +99,11 @@ function getMessageText(msg: UIMessage): string {
    COMPONENT
 ───────────────────────────────────────────────────────────── */
 
-export function HelpClient() {
+interface Props {
+  articles: HelpArticle[]
+}
+
+export function HelpClient({ articles }: Props) {
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [openItems, setOpenItems] = useState<Set<string>>(new Set())
@@ -253,21 +119,49 @@ export function HelpClient() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [messages])
 
-  // Filter FAQ items based on search
+  // ── Build categories dynamically from DB articles ────────────────────────
+  const categories: FaqCategory[] = useMemo(() => {
+    const map = new Map<string, FaqCategory>()
+    const sorted = [...articles].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    for (const a of sorted) {
+      const name = a.category || "Other"
+      const id = slugify(name)
+      if (!map.has(id)) {
+        const meta = metaForCategory(name)
+        map.set(id, { id, name, icon: meta.icon, description: meta.description, items: [] })
+      }
+      map.get(id)!.items.push(a)
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [articles])
+
+  // ── Filter by search ─────────────────────────────────────────────────────
   const filteredCategories = useMemo(() => {
-    if (!searchQuery.trim()) return FAQ_DATA
+    if (!searchQuery.trim()) return categories
     const q = searchQuery.toLowerCase()
-    return FAQ_DATA.map((cat) => ({
-      ...cat,
-      items: cat.items.filter(
-        (item) =>
-          item.question.toLowerCase().includes(q) ||
-          item.answer.toLowerCase().includes(q)
-      ),
-    })).filter((cat) => cat.items.length > 0)
-  }, [searchQuery])
+    return categories
+      .map((cat) => ({
+        ...cat,
+        items: cat.items.filter(
+          (item) =>
+            item.question.toLowerCase().includes(q) ||
+            item.answer.toLowerCase().includes(q),
+        ),
+      }))
+      .filter((cat) => cat.items.length > 0)
+  }, [searchQuery, categories])
 
   const totalResults = filteredCategories.reduce((sum, cat) => sum + cat.items.length, 0)
+
+  const popularArticles = useMemo(() => {
+    // First article from each category, capped at 6
+    const out: { article: HelpArticle; category: FaqCategory }[] = []
+    for (const cat of categories) {
+      if (cat.items[0]) out.push({ article: cat.items[0], category: cat })
+      if (out.length >= 6) break
+    }
+    return out
+  }, [categories])
 
   const toggleItem = (id: string) => {
     setOpenItems((prev) => {
@@ -348,7 +242,7 @@ export function HelpClient() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-6xl px-4 py-12 lg:px-8">
+      <div className="mx-auto max-w-6xl px-4 py-12 lg:px-8" data-testid="help-content">
 
         {/* Search results indicator */}
         {searchQuery && (
@@ -359,16 +253,28 @@ export function HelpClient() {
           </div>
         )}
 
-        {/* Category cards (shown when no search) */}
-        {!searchQuery && !activeCategory && (
+        {/* Empty state — no published articles in DB */}
+        {categories.length === 0 && !searchQuery && (
+          <div className="mb-12 rounded-xl border border-border bg-card p-8 text-center">
+            <HelpCircle className="mx-auto h-10 w-10 text-muted-foreground/50" />
+            <p className="mt-3 font-medium text-foreground">No help articles yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Our team is still preparing the knowledge base. In the meantime, chat with our AI assistant below.
+            </p>
+          </div>
+        )}
+
+        {/* Category cards (shown when no search, no active category, and there are articles) */}
+        {!searchQuery && !activeCategory && categories.length > 0 && (
           <div className="mb-12">
             <h2 className="mb-6 text-xl font-bold text-foreground">Browse by Category</h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {FAQ_DATA.map((cat) => (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="help-categories">
+              {categories.map((cat) => (
                 <button
                   key={cat.id}
                   type="button"
                   onClick={() => setActiveCategory(cat.id)}
+                  data-testid={`help-category-${cat.id}`}
                   className="group flex items-start gap-4 rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-primary/30 hover:shadow-md"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
@@ -377,7 +283,7 @@ export function HelpClient() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-foreground">{cat.name}</h3>
                     <p className="mt-0.5 text-sm text-muted-foreground">{cat.description}</p>
-                    <p className="mt-2 text-xs text-primary">{cat.items.length} articles</p>
+                    <p className="mt-2 text-xs text-primary">{cat.items.length} article{cat.items.length !== 1 ? "s" : ""}</p>
                   </div>
                   <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                 </button>
@@ -398,7 +304,7 @@ export function HelpClient() {
               Back to all categories
             </button>
             {(() => {
-              const cat = FAQ_DATA.find((c) => c.id === activeCategory)
+              const cat = categories.find((c) => c.id === activeCategory)
               if (!cat) return null
               return (
                 <>
@@ -408,7 +314,7 @@ export function HelpClient() {
                     </div>
                     <div>
                       <h2 className="text-xl font-bold text-foreground">{cat.name}</h2>
-                      <p className="text-sm text-muted-foreground">{cat.items.length} articles</p>
+                      <p className="text-sm text-muted-foreground">{cat.items.length} article{cat.items.length !== 1 ? "s" : ""}</p>
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -417,6 +323,7 @@ export function HelpClient() {
                         <button
                           type="button"
                           onClick={() => toggleItem(item.id)}
+                          data-testid={`help-article-${item.id}`}
                           className="flex w-full items-center justify-between p-4 text-left"
                         >
                           <span className="text-sm font-medium text-foreground">{item.question}</span>
@@ -427,7 +334,7 @@ export function HelpClient() {
                           />
                         </button>
                         {openItems.has(item.id) && (
-                          <div className="border-t border-border px-4 py-4 text-sm leading-relaxed text-muted-foreground">
+                          <div className="border-t border-border px-4 py-4 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
                             {item.answer}
                           </div>
                         )}
@@ -475,7 +382,7 @@ export function HelpClient() {
                             />
                           </button>
                           {openItems.has(item.id) && (
-                            <div className="border-t border-border px-4 py-4 text-sm leading-relaxed text-muted-foreground">
+                            <div className="border-t border-border px-4 py-4 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
                               {item.answer}
                             </div>
                           )}
@@ -628,41 +535,31 @@ export function HelpClient() {
         </section>
 
         {/* Popular articles */}
-        <section className="mt-12">
-          <h2 className="mb-6 text-xl font-bold text-foreground">Popular Articles</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { cat: "general", id: "what-is-sightseeing" },
-              { cat: "app", id: "why-download-app" },
-              { cat: "cancellation", id: "cancellation-policy" },
-              { cat: "city-tours", id: "48-hour-tickets" },
-              { cat: "booking", id: "payment-problems" },
-              { cat: "meeting-points", id: "pickup-info" },
-            ].map(({ cat, id }) => {
-              const category = FAQ_DATA.find((c) => c.id === cat)
-              const item = category?.items.find((i) => i.id === id)
-              if (!category || !item) return null
-              return (
+        {popularArticles.length > 0 && (
+          <section className="mt-12">
+            <h2 className="mb-6 text-xl font-bold text-foreground">Popular Articles</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {popularArticles.map(({ article, category }) => (
                 <button
-                  key={id}
+                  key={article.id}
                   type="button"
                   onClick={() => {
-                    setActiveCategory(cat)
-                    setOpenItems(new Set([id]))
+                    setActiveCategory(category.id)
+                    setOpenItems(new Set([article.id]))
                     window.scrollTo({ top: 0, behavior: "smooth" })
                   }}
                   className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 text-left transition-all hover:border-primary/30 hover:shadow-sm"
                 >
                   <category.icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                   <div>
-                    <p className="text-sm font-medium text-foreground line-clamp-2">{item.question}</p>
+                    <p className="text-sm font-medium text-foreground line-clamp-2">{article.question}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{category.name}</p>
                   </div>
                 </button>
-              )
-            })}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </>
   )
