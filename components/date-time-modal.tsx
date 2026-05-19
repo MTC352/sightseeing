@@ -1,13 +1,150 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { X, ChevronLeft, ChevronRight } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { X, ChevronLeft, ChevronRight, Clock } from "lucide-react"
 
 /* ── Types ── */
 export interface DateTimeValue {
   date: string      // ISO "YYYY-MM-DD"
   timeFrom: string  // "HH:MM" or ""
   timeTo: string    // "HH:MM" or ""
+}
+
+/* ── Time helpers ── */
+const SLOT_MINUTES = 30
+const TIME_SLOTS: string[] = (() => {
+  const out: string[] = []
+  for (let m = 0; m < 24 * 60; m += SLOT_MINUTES) {
+    const h = Math.floor(m / 60)
+    const mm = m % 60
+    out.push(`${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`)
+  }
+  return out
+})()
+function toMinutes(t: string): number {
+  if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return -1
+  const [h, m] = t.split(":").map(Number)
+  return h * 60 + m
+}
+function formatLabel(t: string): string {
+  if (!t) return "Any time"
+  const [h, m] = t.split(":").map(Number)
+  const period = h >= 12 ? "PM" : "AM"
+  const h12 = ((h + 11) % 12) + 1
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`
+}
+
+/* ── Time Select dropdown ── */
+function TimeSelect({
+  value,
+  onChange,
+  label,
+  minTime,
+  placeholder,
+}: {
+  value: string
+  onChange: (v: string) => void
+  label: string
+  minTime?: string   // exclusive lower bound (e.g. From's value for the To picker)
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onClickOutside = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false) }
+    document.addEventListener("mousedown", onClickOutside)
+    document.addEventListener("keydown", onEsc)
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside)
+      document.removeEventListener("keydown", onEsc)
+    }
+  }, [open])
+
+  // Scroll selected slot into view when opening
+  useEffect(() => {
+    if (!open || !listRef.current) return
+    const el = listRef.current.querySelector<HTMLElement>("[data-selected='true']")
+      ?? listRef.current.querySelector<HTMLElement>("[data-enabled='true']")
+    el?.scrollIntoView({ block: "center" })
+  }, [open])
+
+  const minMin = minTime ? toMinutes(minTime) : -1
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </label>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={[
+          "flex w-full items-center justify-between gap-2 rounded-2xl border-2 px-4 py-3 text-sm font-medium transition-colors focus:outline-none",
+          open ? "border-primary" : "border-border hover:border-primary/40",
+          value ? "text-foreground" : "text-muted-foreground",
+        ].join(" ")}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span>{value ? formatLabel(value) : (placeholder ?? "Any time")}</span>
+        <Clock className="h-4 w-4 text-muted-foreground" />
+      </button>
+
+      {open && (
+        <div
+          ref={listRef}
+          role="listbox"
+          className="absolute left-0 right-0 z-20 mt-2 max-h-64 overflow-y-auto rounded-2xl border-2 border-border bg-background p-1 shadow-xl"
+        >
+          <button
+            type="button"
+            data-enabled="true"
+            data-selected={value === ""}
+            onClick={() => { onChange(""); setOpen(false) }}
+            className={[
+              "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors",
+              value === "" ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-secondary",
+            ].join(" ")}
+          >
+            Any time
+          </button>
+          {TIME_SLOTS.map(slot => {
+            const slotMin = toMinutes(slot)
+            const disabled = minMin >= 0 && slotMin <= minMin
+            const selected = value === slot
+            return (
+              <button
+                key={slot}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                data-enabled={!disabled ? "true" : "false"}
+                data-selected={selected ? "true" : "false"}
+                disabled={disabled}
+                onClick={() => { onChange(slot); setOpen(false) }}
+                className={[
+                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                  disabled
+                    ? "cursor-not-allowed text-muted-foreground/40 line-through"
+                    : selected
+                      ? "bg-primary text-primary-foreground font-semibold"
+                      : "text-foreground hover:bg-secondary",
+                ].join(" ")}
+              >
+                {formatLabel(slot)}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /* ── Mini Calendar ── */
@@ -171,6 +308,12 @@ export function DateTimeModal({
     }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // If "To" is now <= "From", clear it so the user re-picks a valid value.
+  useEffect(() => {
+    if (!timeFrom || !timeTo) return
+    if (toMinutes(timeTo) <= toMinutes(timeFrom)) setTimeTo("")
+  }, [timeFrom, timeTo])
+
   if (!open) return null
 
   const handleClear = () => {
@@ -179,12 +322,15 @@ export function DateTimeModal({
     setTimeTo("")
   }
 
+  const invalidRange = !!timeFrom && !!timeTo && toMinutes(timeTo) <= toMinutes(timeFrom)
+
   const handleApply = () => {
+    if (invalidRange) return
     onApply({ date, timeFrom, timeTo })
     onClose()
   }
 
-  const hasSelection = date !== ""
+  const hasSelection = date !== "" || timeFrom !== "" || timeTo !== ""
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
@@ -226,30 +372,32 @@ export function DateTimeModal({
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Departure Time</p>
           </div>
 
-          {/* FROM TIME / TO TIME text inputs */}
-          <div className="grid grid-cols-2 gap-3 px-5 pb-5">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                From
-              </label>
-              <input
-                type="time"
-                value={timeFrom}
-                onChange={(e) => setTimeFrom(e.target.value)}
-                className="w-full rounded-2xl border-2 border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors focus:border-primary focus:outline-none [color-scheme:light] dark:[color-scheme:dark]"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                To
-              </label>
-              <input
-                type="time"
-                value={timeTo}
-                onChange={(e) => setTimeTo(e.target.value)}
-                className="w-full rounded-2xl border-2 border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors focus:border-primary focus:outline-none [color-scheme:light] dark:[color-scheme:dark]"
-              />
-            </div>
+          {/* FROM TIME / TO TIME selectors */}
+          <div className="grid grid-cols-2 gap-3 px-5 pb-2">
+            <TimeSelect
+              label="From"
+              value={timeFrom}
+              onChange={setTimeFrom}
+              placeholder="Any time"
+            />
+            <TimeSelect
+              label="To"
+              value={timeTo}
+              onChange={setTimeTo}
+              minTime={timeFrom || undefined}
+              placeholder={timeFrom ? "After " + formatLabel(timeFrom) : "Any time"}
+            />
+          </div>
+          <div className="px-5 pb-5 pt-1 min-h-[18px]">
+            {invalidRange ? (
+              <p className="text-xs font-medium text-destructive">
+                &ldquo;To&rdquo; must be later than &ldquo;From&rdquo; on the same day.
+              </p>
+            ) : timeFrom && !timeTo ? (
+              <p className="text-xs text-muted-foreground">
+                Pick a &ldquo;To&rdquo; time later than {formatLabel(timeFrom)} — same-day only.
+              </p>
+            ) : null}
           </div>
 
           {/* FROM / TO date selectors — REMOVED, using single date picker */}
@@ -272,9 +420,10 @@ export function DateTimeModal({
           <button
             type="button"
             onClick={handleApply}
-            className="w-full rounded-2xl bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            disabled={invalidRange}
+            className="w-full rounded-2xl bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-primary/40"
           >
-            Apply dates
+            Apply
           </button>
         </div>
       </div>
