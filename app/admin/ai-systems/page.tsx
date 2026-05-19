@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
-import { Bot, ChevronRight, MessageSquare, HelpCircle, Map, Sparkles, TriangleAlert, FlaskConical, PenLine } from "lucide-react"
-import { AIAdvisorDashboard } from "@/components/admin/ai-advisor-dashboard"
+import { Bot, ChevronRight, MessageSquare, HelpCircle, Map, TriangleAlert, FlaskConical, PenLine } from "lucide-react"
 
 const SYSTEM_META: Record<string, { label: string; description: string; icon: typeof Bot; href: string }> = {
   blog: {
@@ -42,22 +41,6 @@ export default async function AiSystemsPage() {
           Configure AI assistants and get strategic advice for platform growth.
         </p>
       </div>
-
-      {/* AI Advisor Section */}
-      <div className="mb-10">
-        <div className="mb-4 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
-            <Sparkles className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">AI Strategy Advisor</h2>
-            <p className="text-xs text-muted-foreground">Get personalized recommendations based on your platform state</p>
-          </div>
-        </div>
-        <AIAdvisorDashboard />
-      </div>
-
-      <div className="mb-8 border-t border-border" />
 
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-foreground">Configure AI Assistants</h2>
