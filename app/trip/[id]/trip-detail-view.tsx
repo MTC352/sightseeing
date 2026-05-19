@@ -33,14 +33,24 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
  * still surfaced to the user via the "Your selected slot" banner above
  * the iframe.
  *
- * Input date format: "YYYY-MM-DD". If parsing fails, returns url
- * unchanged so we never break the iframe.
+ * Input date format: "YYYY-MM-DD". If no date is passed (or parsing
+ * fails), falls back to the current month/year so the calendar always
+ * opens on a meaningful month rather than TourCMS's default
+ * "next available" month.
  */
 function substitutePlaceholders(url: string, date?: string, _time?: string): string {
-  if (!url || !date) return url
-  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(date)
-  if (!m) return url
-  const [, year, month] = m
+  if (!url) return url
+  let month: string
+  let year: string
+  const m = date ? /^(\d{4})-(\d{2})-\d{2}$/.exec(date) : null
+  if (m) {
+    year = m[1]
+    month = m[2]
+  } else {
+    const now = new Date()
+    year = String(now.getFullYear())
+    month = String(now.getMonth() + 1).padStart(2, "0")
+  }
   const sep = url.includes("?") ? "&" : "?"
   return `${url}${sep}month_year=${month}_${year}`
 }
