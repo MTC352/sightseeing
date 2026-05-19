@@ -330,7 +330,10 @@ export default function PlannerPage() {
       if (toolCall.dynamic) return
       if (toolCall.toolName === "addToCart") {
         const { tripId } = toolCall.input as { tripId: string; tripTitle: string }
-        const trip = allTrips.find((t) => t.id === tripId)
+        // Resolve from static catalog first, then from the most recent searchTrips
+        // tool output (covers DB-only trips with tcms_* ids).
+        let trip: Trip | undefined = allTrips.find((t) => t.id === tripId)
+        if (!trip) trip = aiTripsRef.current.find((t) => t.id === tripId)
         if (trip) addItem(trip)
         addToolOutput({
           tool: "addToCart",
@@ -375,7 +378,14 @@ export default function PlannerPage() {
     for (const msg of messages) {
       for (const part of msg.parts) {
         if (part.type === "tool-searchTrips" && part.state === "output-available") {
-          const output = part.output as { trips: Array<{ id: string }> }
+          const output = part.output as {
+            trips: Array<{
+              id: string; title?: string; image?: string; price?: number;
+              originalPrice?: number; rating?: number; reviewCount?: number;
+              duration?: string; category?: string; tags?: string[]; badge?: string;
+              city?: string; description?: string; highlights?: string[];
+            }>
+          }
           if (output?.trips) {
             // Clear previous results so we always show the latest search
             found.length = 0
@@ -384,7 +394,27 @@ export default function PlannerPage() {
               if (!seen.has(partial.id)) {
                 seen.add(partial.id)
                 const full = allTrips.find((t) => t.id === partial.id)
-                if (full) found.push(full)
+                if (full) {
+                  found.push(full)
+                } else if (partial.title && partial.image) {
+                  // DB-only trip (e.g. tcms_*): build a Trip from partial fields
+                  found.push({
+                    id: partial.id,
+                    title: partial.title,
+                    image: partial.image,
+                    price: partial.price ?? 0,
+                    originalPrice: partial.originalPrice,
+                    rating: partial.rating ?? 0,
+                    reviewCount: partial.reviewCount ?? 0,
+                    duration: partial.duration ?? "",
+                    category: partial.category ?? "",
+                    tags: partial.tags ?? [],
+                    badge: partial.badge,
+                    city: partial.city,
+                    description: partial.description,
+                    highlights: partial.highlights,
+                  })
+                }
               }
             }
           }
@@ -419,6 +449,12 @@ export default function PlannerPage() {
   }, [prefs])
 
   const resultTrips = aiTrips.length > 0 ? aiTrips : fallbackTrips
+
+  // Mirror aiTrips into a ref so onToolCall (addToCart) can resolve DB-only
+  // trips (tcms_*) that aren't in the static catalog. useChat's onToolCall
+  // closure captures stale values, so we read latest via this ref.
+  const aiTripsRef = useRef<Trip[]>([])
+  useEffect(() => { aiTripsRef.current = aiTrips }, [aiTrips])
   const isStreaming = status === "streaming" || status === "submitted"
   const showResults = resultTrips.length > 0
 

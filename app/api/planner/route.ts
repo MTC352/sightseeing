@@ -8,8 +8,8 @@ import {
   validateUIMessages,
 } from "ai"
 import { z } from "zod"
-import { trips, weatherData as staticWeatherData, type Trip } from "@/lib/data"
-import { dbGetSettings } from "@/lib/db/queries"
+import { trips as staticTrips, weatherData as staticWeatherData, type Trip } from "@/lib/data"
+import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -44,9 +44,116 @@ async function fetchLiveWeather(): Promise<WeatherSnapshot> {
 // Will be populated per-request with live data
 let _liveWeather: WeatherSnapshot = { temp: 11, condition: "Partly Cloudy", wx: "cloudy" }
 
+/**
+ * Rich trip shape merging Trip basics with Palisis-imported fields.
+ * The AI uses this for scoring AND reasoning so it has full context
+ * (itinerary, languages, included/excluded, cancellation, etc.) when
+ * making recommendations and answering follow-up questions.
+ */
+type RichTrip = Trip & {
+  // Classification (from Palisis)
+  tourType?: string | null
+  tourLeader?: string | null
+  grade?: string | null
+  accommodationRating?: string | null
+  tripTags?: string[] | null
+  languages?: string[] | null
+  // Location
+  departureLocation?: string | null
+  endLocation?: string | null
+  country?: string | null
+  // Long-form content
+  shortDescription?: string | null
+  longDescription?: string | null
+  experienceHighlights?: string | null
+  itinerary?: unknown
+  essentialInformation?: string | null
+  hotelPickupInstructions?: string | null
+  voucherRedemptionInstructions?: string | null
+  restrictions?: string | null
+  extras?: unknown
+  cancellationPolicy?: string | null
+  // Inclusions
+  included?: string[] | null
+  excluded?: string[] | null
+  // Booking constraints
+  minBookingSize?: number | null
+  maxBookingSize?: number | null
+  nonRefundable?: boolean | null
+  nextBookableDate?: string | null
+  lastBookableDate?: string | null
+}
+
+/** Stringify itinerary / extras (which may be JSON) into searchable text. */
+function jsonToText(v: unknown): string {
+  if (v == null) return ""
+  if (typeof v === "string") return v
+  try { return JSON.stringify(v) } catch { return "" }
+}
+
+/** Load the unified trip catalog: DB first, fallback to static if DB is empty. */
+async function loadTripCatalog(): Promise<RichTrip[]> {
+  try {
+    const rows = (await dbListTrips({ publicOnly: true })) as Array<Record<string, unknown>>
+    if (rows && rows.length > 0) {
+      return rows.map((r): RichTrip => ({
+        id: String(r.id),
+        title: String(r.title ?? ""),
+        image: String(r.image ?? ""),
+        gallery: (r.gallery as string[] | undefined) ?? undefined,
+        price: Number(r.price ?? 0),
+        originalPrice: r.originalPrice != null ? Number(r.originalPrice) : undefined,
+        rating: Number(r.rating ?? 0),
+        reviewCount: Number(r.reviewCount ?? 0),
+        duration: String(r.duration ?? ""),
+        category: String(r.category ?? ""),
+        tags: (r.tags as string[] | undefined) ?? [],
+        badge: (r.badge as string | undefined) ?? undefined,
+        city: (r.city as string | undefined) ?? "Luxembourg",
+        description: (r.description as string | undefined) ?? undefined,
+        permalink: (r.permalink as string | undefined) ?? undefined,
+        provider: (r.provider as string | undefined) ?? undefined,
+        highlights: (r.highlights as string[] | undefined) ?? [],
+        googleBusinessUrl: (r.googleBusinessUrl as string | undefined) ?? undefined,
+        // ── Rich Palisis fields ────────────────────────────────────────────
+        tourType: (r.tourType as string | null) ?? null,
+        tourLeader: (r.tourLeader as string | null) ?? null,
+        grade: (r.grade as string | null) ?? null,
+        accommodationRating: (r.accommodationRating as string | null) ?? null,
+        tripTags: (r.tripTags as string[] | null) ?? null,
+        languages: (r.languages as string[] | null) ?? null,
+        departureLocation: (r.departureLocation as string | null) ?? null,
+        endLocation: (r.endLocation as string | null) ?? null,
+        country: (r.country as string | null) ?? null,
+        shortDescription: (r.shortDescription as string | null) ?? null,
+        longDescription: (r.longDescription as string | null) ?? null,
+        experienceHighlights: (r.experienceHighlights as string | null) ?? null,
+        itinerary: r.itinerary ?? null,
+        essentialInformation: (r.essentialInformation as string | null) ?? null,
+        hotelPickupInstructions: (r.hotelPickupInstructions as string | null) ?? null,
+        voucherRedemptionInstructions: (r.voucherRedemptionInstructions as string | null) ?? null,
+        restrictions: (r.restrictions as string | null) ?? null,
+        extras: r.extras ?? null,
+        cancellationPolicy: (r.cancellationPolicy as string | null) ?? null,
+        included: (r.included as string[] | null) ?? null,
+        excluded: (r.excluded as string[] | null) ?? null,
+        minBookingSize: (r.minBookingSize as number | null) ?? null,
+        maxBookingSize: (r.maxBookingSize as number | null) ?? null,
+        nonRefundable: (r.nonRefundable as boolean | null) ?? null,
+        nextBookableDate: r.nextBookableDate ? String(r.nextBookableDate) : null,
+        lastBookableDate: r.lastBookableDate ? String(r.lastBookableDate) : null,
+      }))
+    }
+  } catch (e) {
+    console.error("[planner] dbListTrips failed, falling back to static:", e)
+  }
+  // Fallback: static seed trips (no Palisis enrichment)
+  return staticTrips.map((t) => ({ ...t }))
+}
+
 const searchTripsTool = tool({
   description:
-    "Search and filter trips from the catalog. ALWAYS call this tool when the user asks for recommendations, wants to explore, or mentions interests. Returns matching trips as structured data rendered as visual cards.",
+    "Search and filter trips from the catalog. ALWAYS call this tool when the user asks for recommendations, wants to explore, or mentions interests. Returns matching trips with full Palisis-sourced details (itinerary, included/excluded, languages, booking constraints, cancellation policy) — use these fields when answering follow-up questions.",
   inputSchema: z.object({
     query: z.string().describe("Search query or interest keywords"),
     tags: z
@@ -59,19 +166,37 @@ const searchTripsTool = tool({
     const wx = _liveWeather.wx
     const limit = maxResults ?? 6
     const lower = query.toLowerCase()
-    let results = [...trips]
+    const catalog = await loadTripCatalog()
+    let results: RichTrip[] = [...catalog]
 
     if (tags && tags.length > 0) {
-      const tagged = results.filter((t) => tags.some((tag) => t.tags.includes(tag)))
+      const tagged = results.filter((t) =>
+        tags.some((tag) =>
+          t.tags.includes(tag) || (t.tripTags ?? []).includes(tag),
+        ),
+      )
       if (tagged.length > 0) results = tagged
     }
 
     if (lower) {
       const keywords = lower.split(/\s+/).filter(Boolean)
       results.sort((a, b) => {
-        const scoreFor = (t: Trip) => {
+        const scoreFor = (t: RichTrip) => {
           let s = 0
-          const hay = [t.title, t.category, t.city ?? "", t.description ?? "", ...(t.highlights ?? [])].join(" ").toLowerCase()
+          const hay = [
+            t.title, t.category, t.city ?? "",
+            t.description ?? "", t.shortDescription ?? "", t.longDescription ?? "",
+            t.experienceHighlights ?? "",
+            ...(t.highlights ?? []),
+            ...(t.tripTags ?? []),
+            ...(t.included ?? []), ...(t.excluded ?? []),
+            ...(t.languages ?? []),
+            t.tourType ?? "", t.tourLeader ?? "", t.grade ?? "",
+            t.departureLocation ?? "", t.endLocation ?? "", t.country ?? "",
+            t.essentialInformation ?? "", t.restrictions ?? "",
+            t.cancellationPolicy ?? "",
+            jsonToText(t.itinerary), jsonToText(t.extras),
+          ].join(" ").toLowerCase()
           for (const kw of keywords) { if (hay.includes(kw)) s += 10 }
           if (t.title.toLowerCase().includes(lower)) s += 20
           return s
@@ -82,18 +207,39 @@ const searchTripsTool = tool({
 
     results.sort((a, b) => {
       let aS = 0, bS = 0
-      if (wx === "rainy") { aS += a.tags.includes("indoor") ? 5 : -2; bS += b.tags.includes("indoor") ? 5 : -2 }
-      else if (wx === "sunny") { aS += a.tags.includes("outdoor") ? 5 : 0; bS += b.tags.includes("outdoor") ? 5 : 0 }
+      const aTags = [...a.tags, ...(a.tripTags ?? [])]
+      const bTags = [...b.tags, ...(b.tripTags ?? [])]
+      if (wx === "rainy") { aS += aTags.includes("indoor") ? 5 : -2; bS += bTags.includes("indoor") ? 5 : -2 }
+      else if (wx === "sunny") { aS += aTags.includes("outdoor") ? 5 : 0; bS += bTags.includes("outdoor") ? 5 : 0 }
       aS += a.rating >= 4.7 ? 2 : 0; bS += b.rating >= 4.7 ? 2 : 0
       return bS - aS
     })
 
     return {
       trips: results.slice(0, limit).map((t) => ({
+        // Card-rendering fields (used by client)
         id: t.id, title: t.title, image: t.image, price: t.price,
         originalPrice: t.originalPrice, rating: t.rating, reviewCount: t.reviewCount,
         duration: t.duration, category: t.category, tags: t.tags, badge: t.badge,
         city: t.city, description: t.description, highlights: t.highlights,
+        // Rich Palisis fields (for AI reasoning + follow-up Q&A)
+        tourType: t.tourType, tourLeader: t.tourLeader, grade: t.grade,
+        accommodationRating: t.accommodationRating,
+        tripTags: t.tripTags, languages: t.languages,
+        departureLocation: t.departureLocation, endLocation: t.endLocation,
+        country: t.country,
+        shortDescription: t.shortDescription, longDescription: t.longDescription,
+        experienceHighlights: t.experienceHighlights,
+        itinerary: t.itinerary,
+        essentialInformation: t.essentialInformation,
+        hotelPickupInstructions: t.hotelPickupInstructions,
+        voucherRedemptionInstructions: t.voucherRedemptionInstructions,
+        restrictions: t.restrictions, extras: t.extras,
+        cancellationPolicy: t.cancellationPolicy,
+        included: t.included, excluded: t.excluded,
+        minBookingSize: t.minBookingSize, maxBookingSize: t.maxBookingSize,
+        nonRefundable: t.nonRefundable,
+        nextBookableDate: t.nextBookableDate, lastBookableDate: t.lastBookableDate,
       })),
       weather: wx,
       total: results.length,
@@ -400,8 +546,9 @@ export async function POST(req: Request) {
       "5. No markdown formatting.",
       "6. Only call addToCart when user explicitly asks to add, book, or save a specific trip.",
       "7. For weather questions, call showWeather.",
-      "8. For follow-up requests, call searchTrips again with adjusted query/tags.",
+      "8. For follow-up requests that ask for DIFFERENT options or NEW filtering (e.g. \"show me cheaper ones\", \"any outdoor instead\", \"what about tomorrow\"), call searchTrips again with adjusted query/tags. Do NOT re-search for factual questions about trips already shown — answer those from the rich fields in the previous tool output (see rule 9a).",
       "9. Be proactive: suggest categories, ask follow-up questions, help narrow down choices.",
+      "9a. RICH TRIP KNOWLEDGE: searchTrips returns rich Palisis fields for each trip — tourType, tourLeader, grade, accommodationRating, languages, departureLocation, endLocation, country, shortDescription, longDescription, experienceHighlights, itinerary, essentialInformation, hotelPickupInstructions, voucherRedemptionInstructions, restrictions, extras, included, excluded, cancellationPolicy, minBookingSize, maxBookingSize, nonRefundable, nextBookableDate, lastBookableDate, tripTags. Use these to answer follow-up questions accurately (e.g. \"what's included\", \"what languages\", \"can I cancel\", \"is there hotel pickup\", \"any age restrictions\", \"how long\", \"where does it start\") WITHOUT re-searching. Reference these facts in plain conversational language; never dump raw field names.",
       "10. COUPON STRATEGY: Call offerCoupon ONCE per conversation to drive a booking. Deploy it strategically:",
       "   - After the user's 2nd or 3rd message when they show interest",
       "   - When recommending your top pick",
