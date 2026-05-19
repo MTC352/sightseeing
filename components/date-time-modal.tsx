@@ -114,33 +114,35 @@ function TimeSelect({
           >
             Any time
           </button>
-          {TIME_SLOTS.map(slot => {
-            const slotMin = toMinutes(slot)
-            const disabled = minMin >= 0 && slotMin <= minMin
-            const selected = value === slot
-            return (
-              <button
-                key={slot}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                data-enabled={!disabled ? "true" : "false"}
-                data-selected={selected ? "true" : "false"}
-                disabled={disabled}
-                onClick={() => { onChange(slot); setOpen(false) }}
-                className={[
-                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors",
-                  disabled
-                    ? "cursor-not-allowed text-muted-foreground/40 line-through"
-                    : selected
+          {TIME_SLOTS
+            .filter(slot => minMin < 0 || toMinutes(slot) > minMin)
+            .map(slot => {
+              const selected = value === slot
+              return (
+                <button
+                  key={slot}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  data-enabled="true"
+                  data-selected={selected ? "true" : "false"}
+                  onClick={() => { onChange(slot); setOpen(false) }}
+                  className={[
+                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                    selected
                       ? "bg-primary text-primary-foreground font-semibold"
                       : "text-foreground hover:bg-secondary",
-                ].join(" ")}
-              >
-                {formatLabel(slot)}
-              </button>
-            )
-          })}
+                  ].join(" ")}
+                >
+                  {formatLabel(slot)}
+                </button>
+              )
+            })}
+          {minMin >= 0 && TIME_SLOTS.every(s => toMinutes(s) <= minMin) && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              No later slots available on the same day.
+            </p>
+          )}
         </div>
       )}
     </div>
