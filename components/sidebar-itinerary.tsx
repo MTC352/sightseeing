@@ -7,6 +7,7 @@ import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bus, Car, Building2, ArrowRight,
   Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
+  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users,
 } from "lucide-react"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"
 
@@ -84,6 +85,16 @@ interface ItineraryStep {
   durationMinutes: number
   travelToNext: string | null
   breakAfter?: BreakAfter
+  /** Real timeslot data from Palisis — populated when the API used live data */
+  endTime?: string | null
+  priceFrom?: string | null
+  spacesRemaining?: string | null
+}
+
+interface UnavailableTrip {
+  tripId: string
+  title: string
+  reason: string
 }
 
 function tripAdvisorUrl(location: string, type: "food" | "coffee") {
@@ -117,6 +128,8 @@ export interface Itinerary {
   tips: string[]
   carSuggestion?: CrossSell
   hotelSuggestion?: CrossSell
+  visitDate?: string
+  unavailableTrips?: UnavailableTrip[]
 }
 
 interface SidebarItineraryProps {
@@ -124,10 +137,154 @@ interface SidebarItineraryProps {
   onOpenItinerary: (itinerary: Itinerary) => void
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Magical multi-stage loader.
+
+   While the API does its real work (resolving Palisis ids, fetching live
+   timeslots for every trip in parallel, then asking the LLM to plan
+   around those exact slots) we keep the user engaged with a staged
+   loading modal. Stages advance on a timer; the final stage holds until
+   the fetch resolves. Per-trip mini progress shows which trip we're
+   "checking" so the user understands the real work happening.
+   ───────────────────────────────────────────────────────────────────── */
+interface LoaderStage {
+  key: string
+  label: string
+  icon: typeof Sparkles
+  durationMs: number
+}
+
+const BUILD_STAGES: LoaderStage[] = [
+  { key: "analyse", label: "Analysing your saved trips…",                 icon: Search,     durationMs: 1100 },
+  { key: "connect", label: "Connecting to Palisis booking system…",      icon: Zap,        durationMs: 1100 },
+  { key: "fetch",   label: "Fetching live timeslots for each trip…",      icon: ListChecks, durationMs: 1500 },
+  { key: "cross",   label: "Cross-referencing availability and prices…", icon: Tag,        durationMs: 1300 },
+  { key: "optim",   label: "Optimising your day for travel time…",       icon: Route,      durationMs: 1300 },
+  { key: "final",   label: "Finalising your magical itinerary…",         icon: Wand2,      durationMs: 9999_000 }, // holds
+]
+
+function BuildItineraryLoader({
+  trips,
+  visitDate,
+}: {
+  trips: { id: string; title: string }[]
+  visitDate: string
+}) {
+  const [stageIdx, setStageIdx] = useState(0)
+  const [checkedCount, setCheckedCount] = useState(0)
+
+  // Advance stages on their per-stage timer.
+  useEffect(() => {
+    if (stageIdx >= BUILD_STAGES.length - 1) return
+    const t = setTimeout(() => setStageIdx((i) => i + 1), BUILD_STAGES[stageIdx].durationMs)
+    return () => clearTimeout(t)
+  }, [stageIdx])
+
+  // Per-trip "checked" animation paced over the fetch stage (~1.5s).
+  useEffect(() => {
+    if (trips.length === 0) return
+    const totalMs = 1800
+    const per = totalMs / trips.length
+    const timers: ReturnType<typeof setTimeout>[] = []
+    trips.forEach((_, i) => {
+      timers.push(setTimeout(() => setCheckedCount(i + 1), per * (i + 1)))
+    })
+    return () => { timers.forEach((t) => clearTimeout(t)) }
+  }, [trips])
+
+  const ActiveIcon = BUILD_STAGES[stageIdx].icon
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-foreground/50 backdrop-blur-sm p-4">
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        {/* Animated gradient bar */}
+        <div className="h-1 w-full bg-gradient-to-r from-primary via-amber-400 to-primary bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite]" />
+
+        <div className="px-6 pb-6 pt-7">
+          {/* Sparkles header */}
+          <div className="flex flex-col items-center text-center">
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+              <ActiveIcon className="h-7 w-7 text-primary" />
+              <Sparkles className="absolute -right-1 -top-1 h-4 w-4 animate-pulse text-amber-400" />
+              <Sparkles className="absolute -bottom-1 -left-1 h-3 w-3 animate-pulse text-amber-300 [animation-delay:200ms]" />
+            </div>
+            <h3 className="mt-4 text-base font-bold text-foreground">Building your itinerary</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Live availability for {formatYMDPretty(visitDate)}
+            </p>
+          </div>
+
+          {/* Current stage text */}
+          <div className="mt-5 flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+            <p key={stageIdx} className="text-xs font-medium text-foreground animate-[fadeIn_300ms_ease-out]">
+              {BUILD_STAGES[stageIdx].label}
+            </p>
+          </div>
+
+          {/* Stage breadcrumb dots */}
+          <div className="mt-3 flex justify-center gap-1.5">
+            {BUILD_STAGES.map((s, i) => (
+              <span
+                key={s.key}
+                className={`h-1.5 w-6 rounded-full transition-all duration-500 ${
+                  i < stageIdx ? "bg-primary"
+                  : i === stageIdx ? "bg-primary/60 animate-pulse"
+                  : "bg-muted"
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Per-trip checklist */}
+          {trips.length > 0 && (
+            <div className="mt-5">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Checking {trips.length} trip{trips.length === 1 ? "" : "s"}
+              </p>
+              <ul className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                {trips.map((t, i) => {
+                  const done = i < checkedCount
+                  const active = i === checkedCount
+                  return (
+                    <li key={t.id} className="flex items-center gap-2 text-xs">
+                      {done ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                      ) : active ? (
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                      ) : (
+                        <CircleDashed className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className={`line-clamp-1 ${done ? "text-foreground" : "text-muted-foreground"}`}>
+                        {t.title}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+          <p className="mt-4 text-center text-[10px] italic text-muted-foreground">
+            Powered by live Palisis availability — no mock data
+          </p>
+        </div>
+      </div>
+
+      {/* Animations */}
+      <style jsx global>{`
+        @keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: -200% 0; } }
+        @keyframes fadeIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+    </div>
+  )
+}
+
 export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
   const { items } = useCart()
   const [itinerary, setItinerary] = useState<Itinerary | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadingDate, setLoadingDate] = useState<string>("")
   const [error, setError] = useState("")
 
   /* ─── Visit-date gating ─────────────────────────────────────────────────
@@ -149,7 +306,10 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
 
   const runGenerate = useCallback(async (dateForRun: string) => {
     setLoading(true)
+    setLoadingDate(dateForRun)
     setError("")
+    const minLoaderMs = 4200 // ensure the magical loader has time to breathe
+    const startedAt = Date.now()
     try {
       const trips = items.map(i => ({
         id: i.trip.id,
@@ -163,15 +323,33 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ trips, startDate: dateForRun }),
       })
-      if (!res.ok) throw new Error("Failed to generate")
-      const data: Itinerary = await res.json()
+      const data = await res.json().catch(() => null) as
+        | (Itinerary & { error?: string; message?: string })
+        | null
+      if (!res.ok || !data) {
+        // Surface server-supplied error messages so the user knows why
+        // (e.g. "No availability on this date" → suggest another day).
+        const msg = data?.message
+          || (data?.error === "NO_AVAILABILITY"
+              ? "None of your trips have available timeslots on this date. Try another day."
+              : data?.error === "TOURCMS_NOT_CONFIGURED"
+              ? "Live booking is not yet configured for this site."
+              : "Could not generate itinerary. Please try again.")
+        setError(msg)
+        return
+      }
+      // Honour the minimum loader duration so the magical stages can play.
+      const elapsed = Date.now() - startedAt
+      if (elapsed < minLoaderMs) {
+        await new Promise((r) => setTimeout(r, minLoaderMs - elapsed))
+      }
       setItinerary(data)
-      // Immediately open itinerary panel once loaded
       onOpenItinerary(data)
     } catch {
       setError("Could not generate itinerary. Please try again.")
     } finally {
       setLoading(false)
+      setLoadingDate("")
     }
   }, [items, onOpenItinerary])
 
@@ -198,6 +376,13 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
   if (items.length < 2) return null
 
   return (
+    <>
+    {loading && (
+      <BuildItineraryLoader
+        trips={items.map((i) => ({ id: i.trip.id, title: i.trip.title }))}
+        visitDate={loadingDate}
+      />
+    )}
     <div className="border-t border-border p-3">
       <div className="mb-2 flex items-center gap-2">
         <Route className="h-3.5 w-3.5 text-primary" />
@@ -270,7 +455,29 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
         </div>
       )}
 
-      {error && <p className="mb-2 text-[10px] text-destructive">{error}</p>}
+      {error && (
+        <div className="mb-2 flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+          <p className="text-[10px] leading-snug text-destructive">{error}</p>
+        </div>
+      )}
+
+      {/* Unavailable trips warning (some trips had no slots on chosen date) */}
+      {itinerary?.unavailableTrips && itinerary.unavailableTrips.length > 0 && (
+        <div className="mb-2 rounded-md border border-amber-300/50 bg-amber-50/60 px-2 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="h-3 w-3 text-amber-600" />
+            <span className="text-[10px] font-semibold text-amber-800">
+              {itinerary.unavailableTrips.length} trip{itinerary.unavailableTrips.length === 1 ? "" : "s"} without availability
+            </span>
+          </div>
+          <ul className="mt-1 ml-4 list-disc text-[10px] leading-snug text-amber-800/80">
+            {itinerary.unavailableTrips.map((u) => (
+              <li key={u.tripId} className="line-clamp-1">{u.title}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex gap-1.5">
         {/* Primary action: build OR open */}
@@ -308,6 +515,7 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
         )}
       </div>
     </div>
+    </>
   )
 }
 
@@ -315,6 +523,10 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
 /* STEP CARD — handles its own real-time snap state */
 /* ─────────────────────────────────────────────── */
 function ItineraryStepCard({ step }: { step: ItineraryStep }) {
+  // When the API returned a real Palisis slot for the chosen visitDate, the
+  // displayed time/price/spaces are authoritative — we do NOT overlay
+  // today/tomorrow chip-snap data because that endpoint is date-agnostic.
+  const hasLiveData = Boolean(step.endTime || step.priceFrom)
   const [snapped, setSnapped] = useState<{ time: string; day: "today" | "tomorrow" } | null>(null)
   const handleSnap = useCallback(
     (next: { time: string; day: "today" | "tomorrow" }) => {
@@ -324,17 +536,22 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
     },
     [],
   )
-  const displayTime = snapped?.time ?? step.time
-  const dayLabel = snapped?.day === "tomorrow" ? "Tomorrow " : ""
+  // If we have an authoritative live slot for visitDate, ignore today/tomorrow snaps.
+  const effectiveSnapped = hasLiveData ? null : snapped
+  const displayTime = effectiveSnapped?.time ?? step.time
+  const dayLabel = effectiveSnapped?.day === "tomorrow" ? "Tomorrow " : ""
   return (
     <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
       <div className="flex items-baseline justify-between">
         <span className="text-sm font-bold text-primary">
           <span className="text-[10px] font-medium text-muted-foreground">
-            {snapped ? "Recommended: " : "Suggested: "}
+            {hasLiveData ? "Confirmed: " : effectiveSnapped ? "Recommended: " : "Suggested: "}
           </span>
           {dayLabel}
           {displayTime}
+          {step.endTime && (
+            <span className="text-[11px] font-medium text-muted-foreground"> – {step.endTime}</span>
+          )}
         </span>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Clock className="h-3 w-3" />
@@ -342,11 +559,35 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
         </span>
       </div>
       <p className="mt-1 text-sm font-semibold text-foreground">{step.tripTitle}</p>
-      <ItineraryTimeslots
-        tripId={step.tripId}
-        suggestedTime={step.time}
-        onSnap={handleSnap}
-      />
+      {hasLiveData && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+          {step.priceFrom && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
+              <Tag className="h-2.5 w-2.5" />
+              {step.priceFrom}
+            </span>
+          )}
+          {step.spacesRemaining && step.spacesRemaining !== "UNLIMITED" && (
+            <span className="inline-flex items-center gap-1 text-muted-foreground">
+              <Users className="h-2.5 w-2.5" />
+              {step.spacesRemaining} spaces left
+            </span>
+          )}
+          {step.spacesRemaining === "UNLIMITED" && (
+            <span className="text-[10px] text-muted-foreground">Spaces available</span>
+          )}
+        </div>
+      )}
+      {/* Only show the today/tomorrow chip helper when we have no authoritative
+          live data for the chosen visit date. Otherwise the chips would
+          contradict the confirmed Palisis slot. */}
+      {!hasLiveData && (
+        <ItineraryTimeslots
+          tripId={step.tripId}
+          suggestedTime={step.time}
+          onSnap={handleSnap}
+        />
+      )}
     </div>
   )
 }

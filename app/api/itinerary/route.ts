@@ -1,217 +1,397 @@
 import { generateText, Output } from "ai"
+import { createAnthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
-import { dbGetSettings } from "@/lib/db/queries"
+import { dbGetSettings, dbGetTrip } from "@/lib/db/queries"
+import { query } from "@/lib/db"
+import {
+  getTourCMSConfig,
+  checkAvailability,
+  type AvailabilityComponent,
+} from "@/lib/tourcms"
 
-const itinerarySchema = z.object({
-  steps: z.array(z.object({
-    time: z.string().describe("Start time, e.g. '09:00'"),
-    tripTitle: z.string(),
-    tripId: z.string(),
+/* ─────────────────────────────────────────────────────────────────────────
+   Itinerary API — LIVE DATA ONLY.
+
+   The /planner UI cart calls this endpoint with the saved trips and the
+   user-selected visit date. We:
+
+     1. Resolve each cart trip's Palisis tour_id from our DB.
+     2. Call TourCMS `checkavail.xml` IN PARALLEL for every trip on the
+        chosen date — this is the *exact* same call the booking flow uses,
+        so the timeslots we surface are guaranteed to be real and bookable.
+     3. Feed the AI a per-trip menu of real timeslots and require it to
+        place each step at one of those exact start times.
+     4. Return the final itinerary plus an `unavailableTrips` list so the
+        UI can honestly tell the user "no slots for X on Friday".
+
+   We DO NOT fabricate timeslots, use heuristic clock math, or fall back
+   to "around 09:00" defaults. If TourCMS is not configured we refuse
+   rather than mislead.
+   ───────────────────────────────────────────────────────────────────── */
+
+const itineraryStepSchema = z.object({
+  tripId: z.string(),
+  tripTitle: z.string(),
+  /** MUST match an available timeslot's startTime for this trip (HH:MM) */
+  time: z.string(),
+  /** End time copied through from the chosen Palisis timeslot (HH:MM) */
+  endTime: z.string().nullable(),
+  /** Total price for that slot, copied through from Palisis */
+  priceFrom: z.string().nullable(),
+  /** Spaces remaining ("UNLIMITED" allowed) */
+  spacesRemaining: z.string().nullable(),
+  durationMinutes: z.number(),
+  travelToNext: z.string().nullable(),
+  breakAfter: z.object({
+    type: z.enum(["food", "coffee", "none"]),
+    label: z.string(),
+    location: z.string(),
     durationMinutes: z.number(),
-    travelToNext: z.string().nullable().describe("How to get to next stop, null if last"),
-    breakAfter: z.object({
-      type: z.enum(["food", "coffee", "none"]).describe("Type of break needed after this stop. 'none' if no break needed."),
-      label: z.string().describe("e.g. 'Lunch break', 'Coffee break', 'Dinner'. Empty string if type is none."),
-      location: z.string().describe("The city/area of the preceding trip stop where the break takes place. Empty string if type is none."),
-      durationMinutes: z.number().describe("Duration of the break in minutes. 0 if type is none."),
-    }).describe("Optional food or coffee break after this stop. Set type to 'none' if no break is needed here."),
-  })),
-  summary: z.string().describe("One-sentence overview of the day plan"),
-  tips: z.array(z.string()).describe("2-3 practical tips for the day"),
-  carSuggestion: z.object({
-    recommended: z.boolean().describe("True if a car rental would benefit this itinerary (spread-out locations, rural areas, heavy luggage)"),
-    reason: z.string().describe("Why a car is or isn't recommended for this plan"),
-  }),
-  hotelSuggestion: z.object({
-    recommended: z.boolean().describe("True if the day is long/tiring enough to warrant an overnight stay"),
-    area: z.string().describe("Best area to stay near the last stop or city center"),
-    reason: z.string().describe("Why an overnight stay is recommended"),
   }),
 })
 
-const dummyCarListings = [
-  { name: "Volkswagen Polo", category: "Compact", price: 39, image: "/images/cars/compact-car.jpg", provider: "Europcar", badge: "Best Value" },
-  { name: "Peugeot 3008 SUV", category: "SUV", price: 62, image: "/images/cars/suv.jpg", provider: "Hertz", badge: "Most Popular" },
-  { name: "BMW 2 Series Convertible", category: "Convertible", price: 95, image: "/images/cars/convertible.jpg", provider: "Sixt", badge: "Premium" },
-]
+const itinerarySchema = z.object({
+  steps: z.array(itineraryStepSchema),
+  summary: z.string(),
+  tips: z.array(z.string()),
+  carSuggestion: z.object({
+    recommended: z.boolean(),
+    reason: z.string(),
+  }),
+  hotelSuggestion: z.object({
+    recommended: z.boolean(),
+    area: z.string(),
+    reason: z.string(),
+  }),
+})
 
-const dummyHotelListings = [
-  { name: "Le Royal Luxembourg", area: "City Center", price: 189, image: "/images/hotels/city-center.jpg", stars: 5, badge: "Top Rated" },
-  { name: "Auberge des Ardennes", area: "Clervaux, Ardennes", price: 109, image: "/images/hotels/countryside.jpg", stars: 3, badge: "Best for Nature" },
-  { name: "Hotel Heintz", area: "Vianden", price: 129, image: "/images/hotels/vianden.jpg", stars: 3, badge: null },
-  { name: "Eden au Lac", area: "Echternach", price: 99, image: "/images/hotels/countryside.jpg", stars: 3, badge: "Budget Pick" },
-]
-
-function pickHotelForArea(area: string) {
-  const lower = area.toLowerCase()
-  const match = dummyHotelListings.find(h => lower.includes(h.area.split(",")[0].toLowerCase()))
-  return match || dummyHotelListings[0]
+/* ── Date validation ───────────────────────────────────────────────────── */
+const APP_TZ = "Europe/Luxembourg"
+function localTodayYMD(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date())
+}
+function parseStrictYMD(s: string | undefined | null): string | null {
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  const [y, m, d] = s.split("-").map(Number)
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null
+  const probe = new Date(Date.UTC(y, m - 1, d))
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return null
+  return s
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildFallbackItinerary(trips: { id: string; title: string; city: string; duration: string; category: string }[], settings: Record<string, any>) {
-  const [startHourStr] = settings.dayStartTime.split(":")
-  const startHour = parseInt(startHourStr) || 9
-  let currentMinute = 0
-  // Use admin-configured buffer time
-  const BUFFER_MINUTES = settings.bufferTimeBetweenStops || 30
-  const TRAVEL_MINUTES = settings.travelTimeMethod === "walking" ? 25 : settings.travelTimeMethod === "driving" ? 15 : 20
-  const MEAL_DURATION = settings.mealBreakDuration || 60
-
-  const steps = trips.map((t, i) => {
-    const dur = parseInt(t.duration) || 90
-    const h = startHour + Math.floor(currentMinute / 60)
-    const m = currentMinute % 60
-    const time = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-
-    // Add meal breaks based on admin settings
-    const midIndex = Math.floor(trips.length / 2)
-    const isLunchStop = i === midIndex - 1 && trips.length >= 2 && settings.autoInsertMealBreaks
-    const isLastStop = i === trips.length - 1
-    const breakAfter = isLunchStop
-      ? { type: "food" as const, label: "Lunch break", location: t.city || "Luxembourg City", durationMinutes: MEAL_DURATION }
-      : isLastStop && settings.autoInsertMealBreaks
-      ? { type: "food" as const, label: "Dinner", location: t.city || "Luxembourg City", durationMinutes: MEAL_DURATION + 15 }
-      : { type: "none" as const, label: "", location: "", durationMinutes: 0 }
-
-    // Advance clock: activity duration + travel + buffer + any break
-    currentMinute += dur + TRAVEL_MINUTES + BUFFER_MINUTES + (breakAfter.durationMinutes || 0)
-
-    return {
-      time,
-      tripTitle: t.title,
-      tripId: t.id,
-      durationMinutes: dur,
-      travelToNext: i < trips.length - 1 ? "15-20 min by bus/tram (free)" : null,
-      breakAfter,
-    }
-  })
-  const endHour = startHour + Math.floor(currentMinute / 60)
-  const hasMultipleCities = new Set(trips.map(t => t.city).filter(Boolean)).size > 1
-  const isLongDay = endHour >= 18
-  const lastCity = trips[trips.length - 1]?.city || "Luxembourg City center"
-  const suggestedHotel = pickHotelForArea(lastCity)
-
-  return {
-    steps,
-    summary: `A curated ${trips.length}-stop day exploring ${[...new Set(trips.map(t => t.city).filter(Boolean))].join(" and ") || "Luxembourg"}.`,
-    tips: [
-      "Luxembourg has entirely free public transport -- buses, trams, and trains.",
-      "Start early to avoid crowds at popular spots.",
-      "Take a break for a local Kniddelen lunch between stops.",
-    ],
-    carSuggestion: {
-      recommended: true,
-      reason: hasMultipleCities
-        ? "Your trips span multiple locations -- a rental car gives you flexibility and saves transit time between cities."
-        : "A car lets you explore at your own pace, especially for scenic detours.",
-      listings: dummyCarListings.slice(0, 2),
-    },
-    hotelSuggestion: {
-      recommended: true,
-      area: lastCity,
-      reason: isLongDay
-        ? `Your day runs until late -- consider staying overnight near ${lastCity} to recharge.`
-        : "With multiple activities, an overnight stay lets you enjoy the evening atmosphere too.",
-      listings: [suggestedHotel, ...dummyHotelListings.filter(h => h.name !== suggestedHotel.name).slice(0, 1)],
-    },
+/* ── Palisis id resolution (mirrors /api/planner) ──────────────────────── */
+async function resolvePalisisId(tripId: string): Promise<string | null> {
+  let tripRow = (await dbGetTrip(tripId, { publicOnly: true }).catch(() => null)) as Record<string, unknown> | null
+  if (!tripRow && /^\d+$/.test(tripId)) {
+    try {
+      const rows = (await query(
+        `SELECT id, palisis_id, title, duration FROM trips WHERE palisis_id = $1 AND status = 'published' LIMIT 1`,
+        [tripId],
+      )) as Array<Record<string, unknown>>
+      if (rows && rows.length > 0) tripRow = rows[0]
+    } catch { /* ignore */ }
   }
+  const fromRow =
+    (tripRow?.palisis_id as string | undefined) ??
+    (tripRow?.palisisId as string | undefined) ??
+    null
+  if (fromRow) return String(fromRow)
+  if (tripId.startsWith("tcms_") || /^\d+$/.test(tripId)) {
+    const candidate = tripId.startsWith("tcms_") ? tripId.slice(5) : tripId
+    try {
+      const rows = (await query(
+        `SELECT 1 FROM trips WHERE (id = $1 OR palisis_id = $2) AND status != 'published' LIMIT 1`,
+        [tripId, candidate],
+      )) as Array<Record<string, unknown>>
+      if (rows.length === 0) return candidate
+    } catch { /* fail closed */ }
+  }
+  return null
+}
+
+/* ── Timeslot shaping ──────────────────────────────────────────────────── */
+interface LiveSlot {
+  startTime: string
+  endTime: string | null
+  totalPrice: string | null
+  totalPriceDisplay: string | null
+  spacesRemaining: string | null
+  componentKey: string
+}
+
+function shapeSlot(c: AvailabilityComponent): LiveSlot | null {
+  if (!c.start_time) return null
+  return {
+    startTime: String(c.start_time).slice(0, 5),
+    endTime: c.end_time ? String(c.end_time).slice(0, 5) : null,
+    totalPrice: c.total_price ?? null,
+    totalPriceDisplay: c.total_price_display ?? null,
+    spacesRemaining: c.spaces_remaining ?? null,
+    componentKey: c.component_key,
+  }
+}
+
+function sortSlots(slots: LiveSlot[]): LiveSlot[] {
+  return [...slots].sort((a, b) => a.startTime.localeCompare(b.startTime))
+}
+
+/** Duration in minutes from "1h 30m" / "90 min" / "2 hours" / undefined */
+function parseDurationMinutes(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback
+  const s = raw.toLowerCase()
+  let total = 0
+  const hMatch = s.match(/(\d+)\s*(?:h|hr|hour)/)
+  const mMatch = s.match(/(\d+)\s*(?:m|min|minute)/)
+  if (hMatch) total += parseInt(hMatch[1], 10) * 60
+  if (mMatch) total += parseInt(mMatch[1], 10)
+  if (total === 0) {
+    const plain = s.match(/(\d+)/)
+    if (plain) total = parseInt(plain[1], 10)
+  }
+  return total > 0 ? total : fallback
+}
+
+type TripInput = { id: string; title: string; city: string; duration: string; category: string }
+
+interface TripAvailability {
+  trip: TripInput
+  palisisId: string | null
+  slots: LiveSlot[]
+  /** "OK" | "NO_PALISIS_LINK" | "NO_SLOTS" | "TOURCMS_ERROR" */
+  status: "OK" | "NO_PALISIS_LINK" | "NO_SLOTS" | "TOURCMS_ERROR"
+  error?: string
 }
 
 export async function POST(req: Request) {
   try {
-    const { trips, startDate } = await req.json() as {
-      trips: { id: string; title: string; city: string; duration: string; category: string }[]
-      startDate?: string
-    }
-
+    const { trips, startDate } = await req.json() as { trips: TripInput[]; startDate?: string }
     if (!trips?.length) {
       return Response.json({ error: "No trips provided" }, { status: 400 })
     }
 
-    // Validate the visit date. The UI picks dates in the user's local timezone
-    // (Europe/Luxembourg for this site), so we must compare against the same
-    // local day rather than raw UTC — otherwise a user selecting "today" in
-    // the evening UTC-side may be wrongly rejected as past.
-    // We also strictly parse the calendar date so impossible values like
-    // "2026-02-31" don't slip through and produce garbled prompt context.
-    const APP_TZ = "Europe/Luxembourg"
-    function localTodayYMD(): string {
-      // en-CA gives YYYY-MM-DD shape directly in the requested timezone.
-      return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date())
-    }
-    function parseStrictYMD(s: string | undefined | null): string | null {
-      if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
-      const [y, m, d] = s.split("-").map(Number)
-      if (m < 1 || m > 12 || d < 1 || d > 31) return null
-      // Round-trip through Date and verify the parts match — rejects 2026-02-31, etc.
-      const probe = new Date(Date.UTC(y, m - 1, d))
-      if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return null
-      return s
-    }
     const today = localTodayYMD()
     const parsedDate = parseStrictYMD(startDate)
     const visitDate = parsedDate && parsedDate >= today ? parsedDate : null
     if (!visitDate) {
-      return Response.json({ error: "MISSING_VISIT_DATE", message: "A valid visit date (YYYY-MM-DD, today or later) is required to build an itinerary." }, { status: 400 })
+      return Response.json({
+        error: "MISSING_VISIT_DATE",
+        message: "A valid visit date (YYYY-MM-DD, today or later) is required to build an itinerary.",
+      }, { status: 400 })
     }
 
-    // Day-of-week context — helps the model pick realistic times for the chosen date.
+    const config = await getTourCMSConfig()
+    if (!config) {
+      // No mock fallback — refuse honestly so the user knows live data is unavailable.
+      return Response.json({
+        error: "TOURCMS_NOT_CONFIGURED",
+        message: "Live booking integration is not configured. Cannot build a real itinerary.",
+      }, { status: 503 })
+    }
+
+    /* 1) Resolve palisis ids in parallel. */
+    const palisisIds = await Promise.all(trips.map((t) => resolvePalisisId(t.id)))
+
+    /* 2) Fetch real timeslots for the visit date in parallel. */
+    const availability: TripAvailability[] = await Promise.all(
+      trips.map(async (trip, i): Promise<TripAvailability> => {
+        const palisisId = palisisIds[i]
+        if (!palisisId) {
+          return { trip, palisisId: null, slots: [], status: "NO_PALISIS_LINK" }
+        }
+        try {
+          const res = await checkAvailability(config, palisisId, { date: visitDate, show_pickups: "0" })
+          if (!res.ok) {
+            return { trip, palisisId, slots: [], status: "TOURCMS_ERROR", error: res.error }
+          }
+          const shaped = res.components.map(shapeSlot).filter((s): s is LiveSlot => s !== null)
+          if (shaped.length === 0) {
+            return { trip, palisisId, slots: [], status: "NO_SLOTS" }
+          }
+          return { trip, palisisId, slots: sortSlots(shaped), status: "OK" }
+        } catch (err) {
+          return { trip, palisisId, slots: [], status: "TOURCMS_ERROR", error: String(err) }
+        }
+      }),
+    )
+
+    const bookable = availability.filter((a) => a.status === "OK")
+    const unavailableTrips = availability
+      .filter((a) => a.status !== "OK")
+      .map((a) => ({
+        tripId: a.trip.id,
+        title: a.trip.title,
+        reason: a.status, // NO_SLOTS | NO_PALISIS_LINK | TOURCMS_ERROR
+      }))
+
+    // If nothing is bookable on the chosen date, return early — no plan possible.
+    if (bookable.length === 0) {
+      return Response.json({
+        error: "NO_AVAILABILITY",
+        message: `None of your saved trips have available timeslots on ${visitDate}. Try a different date.`,
+        visitDate,
+        unavailableTrips,
+      }, { status: 409 })
+    }
+
+    /* 3) Build a strict prompt with the REAL timeslot menus. */
+    const allSettings = await dbGetSettings()
+    const settings = allSettings.plannerBehavior as Record<string, unknown>
+    const anthropicKey =
+      ((allSettings.apiKeys as Record<string, string> | undefined)?.anthropic || process.env.ANTHROPIC_API_KEY || "").trim()
+    const dayStartTime = String(settings.dayStartTime ?? "09:00")
+    const dayEndTime = String(settings.dayEndTime ?? "21:00")
+    const bufferTimeBetweenStops = Number(settings.bufferTimeBetweenStops ?? 30)
+    const maxStopsPerDay = Number(settings.maxStopsPerDay ?? 5)
+    const defaultActivityDuration = Number(settings.defaultActivityDuration ?? 90)
+    const autoInsertMealBreaks = Boolean(settings.autoInsertMealBreaks ?? true)
+    const mealBreakDuration = Number(settings.mealBreakDuration ?? 60)
+    const lunchBreakTime = String(settings.lunchBreakTime ?? "12:30")
+    const dinnerBreakTime = String(settings.dinnerBreakTime ?? "19:00")
+    const travelMethodLabel = settings.travelTimeMethod === "walking" ? "walking"
+      : settings.travelTimeMethod === "driving" ? "car/driving"
+      : "bus/tram (free public transport)"
+
     const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     const [vy, vm, vd] = visitDate.split("-").map(Number)
-    const visitDateObj = new Date(Date.UTC(vy, vm - 1, vd))
-    const visitDayName = DAYS[visitDateObj.getUTCDay()]
+    const visitDayName = DAYS[new Date(Date.UTC(vy, vm - 1, vd)).getUTCDay()]
     const visitPretty = `${visitDayName}, ${vd} ${MONTHS[vm - 1]} ${vy}`
 
-    const tripList = trips.map((t, i) => `${i + 1}. "${t.title}" [${t.id}] in ${t.city} (${t.duration}, ${t.category})`).join("\n")
-    
-    // Get admin-configured planner behavior settings
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const settings = (await dbGetSettings()).plannerBehavior as any
-    const travelMethodLabel = settings.travelTimeMethod === "walking" ? "walking" 
-      : settings.travelTimeMethod === "driving" ? "car/driving" 
-      : "bus/tram (free public transport)"
+    // Strict per-trip menus. The model MUST pick `time` from these exact values.
+    const tripMenuLines = bookable.map((a, i) => {
+      const slotLines = a.slots.map((s) =>
+        `      • ${s.startTime}${s.endTime ? ` → ${s.endTime}` : ""}` +
+        `${s.totalPriceDisplay ? `  ${s.totalPriceDisplay}` : ""}` +
+        `${s.spacesRemaining ? `  (${s.spacesRemaining} spaces)` : ""}`,
+      ).join("\n")
+      const dur = parseDurationMinutes(a.trip.duration, defaultActivityDuration)
+      return `${i + 1}. "${a.trip.title}" [${a.trip.id}] — ${a.trip.city || "Luxembourg"} — duration ${dur} min — category ${a.trip.category || "n/a"}
+    Available timeslots on ${visitDate}:
+${slotLines}`
+    }).join("\n\n")
+
+    const unavailableLines = unavailableTrips.length
+      ? `\n\nTRIPS WITHOUT AVAILABILITY ON ${visitDate} (DO NOT include in the itinerary):\n` +
+        unavailableTrips.map((u) => `  - "${u.title}" [${u.tripId}] — ${u.reason}`).join("\n")
+      : ""
+
+    /* 4) Generate the itinerary, constrained to real slots. */
+    const prompt = `You are a Luxembourg travel planner. Build a RELAXED, REALISTIC day itinerary using ONLY the live timeslots provided below.
+
+VISIT DATE: ${visitPretty} (${visitDate})
+Day window: ${dayStartTime} – ${dayEndTime}
+Travel mode between stops: ${travelMethodLabel}
+Buffer between activities: ${bufferTimeBetweenStops} minutes
+Maximum stops: ${maxStopsPerDay}
+
+CART TRIPS WITH LIVE TIMESLOTS (from Palisis checkavail.xml):
+
+${tripMenuLines}${unavailableLines}
+
+HARD RULES — you MUST obey:
+1. For every step, the "time" field MUST be one of the listed timeslot start times for that trip — verbatim, HH:MM. Never invent a time.
+2. Copy the matching slot's end time into "endTime", its price (e.g. "€25.00") into "priceFrom", and "spacesRemaining" verbatim (may be "UNLIMITED").
+3. Sequence chosen slots so they DON'T overlap and the next start time is at least (previous activity duration + ${bufferTimeBetweenStops} min buffer + realistic ${travelMethodLabel} travel) after the previous start.
+4. Prefer geographic proximity when sequencing — same-city trips first, then adjacent areas.
+5. If two trips conflict (no non-overlapping combination of their available slots fits in the day window), prefer the better-fitting slots and drop the impossible one from the steps list (do NOT include it).
+6. NEVER include any trip from "TRIPS WITHOUT AVAILABILITY" — those have no real slots on this date.
+7. Set tripId exactly as given in brackets.
+
+MEAL BREAKS:
+${autoInsertMealBreaks ? `- Insert a lunch break (type "food", ~${mealBreakDuration} min) around ${lunchBreakTime} after the morning stop.
+- Insert a dinner break (type "food", ~${mealBreakDuration + 15} min) around ${dinnerBreakTime} if the last stop ends before 20:00.
+- Insert a coffee break (type "coffee", ~20 min) if there is a >60 min gap between two stops.
+- "location" must be the city of the preceding step.
+- Set type "none" with empty label/location and durationMinutes 0 if no break fits.` : '- Meal breaks disabled by admin — only insert if absolutely necessary.'}
+
+ALSO EVALUATE:
+- CAR RENTAL: recommend only if stops span multiple cities or include rural areas (Vianden, Mullerthal, Echternach, Clervaux).
+- HOTEL STAY: recommend only if the last stop ends after ${dayEndTime} or the day exceeds 9 hours.
+
+Return STRICTLY the JSON object matching the schema.`
+
+    if (!anthropicKey) {
+      return Response.json({
+        error: "AI_NOT_CONFIGURED",
+        message: "AI provider is not configured. Add an Anthropic key in Admin → Integrations.",
+        visitDate,
+        unavailableTrips,
+      }, { status: 503 })
+    }
 
     try {
+      const anthropic = createAnthropic({ apiKey: anthropicKey })
+      const modelId =
+        typeof settings.model === "string" && settings.model.startsWith("claude")
+          ? (settings.model as string)
+          : "claude-3-5-haiku-latest"
       const { output } = await generateText({
-        model: settings.model || "openai/gpt-4o-mini",
+        model: anthropic(modelId),
         output: Output.object({ schema: itinerarySchema }),
-        prompt: `You are a Luxembourg travel planner. Build a RELAXED day itinerary from these saved trips.
-
-VISIT DATE: ${visitPretty} (${visitDate}). Plan specifically for this date — treat it as authoritative when choosing realistic times, accounting for the day of week, typical opening hours, and night-vs-day suitability of each trip.
-
-Sequence them by geographic proximity, suggest realistic start times beginning at ${settings.dayStartTime}.
-Include ${travelMethodLabel} travel between stops.
-
-IMPORTANT TIMING RULES (from admin configuration):
-- Leave ${settings.bufferTimeBetweenStops} minutes of buffer time between each activity for spontaneous exploration, photos, souvenir shopping, or simply enjoying the moment.
-- Don't schedule activities back-to-back. A relaxed pace is key to an enjoyable trip.
-- Account for travel time PLUS this buffer when calculating the next activity's start time.
-- Maximum ${settings.maxStopsPerDay} stops per day.
-- Day should end by ${settings.dayEndTime}.
-- Default activity duration (if not specified): ${settings.defaultActivityDuration} minutes.
-
-Trips:
-${tripList}
-
-Build a practical, enjoyable day plan with a relaxed pace. Include 2-3 tips about timing, food breaks, or local knowledge.
-
-For EACH step, decide if a food or coffee break is needed AFTER that step (before the next one):
-${settings.autoInsertMealBreaks ? `- Add a lunch break (type: "food", ~${settings.mealBreakDuration} min) around ${settings.lunchBreakTime} if the itinerary spans more than 3 hours.
-- Add a coffee break (type: "coffee", ~20 min) after a morning activity if there is a gap before the next stop.
-- Add a dinner break (type: "food", ~${settings.mealBreakDuration + 15} min) around ${settings.dinnerBreakTime} if the last trip finishes before 20:00 and a hotel stay is recommended.` : '- Meal breaks are disabled by admin. Only add breaks if absolutely necessary for a very long day.'}
-- Set type to "none" with empty label/location and durationMinutes: 0 if no break is needed after that step.
-- The "location" field MUST be the city/area of that same step (e.g. "Echternach", "Luxembourg City", "Vianden"). This is used to search for restaurants nearby on TripAdvisor.
-
-Also evaluate:
-- CAR RENTAL: Recommend if trips span multiple cities/rural areas, or if travel between stops exceeds 30+ min by public transport. Luxembourg is small but some areas like Vianden, Mullerthal, or Echternach are easier by car.
-- HOTEL STAY: Recommend if the itinerary runs late (past ${settings.dayEndTime}), involves tiring outdoor activities, or spans locations far from the starting point. Suggest the best area to stay based on the last stop.`,
+        prompt,
       })
-      return Response.json(output)
+
+      // Validate: each step's time MUST exist in that trip's live slots.
+      // If the model hallucinated, snap to the closest real slot.
+      const slotMapByTrip = new Map<string, LiveSlot[]>()
+      for (const a of bookable) slotMapByTrip.set(a.trip.id, a.slots)
+
+      const toMinutes = (hhmm: string): number => {
+        const m = /^(\d{1,2}):(\d{2})/.exec(hhmm)
+        if (!m) return -1
+        return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+      }
+      const nearestSlot = (slots: LiveSlot[], target: string, taken: Set<string>): LiveSlot => {
+        const targetMin = toMinutes(target)
+        const free = slots.filter((s) => !taken.has(s.componentKey))
+        const pool = free.length > 0 ? free : slots
+        if (targetMin < 0) return pool[0]
+        return [...pool].sort(
+          (a, b) => Math.abs(toMinutes(a.startTime) - targetMin) - Math.abs(toMinutes(b.startTime) - targetMin),
+        )[0]
+      }
+
+      const takenKeys = new Set<string>()
+      const reconciledSteps = output.steps
+        .filter((s) => slotMapByTrip.has(s.tripId)) // drop hallucinated trips
+        .map((s) => {
+          const slots = slotMapByTrip.get(s.tripId)!
+          const exact = slots.find((x) => x.startTime === s.time)
+          // Snap hallucinated times to the slot closest to the AI's intended time,
+          // preferring slots not already used by another step.
+          const chosen = exact ?? nearestSlot(slots, s.time, takenKeys)
+          takenKeys.add(chosen.componentKey)
+          const dur = parseDurationMinutes(
+            availability.find((a) => a.trip.id === s.tripId)?.trip.duration,
+            defaultActivityDuration,
+          )
+          return {
+            ...s,
+            time: chosen.startTime,
+            endTime: chosen.endTime,
+            priceFrom: chosen.totalPriceDisplay ?? chosen.totalPrice ?? null,
+            spacesRemaining: chosen.spacesRemaining,
+            durationMinutes: s.durationMinutes && s.durationMinutes > 0 ? s.durationMinutes : dur,
+          }
+        })
+        // Final pass: sort chronologically so the timeline stays coherent even
+        // if the AI's ordering got tweaked by snapping.
+        .sort((a, b) => toMinutes(a.time) - toMinutes(b.time))
+
+      return Response.json({
+        ...output,
+        steps: reconciledSteps,
+        visitDate,
+        unavailableTrips,
+      })
     } catch (aiErr) {
-      console.error("[itinerary] AI failed, using fallback:", aiErr)
-      return Response.json(buildFallbackItinerary(trips, settings))
+      console.error("[itinerary] AI generation failed:", aiErr)
+      return Response.json({
+        error: "AI_GENERATION_FAILED",
+        message: "Could not build a plan from the live availability. Please try again.",
+        visitDate,
+        unavailableTrips,
+      }, { status: 502 })
     }
   } catch (err) {
     console.error("[itinerary] Error:", err)
