@@ -594,11 +594,19 @@ export async function dbGetSettings() {
     maxMultiDayDays: 2,
   }
   for (const r of aiRows as Record<string, unknown>[]) {
+    // Expose extra_config alongside the basic fields so consumers (e.g.
+    // /api/planner reading the Trip-Chat-managed planner prompt override
+    // out of chat.extra_config.planner.systemPrompt) don't need a second
+    // query. Always an object (defaults to {}).
+    const extra = (r.extra_config && typeof r.extra_config === 'object')
+      ? r.extra_config as Record<string, unknown>
+      : {}
     ai[r.system_key as string] = {
       systemPrompt: r.system_prompt ?? '',
       model: r.model,
       temperature: r.temperature,
       maxTokens: r.max_tokens,
+      extra,
     }
     if (r.system_key === 'planner' && r.extra_config && typeof r.extra_config === 'object') {
       plannerBehavior = { ...plannerBehavior, ...(r.extra_config as Record<string, unknown>) }
@@ -682,6 +690,129 @@ export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
   ])
 }
 
+/**
+ * Default options that drive the /planner onboarding form when admin
+ * has not customised them. Mirrored on the client as fallback so the
+ * form keeps working even if the public form-config endpoint fails.
+ */
+export const DEFAULT_PLANNER_FORM = {
+  groups: [
+    { value: 'solo', label: 'Solo' },
+    { value: 'couple', label: 'Couple' },
+    { value: 'family', label: 'Family with kids' },
+    { value: 'friends', label: 'Friends group' },
+  ],
+  interests: [
+    { value: 'food', label: 'Food & Drinks' },
+    { value: 'culture', label: 'History & Culture' },
+    { value: 'outdoor', label: 'Outdoor & Nature' },
+    { value: 'night', label: 'Nightlife' },
+    { value: 'sport', label: 'Active & Sports' },
+    { value: 'indoor', label: 'Hidden Gems' },
+  ],
+  durations: [
+    { value: '1-2h', label: '1-2 hours' },
+    { value: 'half-day', label: 'Half day' },
+    { value: 'full-day', label: 'Full day' },
+    { value: 'multi-day', label: 'Multi-day trip' },
+  ],
+  budgets: [
+    { value: 'casual', label: 'Keep it casual' },
+    { value: 'mid-range', label: 'Mid-range' },
+    { value: 'premium', label: 'Treat ourselves' },
+  ],
+  maxMultiDayDays: 2,
+}
+
+/**
+ * Reads the planner overrides that the admin manages from inside the
+ * "Trip Chat" admin card — i.e. the planner system-prompt override and
+ * the editable onboarding form. Always returns a fully-populated shape;
+ * any missing field is backfilled from DEFAULT_PLANNER_FORM so callers
+ * never need to defend against undefined keys.
+ */
+export async function dbGetChatPlannerConfig(): Promise<{
+  plannerSystemPrompt: string
+  plannerForm: typeof DEFAULT_PLANNER_FORM
+}> {
+  const row = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`
+  )
+  const extra = (row?.extra_config && typeof row.extra_config === 'object')
+    ? row.extra_config as Record<string, unknown>
+    : {}
+  const plannerExtra = (extra.planner && typeof extra.planner === 'object')
+    ? extra.planner as Record<string, unknown>
+    : {}
+  const formRaw = (plannerExtra.form && typeof plannerExtra.form === 'object')
+    ? plannerExtra.form as Record<string, unknown>
+    : {}
+  const sanitiseList = (v: unknown, fallback: { value: string; label: string }[]) => {
+    if (!Array.isArray(v)) return fallback
+    const cleaned = v
+      .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+      .map((x) => ({
+        value: typeof x.value === 'string' ? x.value.trim() : '',
+        label: typeof x.label === 'string' ? x.label.trim() : '',
+      }))
+      .filter((x) => x.value && x.label)
+    return cleaned.length > 0 ? cleaned : fallback
+  }
+  const maxDaysRaw = Number(formRaw.maxMultiDayDays)
+  return {
+    plannerSystemPrompt: typeof plannerExtra.systemPrompt === 'string' ? plannerExtra.systemPrompt : '',
+    plannerForm: {
+      groups: sanitiseList(formRaw.groups, DEFAULT_PLANNER_FORM.groups),
+      interests: sanitiseList(formRaw.interests, DEFAULT_PLANNER_FORM.interests),
+      durations: sanitiseList(formRaw.durations, DEFAULT_PLANNER_FORM.durations),
+      budgets: sanitiseList(formRaw.budgets, DEFAULT_PLANNER_FORM.budgets),
+      maxMultiDayDays: Number.isFinite(maxDaysRaw) && maxDaysRaw >= 2 && maxDaysRaw <= 14
+        ? Math.floor(maxDaysRaw)
+        : DEFAULT_PLANNER_FORM.maxMultiDayDays,
+    },
+  }
+}
+
+/**
+ * Non-destructive merge of the planner overrides into chat.extra_config.
+ * Only the fields supplied in `patch` are touched; everything else in
+ * extra_config (including future / unknown keys) is preserved.
+ */
+export async function dbUpdateChatPlannerConfig(patch: {
+  plannerSystemPrompt?: string
+  plannerForm?: Partial<typeof DEFAULT_PLANNER_FORM>
+}) {
+  const row = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`
+  )
+  const extra = (row?.extra_config && typeof row.extra_config === 'object')
+    ? { ...(row.extra_config as Record<string, unknown>) }
+    : {}
+  const planner = (extra.planner && typeof extra.planner === 'object')
+    ? { ...(extra.planner as Record<string, unknown>) }
+    : {}
+  if (typeof patch.plannerSystemPrompt === 'string') {
+    planner.systemPrompt = patch.plannerSystemPrompt
+  }
+  if (patch.plannerForm && typeof patch.plannerForm === 'object') {
+    const currentForm = (planner.form && typeof planner.form === 'object')
+      ? { ...(planner.form as Record<string, unknown>) }
+      : {}
+    planner.form = { ...currentForm, ...patch.plannerForm }
+  }
+  extra.planner = planner
+  // Upsert so the row exists even if admin has never visited /admin/ai-systems/chat before.
+  await query(`
+    INSERT INTO ai_system_configs (system_key, label, description, extra_config)
+    VALUES ('chat', 'Trip Chat',
+      'Per-trip AI assistant plus planner conversation prompt and onboarding form.',
+      $1)
+    ON CONFLICT (system_key) DO UPDATE SET
+      extra_config = $1,
+      updated_at = NOW()
+  `, [JSON.stringify(extra)])
+}
+
 export async function dbUpdateApiKeys(data: Record<string, string>) {
   for (const [key, value] of Object.entries(data)) {
     if (key === 'weglot') continue
@@ -702,14 +833,21 @@ export async function dbUpdateWeglot(data: Record<string, unknown>) {
 }
 
 export async function dbUpdateAiSystem(systemKey: string, config: Record<string, unknown>) {
+  // Upsert (was UPDATE-only). Guarantees that a fresh DB or a missing
+  // row doesn't silently swallow the save — important because the
+  // Trip Chat admin page now writes per-trip fields AND planner
+  // extra_config in parallel; if `chat` didn't exist, the other call
+  // would create the row with empty system_prompt/model and this UPDATE
+  // would no-op, leaving the per-trip fields blank.
   await query(`
-    UPDATE ai_system_configs 
-    SET system_prompt = COALESCE($1, system_prompt),
-        model = COALESCE($2, model),
-        temperature = COALESCE($3, temperature),
-        max_tokens = COALESCE($4, max_tokens),
-        updated_at = NOW()
-    WHERE system_key = $5
+    INSERT INTO ai_system_configs (system_key, label, system_prompt, model, temperature, max_tokens)
+    VALUES ($5, $5, COALESCE($1, ''), COALESCE($2, 'anthropic/claude-opus-4.6'), COALESCE($3, 0.7), COALESCE($4, 1024))
+    ON CONFLICT (system_key) DO UPDATE SET
+      system_prompt = COALESCE($1, ai_system_configs.system_prompt),
+      model = COALESCE($2, ai_system_configs.model),
+      temperature = COALESCE($3, ai_system_configs.temperature),
+      max_tokens = COALESCE($4, ai_system_configs.max_tokens),
+      updated_at = NOW()
   `, [config.systemPrompt ?? null, config.model ?? null, config.temperature ?? null, config.maxTokens ?? null, systemKey])
 }
 

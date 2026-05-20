@@ -878,9 +878,19 @@ export async function POST(req: Request) {
       "    - For multi-trip itineraries on the same visit date, ensure timeslots do not overlap and respect the planner-behavior buffer and day-window settings above.",
     ]
     
-    // Append admin-configured custom system prompt if available
+    // Append admin-configured custom system prompt if available.
+    // Precedence: the new Trip-Chat-managed override (chat.extra.planner.systemPrompt)
+    // wins over the legacy planner row. This is how the admin now controls
+    // the planner conversation from inside the "Trip Chat" admin card after
+    // the standalone "Trip Planner" card was retired.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adminPrompt = (settings.ai?.planner as any)?.systemPrompt
+    const chatExtra: any = (settings.ai?.chat as any)?.extra ?? {}
+    const chatPlannerPrompt: unknown = chatExtra?.planner?.systemPrompt
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const legacyPlannerPrompt: unknown = (settings.ai?.planner as any)?.systemPrompt
+    const adminPrompt = typeof chatPlannerPrompt === "string" && chatPlannerPrompt.trim()
+      ? chatPlannerPrompt
+      : (typeof legacyPlannerPrompt === "string" ? legacyPlannerPrompt : "")
     if (adminPrompt && adminPrompt.trim()) {
       systemPromptParts.push("", "CUSTOM INSTRUCTIONS FROM ADMIN:", adminPrompt)
     }

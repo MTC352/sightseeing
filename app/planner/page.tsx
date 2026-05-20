@@ -27,6 +27,7 @@ import {
   Clock, DollarSign, ChevronRight, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
 } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
 const PREFS_COOKIE = "sightseeing_prefs"
@@ -96,31 +97,67 @@ function formatYMDPretty(ymd: string): string {
   return dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })
 }
 
-const GROUP_OPTIONS = [
-  { value: "solo", label: "Solo", icon: UserRound },
-  { value: "couple", label: "Couple", icon: Heart },
-  { value: "family", label: "Family with kids", icon: Baby },
-  { value: "friends", label: "Friends group", icon: Users },
+/* ─── Onboarding option fallbacks ───
+ * Admin can rename labels and reorder options from /admin/ai-systems/chat
+ * (planner onboarding form section). Values are stable slugs that the AI
+ * tools and the cookie rely on — they're NOT admin-renamable.
+ * Icons stay client-side: admin edits labels/order; we resolve the icon
+ * from the value via the maps below. Unknown values fall back to a sane
+ * generic icon so a custom slug never crashes the form.
+ */
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  solo: UserRound,
+  couple: Heart,
+  family: Baby,
+  friends: Users,
+}
+const INTEREST_ICONS: Record<string, LucideIcon> = {
+  food: Utensils,
+  culture: Landmark,
+  outdoor: Compass,
+  night: Star,
+  sport: Bike,
+  indoor: MapPin,
+}
+const DEFAULT_GROUP_OPTIONS = [
+  { value: "solo", label: "Solo" },
+  { value: "couple", label: "Couple" },
+  { value: "family", label: "Family with kids" },
+  { value: "friends", label: "Friends group" },
 ]
-const INTEREST_OPTIONS = [
-  { value: "food", label: "Food & Drinks", icon: Utensils },
-  { value: "culture", label: "History & Culture", icon: Landmark },
-  { value: "outdoor", label: "Outdoor & Nature", icon: Compass },
-  { value: "night", label: "Nightlife", icon: Star },
-  { value: "sport", label: "Active & Sports", icon: Bike },
-  { value: "indoor", label: "Hidden Gems", icon: MapPin },
+const DEFAULT_INTEREST_OPTIONS = [
+  { value: "food", label: "Food & Drinks" },
+  { value: "culture", label: "History & Culture" },
+  { value: "outdoor", label: "Outdoor & Nature" },
+  { value: "night", label: "Nightlife" },
+  { value: "sport", label: "Active & Sports" },
+  { value: "indoor", label: "Hidden Gems" },
 ]
-const DURATION_OPTIONS = [
+const DEFAULT_DURATION_OPTIONS = [
   { value: "1-2h", label: "1-2 hours" },
   { value: "half-day", label: "Half day" },
   { value: "full-day", label: "Full day" },
   { value: "multi-day", label: "Multi-day trip" },
 ]
-const BUDGET_OPTIONS = [
+const DEFAULT_BUDGET_OPTIONS = [
   { value: "casual", label: "Keep it casual" },
   { value: "mid-range", label: "Mid-range" },
   { value: "premium", label: "Treat ourselves" },
 ]
+type FormOptions = {
+  groups: { value: string; label: string }[]
+  interests: { value: string; label: string }[]
+  durations: { value: string; label: string }[]
+  budgets: { value: string; label: string }[]
+  maxMultiDayDays: number
+}
+const DEFAULT_FORM_OPTIONS: FormOptions = {
+  groups: DEFAULT_GROUP_OPTIONS,
+  interests: DEFAULT_INTEREST_OPTIONS,
+  durations: DEFAULT_DURATION_OPTIONS,
+  budgets: DEFAULT_BUDGET_OPTIONS,
+  maxMultiDayDays: 2,
+}
 
 /* ─── Weather ─── */
 type WxCond = "sunny" | "cloudy" | "rainy"
@@ -187,7 +224,8 @@ function PartyStepper({
 /* ────────────────────────────────────── */
 /* ONBOARDING                              */
 /* ────────────────────────────────────── */
-function Onboarding({ onComplete, maxMultiDayDays }: { onComplete: (prefs: Preferences) => void; maxMultiDayDays: number }) {
+function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferences) => void; formOptions: FormOptions }) {
+  const { groups: GROUP_OPTIONS, interests: INTEREST_OPTIONS, durations: DURATION_OPTIONS, budgets: BUDGET_OPTIONS, maxMultiDayDays } = formOptions
   const [step, setStep] = useState(0)
   const [prefs, setPrefs] = useState<Preferences>(EMPTY_PREFS)
   // Sub-step inside step 2: when "Multi-day trip" is picked we ask for
@@ -281,12 +319,15 @@ function Onboarding({ onComplete, maxMultiDayDays }: { onComplete: (prefs: Prefe
         </div>
         {step === 0 && !askParty && (
           <div className="grid grid-cols-2 gap-2">
-            {GROUP_OPTIONS.map((opt) => (
-              <button key={opt.value} type="button" onClick={() => selectGroup(opt.value)}
-                className={`flex flex-col items-center gap-2 rounded-xl border-2 px-3 py-4 text-sm font-medium transition-all ${prefs.group === opt.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-foreground hover:border-primary/30"}`}>
-                <opt.icon className="h-6 w-6" /><span>{opt.label}</span>
-              </button>
-            ))}
+            {GROUP_OPTIONS.map((opt) => {
+              const Icon = GROUP_ICONS[opt.value] ?? Users
+              return (
+                <button key={opt.value} type="button" onClick={() => selectGroup(opt.value)}
+                  className={`flex flex-col items-center gap-2 rounded-xl border-2 px-3 py-4 text-sm font-medium transition-all ${prefs.group === opt.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-foreground hover:border-primary/30"}`}>
+                  <Icon className="h-6 w-6" /><span>{opt.label}</span>
+                </button>
+              )
+            })}
           </div>
         )}
         {step === 0 && askParty && (
@@ -326,10 +367,11 @@ function Onboarding({ onComplete, maxMultiDayDays }: { onComplete: (prefs: Prefe
             <div className="grid grid-cols-2 gap-2">
               {INTEREST_OPTIONS.map((opt) => {
                 const selected = prefs.interests.includes(opt.value)
+                const Icon = INTEREST_ICONS[opt.value] ?? Sparkles
                 return (
                   <button key={opt.value} type="button" onClick={() => toggleInterest(opt.value)}
                     className={`flex items-center gap-2 rounded-xl border-2 px-3 py-3 text-sm font-medium transition-all ${selected ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-foreground hover:border-primary/30"}`}>
-                    <opt.icon className="h-4 w-4 shrink-0" /><span className="text-left text-xs">{opt.label}</span>
+                    <Icon className="h-4 w-4 shrink-0" /><span className="text-left text-xs">{opt.label}</span>
                     {selected && <Check className="ml-auto h-3.5 w-3.5" />}
                   </button>
                 )
@@ -487,21 +529,31 @@ export default function PlannerPage() {
   /* State */
   const [prefs, setPrefs] = useState<Preferences | null>(null)
   const [hydrated, setHydrated] = useState(false)
-  // Max number of days the user can pick for a Multi-day trip. Admin-managed
-  // in /admin/ai-systems/itinerary (default 2). Loaded once on mount from
+  // Onboarding form (group/interest/duration/budget options + multi-day cap)
+  // is admin-managed from /admin/ai-systems/chat. Loaded once on mount from
   // the public /api/planner/form-config endpoint so admin changes flow
-  // through without a deploy.
-  const [maxMultiDayDays, setMaxMultiDayDays] = useState(2)
+  // through without a deploy. Falls back to bundled defaults on error.
+  const [formOptions, setFormOptions] = useState<FormOptions>(DEFAULT_FORM_OPTIONS)
   useEffect(() => {
     let cancelled = false
     fetch("/api/planner/form-config", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { maxMultiDayDays?: number } | null) => {
+      .then((data: Partial<FormOptions> | null) => {
         if (cancelled || !data) return
-        const v = Number(data.maxMultiDayDays)
-        if (Number.isFinite(v) && v >= 2 && v <= 14) setMaxMultiDayDays(v)
+        const sane = (arr: unknown, fb: { value: string; label: string }[]) =>
+          Array.isArray(arr) && arr.length > 0
+            ? arr.filter((o): o is { value: string; label: string } => !!o && typeof o === "object" && typeof (o as { value?: unknown }).value === "string" && typeof (o as { label?: unknown }).label === "string")
+            : fb
+        const days = Number(data.maxMultiDayDays)
+        setFormOptions({
+          groups: sane(data.groups, DEFAULT_GROUP_OPTIONS),
+          interests: sane(data.interests, DEFAULT_INTEREST_OPTIONS),
+          durations: sane(data.durations, DEFAULT_DURATION_OPTIONS),
+          budgets: sane(data.budgets, DEFAULT_BUDGET_OPTIONS),
+          maxMultiDayDays: Number.isFinite(days) && days >= 2 && days <= 14 ? days : 2,
+        })
       })
-      .catch(() => { /* keep default 2 */ })
+      .catch(() => { /* keep defaults */ })
     return () => { cancelled = true }
   }, [])
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -1120,7 +1172,7 @@ export default function PlannerPage() {
           </div>
 
           {!prefs ? (
-            <Onboarding onComplete={handleOnboardingComplete} maxMultiDayDays={maxMultiDayDays} />
+            <Onboarding onComplete={handleOnboardingComplete} formOptions={formOptions} />
           ) : (
             <>
               {/* Preference pills */}
