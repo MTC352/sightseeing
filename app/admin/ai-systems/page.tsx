@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
-import { Bot, ChevronRight, MessageSquare, HelpCircle, Map, TriangleAlert, FlaskConical, PenLine } from "lucide-react"
+import { Bot, ChevronRight, MessageSquare, HelpCircle, Map, TriangleAlert, FlaskConical, PenLine, Route } from "lucide-react"
 
 const SYSTEM_META: Record<string, { label: string; description: string; icon: typeof Bot; href: string }> = {
   blog: {
@@ -14,6 +14,12 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
     description: "Conversational AI that recommends and builds itineraries. Shown on /planner.",
     icon: Map,
     href: "/admin/ai-systems/planner",
+  },
+  itinerary: {
+    label: "Manage Itinerary",
+    description: "Prompt, model, tips text and cross-sell widgets (Cars / Hotels) for the Smart Itinerary on /planner. Uses live Palisis timeslots.",
+    icon: Route,
+    href: "/admin/ai-systems/itinerary",
   },
   chat: {
     label: "Trip Chat",

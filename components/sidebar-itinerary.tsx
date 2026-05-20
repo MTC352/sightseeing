@@ -150,6 +150,21 @@ export interface Itinerary {
   unavailableTrips?: UnavailableTrip[]
   alternativeDates?: AlternativeDate[]
   scanDays?: number
+  /** Admin-controlled widget toggles from /admin/ai-systems/itinerary */
+  widgets?: { showCarWidget: boolean; showHotelWidget: boolean }
+}
+
+/** Decode any HTML entities the API may have passed through unsanitized
+ *  (e.g. "&#8364;25" → "€25"). Defensive belt-and-suspenders — the server
+ *  also decodes — so the UI never shows raw entity codes. */
+function decodeEntities(s: string | null | undefined): string {
+  if (!s) return ""
+  return String(s)
+    .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ").replace(/&euro;/g, "€").replace(/&pound;/g, "£")
 }
 
 interface SidebarItineraryProps {
@@ -681,7 +696,7 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
           {step.priceFrom && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
               <Tag className="h-2.5 w-2.5" />
-              {step.priceFrom}
+              {decodeEntities(step.priceFrom)}
             </span>
           )}
           {step.spacesRemaining && step.spacesRemaining !== "UNLIMITED" && (
@@ -723,6 +738,8 @@ export function ItineraryPanel({
   onRegenerate: () => void
   regenerating: boolean
 }) {
+  const showCarWidget = itinerary.widgets?.showCarWidget !== false
+  const showHotelWidget = itinerary.widgets?.showHotelWidget !== false
   return (
     <div className="flex h-full flex-col overflow-hidden bg-card">
       {/* Header */}
@@ -753,29 +770,54 @@ export function ItineraryPanel({
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <p className="mb-5 text-sm leading-relaxed text-muted-foreground">{itinerary.summary}</p>
 
-        {/* Timeline */}
-        <div className="relative ml-3 border-l-2 border-primary/20 pl-6">
-          {itinerary.steps.map((step, i) => (
+        {/* Timeline — time labels on the left rail so the day reads like a schedule */}
+        <div className="relative ml-14 border-l-2 border-primary/20 pl-6">
+          {itinerary.steps.map((step, i) => {
+            const nextStep = itinerary.steps[i + 1]
+            return (
             <div key={i} className="relative pb-6 last:pb-0">
-              <div className="absolute -left-[17px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-primary bg-background">
+              {/* Step number bubble */}
+              <div className="absolute -left-[17px] top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 border-primary bg-background">
                 <span className="text-[8px] font-bold text-primary">{i + 1}</span>
               </div>
+              {/* Start time label — sits to the LEFT of the rail */}
+              <div className="absolute -left-[88px] top-0 w-16 text-right">
+                <span className="text-sm font-bold text-primary tabular-nums">{step.time}</span>
+              </div>
+
               <ItineraryStepCard step={step} />
-              {/* Transit connector */}
+
+              {/* End-of-step time label appears on the rail between cards */}
+              {step.endTime && (
+                <div className="absolute -left-[88px] top-[calc(100%-1.25rem)] w-16 text-right">
+                  <span className="text-[11px] font-medium text-muted-foreground tabular-nums">{step.endTime}</span>
+                </div>
+              )}
+
+              {/* Transit connector — shows the bus/walk segment and, when we have
+                  it, the start time of the NEXT step so the timeline reads:
+                  10:00 → step → 11:30 end → 15 min bus → 11:45 next step start */}
               {step.travelToNext && (
                 <div className="ml-2 mt-2 space-y-1">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
                     <Bus className="h-3 w-3" />
                     <span>{step.travelToNext}</span>
+                    {nextStep?.time && (
+                      <span className="ml-auto text-[11px] tabular-nums text-muted-foreground/60">
+                        arrives by {nextStep.time}
+                      </span>
+                    )}
                   </div>
-                  <Link
-                    href="/cars"
-                    className="flex items-center gap-1.5 text-xs text-blue-500/70 transition-colors hover:text-blue-600"
-                  >
-                    <Car className="h-3 w-3" />
-                    {"or rent a car \u2014 from 39\u20AC/day"}
-                    <ArrowRight className="h-2.5 w-2.5" />
-                  </Link>
+                  {showCarWidget && (
+                    <Link
+                      href="/cars"
+                      className="flex items-center gap-1.5 text-xs text-blue-500/70 transition-colors hover:text-blue-600"
+                    >
+                      <Car className="h-3 w-3" />
+                      {"or rent a car \u2014 from 39\u20AC/day"}
+                      <ArrowRight className="h-2.5 w-2.5" />
+                    </Link>
+                  )}
                 </div>
               )}
 
@@ -821,7 +863,7 @@ export function ItineraryPanel({
                 </div>
               )}
             </div>
-          ))}
+          )})}
         </div>
 
         {/* Tips */}
@@ -839,8 +881,8 @@ export function ItineraryPanel({
           </div>
         )}
 
-        {/* Car cross-sell */}
-        {itinerary.carSuggestion?.recommended && (
+        {/* Car cross-sell — admin can hard-disable via /admin/ai-systems/itinerary */}
+        {showCarWidget && itinerary.carSuggestion?.recommended && (
           <div className="mt-5 rounded-xl border border-blue-200/50 bg-blue-50/30 p-4">
             <div className="flex items-center gap-2">
               <Car className="h-4 w-4 text-blue-600" />
@@ -872,8 +914,8 @@ export function ItineraryPanel({
           </div>
         )}
 
-        {/* Hotel cross-sell */}
-        {itinerary.hotelSuggestion?.recommended && (
+        {/* Hotel cross-sell — admin can hard-disable via /admin/ai-systems/itinerary */}
+        {showHotelWidget && itinerary.hotelSuggestion?.recommended && (
           <div className="mt-4 rounded-xl border border-amber-200/50 bg-amber-50/30 p-4">
             <div className="flex items-center gap-2">
               <Building2 className="h-4 w-4 text-amber-600" />

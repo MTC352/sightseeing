@@ -128,6 +128,29 @@ interface LiveSlot {
   componentKey: string
 }
 
+/** Decode HTML entities Palisis sometimes embeds in price strings
+ *  (e.g. "&#8364;25" → "€25", "&amp;" → "&"). Server-side, no DOM. */
+function decodeHtmlEntities(s: string | null | undefined): string | null {
+  if (s == null) return s ?? null
+  return String(s)
+    .replace(/&#(\d+);/g, (_m, n) => {
+      const code = parseInt(n, 10)
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _m
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, n) => {
+      const code = parseInt(n, 16)
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _m
+    })
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&euro;/g, "€")
+    .replace(/&pound;/g, "£")
+}
+
 /** Convert a DepartureDate (datesndeals row) into our LiveSlot shape. */
 function shapeSlotFromDeparture(d: DepartureDate): LiveSlot | null {
   if (!d.start_time || !d.start_date) return null
@@ -138,8 +161,8 @@ function shapeSlotFromDeparture(d: DepartureDate): LiveSlot | null {
   if (d.status && /cancel/i.test(d.status)) return null
   const startTime = String(d.start_time).slice(0, 5)
   const offerDisplay = d.offer_price_1_display ?? null
-  const priceDisplay = offerDisplay ?? d.price_1_display ?? null
-  const priceRaw = d.offer_price_1 ?? d.price_1 ?? null
+  const priceDisplay = decodeHtmlEntities(offerDisplay ?? d.price_1_display ?? null)
+  const priceRaw = decodeHtmlEntities(d.offer_price_1 ?? d.price_1 ?? null)
   return {
     date: String(d.start_date),
     startTime,
@@ -322,6 +345,16 @@ export async function POST(req: Request) {
     /* 3) Build a strict prompt with the REAL timeslot menus. */
     const allSettings = await dbGetSettings()
     const settings = allSettings.plannerBehavior as Record<string, unknown>
+    const itinerarySettings = (allSettings.itineraryBehavior ?? {}) as Record<string, unknown>
+    const adminPromptTemplate = String(itinerarySettings.systemPrompt ?? "").trim()
+    const adminTipsPrompt = String(itinerarySettings.tipsPrompt ?? "").trim()
+    const showCarWidget = itinerarySettings.showCarWidget !== false
+    const showHotelWidget = itinerarySettings.showHotelWidget !== false
+    const itineraryModel = typeof itinerarySettings.model === "string" ? itinerarySettings.model : null
+    const itineraryTemperature = typeof itinerarySettings.temperature === "number" ? itinerarySettings.temperature : null
+    const itineraryMaxTokens = typeof itinerarySettings.maxTokens === "number" && itinerarySettings.maxTokens > 0
+      ? Math.min(8192, Math.floor(itinerarySettings.maxTokens))
+      : null
     const anthropicKey =
       ((allSettings.apiKeys as Record<string, string> | undefined)?.anthropic || process.env.ANTHROPIC_API_KEY || "").trim()
     const dayStartTime = String(settings.dayStartTime ?? "09:00")
@@ -361,40 +394,75 @@ ${slotLines}`
         unavailableTrips.map((u) => `  - "${u.title}" [${u.tripId}] — ${u.reason}`).join("\n")
       : ""
 
-    /* 4) Generate the itinerary, constrained to real slots. */
-    const prompt = `You are a Luxembourg travel planner. Build a RELAXED, REALISTIC day itinerary using ONLY the live timeslots provided below.
+    /* 4) Generate the itinerary, constrained to real slots.
 
-VISIT DATE: ${visitPretty} (${visitDate})
-Day window: ${dayStartTime} – ${dayEndTime}
-Travel mode between stops: ${travelMethodLabel}
-Buffer between activities: ${bufferTimeBetweenStops} minutes
-Maximum stops: ${maxStopsPerDay}
+       The base prompt is admin-editable in /admin/ai-systems/itinerary.
+       It uses {{placeholders}} that we substitute with live data here.
+       If no admin prompt is set we fall back to the built-in template. */
+    const mealBreaksBlock = autoInsertMealBreaks
+      ? `- Insert a lunch break (type "food", ~${mealBreakDuration} min) around ${lunchBreakTime} after the morning stop.
+- Insert a dinner break (type "food", ~${mealBreakDuration + 15} min) around ${dinnerBreakTime} if the last stop ends before 20:00.
+- Insert a coffee break (type "coffee", ~20 min) if there is a >60 min gap between two stops.
+- "location" must be the city of the preceding step.
+- Set type "none" with empty label/location and durationMinutes 0 if no break fits.`
+      : '- Meal breaks disabled by admin — only insert if absolutely necessary.'
+
+    const placeholders: Record<string, string> = {
+      visitDate,
+      visitPretty,
+      dayStartTime,
+      dayEndTime,
+      travelMethodLabel,
+      bufferTimeBetweenStops: String(bufferTimeBetweenStops),
+      maxStopsPerDay: String(maxStopsPerDay),
+      tripMenuLines,
+      unavailableLines,
+      mealBreaksBlock,
+    }
+    const fillPlaceholders = (template: string): string =>
+      template.replace(/\{\{(\w+)\}\}/g, (_m, k) => placeholders[k] ?? "")
+
+    const DEFAULT_BUILD_TEMPLATE = `You are a Luxembourg travel planner. Build a RELAXED, REALISTIC day itinerary using ONLY the live timeslots provided below.
+
+VISIT DATE: {{visitPretty}} ({{visitDate}})
+Day window: {{dayStartTime}} – {{dayEndTime}}
+Travel mode between stops: {{travelMethodLabel}}
+Buffer between activities: {{bufferTimeBetweenStops}} minutes
+Maximum stops: {{maxStopsPerDay}}
 
 CART TRIPS WITH LIVE TIMESLOTS (from Palisis datesndeals/search.xml):
 
-${tripMenuLines}${unavailableLines}
+{{tripMenuLines}}{{unavailableLines}}
 
 HARD RULES — you MUST obey:
 1. For every step, the "time" field MUST be one of the listed timeslot start times for that trip — verbatim, HH:MM. Never invent a time.
 2. Copy the matching slot's end time into "endTime", its price (e.g. "€25.00") into "priceFrom", and "spacesRemaining" verbatim (may be "UNLIMITED").
-3. Sequence chosen slots so they DON'T overlap and the next start time is at least (previous activity duration + ${bufferTimeBetweenStops} min buffer + realistic ${travelMethodLabel} travel) after the previous start.
+3. Sequence chosen slots so they DON'T overlap and the next start time is at least (previous activity duration + {{bufferTimeBetweenStops}} min buffer + realistic {{travelMethodLabel}} travel) after the previous start.
 4. Prefer geographic proximity when sequencing — same-city trips first, then adjacent areas.
-5. If two trips conflict (no non-overlapping combination of their available slots fits in the day window), prefer the better-fitting slots and drop the impossible one from the steps list (do NOT include it).
+5. If two trips conflict (no non-overlapping combination of their available slots fits in the day window), prefer the better-fitting slots and drop the impossible one from the steps list.
 6. NEVER include any trip from "TRIPS WITHOUT AVAILABILITY" — those have no real slots on this date.
 7. Set tripId exactly as given in brackets.
 
 MEAL BREAKS:
-${autoInsertMealBreaks ? `- Insert a lunch break (type "food", ~${mealBreakDuration} min) around ${lunchBreakTime} after the morning stop.
-- Insert a dinner break (type "food", ~${mealBreakDuration + 15} min) around ${dinnerBreakTime} if the last stop ends before 20:00.
-- Insert a coffee break (type "coffee", ~20 min) if there is a >60 min gap between two stops.
-- "location" must be the city of the preceding step.
-- Set type "none" with empty label/location and durationMinutes 0 if no break fits.` : '- Meal breaks disabled by admin — only insert if absolutely necessary.'}
+{{mealBreaksBlock}}
 
 ALSO EVALUATE:
 - CAR RENTAL: recommend only if stops span multiple cities or include rural areas (Vianden, Mullerthal, Echternach, Clervaux).
-- HOTEL STAY: recommend only if the last stop ends after ${dayEndTime} or the day exceeds 9 hours.
+- HOTEL STAY: recommend only if the last stop ends after {{dayEndTime}} or the day exceeds 9 hours.
 
 Return STRICTLY the JSON object matching the schema.`
+
+    const DEFAULT_TIPS_PROMPT = `Generate 3-5 short, actionable tips for the visitor's day in Luxembourg based on the itinerary above.
+- Each tip ≤ 18 words.
+- Focus on practical advice: weather, free public transport, what to bring, best photo moments, local food recommendations near the planned stops, time-saving hints.
+- Write in plain everyday English. No emojis. No marketing fluff.`
+
+    const buildTemplate = adminPromptTemplate || DEFAULT_BUILD_TEMPLATE
+    const tipsInstructions = adminTipsPrompt || DEFAULT_TIPS_PROMPT
+    const prompt = `${fillPlaceholders(buildTemplate)}
+
+TIPS — populate the "tips" array using these instructions:
+${tipsInstructions}`
 
     if (!anthropicKey) {
       return Response.json({
@@ -407,13 +475,20 @@ Return STRICTLY the JSON object matching the schema.`
 
     try {
       const anthropic = createAnthropic({ apiKey: anthropicKey })
-      const modelId =
-        typeof settings.model === "string" && settings.model.startsWith("claude")
-          ? (settings.model as string)
-          : "claude-haiku-4-5-20251001"
+      // Prefer the model configured under /admin/ai-systems/itinerary; fall
+      // back to the planner setting, then a known-good default.
+      const rawModel =
+        itineraryModel ??
+        (typeof settings.model === "string" ? (settings.model as string) : null) ??
+        "claude-haiku-4-5-20251001"
+      // Vercel-AI-Gateway-style ids look like "anthropic/<model>" — strip the prefix
+      // for the direct Anthropic SDK.
+      const modelId = rawModel.startsWith("anthropic/") ? rawModel.slice("anthropic/".length) : rawModel
       const { output } = await generateText({
         model: anthropic(modelId),
         output: Output.object({ schema: itinerarySchema }),
+        temperature: itineraryTemperature ?? undefined,
+        maxOutputTokens: itineraryMaxTokens ?? undefined,
         prompt,
       })
 
@@ -464,13 +539,25 @@ Return STRICTLY the JSON object matching the schema.`
         // if the AI's ordering got tweaked by snapping.
         .sort((a, b) => toMinutes(a.time) - toMinutes(b.time))
 
+      // Apply admin widget toggles: if disabled, force-hide regardless of
+      // what the AI recommended.
+      const carSuggestion = showCarWidget
+        ? output.carSuggestion
+        : { ...output.carSuggestion, recommended: false }
+      const hotelSuggestion = showHotelWidget
+        ? output.hotelSuggestion
+        : { ...output.hotelSuggestion, recommended: false }
+
       return Response.json({
         ...output,
+        carSuggestion,
+        hotelSuggestion,
         steps: reconciledSteps,
         visitDate,
         unavailableTrips,
         alternativeDates,
         scanDays: SCAN_DAYS,
+        widgets: { showCarWidget, showHotelWidget },
       })
     } catch (aiErr) {
       console.error("[itinerary] AI generation failed:", aiErr)

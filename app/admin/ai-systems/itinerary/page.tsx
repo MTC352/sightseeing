@@ -1,0 +1,262 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb, Car, Building2 } from "lucide-react"
+
+// Itinerary generation calls the Anthropic SDK directly (not the Vercel
+// Gateway), so we only expose Claude models here. Adding non-Anthropic ids
+// would fail at runtime.
+const MODELS = [
+  { value: "anthropic/claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fast (recommended)" },
+  { value: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6 — balanced" },
+  { value: "anthropic/claude-opus-4-7", label: "Claude Opus 4.7 — best quality" },
+]
+
+interface ItineraryForm {
+  systemPrompt: string
+  tipsPrompt: string
+  model: string
+  temperature: number
+  maxTokens: number
+  showCarWidget: boolean
+  showHotelWidget: boolean
+}
+
+const DEFAULTS: ItineraryForm = {
+  systemPrompt: "",
+  tipsPrompt: "",
+  model: "anthropic/claude-haiku-4-5-20251001",
+  temperature: 0.5,
+  maxTokens: 2048,
+  showCarWidget: true,
+  showHotelWidget: true,
+}
+
+export default function ItineraryAiPage() {
+  const router = useRouter()
+  const [form, setForm] = useState<ItineraryForm>(DEFAULTS)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/admin/itinerary-config")
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return
+        setForm((prev) => ({
+          ...prev,
+          ...data,
+          temperature: typeof data?.temperature === "number" ? data.temperature : prev.temperature,
+          maxTokens: typeof data?.maxTokens === "number" ? data.maxTokens : prev.maxTokens,
+          showCarWidget: data?.showCarWidget !== false,
+          showHotelWidget: data?.showHotelWidget !== false,
+        }))
+      })
+      .catch(() => setError("Could not load current settings."))
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  async function save() {
+    setSaving(true)
+    setError("")
+    try {
+      const res = await fetch("/api/admin/itinerary-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) throw new Error("Failed to save")
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch {
+      setError("Could not save — please try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputClass =
+    "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+  const labelClass = "mb-1.5 block text-xs font-medium text-muted-foreground"
+
+  return (
+    <div className="p-6 lg:p-10">
+      <div className="mb-8 flex items-start gap-4">
+        <button
+          type="button"
+          onClick={() => router.push("/admin/ai-systems")}
+          className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <div className="flex-1">
+          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">AI Systems</p>
+          <h1 className="mt-1 text-2xl font-bold text-foreground">Manage Itinerary</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Controls the Smart Itinerary builder on /planner. Live Palisis timeslots, trip metadata and the visitor&apos;s
+            chosen date are always injected at runtime — your prompt sees them as <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[11px]">{"{{tripMenuLines}}"}</code>,
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[11px]">{"{{visitDate}}"}</code> etc.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || loading}
+          className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
+            saved ? "bg-emerald-500/15 text-emerald-600" : "bg-primary text-primary-foreground hover:bg-primary/90"
+          }`}
+        >
+          {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+          {saved ? "Saved!" : saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-6 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      <div className="max-w-3xl space-y-6">
+        {/* Build Itinerary Prompt */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Route className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Build Itinerary — System Prompt</h2>
+          </div>
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            Available placeholders (filled at runtime from live data):{" "}
+            <code className="font-mono">{"{{visitDate}}"}</code>,{" "}
+            <code className="font-mono">{"{{visitPretty}}"}</code>,{" "}
+            <code className="font-mono">{"{{dayStartTime}}"}</code>,{" "}
+            <code className="font-mono">{"{{dayEndTime}}"}</code>,{" "}
+            <code className="font-mono">{"{{travelMethodLabel}}"}</code>,{" "}
+            <code className="font-mono">{"{{bufferTimeBetweenStops}}"}</code>,{" "}
+            <code className="font-mono">{"{{maxStopsPerDay}}"}</code>,{" "}
+            <code className="font-mono">{"{{tripMenuLines}}"}</code>,{" "}
+            <code className="font-mono">{"{{unavailableLines}}"}</code>,{" "}
+            <code className="font-mono">{"{{mealBreaksBlock}}"}</code>.
+          </p>
+          <textarea
+            rows={18}
+            className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
+            value={form.systemPrompt}
+            onChange={(e) => setForm((f) => ({ ...f, systemPrompt: e.target.value }))}
+            placeholder="Loading current prompt…"
+            disabled={loading}
+          />
+          <p className="mt-1.5 text-[11px] text-muted-foreground/60">{form.systemPrompt.length} chars</p>
+        </div>
+
+        {/* Tips of the day */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Lightbulb className="h-4 w-4 text-amber-500" />
+            <h2 className="text-sm font-semibold text-foreground">Tips of the Day — Prompt</h2>
+          </div>
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            Appended to the build prompt and used to populate the <strong>&quot;Tips for your day&quot;</strong> panel under
+            the itinerary. The model returns these as a short array.
+          </p>
+          <textarea
+            rows={6}
+            className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
+            value={form.tipsPrompt}
+            onChange={(e) => setForm((f) => ({ ...f, tipsPrompt: e.target.value }))}
+            placeholder="Generate 3-5 short practical tips for the visitor's day…"
+            disabled={loading}
+          />
+        </div>
+
+        {/* Cross-sell widgets */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-1 text-sm font-semibold text-foreground">Cross-sell Widgets</h2>
+          <p className="mb-4 text-[11px] text-muted-foreground">
+            Show or hide the two cross-sell cards below the itinerary. The AI still evaluates whether to recommend
+            them — these toggles act as a hard on/off switch.
+          </p>
+          <div className="space-y-3">
+            <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background p-3 hover:bg-secondary/30">
+              <span className="flex items-center gap-2">
+                <Car className="h-4 w-4 text-blue-600" />
+                <span className="text-sm font-medium text-foreground">Car Rental widget</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={form.showCarWidget}
+                onChange={(e) => setForm((f) => ({ ...f, showCarWidget: e.target.checked }))}
+                className="h-4 w-4 accent-primary"
+                disabled={loading}
+              />
+            </label>
+            <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background p-3 hover:bg-secondary/30">
+              <span className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-medium text-foreground">Hotel Booking widget</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={form.showHotelWidget}
+                onChange={(e) => setForm((f) => ({ ...f, showHotelWidget: e.target.checked }))}
+                className="h-4 w-4 accent-primary"
+                disabled={loading}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* Model configuration */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Model Configuration</h2>
+          <div className="space-y-4">
+            <div>
+              <label className={labelClass}>Model</label>
+              <select
+                value={form.model}
+                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                className={inputClass}
+                disabled={loading}
+              >
+                {MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>
+                Temperature
+                <span className="ml-1.5 font-normal text-muted-foreground/60">— ({form.temperature})</span>
+              </label>
+              <input
+                type="range" min={0} max={1} step={0.05}
+                value={form.temperature}
+                onChange={(e) => setForm((f) => ({ ...f, temperature: parseFloat(e.target.value) }))}
+                className="w-full accent-primary"
+                disabled={loading}
+              />
+              <div className="mt-1 flex justify-between text-[10px] text-muted-foreground/50">
+                <span>Precise (0)</span><span>Balanced (0.5)</span><span>Creative (1)</span>
+              </div>
+            </div>
+            <div>
+              <label className={labelClass}>Max Tokens</label>
+              <input
+                type="number" min={256} max={8192} step={128}
+                value={form.maxTokens}
+                onChange={(e) => setForm((f) => ({ ...f, maxTokens: parseInt(e.target.value) || 2048 }))}
+                className={inputClass}
+                disabled={loading}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

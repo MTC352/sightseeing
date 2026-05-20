@@ -579,6 +579,17 @@ export async function dbGetSettings() {
     lunchBreakTime: '12:30', dinnerBreakTime: '19:00', mealBreakDuration: 60,
     travelTimeMethod: 'public_transport',
   }
+  // Itinerary builder: defaults are the *current* live defaults so the admin
+  // page renders with the values that are actually in effect right now.
+  let itineraryBehavior: Record<string, unknown> = {
+    systemPrompt: '',
+    model: 'anthropic/claude-haiku-4-5-20251001',
+    temperature: 0.5,
+    maxTokens: 2048,
+    tipsPrompt: '',
+    showCarWidget: true,
+    showHotelWidget: true,
+  }
   for (const r of aiRows as Record<string, unknown>[]) {
     ai[r.system_key as string] = {
       systemPrompt: r.system_prompt ?? '',
@@ -589,6 +600,19 @@ export async function dbGetSettings() {
     if (r.system_key === 'planner' && r.extra_config && typeof r.extra_config === 'object') {
       plannerBehavior = { ...plannerBehavior, ...(r.extra_config as Record<string, unknown>) }
     }
+    if (r.system_key === 'itinerary') {
+      const extra = (r.extra_config && typeof r.extra_config === 'object'
+        ? r.extra_config as Record<string, unknown>
+        : {})
+      itineraryBehavior = {
+        ...itineraryBehavior,
+        systemPrompt: r.system_prompt ?? itineraryBehavior.systemPrompt,
+        model: r.model ?? itineraryBehavior.model,
+        temperature: r.temperature ?? itineraryBehavior.temperature,
+        maxTokens: r.max_tokens ?? itineraryBehavior.maxTokens,
+        ...extra,
+      }
+    }
   }
 
   const headerBlocks = (hfRows as Record<string, unknown>[]).filter(b => b.placement !== 'body_end')
@@ -596,7 +620,43 @@ export async function dbGetSettings() {
   const mergeHtml = (blocks: Record<string, unknown>[]) =>
     blocks.filter(b => b.enabled && b.html).map(b => `<!-- ${b.label} -->\n${b.html}`).join('\n\n')
 
-  return { apiKeys, ai, plannerBehavior, weglot, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, weglot, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+}
+
+export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
+  const { systemPrompt, model, temperature, maxTokens, tipsPrompt, showCarWidget, showHotelWidget } = data as {
+    systemPrompt?: string
+    model?: string
+    temperature?: number
+    maxTokens?: number
+    tipsPrompt?: string
+    showCarWidget?: boolean
+    showHotelWidget?: boolean
+  }
+  const extra = {
+    tipsPrompt: tipsPrompt ?? '',
+    showCarWidget: showCarWidget !== false,
+    showHotelWidget: showHotelWidget !== false,
+  }
+  await query(`
+    INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config)
+    VALUES ('itinerary', 'Manage Itinerary',
+      'Controls the prompt, AI model, tips text, and cross-sell widgets for the Smart Itinerary builder on /planner.',
+      $1, $2, $3, $4, $5)
+    ON CONFLICT (system_key) DO UPDATE SET
+      system_prompt = COALESCE($1, ai_system_configs.system_prompt),
+      model = COALESCE($2, ai_system_configs.model),
+      temperature = COALESCE($3, ai_system_configs.temperature),
+      max_tokens = COALESCE($4, ai_system_configs.max_tokens),
+      extra_config = $5,
+      updated_at = NOW()
+  `, [
+    systemPrompt ?? null,
+    model ?? null,
+    temperature ?? null,
+    maxTokens ?? null,
+    JSON.stringify(extra),
+  ])
 }
 
 export async function dbUpdateApiKeys(data: Record<string, string>) {
