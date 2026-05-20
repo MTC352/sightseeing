@@ -781,7 +781,14 @@ export function ItineraryPanel({
             <Route className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-foreground">Day Itinerary</h3>
+            <h3 className="text-sm font-bold text-foreground">
+              Day Itinerary
+              {itinerary.visitDate && (
+                <span className="ml-1.5 text-xs font-medium text-muted-foreground">
+                  · {formatYMDPretty(itinerary.visitDate)}
+                </span>
+              )}
+            </h3>
             <p className="text-xs text-muted-foreground">{itinerary.steps.length} stops planned</p>
           </div>
         </div>
