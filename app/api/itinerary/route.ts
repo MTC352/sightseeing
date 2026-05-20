@@ -373,8 +373,11 @@ export async function POST(req: Request) {
     const itinerarySettings = (allSettings.itineraryBehavior ?? {}) as Record<string, unknown>
     const adminPromptTemplate = String(itinerarySettings.systemPrompt ?? "").trim()
     const adminTipsPrompt = String(itinerarySettings.tipsPrompt ?? "").trim()
-    const showCarWidget = itinerarySettings.showCarWidget !== false
-    const showHotelWidget = itinerarySettings.showHotelWidget !== false
+    // Car-rental and hotel cross-sell widgets are temporarily disabled on
+    // the planner. The admin toggles + DB fields are kept intact so they
+    // can be re-enabled later without a migration; we just force-off here.
+    const showCarWidget = false
+    const showHotelWidget = false
     const itineraryModel = typeof itinerarySettings.model === "string" ? itinerarySettings.model : null
     const itineraryTemperature = typeof itinerarySettings.temperature === "number" ? itinerarySettings.temperature : null
     const itineraryMaxTokens = typeof itinerarySettings.maxTokens === "number" && itinerarySettings.maxTokens > 0

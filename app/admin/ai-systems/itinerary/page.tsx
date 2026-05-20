@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb, Car, Building2 } from "lucide-react"
+import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 
 // Itinerary generation calls the Anthropic SDK directly (not the Vercel
@@ -223,42 +223,10 @@ export default function ItineraryAiPage() {
           </div>
         </div>
 
-        {/* Cross-sell widgets */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-1 text-sm font-semibold text-foreground">Cross-sell Widgets</h2>
-          <p className="mb-4 text-[11px] text-muted-foreground">
-            Show or hide the two cross-sell cards below the itinerary. The AI still evaluates whether to recommend
-            them — these toggles act as a hard on/off switch.
-          </p>
-          <div className="space-y-3">
-            <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background p-3 hover:bg-secondary/30">
-              <span className="flex items-center gap-2">
-                <Car className="h-4 w-4 text-blue-600" />
-                <span className="text-sm font-medium text-foreground">Car Rental widget</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={form.showCarWidget}
-                onChange={(e) => setForm((f) => ({ ...f, showCarWidget: e.target.checked }))}
-                className="h-4 w-4 accent-primary"
-                disabled={loading}
-              />
-            </label>
-            <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background p-3 hover:bg-secondary/30">
-              <span className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-amber-600" />
-                <span className="text-sm font-medium text-foreground">Hotel Booking widget</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={form.showHotelWidget}
-                onChange={(e) => setForm((f) => ({ ...f, showHotelWidget: e.target.checked }))}
-                className="h-4 w-4 accent-primary"
-                disabled={loading}
-              />
-            </label>
-          </div>
-        </div>
+        {/* Cross-sell widgets are temporarily disabled on the planner.
+            Hidden from admin until the feature is brought back. The
+            underlying DB fields + form state are kept so re-enabling
+            later requires no migration. */}
 
         {/* Model configuration */}
         <div className="rounded-xl border border-border bg-card p-5">
