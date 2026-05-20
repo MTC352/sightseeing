@@ -362,35 +362,25 @@ export default function PlannerPage() {
 
   /* ─── Itinerary persistence ───
      Survives hard refresh by mirroring `centerItinerary` to localStorage.
-     A fingerprint is computed from the cart's sorted trip ids and the visit
-     date. Critically, the fingerprint is also derived from the itinerary
-     itself (its own steps + visitDate) so we can detect drift without
-     relying on `prefs.startDate` alone — the sidebar can change the visit
-     date independently via cookie, and the itinerary carries the
-     authoritative date the server actually planned for.
-
-     Rules:
-     - On mount: restore the saved itinerary only if its self-fingerprint
-       matches the current cart fingerprint.
-     - Live: whenever the cart or date drifts away from the itinerary's
-       self-fingerprint, drop the itinerary so we never show stale data
-       (and never re-save it under a fresh fingerprint by mistake). */
-  const computeFingerprint = useCallback((tripIds: string[], date: string) => {
-    return `${date}|${[...tripIds].sort().join(",")}`
-  }, [])
-
-  const currentFingerprint = useMemo(
-    () => computeFingerprint(items.map((i) => i.trip.id), prefs?.startDate || ""),
-    [items, prefs?.startDate, computeFingerprint],
+     Cart contents are the authoritative invalidator: the fingerprint is
+     just the sorted list of trip ids in the cart vs. in the itinerary.
+     The itinerary's visitDate is intentionally NOT part of the fingerprint
+     because the sidebar lets the user rebuild for a different day, and
+     that rebuilt itinerary must remain visible even though it no longer
+     matches `prefs.startDate` (the onboarding date never updates when the
+     sidebar mutates the visit-date cookie). Adding/removing trips from
+     the cart still clears any stale itinerary. */
+  const cartFingerprint = useMemo(
+    () => [...items.map((i) => i.trip.id)].sort().join(","),
+    [items],
   )
 
-  const itinerarySelfFingerprint = useMemo(() => {
+  const itineraryCartFingerprint = useMemo(() => {
     if (!centerItinerary) return null
-    const ids = centerItinerary.steps.map((s) => s.tripId)
-    return computeFingerprint(ids, centerItinerary.visitDate || prefs?.startDate || "")
-  }, [centerItinerary, prefs?.startDate, computeFingerprint])
+    return [...centerItinerary.steps.map((s) => s.tripId)].sort().join(",")
+  }, [centerItinerary])
 
-  // Restore on mount (once cart + prefs hydrated).
+  // Restore on mount (once cart hydrated).
   useEffect(() => {
     if (!cartHydrated || !hydrated || itineraryRestoredRef.current) return
     itineraryRestoredRef.current = true
@@ -403,11 +393,8 @@ export default function PlannerPage() {
         window.localStorage.removeItem("sightseeing_itinerary_v1")
         return
       }
-      const savedFp = computeFingerprint(
-        it.steps.map((s) => s.tripId),
-        it.visitDate || "",
-      )
-      if (savedFp === currentFingerprint) {
+      const savedFp = [...it.steps.map((s) => s.tripId)].sort().join(",")
+      if (savedFp === cartFingerprint) {
         setCenterItinerary(it)
       } else {
         window.localStorage.removeItem("sightseeing_itinerary_v1")
@@ -415,15 +402,15 @@ export default function PlannerPage() {
     } catch {
       try { window.localStorage.removeItem("sightseeing_itinerary_v1") } catch { /* ignore */ }
     }
-  }, [cartHydrated, hydrated, currentFingerprint, computeFingerprint])
+  }, [cartHydrated, hydrated, cartFingerprint])
 
-  // Drift guard — if the cart/date no longer matches the itinerary, clear it.
+  // Drift guard — clear only if the cart contents no longer match.
   useEffect(() => {
-    if (!itineraryRestoredRef.current || !centerItinerary || !itinerarySelfFingerprint) return
-    if (itinerarySelfFingerprint !== currentFingerprint) {
+    if (!itineraryRestoredRef.current || !centerItinerary || !itineraryCartFingerprint) return
+    if (itineraryCartFingerprint !== cartFingerprint) {
       setCenterItinerary(null)
     }
-  }, [centerItinerary, itinerarySelfFingerprint, currentFingerprint])
+  }, [centerItinerary, itineraryCartFingerprint, cartFingerprint])
 
   // Persist whenever the itinerary changes — always keyed by the itinerary's
   // own self-fingerprint, never the (possibly drifted) cart fingerprint.
