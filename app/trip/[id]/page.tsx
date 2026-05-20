@@ -209,7 +209,18 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     detail?.description ??
     trip.description ??
     `Book ${trip.title} in ${trip.city ?? "Luxembourg"}. ${trip.duration} experience from ${trip.price.toFixed(2)} EUR.`
+
+  // Dynamic OG card so every trip share / AI preview shows the trip's own
+  // title, category and price instead of the generic site default.
+  const ogParams = new URLSearchParams({
+    eyebrow: trip.category,
+    title: trip.title,
+    subtitle: (description || "").slice(0, 140),
+    price: trip.price > 0 ? `${trip.price.toFixed(0)} EUR` : "",
+  })
+  const ogImage = `${BASE}/api/og?${ogParams.toString()}`
   const imageUrl = trip.image.startsWith("/") ? `${BASE}${trip.image}` : trip.image
+  const altText = `${trip.title} — ${trip.category} experience in ${trip.city ?? "Luxembourg"}`
 
   return {
     title: trip.title,
@@ -223,13 +234,16 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       title: trip.title,
       description,
       url: `${BASE}/trip/${trip.id}`,
-      images: [{ url: imageUrl, width: 1200, height: 630, alt: trip.title }],
+      images: [
+        { url: ogImage, width: 1200, height: 630, alt: altText },
+        { url: imageUrl, width: 1200, height: 630, alt: altText },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title: trip.title,
       description,
-      images: [imageUrl],
+      images: [ogImage],
     },
   }
 }

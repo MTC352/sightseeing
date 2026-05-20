@@ -32,7 +32,6 @@ const LINKS = {
   "Support": [
     { label: "Help & FAQ", href: "/help" },
     { label: "Emergency & 24/7 Support", href: "/emergency" },
-    { label: "ChatGPT Widgets", href: "/widgets" },
     { label: "Sitemap", href: "/sitemap.xml" },
     { label: "Terms & Conditions", href: "#" },
     { label: "Privacy Policy", href: "#" },

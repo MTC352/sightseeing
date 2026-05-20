@@ -16,7 +16,7 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
     return (
       <Link href={`/trip/${trip.id}`} className="group flex gap-3 rounded-lg border border-border bg-card p-2 transition-colors hover:border-primary/30">
         <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md">
-          <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority} className="object-cover" sizes="80px" />
+          <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} className="object-cover" sizes="80px" />
         </div>
         <div className="flex flex-1 flex-col justify-center gap-0.5">
           <p className="text-xs font-semibold text-card-foreground line-clamp-2 group-hover:text-primary transition-colors">{trip.title}</p>
@@ -34,7 +34,7 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
     return (
       <div className="group flex overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
         <Link href={`/trip/${trip.id}`} className="relative h-36 w-40 shrink-0 overflow-hidden sm:w-48">
-          <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="200px" />
+          <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="200px" />
           {trip.badge && <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">{trip.badge}</span>}
         </Link>
         <div className="flex flex-1 flex-col justify-between p-3">
@@ -60,7 +60,7 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
       {/* Image — bottom corners are square so card body sits flush */}
       <Link href={`/trip/${trip.id}`} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
-        <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
+        <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
         {trip.badge && <span className="absolute left-3 top-3 rounded-full bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-sm">{trip.badge}</span>}
         {trip.originalPrice && <span className="absolute right-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-destructive-foreground">-{Math.round((1 - trip.price / trip.originalPrice) * 100)}%</span>}
         {/* Good for weather badge */}

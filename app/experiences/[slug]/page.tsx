@@ -6,6 +6,7 @@ import { SiteFooter } from "@/components/site-footer"
 import { TripCard } from "@/components/trip-card"
 import { categories, type Trip } from "@/lib/data"
 import { dbListTrips } from "@/lib/db/queries"
+import { safeJsonLd } from "@/lib/json-ld"
 import { Star, Clock, MapPin, ArrowRight } from "lucide-react"
 import { notFound } from "next/navigation"
 
@@ -128,21 +129,34 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   const prices = catTrips.map((t) => t.price).filter((p) => p > 0)
   const faqs = CATEGORY_FAQS[cat.name] ?? []
 
-  /* JSON-LD: ItemList + FAQPage */
+  /* JSON-LD: CollectionPage wrapping ItemList + BreadcrumbList + FAQPage */
+  const itemListLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: `${cat.name} Experiences in Luxembourg`,
+    numberOfItems: catTrips.length,
+    itemListElement: catTrips.map((t, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      url: `${BASE}/trip/${t.id}`,
+      name: t.title,
+      image: t.image.startsWith("/") ? `${BASE}${t.image}` : t.image,
+    })),
+  }
   const schemas = [
     {
       "@context": "https://schema.org",
-      "@type": "ItemList",
+      "@type": "CollectionPage",
+      "@id": `${BASE}/experiences/${slug}`,
+      url: `${BASE}/experiences/${slug}`,
       name: `${cat.name} Experiences in Luxembourg`,
-      numberOfItems: catTrips.length,
-      itemListElement: catTrips.map((t, i) => ({
-        "@type": "ListItem",
-        position: i + 1,
-        url: `${BASE}/trip/${t.id}`,
-        name: t.title,
-        image: t.image.startsWith("/") ? `${BASE}${t.image}` : t.image,
-      })),
+      description: CATEGORY_INTROS[cat.name] ?? `Browse ${catTrips.length} ${cat.name} experiences across Luxembourg.`,
+      inLanguage: "en",
+      isPartOf: { "@type": "WebSite", "@id": `${BASE}/#website`, url: BASE, name: "sightseeing.lu" },
+      about: { "@type": "Thing", name: cat.name },
+      mainEntity: itemListLd,
     },
+    itemListLd,
     {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
@@ -168,7 +182,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(schemas) }} />
       <div className="min-h-screen bg-background">
         <Navbar />
 

@@ -9,28 +9,77 @@ import type { Metadata } from "next"
 
 export const dynamic = "force-dynamic"
 
+const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
+
 interface Props {
   params: Promise<{ slug: string }>
 }
 
+type PostRow = {
+  id: string
+  title: string
+  slug: string
+  excerpt: string
+  body: string
+  image: string | null
+  author: string
+  publishedAt: string | null
+  category: string
+  readTime: string | null
+  tags: string[] | null
+  status: string
+  seoTitle?: string | null
+  seoDescription?: string | null
+  created_at?: string | Date | null
+  updated_at?: string | Date | null
+}
+
+function ogImageFor(post: PostRow) {
+  const params = new URLSearchParams({
+    eyebrow: post.category || "Blog",
+    title: post.title,
+    subtitle: (post.excerpt || "").slice(0, 140),
+  })
+  return `${BASE}/api/og?${params.toString()}`
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const post = await dbGetPostBySlug(slug) as { title?: string; excerpt?: string } | null
+  const post = (await dbGetPostBySlug(slug)) as PostRow | null
   if (!post) return { title: "Post Not Found | sightseeing.lu" }
+
+  const title = post.seoTitle || `${post.title} | sightseeing.lu`
+  const description = post.seoDescription || post.excerpt
+  const ogImage = ogImageFor(post)
+  const canonical = `${BASE}/blog/${post.slug}`
+
   return {
-    title: `${post.title} | sightseeing.lu`,
-    description: post.excerpt,
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      type: "article",
+      title: post.title,
+      description,
+      url: canonical,
+      images: [{ url: ogImage, width: 1200, height: 630, alt: post.title }],
+      publishedTime: post.publishedAt ?? undefined,
+      modifiedTime: post.updated_at ? new Date(post.updated_at).toISOString() : undefined,
+      authors: post.author ? [post.author] : undefined,
+      tags: post.tags ?? undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description,
+      images: [ogImage],
+    },
   }
 }
 
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params
-  const post = await dbGetPostBySlug(slug) as {
-    id: string; title: string; slug: string; excerpt: string; body: string;
-    image: string | null; author: string; publishedAt: string | null;
-    category: string; readTime: string | null; tags: string[] | null;
-    status: string;
-  } | null
+  const post = (await dbGetPostBySlug(slug)) as PostRow | null
 
   if (!post || post.status !== "published") notFound()
 
@@ -45,15 +94,68 @@ export default async function BlogPostPage({ params }: Props) {
     })
   }
 
+  const canonical = `${BASE}/blog/${post.slug}`
+  const datePublished = post.publishedAt ?? (post.created_at ? new Date(post.created_at).toISOString() : null)
+  const dateModified = post.updated_at ? new Date(post.updated_at).toISOString() : datePublished
+  const imageUrl = post.image
+    ? post.image.startsWith("/") ? `${BASE}${post.image}` : post.image
+    : `${BASE}/images/hero-luxembourg.jpg`
+  const ogImage = ogImageFor(post)
+
+  // Article + BreadcrumbList JSON-LD. Author is modelled as a Person; if you
+  // later add real author profiles in the admin, swap to a stable @id linking
+  // to a Person page.
+  const articleLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: post.title,
+    description: post.excerpt,
+    image: [ogImage, imageUrl],
+    datePublished: datePublished ?? undefined,
+    dateModified: dateModified ?? undefined,
+    author: {
+      "@type": "Person",
+      name: post.author || "sightseeing.lu Editorial",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "sightseeing.lu",
+      logo: { "@type": "ImageObject", url: `${BASE}/icon.png` },
+    },
+    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
+    articleSection: post.category,
+    keywords: (post.tags ?? []).join(", "),
+    inLanguage: "en",
+    url: canonical,
+  }
+
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: BASE },
+      { "@type": "ListItem", position: 2, name: "Blog", item: `${BASE}/blog` },
+      { "@type": "ListItem", position: 3, name: post.title, item: canonical },
+    ],
+  }
+
+  const safeJsonLd = JSON.stringify([articleLd, breadcrumbLd])
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029")
+
   return (
     <div className="min-h-screen bg-background">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
       <Navbar />
 
       <section className="relative">
         <div className="absolute inset-0 h-72 lg:h-96">
           <Image
             src={post.image || "/images/hero-luxembourg.jpg"}
-            alt={post.title}
+            alt={`${post.title} — ${post.category} article on sightseeing.lu`}
             fill
             className="object-cover"
             priority
@@ -76,7 +178,9 @@ export default async function BlogPostPage({ params }: Props) {
             {post.publishedAt && (
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-4 w-4" />
-                {new Date(post.publishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                <time dateTime={post.publishedAt}>
+                  {new Date(post.publishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                </time>
               </span>
             )}
             <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" />{post.readTime || "5 min read"}</span>

@@ -78,6 +78,65 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <link rel="preconnect" href="https://sightseeingluxembourg.palisis.com" />
         <link rel="preconnect" href="https://api.mapbox.com" />
         <link rel="dns-prefetch" href="https://events.mapbox.com" />
+        {/* Global TravelAgency / LocalBusiness graph — emitted on every page so
+            AI engines and search crawlers see consistent NAP + entity data. */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": ["TravelAgency", "LocalBusiness"],
+              "@id": `${BASE}/#organization`,
+              name: "sightseeing.lu",
+              legalName: "sightseeing.lu",
+              url: BASE,
+              logo: `${BASE}/icon.png`,
+              image: `${BASE}/images/hero-luxembourg.jpg`,
+              description:
+                "Luxembourg's leading platform for handpicked tours, activities, and experiences. We connect travellers with local guides across the Grand Duchy.",
+              email: "hello@sightseeing.lu",
+              telephone: "+352-621-000-000",
+              priceRange: "€€",
+              currenciesAccepted: "EUR",
+              paymentAccepted: "Credit Card, Debit Card",
+              areaServed: { "@type": "Country", name: "Luxembourg" },
+              address: {
+                "@type": "PostalAddress",
+                streetAddress: "Place Guillaume II",
+                addressLocality: "Luxembourg City",
+                postalCode: "1648",
+                addressCountry: "LU",
+              },
+              geo: {
+                "@type": "GeoCoordinates",
+                latitude: 49.6116,
+                longitude: 6.1319,
+              },
+              openingHoursSpecification: [
+                {
+                  "@type": "OpeningHoursSpecification",
+                  dayOfWeek: [
+                    "Monday",
+                    "Tuesday",
+                    "Wednesday",
+                    "Thursday",
+                    "Friday",
+                    "Saturday",
+                    "Sunday",
+                  ],
+                  opens: "00:00",
+                  closes: "23:59",
+                },
+              ],
+              sameAs: [
+                "https://www.facebook.com/sightseeing.lu",
+                "https://www.instagram.com/sightseeing.lu",
+                "https://www.linkedin.com/company/sightseeing-lu",
+              ],
+              knowsLanguage: ["en", "fr", "de", "lb"],
+            }),
+          }}
+        />
       </head>
       <body className="font-sans antialiased">
         <SiteStoreProvider>
