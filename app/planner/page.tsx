@@ -23,7 +23,7 @@ import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,
   CloudSun, CloudRain, Sun, Thermometer, Droplets, Wind,
-  Users, Heart, Baby, UserRound,
+  Users, Heart, Baby, UserRound, Minus, Plus,
   Clock, DollarSign, ChevronRight, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
 } from "lucide-react"
@@ -49,8 +49,20 @@ interface Preferences {
   budget: string
   /** YYYY-MM-DD — the day the user plans to visit (used for timeslots & deals). */
   startDate: string
+  /** Number of adults in the party (≥1). Always set; for solo this is 1, couple 2. */
+  adults: number
+  /** Number of children in the party (≥0). Only meaningful for family/friends. */
+  children: number
 }
-const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "" }
+const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "", adults: 1, children: 0 }
+/** Returns sensible defaults for adults/children when the user picks a group. */
+function defaultPartyFor(group: string): { adults: number; children: number } {
+  if (group === "solo") return { adults: 1, children: 0 }
+  if (group === "couple") return { adults: 2, children: 0 }
+  if (group === "family") return { adults: 2, children: 1 }
+  if (group === "friends") return { adults: 3, children: 0 }
+  return { adults: 1, children: 0 }
+}
 
 /* ─── Date helpers ─── */
 function ymdLocal(d: Date): string {
@@ -127,15 +139,78 @@ function wxColor(c: WxCond) {
 }
 
 /* ────────────────────────────────────── */
+/* PARTY STEPPER (Adults / Children)       */
+/* ────────────────────────────────────── */
+function PartyStepper({
+  label, sub, icon, value, min, onDec, onInc,
+}: {
+  label: string; sub: string; icon: React.ReactNode;
+  value: number; min: number;
+  onDec: () => void; onInc: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-xl border-2 border-border bg-card px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">{icon}</div>
+        <div className="flex flex-col">
+          <span className="text-sm font-semibold text-foreground">{label}</span>
+          <span className="text-[10px] text-muted-foreground">{sub}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={`Decrease ${label.toLowerCase()}`}
+          onClick={onDec}
+          disabled={value <= min}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <Minus className="h-4 w-4" />
+        </button>
+        <span className="w-6 text-center text-base font-bold tabular-nums text-foreground">{value}</span>
+        <button
+          type="button"
+          aria-label={`Increase ${label.toLowerCase()}`}
+          onClick={onInc}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────── */
 /* ONBOARDING                              */
 /* ────────────────────────────────────── */
 function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }) {
   const [step, setStep] = useState(0)
   const [prefs, setPrefs] = useState<Preferences>(EMPTY_PREFS)
+  // Sub-step inside step 0: when Family/Friends is picked we ask for an
+  // Adults + Children count before advancing to interests. Solo/Couple
+  // skip this entirely (party-size is implied).
+  const [askParty, setAskParty] = useState(false)
 
   function selectGroup(value: string) {
-    setPrefs((p) => ({ ...p, group: value }))
-    setTimeout(() => setStep(1), 200)
+    const party = defaultPartyFor(value)
+    setPrefs((p) => ({ ...p, group: value, adults: party.adults, children: party.children }))
+    if (value === "family" || value === "friends") {
+      setAskParty(true)
+    } else {
+      setAskParty(false)
+      setTimeout(() => setStep(1), 200)
+    }
+  }
+  function bumpAdults(delta: number) {
+    setPrefs((p) => ({ ...p, adults: Math.max(1, Math.min(20, p.adults + delta)) }))
+  }
+  function bumpChildren(delta: number) {
+    setPrefs((p) => ({ ...p, children: Math.max(0, Math.min(20, p.children + delta)) }))
+  }
+  function confirmParty() {
+    setAskParty(false)
+    setStep(1)
   }
   function toggleInterest(value: string) {
     setPrefs((p) => {
@@ -165,6 +240,9 @@ function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }
     "What's your vibe for the day?",
     "When are you visiting? I'll match real timeslots and any current deals to your date.",
   ]
+  const partyQuestion = prefs.group === "family"
+    ? "Got it — how many adults and kids are coming?"
+    : "Awesome — how many of you are in the group?"
 
   return (
     <div className="flex flex-1 flex-col">
@@ -178,9 +256,11 @@ function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
             <Bot className="h-3.5 w-3.5 text-primary" />
           </div>
-          <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-secondary px-3.5 py-2.5 text-sm leading-relaxed text-foreground">{questions[step]}</div>
+          <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-secondary px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
+            {step === 0 && askParty ? partyQuestion : questions[step]}
+          </div>
         </div>
-        {step === 0 && (
+        {step === 0 && !askParty && (
           <div className="grid grid-cols-2 gap-2">
             {GROUP_OPTIONS.map((opt) => (
               <button key={opt.value} type="button" onClick={() => selectGroup(opt.value)}
@@ -188,6 +268,38 @@ function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }
                 <opt.icon className="h-6 w-6" /><span>{opt.label}</span>
               </button>
             ))}
+          </div>
+        )}
+        {step === 0 && askParty && (
+          <div className="flex flex-col gap-3">
+            <PartyStepper
+              label="Adults"
+              sub="Ages 13+"
+              icon={<UserRound className="h-5 w-5" />}
+              value={prefs.adults}
+              min={1}
+              onDec={() => bumpAdults(-1)}
+              onInc={() => bumpAdults(+1)}
+            />
+            <PartyStepper
+              label="Children"
+              sub="Ages 0-12"
+              icon={<Baby className="h-5 w-5" />}
+              value={prefs.children}
+              min={0}
+              onDec={() => bumpChildren(-1)}
+              onInc={() => bumpChildren(+1)}
+            />
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button type="button" onClick={() => { setAskParty(false); setPrefs((p) => ({ ...p, group: "" })) }}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground">
+                ← Back
+              </button>
+              <button type="button" onClick={confirmParty}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
+                Continue <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
         {step === 1 && (
@@ -538,11 +650,23 @@ export default function PlannerPage() {
     const saved = getCookie(PREFS_COOKIE)
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as Preferences
+        const parsed = JSON.parse(saved) as Partial<Preferences>
         // Require a startDate that is today or later; otherwise discard so the
         // user is re-prompted (we never want to plan against a stale past date).
         const validDate = parsed.startDate && parsed.startDate >= todayYMD()
-        if (parsed.group && parsed.interests?.length && parsed.duration && parsed.budget && validDate) setPrefs(parsed)
+        if (parsed.group && parsed.interests?.length && parsed.duration && parsed.budget && validDate) {
+          // Backfill adults/children for cookies written before this field existed.
+          const party = defaultPartyFor(parsed.group)
+          setPrefs({
+            group: parsed.group,
+            interests: parsed.interests,
+            duration: parsed.duration,
+            budget: parsed.budget,
+            startDate: parsed.startDate!,
+            adults: typeof parsed.adults === "number" && parsed.adults >= 1 ? parsed.adults : party.adults,
+            children: typeof parsed.children === "number" && parsed.children >= 0 ? parsed.children : party.children,
+          })
+        }
       } catch { /* ignore */ }
     }
     setHydrated(true)
@@ -566,6 +690,65 @@ export default function PlannerPage() {
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall({ toolCall }) {
       if (toolCall.dynamic) return
+      if (toolCall.toolName === "updatePreferences") {
+        // AI-driven preference update from chat. We read the latest
+        // prefs SYNCHRONOUSLY from prefsRef (not the React state captured
+        // in this closure) so the snapshot we hand back to the model is
+        // always current — React's setState is async and the next auto
+        // tool-loop request fires immediately after addToolOutput, so a
+        // stale snapshot would silently desync model state from the UI.
+        const patch = toolCall.input as Partial<Preferences>
+        const base: Preferences = prefsRef.current ?? EMPTY_PREFS
+
+        // Per-field merge with strict validation.
+        const next: Preferences = {
+          group: typeof patch.group === "string" && patch.group ? patch.group : base.group,
+          interests: Array.isArray(patch.interests) ? patch.interests.slice(0, 3) : base.interests,
+          duration: typeof patch.duration === "string" && patch.duration ? patch.duration : base.duration,
+          budget: typeof patch.budget === "string" && patch.budget ? patch.budget : base.budget,
+          startDate: typeof patch.startDate === "string" && patch.startDate ? patch.startDate : base.startDate,
+          adults: typeof patch.adults === "number" && patch.adults >= 1 ? Math.min(20, patch.adults) : base.adults,
+          children: typeof patch.children === "number" && patch.children >= 0 ? Math.min(20, patch.children) : base.children,
+        }
+        // When the group changes, snap any OMITTED party-size field to
+        // the sensible default for the new group — independently for
+        // adults and children. (Previously this only fired when BOTH
+        // were omitted, which left stale kids hanging around after e.g.
+        // family → couple transitions.)
+        if (patch.group && patch.group !== base.group) {
+          const d = defaultPartyFor(patch.group)
+          if (typeof patch.adults !== "number") next.adults = d.adults
+          if (typeof patch.children !== "number") next.children = d.children
+        }
+
+        // No-op short-circuit: skip churn if nothing actually changed.
+        const unchanged =
+          next.group === base.group &&
+          next.duration === base.duration &&
+          next.budget === base.budget &&
+          next.startDate === base.startDate &&
+          next.adults === base.adults &&
+          next.children === base.children &&
+          next.interests.length === base.interests.length &&
+          next.interests.every((v, i) => v === base.interests[i])
+
+        if (!unchanged) {
+          prefsRef.current = next
+          setPrefs(next)
+          try { setCookie(PREFS_COOKIE, JSON.stringify(next)) } catch { /* ignore */ }
+        }
+
+        addToolOutput({
+          tool: "updatePreferences",
+          toolCallId: toolCall.toolCallId,
+          output: {
+            ok: true,
+            unchanged,
+            preferences: next,
+          } as never,
+        })
+        return
+      }
       if (toolCall.toolName === "addToCart") {
         const { tripId } = toolCall.input as { tripId: string; tripTitle: string }
         // Resolve from static catalog first, then from the most recent searchTrips
@@ -702,6 +885,12 @@ export default function PlannerPage() {
   // Same staleness issue for the DB-hydrated catalog — mirror it into a ref.
   const allTripsRef = useRef<Trip[]>(staticTripsFallback)
   useEffect(() => { allTripsRef.current = allTrips }, [allTrips])
+  // Latest prefs snapshot — read synchronously by the updatePreferences
+  // tool handler so the merged value it returns to the model is never
+  // stale (React state updates are async, but the tool-loop fires the
+  // next request immediately after addToolOutput).
+  const prefsRef = useRef<Preferences | null>(null)
+  useEffect(() => { prefsRef.current = prefs }, [prefs])
   const isStreaming = status === "streaming" || status === "submitted"
   const showResults = resultTrips.length > 0
 
