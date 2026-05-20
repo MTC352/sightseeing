@@ -584,7 +584,7 @@ export default function PlannerPage() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* ───── LEFT: Chat Sidebar ───── */}
-        <div className={`flex flex-col border-r border-border bg-card transition-all duration-300 ${sidebarOpen ? "w-full sm:w-96" : "w-0 overflow-hidden"}`}>
+        <div className={`flex flex-col border-r border-border bg-card transition-all duration-300 ${sidebarOpen ? "w-full sm:w-80 lg:w-96" : "w-0 overflow-hidden"}`}>
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2">
@@ -897,16 +897,16 @@ export default function PlannerPage() {
 
         {/* ───── CENTER: Results Area ───── */}
         <div className="relative flex-1 overflow-y-auto">
-          {/* Mobile toggles */}
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background/95 px-4 py-2 backdrop-blur-sm sm:hidden">
-            {!sidebarOpen && (
+          {/* Mobile / tablet toggles (chat hidden < sm, cart hidden < xl) */}
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur-sm xl:hidden">
+            {!sidebarOpen ? (
               <button type="button" onClick={() => setSidebarOpen(true)}
-                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground">
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground sm:hidden">
                 <PanelLeftOpen className="h-4 w-4" /> Chat
               </button>
-            )}
+            ) : <span className="sm:hidden" />}
             <button type="button" onClick={() => setCartOpen(true)}
-              className="relative flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground">
+              className="relative ml-auto flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground">
               <ShoppingBag className="h-4 w-4" /> My Trip
               {totalItems > 0 && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">{totalItems}</span>}
             </button>
@@ -916,7 +916,7 @@ export default function PlannerPage() {
 
           {!showResults ? (
             /* ── Welcome / Waiting ── */
-            <div className="px-6 py-8 lg:px-10 lg:py-12">
+            <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-12">
               <div className={`rounded-2xl bg-gradient-to-br ${wx === "rainy" ? "from-blue-50 to-slate-100" : wx === "sunny" ? "from-amber-50 to-orange-50" : "from-slate-50 to-sky-50"} p-5 lg:p-6`}>
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-4">
@@ -928,15 +928,15 @@ export default function PlannerPage() {
                       <p className="text-sm text-muted-foreground">{condition} in Luxembourg</p>
                     </div>
                   </div>
-                  <div className="flex gap-5 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1.5"><Droplets className="h-3.5 w-3.5 text-blue-400" />{humidity}%</span>
                     <span className="flex items-center gap-1.5"><Wind className="h-3.5 w-3.5 text-sky-400" />{wind} km/h</span>
                     <span className="flex items-center gap-1.5"><Thermometer className="h-3.5 w-3.5 text-red-400" />Feels {temp - 2}°C</span>
                   </div>
                 </div>
               </div>
-              <div className="mt-8 max-w-3xl">
-                <h1 className="text-balance text-3xl font-bold text-foreground lg:text-4xl">
+              <div className="mt-6 max-w-3xl sm:mt-8">
+                <h1 className="text-balance text-2xl font-bold text-foreground sm:text-3xl lg:text-4xl">
                   {prefs ? "Finding your perfect trips..." : "Plan your perfect day"}<br />
                   <span className="text-primary">in Luxembourg</span>
                 </h1>
@@ -947,7 +947,7 @@ export default function PlannerPage() {
                 </p>
               </div>
               {!prefs && (
-                <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                <div className="mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:gap-4 lg:grid-cols-3">
                   {[
                     { icon: Sparkles, title: "AI-Powered", desc: "Smart recommendations based on your preferences" },
                     { icon: CloudSun, title: "Weather-Aware", desc: "Adapts to current conditions automatically" },
@@ -1061,7 +1061,7 @@ export default function PlannerPage() {
         </div>
 
         {/* ───── RIGHT: Cart (desktop) ───── */}
-        <div className="hidden w-72 flex-col border-l border-border bg-card lg:flex xl:w-80">
+        <div className="hidden w-72 flex-col border-l border-border bg-card xl:flex 2xl:w-80">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3">
             <ShoppingBag className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold text-foreground">My Trip</span>
@@ -1072,9 +1072,9 @@ export default function PlannerPage() {
           </div>
         </div>
 
-        {/* Mobile cart drawer — full width */}
+        {/* Mobile / tablet cart drawer — full width */}
         {cartOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="fixed inset-0 z-50 xl:hidden">
             <div className="absolute inset-0 bg-foreground/40" onClick={() => setCartOpen(false)} onKeyDown={() => {}} role="button" tabIndex={0} aria-label="Close cart" />
             <div className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-96">
               <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
