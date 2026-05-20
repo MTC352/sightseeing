@@ -103,3 +103,52 @@ Initial database schema design. No database created yet — this entry documents
 ---
 
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
+
+---
+
+## v1.1.0 — 2026-05-20
+
+### Summary
+
+Database provisioned and live in Replit PostgreSQL. All tables from the v1.0.0 design exist plus two additional tables (`departures`, `ai_prompt_revisions`) that were introduced during implementation. Initial content seeded via `scripts/seed-db.mjs` (5 tables) and admin UI activity. Framework version corrected to Next.js 16 in architecture docs.
+
+### Changes
+
+**Schema creation**
+- **DATABASE CREATED** — Replit PostgreSQL instance provisioned; all tables created (schema creation is separate from the seed script)
+- **NEW TABLE** `departures` — departure schedule rows for the `/departures` page; not in the v1.0.0 design; added during implementation (see `lib/db/queries.ts` for column definitions)
+- **NEW TABLE** `ai_prompt_revisions` — append-only log of AI system prompt edits for rollback support; created automatically on first use via `ensureRevisionsTable()` in `lib/db/queries.ts`
+
+**Seed data loaded via `scripts/seed-db.mjs`** (seeds 5 tables only)
+- **SEED DATA** `admin_users` — 1 superadmin row (`admin@sightseeing.lu`, bcrypt 12-round hash for `Admin1234!`, role `superadmin`)
+- **SEED DATA** `trips` — trip rows seeded from inline data in the script (Palisis catalog)
+- **SEED DATA** `blog_posts` — 2 initial blog posts seeded
+- **SEED DATA** `jobs` — 3 initial job listings seeded
+- **SEED DATA** `help_articles` — 17 FAQ articles seeded across 5 categories (Booking, Payments, Cancellation, Accessibility, General)
+
+**Other tables populated separately** (via admin UI or runtime application behaviour, not by seed-db.mjs)
+- `pages` — 10 system pages (home, about, explore, search, planner, departures, blog, careers, help, checkout) with `is_system_page = TRUE`
+- `ai_system_configs` — rows for `planner`, `chat`, `help` system keys (plus `itinerary` and `blog` added during implementation)
+- `integrations` — initial 8 API key slots (openWeather, mapbox, anthropic, openai, palisis, weglot, googlePlaceId, googleReviews); additional runtime configuration keys are written by the application as needed (e.g. `palisis_auto_sync`, `departing_soon_*`, `lmd_*`)
+- `header_footer_blocks` — 5 blocks (announcement_banner, head_scripts, chat_widget, analytics, cookie_consent); all disabled by default
+
+**Documentation**
+- **DOC UPDATE** `docs/database-architecture.md` — status updated from "Design only" to "Live"; Next.js version corrected from 14 to 16; Section 10 updated to reflect completed migration and accurate seed-db.mjs scope
+
+### Migration SQL
+
+```sql
+-- Schema was created separately from the seed script (via Replit DB tooling or direct SQL).
+-- To reseed initial content data into an existing schema, run:
+--   node scripts/seed-db.mjs
+-- This script seeds only: admin_users, trips, blog_posts, jobs, help_articles.
+-- Other tables (pages, ai_system_configs, integrations, header_footer_blocks)
+-- require the admin UI or separate SQL to populate initial rows.
+```
+
+### Notes
+
+- `scripts/seed-db.mjs` does NOT create the database schema — it only inserts data into tables that already exist. Schema creation must be handled separately.
+- The `integrations` table acts as a general key/value settings store beyond API keys; the app writes runtime configuration keys automatically, so the row count grows as features are used.
+- All public-facing pages (`/blog`, `/careers`, `/explore`, `/departures`, `/trip/[id]`) read from the live database.
+- The `help` page still uses hardcoded `FAQ_DATA` in `HelpClient` for AI chat complexity reasons — tracked as a known remaining item.

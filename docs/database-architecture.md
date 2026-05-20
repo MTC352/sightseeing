@@ -1,8 +1,8 @@
 # sightseeing.lu — Database Architecture
 
-> **Status:** Design only — no database created yet.
-> **Target:** PostgreSQL (Replit-hosted or Neon)
-> **Last updated:** 2026-04-23
+> **Status:** Live — all 16 tables created and seeded in Replit PostgreSQL.
+> **Target:** PostgreSQL (Replit-hosted)
+> **Last updated:** 2026-05-20
 > **Changelog:** See [`database-changelog.md`](./database-changelog.md)
 
 ---
@@ -40,7 +40,7 @@
 
 ## 1. Platform Overview
 
-**sightseeing.lu** is a Next.js 14 (App Router) tourism discovery and booking platform for Luxembourg. It has two surfaces:
+**sightseeing.lu** is a Next.js 16 (App Router) tourism discovery and booking platform for Luxembourg. It has two surfaces:
 
 | Surface | Auth | Data source |
 |---|---|---|
@@ -732,7 +732,11 @@ The frontend cart is stored entirely in the browser — no database involvement.
 
 ## 10. Migration Notes
 
-When the database is created, follow this order to respect foreign key dependencies:
+> **Status as of 2026-05-20:** The database is live in Replit PostgreSQL. All tables from this document exist plus two additional tables added during implementation — `departures` and `ai_prompt_revisions` — which are not yet fully documented in this file (see changelog v1.1.0).
+
+### Table creation order (for re-creation in a new environment)
+
+Create in this order to respect foreign key dependencies:
 
 ```
 1. admin_users
@@ -751,14 +755,18 @@ When the database is created, follow this order to respect foreign key dependenc
 14. ai_system_configs
 15. integrations
 16. header_footer_blocks
+17. departures
+18. ai_prompt_revisions  (auto-created at runtime by ensureRevisionsTable())
 ```
 
-After table creation, run seed scripts to populate:
-- System pages in `pages` (10 built-in rows)
-- Default AI configs in `ai_system_configs` (3 rows)
-- Integration key slots in `integrations` (8 rows, values empty)
-- Header/footer blocks in `header_footer_blocks` (5 rows, all disabled)
-- Trip data migrated from `lib/data.ts` (43 seed trips)
-- Help articles from `lib/admin-store.ts` seedHelp() (17 articles)
-- Blog posts from `lib/admin-store.ts` blogStore seed (2 posts)
-- Jobs from `lib/admin-store.ts` jobsStore seed (3 listings)
+### Seeding
+
+`scripts/seed-db.mjs` seeds **5 tables only**: `admin_users`, `trips`, `blog_posts`, `jobs`, `help_articles`. It does **not** create the schema and does **not** seed the remaining tables.
+
+Other tables are populated via:
+- **Admin UI** — `pages` (system pages), `ai_system_configs` (AI system rows), `header_footer_blocks`
+- **Runtime application behaviour** — `integrations` (keys are upserted by the app as features are used), `ai_prompt_revisions` (created on first prompt edit)
+
+### Future schema changes
+
+For every schema change, append a new versioned entry to `docs/database-changelog.md` and run the migration SQL against the live database before deploying code that depends on the new schema.
