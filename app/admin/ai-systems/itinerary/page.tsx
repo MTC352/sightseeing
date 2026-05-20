@@ -21,6 +21,7 @@ interface ItineraryForm {
   maxTokens: number
   showCarWidget: boolean
   showHotelWidget: boolean
+  maxMultiDayDays: number
 }
 
 const DEFAULTS: ItineraryForm = {
@@ -31,6 +32,7 @@ const DEFAULTS: ItineraryForm = {
   maxTokens: 2048,
   showCarWidget: true,
   showHotelWidget: true,
+  maxMultiDayDays: 2,
 }
 
 export default function ItineraryAiPage() {
@@ -54,6 +56,9 @@ export default function ItineraryAiPage() {
           maxTokens: typeof data?.maxTokens === "number" ? data.maxTokens : prev.maxTokens,
           showCarWidget: data?.showCarWidget !== false,
           showHotelWidget: data?.showHotelWidget !== false,
+          maxMultiDayDays: typeof data?.maxMultiDayDays === "number" && data.maxMultiDayDays >= 2
+            ? Math.min(14, Math.floor(data.maxMultiDayDays))
+            : prev.maxMultiDayDays,
         }))
       })
       .catch(() => setError("Could not load current settings."))
@@ -96,11 +101,12 @@ export default function ItineraryAiPage() {
         </button>
         <div className="flex-1">
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">AI Systems</p>
-          <h1 className="mt-1 text-2xl font-bold text-foreground">Manage Itinerary</h1>
+          <h1 className="mt-1 text-2xl font-bold text-foreground">Manage Trip Planner</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Controls the Smart Itinerary builder on /planner. Live Palisis timeslots, trip metadata and the visitor&apos;s
-            chosen date are always injected at runtime — your prompt sees them as <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[11px]">{"{{tripMenuLines}}"}</code>,
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[11px]">{"{{visitDate}}"}</code> etc.
+            Controls the Smart Itinerary builder on /planner. Live Palisis timeslots, trip metadata, the visitor&apos;s
+            chosen date and their saved preferences are always injected at runtime — your prompt sees them as <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[11px]">{"{{tripMenuLines}}"}</code>,
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[11px]">{"{{visitDate}}"}</code>,
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[11px]">{"{{visitorProfile}}"}</code> etc.
           </p>
         </div>
         <button
@@ -172,6 +178,32 @@ export default function ItineraryAiPage() {
             placeholder="Generate 3-5 short practical tips for the visitor's day…"
             disabled={loading}
           />
+        </div>
+
+        {/* Multi-day trip cap */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Route className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Multi-day trip — max days</h2>
+          </div>
+          <p className="mb-3 text-[11px] text-muted-foreground">
+            Controls the maximum number of days a visitor can pick when they choose &quot;Multi-day trip&quot; in
+            the planner onboarding. Range: 2–14. Default: 2.
+          </p>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={2}
+              max={14}
+              step={1}
+              value={form.maxMultiDayDays}
+              onChange={(e) => setForm((f) => ({ ...f, maxMultiDayDays: Math.max(2, Math.min(14, parseInt(e.target.value) || 2)) }))}
+              className={`${inputClass} max-w-[120px]`}
+              disabled={loading}
+              aria-label="Maximum multi-day days"
+            />
+            <span className="text-xs text-muted-foreground">days</span>
+          </div>
         </div>
 
         {/* Cross-sell widgets */}

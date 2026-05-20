@@ -40,6 +40,9 @@ export async function PUT(req: Request) {
       ? Math.max(256, Math.min(8192, Math.floor(data.maxTokens)))
       : undefined
 
+    const maxMultiDayDays = typeof data.maxMultiDayDays === "number"
+      ? Math.max(2, Math.min(14, Math.floor(data.maxMultiDayDays)))
+      : undefined
     await dbUpdateItineraryConfig({
       systemPrompt: typeof data.systemPrompt === "string" ? data.systemPrompt : undefined,
       tipsPrompt: typeof data.tipsPrompt === "string" ? data.tipsPrompt : undefined,
@@ -48,6 +51,7 @@ export async function PUT(req: Request) {
       maxTokens,
       showCarWidget: data.showCarWidget !== false,
       showHotelWidget: data.showHotelWidget !== false,
+      maxMultiDayDays,
     })
     const s = await dbGetSettings()
     return NextResponse.json(s.itineraryBehavior ?? {})

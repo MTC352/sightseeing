@@ -1,7 +1,12 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
-import { Bot, ChevronRight, MessageSquare, HelpCircle, Map, TriangleAlert, FlaskConical, PenLine, Route } from "lucide-react"
+import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route } from "lucide-react"
 
+// The legacy "Trip Planner" (planner) card was removed — its DB row stays
+// because /api/planner still reads behaviour-knob defaults from there, but
+// the user-facing day-plan settings now live under "Manage Trip Planner"
+// (the renamed itinerary card) and the chat conversation settings live
+// under "Trip Chat".
 const SYSTEM_META: Record<string, { label: string; description: string; icon: typeof Bot; href: string }> = {
   blog: {
     label: "Blog Content Generator",
@@ -9,15 +14,9 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
     icon: PenLine,
     href: "/admin/ai-systems/blog",
   },
-  planner: {
-    label: "Trip Planner",
-    description: "Conversational AI that recommends and builds itineraries. Shown on /planner.",
-    icon: Map,
-    href: "/admin/ai-systems/planner",
-  },
   itinerary: {
-    label: "Manage Itinerary",
-    description: "Prompt, model, tips text and cross-sell widgets (Cars / Hotels) for the Smart Itinerary on /planner. Uses live Palisis timeslots.",
+    label: "Manage Trip Planner",
+    description: "Prompt, model, tips text, cross-sell widgets and multi-day max-days cap for the Smart Itinerary on /planner. Uses live Palisis timeslots.",
     icon: Route,
     href: "/admin/ai-systems/itinerary",
   },

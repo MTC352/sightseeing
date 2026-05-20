@@ -403,10 +403,18 @@ export function SidebarItinerary({ onOpenItinerary, existingItinerary }: Sidebar
         duration: i.trip.duration,
         category: i.trip.category,
       }))
+      // Forward the visitor's saved preferences (group, party size, interests,
+      // budget, duration, multi-day count) so the AI can tailor the day plan
+      // — without these the itinerary builder was scheduling generically.
+      let preferences: Record<string, unknown> | null = null
+      try {
+        const raw = document.cookie.split("; ").find((c) => c.startsWith("sightseeing_prefs="))
+        if (raw) preferences = JSON.parse(decodeURIComponent(raw.split("=").slice(1).join("=")))
+      } catch { /* ignore — preferences are optional */ }
       const res = await fetch("/api/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trips, startDate: dateForRun }),
+        body: JSON.stringify({ trips, startDate: dateForRun, preferences }),
       })
       const data = await res.json().catch(() => null) as
         | (Itinerary & { error?: string; message?: string })

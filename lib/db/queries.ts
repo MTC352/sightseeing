@@ -589,6 +589,9 @@ export async function dbGetSettings() {
     tipsPrompt: '',
     showCarWidget: true,
     showHotelWidget: true,
+    // Max-days cap for the planner onboarding "Multi-day trip" option.
+    // 2..14 (clamped). Surfaced publicly via /api/planner/form-config.
+    maxMultiDayDays: 2,
   }
   for (const r of aiRows as Record<string, unknown>[]) {
     ai[r.system_key as string] = {
@@ -624,7 +627,7 @@ export async function dbGetSettings() {
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
-  const { systemPrompt, model, temperature, maxTokens, tipsPrompt, showCarWidget, showHotelWidget } = data as {
+  const { systemPrompt, model, temperature, maxTokens, tipsPrompt, showCarWidget, showHotelWidget, maxMultiDayDays } = data as {
     systemPrompt?: string
     model?: string
     temperature?: number
@@ -632,12 +635,32 @@ export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
     tipsPrompt?: string
     showCarWidget?: boolean
     showHotelWidget?: boolean
+    maxMultiDayDays?: number
   }
-  const extra = {
-    tipsPrompt: tipsPrompt ?? '',
-    showCarWidget: showCarWidget !== false,
-    showHotelWidget: showHotelWidget !== false,
+  // Non-destructive extra_config merge — read existing row first so unknown
+  // / future keys, and any field omitted from this PUT, are preserved
+  // instead of being reset to defaults on every partial update.
+  const existingRow = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'itinerary'`
+  )
+  const existing: Record<string, unknown> = (existingRow?.extra_config && typeof existingRow.extra_config === 'object')
+    ? existingRow.extra_config as Record<string, unknown>
+    : {}
+
+  const extra: Record<string, unknown> = { ...existing }
+  if (typeof tipsPrompt === 'string') extra.tipsPrompt = tipsPrompt
+  if (typeof showCarWidget === 'boolean') extra.showCarWidget = showCarWidget
+  if (typeof showHotelWidget === 'boolean') extra.showHotelWidget = showHotelWidget
+  if (typeof maxMultiDayDays === 'number' && Number.isFinite(maxMultiDayDays)) {
+    extra.maxMultiDayDays = Math.max(2, Math.min(14, Math.floor(maxMultiDayDays)))
   }
+  // Backfill defaults only for fields completely absent from both the
+  // incoming PUT and the existing row.
+  if (typeof extra.tipsPrompt !== 'string') extra.tipsPrompt = ''
+  if (typeof extra.showCarWidget !== 'boolean') extra.showCarWidget = true
+  if (typeof extra.showHotelWidget !== 'boolean') extra.showHotelWidget = true
+  if (typeof extra.maxMultiDayDays !== 'number') extra.maxMultiDayDays = 2
+
   await query(`
     INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config)
     VALUES ('itinerary', 'Manage Itinerary',

@@ -53,8 +53,10 @@ interface Preferences {
   adults: number
   /** Number of children in the party (≥0). Only meaningful for family/friends. */
   children: number
+  /** Number of days when duration === "multi-day" (1..maxMultiDayDays, admin-managed). */
+  dayCount: number
 }
-const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "", adults: 1, children: 0 }
+const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "", adults: 1, children: 0, dayCount: 1 }
 /** Returns sensible defaults for adults/children when the user picks a group. */
 function defaultPartyFor(group: string): { adults: number; children: number } {
   if (group === "solo") return { adults: 1, children: 0 }
@@ -112,6 +114,7 @@ const DURATION_OPTIONS = [
   { value: "1-2h", label: "1-2 hours" },
   { value: "half-day", label: "Half day" },
   { value: "full-day", label: "Full day" },
+  { value: "multi-day", label: "Multi-day trip" },
 ]
 const BUDGET_OPTIONS = [
   { value: "casual", label: "Keep it casual" },
@@ -184,9 +187,13 @@ function PartyStepper({
 /* ────────────────────────────────────── */
 /* ONBOARDING                              */
 /* ────────────────────────────────────── */
-function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }) {
+function Onboarding({ onComplete, maxMultiDayDays }: { onComplete: (prefs: Preferences) => void; maxMultiDayDays: number }) {
   const [step, setStep] = useState(0)
   const [prefs, setPrefs] = useState<Preferences>(EMPTY_PREFS)
+  // Sub-step inside step 2: when "Multi-day trip" is picked we ask for
+  // the number of days (1..maxMultiDayDays, admin-managed) before
+  // advancing to budget.
+  const [askDays, setAskDays] = useState(false)
   // Sub-step inside step 0: when Family/Friends is picked we ask for an
   // Adults + Children count before advancing to interests. Solo/Couple
   // skip this entirely (party-size is implied).
@@ -219,8 +226,20 @@ function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }
     })
   }
   function selectDuration(value: string) {
-    setPrefs((p) => ({ ...p, duration: value }))
-    setTimeout(() => setStep(3), 200)
+    setPrefs((p) => ({ ...p, duration: value, dayCount: value === "multi-day" ? Math.max(2, p.dayCount || 2) : 1 }))
+    if (value === "multi-day") {
+      setAskDays(true)
+    } else {
+      setAskDays(false)
+      setTimeout(() => setStep(3), 200)
+    }
+  }
+  function bumpDays(delta: number) {
+    setPrefs((p) => ({ ...p, dayCount: Math.max(2, Math.min(maxMultiDayDays, (p.dayCount || 2) + delta)) }))
+  }
+  function confirmDays() {
+    setAskDays(false)
+    setStep(3)
   }
   function selectBudget(value: string) {
     const updated = { ...prefs, budget: value }
@@ -323,14 +342,40 @@ function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }
             </button>
           </div>
         )}
-        {step === 2 && (
+        {step === 2 && !askDays && (
           <div className="flex flex-col gap-2">
             {DURATION_OPTIONS.map((opt) => (
               <button key={opt.value} type="button" onClick={() => selectDuration(opt.value)}
                 className={`flex items-center gap-3 rounded-xl border-2 px-4 py-3.5 text-sm font-medium transition-all ${prefs.duration === opt.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-foreground hover:border-primary/30"}`}>
                 <Clock className="h-5 w-5 shrink-0" /><span>{opt.label}</span>
+                {opt.value === "multi-day" && (
+                  <span className="ml-auto text-[10px] text-muted-foreground">up to {maxMultiDayDays} days</span>
+                )}
               </button>
             ))}
+          </div>
+        )}
+        {step === 2 && askDays && (
+          <div className="flex flex-col gap-3">
+            <PartyStepper
+              label="Number of days"
+              sub={`2 to ${maxMultiDayDays} days`}
+              icon={<Calendar className="h-5 w-5" />}
+              value={prefs.dayCount || 2}
+              min={2}
+              onDec={() => bumpDays(-1)}
+              onInc={() => bumpDays(+1)}
+            />
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button type="button" onClick={() => { setAskDays(false); setPrefs((p) => ({ ...p, duration: "", dayCount: 1 })) }}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground">
+                ← Back
+              </button>
+              <button type="button" onClick={confirmDays}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
+                Continue <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
         {step === 3 && (
@@ -442,6 +487,23 @@ export default function PlannerPage() {
   /* State */
   const [prefs, setPrefs] = useState<Preferences | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  // Max number of days the user can pick for a Multi-day trip. Admin-managed
+  // in /admin/ai-systems/itinerary (default 2). Loaded once on mount from
+  // the public /api/planner/form-config endpoint so admin changes flow
+  // through without a deploy.
+  const [maxMultiDayDays, setMaxMultiDayDays] = useState(2)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/planner/form-config", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { maxMultiDayDays?: number } | null) => {
+        if (cancelled || !data) return
+        const v = Number(data.maxMultiDayDays)
+        if (Number.isFinite(v) && v >= 2 && v <= 14) setMaxMultiDayDays(v)
+      })
+      .catch(() => { /* keep default 2 */ })
+    return () => { cancelled = true }
+  }, [])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [cartOpen, setCartOpen] = useState(false)
   const [input, setInput] = useState("")
@@ -665,6 +727,11 @@ export default function PlannerPage() {
             startDate: parsed.startDate!,
             adults: typeof parsed.adults === "number" && parsed.adults >= 1 ? parsed.adults : party.adults,
             children: typeof parsed.children === "number" && parsed.children >= 0 ? parsed.children : party.children,
+            // Backfill dayCount for legacy cookies. If duration is multi-day
+            // and no count was stored, default to 2.
+            dayCount: typeof parsed.dayCount === "number" && parsed.dayCount >= 1
+              ? parsed.dayCount
+              : (parsed.duration === "multi-day" ? 2 : 1),
           })
         }
       } catch { /* ignore */ }
@@ -685,8 +752,28 @@ export default function PlannerPage() {
     [prefs, cartSummary]
   )
 
-  const { messages, sendMessage, addToolOutput, status } = useChat<PlannerMessage>({
+  // ── Chat persistence ──
+  // Restore prior conversation from localStorage so a hard refresh doesn't
+  // lose the chat. Keyed under v1 so we can bump the schema later.
+  const CHAT_STORAGE_KEY = "sightseeing_chat_v1"
+  const initialMessagesRef = useRef<PlannerMessage[]>([])
+  const messagesRestoredRef = useRef(false)
+  if (!messagesRestoredRef.current && typeof window !== "undefined") {
+    messagesRestoredRef.current = true
+    try {
+      const raw = window.localStorage.getItem(CHAT_STORAGE_KEY)
+      if (raw) {
+        const saved = JSON.parse(raw) as PlannerMessage[]
+        if (Array.isArray(saved) && saved.length > 0) {
+          initialMessagesRef.current = saved
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  const { messages, sendMessage, addToolOutput, status, setMessages } = useChat<PlannerMessage>({
     transport,
+    messages: initialMessagesRef.current,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall({ toolCall }) {
       if (toolCall.dynamic) return
@@ -709,6 +796,14 @@ export default function PlannerPage() {
           startDate: typeof patch.startDate === "string" && patch.startDate ? patch.startDate : base.startDate,
           adults: typeof patch.adults === "number" && patch.adults >= 1 ? Math.min(20, patch.adults) : base.adults,
           children: typeof patch.children === "number" && patch.children >= 0 ? Math.min(20, patch.children) : base.children,
+          // Preserve / clamp dayCount on AI-driven updates. If the AI is
+          // switching to multi-day, snap to at least 2 days; switching
+          // away from multi-day collapses back to 1.
+          dayCount: typeof patch.dayCount === "number" && patch.dayCount >= 1
+            ? Math.min(14, Math.floor(patch.dayCount))
+            : (patch.duration === "multi-day"
+                ? Math.max(2, base.dayCount || 2)
+                : (patch.duration && patch.duration !== "multi-day" ? 1 : base.dayCount)),
         }
         // When the group changes, snap any OMITTED party-size field to
         // the sensible default for the new group — independently for
@@ -773,8 +868,24 @@ export default function PlannerPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
   }, [messages, status])
 
+  /* Persist messages whenever they change — survives hard refresh. */
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      if (messages.length > 0) {
+        window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages))
+      } else {
+        window.localStorage.removeItem(CHAT_STORAGE_KEY)
+      }
+    } catch { /* quota / privacy-mode — silently skip */ }
+  }, [messages, CHAT_STORAGE_KEY])
+
   /* Send initial message after onboarding */
   const didSendInitial = useRef(false)
+  // If we restored prior chat history from localStorage on mount, do NOT
+  // re-fire the "Find the best trips for me…" seed message — otherwise
+  // every refresh would tack a duplicate onto the bottom of the chat.
+  if (initialMessagesRef.current.length > 0) didSendInitial.current = true
   useEffect(() => {
     if (hydrated && prefs && !didSendInitial.current && messages.length === 0 && status === "ready") {
       didSendInitial.current = true
@@ -796,6 +907,12 @@ export default function PlannerPage() {
     setPrefs(null)
     didSendInitial.current = false
     document.cookie = `${PREFS_COOKIE}=;path=/;max-age=0`
+    // Clear persisted chat history too — a fresh onboarding shouldn't show
+    // the previous visitor's conversation in the background.
+    try {
+      window.localStorage.removeItem(CHAT_STORAGE_KEY)
+      setMessages([])
+    } catch { /* ignore */ }
   }
 
   /* ── Extract trips from AI Gen UI tool results ── */
@@ -1003,7 +1120,7 @@ export default function PlannerPage() {
           </div>
 
           {!prefs ? (
-            <Onboarding onComplete={handleOnboardingComplete} />
+            <Onboarding onComplete={handleOnboardingComplete} maxMultiDayDays={maxMultiDayDays} />
           ) : (
             <>
               {/* Preference pills */}

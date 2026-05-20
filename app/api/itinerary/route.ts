@@ -213,12 +213,37 @@ function addDays(ymd: string, n: number): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(dt)
 }
 
+interface IncomingPreferences {
+  group?: string
+  interests?: string[]
+  duration?: string
+  budget?: string
+  adults?: number
+  children?: number
+  dayCount?: number
+}
+
 export async function POST(req: Request) {
   try {
-    const { trips, startDate } = await req.json() as { trips: TripInput[]; startDate?: string }
+    const { trips, startDate, preferences } = await req.json() as {
+      trips: TripInput[]
+      startDate?: string
+      preferences?: IncomingPreferences | null
+    }
     if (!trips?.length) {
       return Response.json({ error: "No trips provided" }, { status: 400 })
     }
+    // Normalise visitor preferences (all optional — older clients won't send them).
+    const prefs: Required<IncomingPreferences> = {
+      group: typeof preferences?.group === "string" ? preferences.group : "",
+      interests: Array.isArray(preferences?.interests) ? preferences!.interests!.slice(0, 6) : [],
+      duration: typeof preferences?.duration === "string" ? preferences.duration : "",
+      budget: typeof preferences?.budget === "string" ? preferences.budget : "",
+      adults: typeof preferences?.adults === "number" && preferences.adults >= 1 ? Math.min(20, preferences.adults) : 1,
+      children: typeof preferences?.children === "number" && preferences.children >= 0 ? Math.min(20, preferences.children) : 0,
+      dayCount: typeof preferences?.dayCount === "number" && preferences.dayCount >= 1 ? Math.min(14, Math.floor(preferences.dayCount)) : 1,
+    }
+    const isMultiDay = prefs.duration === "multi-day" && prefs.dayCount >= 2
 
     const today = localTodayYMD()
     const parsedDate = parseStrictYMD(startDate)
@@ -418,28 +443,53 @@ ${slotLines}`
       tripMenuLines,
       unavailableLines,
       mealBreaksBlock,
+      visitorProfile: (() => {
+        // Compact visitor profile that the prompt can read via {{visitorProfile}}.
+        // Empty preference fields are omitted so the AI doesn't anchor on "unknown".
+        const lines: string[] = []
+        if (prefs.group) lines.push(`- Group type: ${prefs.group}`)
+        const partySize = prefs.adults + prefs.children
+        if (partySize > 0) {
+          lines.push(`- Party size: ${prefs.adults} adult${prefs.adults === 1 ? "" : "s"}${prefs.children > 0 ? `, ${prefs.children} child${prefs.children === 1 ? "" : "ren"}` : ""} (${partySize} total)`)
+        }
+        if (prefs.interests.length) lines.push(`- Interests: ${prefs.interests.join(", ")}`)
+        if (prefs.budget) lines.push(`- Budget: ${prefs.budget}`)
+        if (prefs.duration) {
+          lines.push(`- Trip length: ${prefs.duration}${isMultiDay ? ` (${prefs.dayCount} days)` : ""}`)
+        }
+        return lines.length ? lines.join("\n") : "- No saved preferences (use sensible defaults)."
+      })(),
+      tripDayPlanRule: isMultiDay
+        ? `MULTI-DAY MODE (${prefs.dayCount} days starting {{visitDate}}): Spread the cart trips across ${prefs.dayCount} consecutive days. Group trips for the SAME day together and prefix each group's first step with a Markdown heading like "Day 1 — {{visitDate}}" inside its "title" field. Use the visit date for day 1; for later days assume the SAME timeslot pattern is available (you only have day-1 slots, but it's reasonable to plan the same morning/afternoon shape on subsequent days). Try hard to include EVERY cart trip across the whole multi-day plan before dropping any.`
+        : `SINGLE-DAY MODE: Sequence ALL cart trips into ONE day if at all possible. Only drop a trip if there is genuinely no non-overlapping slot combination that fits within the day window — and if you do drop one, mention it in the summary so the visitor knows.`,
     }
     const fillPlaceholders = (template: string): string =>
       template.replace(/\{\{(\w+)\}\}/g, (_m, k) => placeholders[k] ?? "")
 
-    const DEFAULT_BUILD_TEMPLATE = `You are a Luxembourg travel planner. Build a RELAXED, REALISTIC day itinerary using ONLY the live timeslots provided below.
+    const DEFAULT_BUILD_TEMPLATE = `You are a Luxembourg travel planner. Build a RELAXED, REALISTIC itinerary using ONLY the live timeslots provided below.
 
 VISIT DATE: {{visitPretty}} ({{visitDate}})
 Day window: {{dayStartTime}} – {{dayEndTime}}
 Travel mode between stops: {{travelMethodLabel}}
 Buffer between activities: {{bufferTimeBetweenStops}} minutes
-Maximum stops: {{maxStopsPerDay}}
+Maximum stops per day: {{maxStopsPerDay}}
+
+VISITOR PROFILE — tailor pacing, restaurant suggestions and tone to this:
+{{visitorProfile}}
 
 CART TRIPS WITH LIVE TIMESLOTS (from Palisis datesndeals/search.xml):
 
 {{tripMenuLines}}{{unavailableLines}}
+
+DAY-PLAN RULE:
+{{tripDayPlanRule}}
 
 HARD RULES — you MUST obey:
 1. For every step, the "time" field MUST be one of the listed timeslot start times for that trip — verbatim, HH:MM. Never invent a time.
 2. Copy the matching slot's end time into "endTime", its price (e.g. "€25.00") into "priceFrom", and "spacesRemaining" verbatim (may be "UNLIMITED").
 3. Sequence chosen slots so they DON'T overlap and the next start time is at least (previous activity duration + {{bufferTimeBetweenStops}} min buffer + realistic {{travelMethodLabel}} travel) after the previous start.
 4. Prefer geographic proximity when sequencing — same-city trips first, then adjacent areas.
-5. If two trips conflict (no non-overlapping combination of their available slots fits in the day window), prefer the better-fitting slots and drop the impossible one from the steps list.
+5. INCLUDE EVERY CART TRIP. Do not silently drop a trip just because slots are tight — push it into a later time of day, swap to a different available slot, or (in multi-day mode) move it to a different day. Only drop a trip as an absolute last resort, and if you do drop one you MUST name it in the summary together with the reason.
 6. NEVER include any trip from "TRIPS WITHOUT AVAILABILITY" — those have no real slots on this date.
 7. Set tripId exactly as given in brackets.
 
@@ -713,10 +763,12 @@ ${tipsInstructions}`
           // derive the real end from `finalDuration` so the timeline math
           // (and the "Confirmed: 10:00 - 11:30" label) is meaningful.
           const slotStartMin = toMinutes(chosen.startTime)
-          const slotEndMin = toMinutes(chosen.endTime)
+          // LiveSlot.endTime is nullable when Palisis didn't return one —
+          // treat that as "derive it" rather than passing null into toMinutes.
+          const slotEndMin = chosen.endTime ? toMinutes(chosen.endTime) : -1
           const needsDerivedEnd =
-            slotEndMin < 0 || slotEndMin <= slotStartMin || slotEndMin - slotStartMin < finalDuration * 0.5
-          const endTime = needsDerivedEnd ? addMinutes(chosen.startTime, finalDuration) : chosen.endTime
+            !chosen.endTime || slotEndMin < 0 || slotEndMin <= slotStartMin || slotEndMin - slotStartMin < finalDuration * 0.5
+          const endTime = needsDerivedEnd ? addMinutes(chosen.startTime, finalDuration) : chosen.endTime!
 
           const travelMinutes = parseTravelMinutes(s.travelToNext)
           const details = tripDetailsById.get(s.tripId)
@@ -807,6 +859,54 @@ ${tipsInstructions}`
         }),
       )
 
+      // ─── Enforce "include every cart trip" ───
+      // The prompt asks the model to include every cart trip, but we don't
+      // trust prose alone — if the AI silently dropped a bookable trip we
+      // append it here using its earliest non-conflicting slot. Dropped
+      // trips are also surfaced in the response so the UI can flag them
+      // even when we can't auto-recover.
+      const presentTripIds = new Set(reconciledSteps.map((s) => s.tripId))
+      const droppedByAi: { tripId: string; title: string; reason: string }[] = []
+      for (const a of bookable) {
+        if (presentTripIds.has(a.trip.id)) continue
+        // Try to find a slot whose key isn't already used by another step.
+        const fallback = a.slots.find((sl) => !takenKeys.has(sl.componentKey)) ?? a.slots[0]
+        if (!fallback) {
+          droppedByAi.push({ tripId: a.trip.id, title: a.trip.title, reason: "no live slots available" })
+          continue
+        }
+        takenKeys.add(fallback.componentKey)
+        const dur = parseDurationMinutes(a.trip.duration, defaultActivityDuration)
+        const slotStartMin = toMinutes(fallback.startTime)
+        const slotEndMin = fallback.endTime ? toMinutes(fallback.endTime) : -1
+        const needsDerivedEnd = !fallback.endTime || slotEndMin < 0 || slotEndMin <= slotStartMin
+        const endTime = needsDerivedEnd ? addMinutes(fallback.startTime, dur) : fallback.endTime!
+        const details = tripDetailsById.get(a.trip.id)
+        // Cast to the shape that matches existing reconciledSteps entries.
+        const appended = {
+          tripId: a.trip.id,
+          title: a.trip.title,
+          time: fallback.startTime,
+          endTime,
+          priceFrom: fallback.totalPriceDisplay ?? fallback.totalPrice ?? null,
+          spacesRemaining: fallback.spacesRemaining,
+          durationMinutes: dur,
+          travelMinutes: 0,
+          travelToNext: null,
+          tripHighlights: details?.highlights ?? [],
+          tripNotes: details?.notes ?? "",
+          tripCity: details?.city ?? "",
+          tripLocation: details?.location ?? "",
+          breakAfter: null,
+        } as unknown as typeof reconciledSteps[number]
+        reconciledSteps.push(appended)
+        droppedByAi.push({ tripId: a.trip.id, title: a.trip.title, reason: "auto-added — AI omitted" })
+      }
+      // Re-sort if we appended anything so the timeline stays chronological.
+      if (droppedByAi.length > 0) {
+        reconciledSteps.sort((a, b) => toMinutes(a.time) - toMinutes(b.time))
+      }
+
       // Apply admin widget toggles: if disabled, force-hide regardless of
       // what the AI recommended.
       const carSuggestion = showCarWidget
@@ -826,6 +926,7 @@ ${tipsInstructions}`
         alternativeDates,
         scanDays: SCAN_DAYS,
         widgets: { showCarWidget, showHotelWidget },
+        autoFilledTrips: droppedByAi,
       })
     } catch (aiErr) {
       console.error("[itinerary] AI generation failed:", aiErr)
