@@ -55,14 +55,25 @@ interface SightseeingMapProps {
   visible?: boolean
   /** When true, forces the map to exit fullscreen so a sibling overlay (e.g. the itinerary panel) is not obscured. */
   suppressFullscreen?: boolean
+  /**
+   * Ordered list of trips making up the user's day itinerary. When present:
+   *   - Replaces the generic price pins with numbered 1..N pins in stop order.
+   *   - Draws a connecting route polyline between stops (Mapbox driving directions).
+   *   - Auto-fits bounds to the itinerary instead of the search results.
+   * Pass [] or undefined to fall back to normal trips-mode rendering.
+   */
+  itineraryTrips?: Trip[]
 }
 
-export function SightseeingMap({ trips, onSelect, visible = true, suppressFullscreen = false }: SightseeingMapProps) {
+export function SightseeingMap({ trips, onSelect, visible = true, suppressFullscreen = false, itineraryTrips }: SightseeingMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapboxRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
   const photoMarkersRef = useRef<any[]>([])
+  const itineraryMarkersRef = useRef<any[]>([])
+  const tokenRef = useRef<string>("")
+  const itineraryMode = !!(itineraryTrips && itineraryTrips.length > 0)
 
   const [selected, setSelected] = useState<Trip | null>(null)
   const [selectedSpot, setSelectedSpot] = useState<PhotoSpot | null>(null)
@@ -97,6 +108,7 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
 
         mapboxgl.accessToken = token
         mapboxRef.current = mapboxgl
+        tokenRef.current = token
 
         const map = new mapboxgl.Map({
           container: containerRef.current,
@@ -128,7 +140,9 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     }
   }, [])
 
-  // Sync trip markers when trips or map readiness changes
+  // Sync trip markers when trips or map readiness changes.
+  // In itinerary-mode we hide these generic price pins so the numbered
+  // itinerary pins (rendered by the effect below) own the visual.
   useEffect(() => {
     const map = mapRef.current
     const mapboxgl = mapboxRef.current
@@ -136,6 +150,8 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
 
     markersRef.current.forEach((m) => m.remove())
     markersRef.current = []
+
+    if (itineraryMode) return
 
     trips.forEach((trip, i) => {
       const [lng, lat] = tripToCoords(trip, i)
@@ -159,7 +175,110 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
       const [lng, lat] = tripToCoords(trips[0], 0)
       map.flyTo({ center: [lng, lat], zoom: 13, duration: 600 })
     }
-  }, [trips, mapReady])
+  }, [trips, mapReady, itineraryMode])
+
+  // ─── Itinerary markers + route polyline ────────────────────────────────
+  // Draws numbered stop pins (1..N) and a driving route polyline between
+  // them whenever `itineraryTrips` is provided. Re-runs when the plan
+  // changes. Uses the Mapbox Directions API client-side (the public token
+  // is already loaded) so we don't need a new backend endpoint.
+  useEffect(() => {
+    const map = mapRef.current
+    const mapboxgl = mapboxRef.current
+    if (!map || !mapboxgl || !mapReady) return
+
+    // Clear any prior itinerary markers / route
+    itineraryMarkersRef.current.forEach((m) => m.remove())
+    itineraryMarkersRef.current = []
+    if (map.getLayer("itinerary-route-line")) map.removeLayer("itinerary-route-line")
+    if (map.getLayer("itinerary-route-casing")) map.removeLayer("itinerary-route-casing")
+    if (map.getSource("itinerary-route")) map.removeSource("itinerary-route")
+
+    if (!itineraryTrips || itineraryTrips.length === 0) return
+
+    const coords: [number, number][] = itineraryTrips.map((t, i) => tripToCoords(t, i))
+
+    // Numbered pins
+    itineraryTrips.forEach((trip, i) => {
+      const [lng, lat] = coords[i]
+      const el = document.createElement("button")
+      el.className = "sightseeing-map-itinerary-pin"
+      el.setAttribute("aria-label", `Stop ${i + 1}: ${trip.title}`)
+      el.innerHTML = `<span>${i + 1}</span>`
+      el.addEventListener("click", () => {
+        setSelected((prev) => (prev?.id === trip.id ? null : trip))
+        setSelectedSpot(null)
+      })
+      const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+        .setLngLat([lng, lat])
+        .addTo(map)
+      itineraryMarkersRef.current.push(marker)
+    })
+
+    // Fit bounds to the itinerary
+    if (coords.length > 1) {
+      const bounds = new mapboxgl.LngLatBounds()
+      coords.forEach((c) => bounds.extend(c))
+      map.fitBounds(bounds, { padding: 60, maxZoom: 13, duration: 600 })
+    } else {
+      map.flyTo({ center: coords[0], zoom: 13, duration: 600 })
+    }
+
+    // Route polyline (best-effort: if Directions fails, fall back to a
+    // straight line so users still see the sequence). Mapbox Directions
+    // caps each request at 25 waypoints, which is well above any
+    // realistic day-trip plan.
+    let cancelled = false
+    const drawRoute = async (geometry: GeoJSON.Geometry) => {
+      // Re-check `cancelled` AFTER any await chain so two rapid
+      // plan-rebuilds can't both reach `addSource` and crash Mapbox
+      // with "Source already exists".
+      if (cancelled || !mapRef.current || !mapReady) return
+      const m = mapRef.current
+      if (m.getSource("itinerary-route")) return
+      if (cancelled) return
+      m.addSource("itinerary-route", {
+        type: "geojson",
+        data: { type: "Feature", properties: {}, geometry },
+      })
+      m.addLayer({
+        id: "itinerary-route-casing",
+        type: "line",
+        source: "itinerary-route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.9 },
+      })
+      m.addLayer({
+        id: "itinerary-route-line",
+        type: "line",
+        source: "itinerary-route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#16a34a", "line-width": 3.5, "line-opacity": 0.95 },
+      })
+    }
+
+    if (coords.length >= 2 && tokenRef.current) {
+      const path = coords.map(([lng, lat]) => `${lng},${lat}`).join(";")
+      const url =
+        `https://api.mapbox.com/directions/v5/mapbox/driving/${path}` +
+        `?geometries=geojson&overview=full&access_token=${encodeURIComponent(tokenRef.current)}`
+      fetch(url)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          const g = data?.routes?.[0]?.geometry
+          if (g) {
+            void drawRoute(g)
+          } else {
+            void drawRoute({ type: "LineString", coordinates: coords })
+          }
+        })
+        .catch(() => { void drawRoute({ type: "LineString", coordinates: coords }) })
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [itineraryTrips, mapReady])
 
   // Sync photo spot markers
   useEffect(() => {

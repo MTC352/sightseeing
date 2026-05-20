@@ -365,11 +365,13 @@ export default function PlannerPage() {
   const handleOpenItinerary = useCallback((itinerary: Itinerary) => {
     setCenterItinerary(itinerary)
     setCenterItineraryOpen(true)
-    // Auto-close the cart drawer so the full-screen itinerary modal
-    // isn't visually obscured by (or stacked under) the right-side cart
-    // panel — happens when "View Itinerary" is clicked from inside the
-    // drawer on small / medium viewports.
-    setCartOpen(false)
+    // On mobile/tablet the right-side cart drawer is the only surface
+    // that can host the itinerary panel — make sure it's open so the
+    // panel is actually visible after build / view.
+    setCartOpen(true)
+    // Auto-expand the map so the route + numbered pins are visible
+    // immediately when the plan lands.
+    setMapExpanded(true)
   }, [])
   const handleCloseItinerary = useCallback(() => {
     // Hide the modal but keep the data — so View Itinerary stays
@@ -391,6 +393,24 @@ export default function PlannerPage() {
     () => [...items.map((i) => i.trip.id)].sort().join(","),
     [items],
   )
+
+  // Ordered list of Trip objects matching the itinerary's steps — fed to
+  // the map so it can render numbered pins (1..N) and connect them with
+  // a driving route polyline. Only shown while the itinerary panel is
+  // actually open so closing the panel returns the map to "search
+  // results" mode.
+  const itineraryMapTrips = useMemo<Trip[] | undefined>(() => {
+    if (!centerItinerary || !centerItineraryOpen) return undefined
+    const byId = new Map<string, Trip>()
+    for (const t of allTrips) byId.set(t.id, t)
+    for (const ci of items) byId.set(ci.trip.id, ci.trip)
+    const out: Trip[] = []
+    for (const s of centerItinerary.steps) {
+      const t = byId.get(s.tripId)
+      if (t) out.push(t)
+    }
+    return out.length > 0 ? out : undefined
+  }, [centerItinerary, centerItineraryOpen, allTrips, items])
 
   // Set of trip ids currently in the cart — used by the drift guard
   // below to test "is every itinerary step still represented in the
@@ -1223,7 +1243,13 @@ export default function PlannerPage() {
                 </button>
                 {/* Keep map mounted always so Mapbox persists and fitBounds fires immediately on result changes */}
                 <div className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
-                  <SightseeingMap trips={resultTrips} onSelect={handleTripSelect} visible={mapExpanded} suppressFullscreen={!!centerItinerary} />
+                  <SightseeingMap
+                    trips={resultTrips}
+                    onSelect={handleTripSelect}
+                    visible={mapExpanded}
+                    suppressFullscreen={!!centerItinerary}
+                    itineraryTrips={itineraryMapTrips}
+                  />
                 </div>
               </div>
 
@@ -1249,71 +1275,67 @@ export default function PlannerPage() {
           )}
         </div>
 
-        {/* ───── RIGHT: Cart (desktop) ───── */}
-        <div className="hidden w-72 flex-col border-l border-border bg-card xl:flex 2xl:w-80">
-          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-            <ShoppingBag className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">My Trip</span>
-          </div>
-          {/* Scrollable trip list */}
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <TripCart />
-          </div>
-          {/* Smart Itinerary pinned to the bottom — stays visible while the
-              trip list scrolls so users never lose the Build Itinerary CTA. */}
-          <div className="shrink-0">
-            <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
-          </div>
-        </div>
-
-        {/* Mobile / tablet cart drawer — full width */}
-        {cartOpen && (
-          <div className="fixed inset-0 z-50 xl:hidden">
-            <div className="absolute inset-0 bg-foreground/40" onClick={() => setCartOpen(false)} onKeyDown={() => {}} role="button" tabIndex={0} aria-label="Close cart" />
-            <div className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-96">
-              <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <ShoppingBag className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-semibold text-foreground">My Trip</span>
-                </div>
-                <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
-                  <X className="h-4 w-4" />
-                </button>
+        {/* ───── RIGHT: Cart / Itinerary panel (desktop) ─────
+            When the user clicks "View Itinerary", we swap this column
+            from the cart view to the live ItineraryPanel so they can
+            keep chatting on the left while interacting with the plan.
+            Closing the itinerary returns to the cart view — the plan
+            data stays in centerItinerary / localStorage. */}
+        <div className="hidden w-80 flex-col border-l border-border bg-card xl:flex 2xl:w-[420px]">
+          {centerItinerary && centerItineraryOpen ? (
+            <ItineraryPanel
+              itinerary={centerItinerary}
+              onClose={handleCloseItinerary}
+              onRegenerate={handleRegenerateItinerary}
+              regenerating={itineraryRegenerating}
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <ShoppingBag className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold text-foreground">My Trip</span>
               </div>
-              {/* Scrollable trip list */}
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <TripCart />
               </div>
-              {/* Sticky Smart Itinerary CTA at the bottom of the drawer */}
               <div className="shrink-0">
                 <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
               </div>
-            </div>
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
-        {/* ── Full-screen Itinerary Modal ──
-            Renders on EVERY screen size so the View Itinerary button is
-            never a no-op (the previous lg-only overlay left the panel
-            invisible on narrower viewports — including the Replit preview
-            iframe — and let underlying search results bleed through). */}
-        {centerItinerary && centerItineraryOpen && (
-          <div className="fixed inset-0 z-[70] flex items-stretch justify-center bg-foreground/50 backdrop-blur-sm sm:items-center sm:p-4">
-            <div
-              className="absolute inset-0"
-              role="button"
-              tabIndex={0}
-              aria-label="Close itinerary"
-              onClick={handleCloseItinerary}
-              onKeyDown={(e) => { if (e.key === "Escape" || e.key === "Enter") handleCloseItinerary() }}
-            />
-            <div className="relative z-[1] flex h-full w-full flex-col overflow-hidden bg-card shadow-2xl sm:h-[min(90vh,860px)] sm:max-w-2xl sm:rounded-2xl">
-              <ItineraryPanel
-                itinerary={centerItinerary}
-                onClose={handleCloseItinerary}
-                onRegenerate={handleRegenerateItinerary}
-                regenerating={itineraryRegenerating}
-              />
+        {/* Mobile / tablet cart drawer — same swap logic, same surface */}
+        {cartOpen && (
+          <div className="fixed inset-0 z-50 xl:hidden">
+            <div className="absolute inset-0 bg-foreground/40" onClick={() => setCartOpen(false)} onKeyDown={() => {}} role="button" tabIndex={0} aria-label="Close cart" />
+            <div className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-[420px]">
+              {centerItinerary && centerItineraryOpen ? (
+                <ItineraryPanel
+                  itinerary={centerItinerary}
+                  onClose={handleCloseItinerary}
+                  onRegenerate={handleRegenerateItinerary}
+                  regenerating={itineraryRegenerating}
+                />
+              ) : (
+                <>
+                  <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <ShoppingBag className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold text-foreground">My Trip</span>
+                    </div>
+                    <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <TripCart />
+                  </div>
+                  <div className="shrink-0">
+                    <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
