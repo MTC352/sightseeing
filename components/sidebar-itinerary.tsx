@@ -1010,13 +1010,19 @@ export function ItineraryPanel({
                 const toLabel = leg?.toLabel || nextStep.tripLocation || nextStep.tripCity || nextStep.tripTitle
                 const unavailableCopy = (() => {
                   if (has) return null
-                  if (leg?.reason === "no_token") {
+                  // No leg attached at all → this is a stale cached itinerary
+                  // generated before we added live travel times. Tell the
+                  // user to rebuild instead of showing a misleading error.
+                  if (!leg) {
+                    return "Travel times not in this saved plan — tap Rebuild to fetch live driving / walking times."
+                  }
+                  if (leg.reason === "no_token") {
                     return "Travel time unavailable — add a Mapbox public access token in Admin → Integrations to enable live driving / walking times."
                   }
-                  if (leg?.reason === "no_geocode") {
+                  if (leg.reason === "no_geocode") {
                     return "Travel time unavailable — one of these trips is missing GPS coordinates on its catalogue record."
                   }
-                  return "Travel time unavailable — could not reach the routing service. Try again in a moment."
+                  return "Travel time unavailable — the routing service returned an error. Check the Mapbox token's URL restrictions in your Mapbox account."
                 })()
                 return (
                   <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 px-3.5 py-2.5 text-xs">
@@ -1056,13 +1062,14 @@ export function ItineraryPanel({
                         <span className="font-semibold text-foreground/70">{fmt(leg?.transitMin ?? null, "min")}</span>
                         <span className="text-[10px] text-muted-foreground">by transit</span>
                       </span>
-                      {leg?.walkMin !== null && leg?.walkMin !== undefined && leg.walkMin <= 60 && (
-                        <span className="flex items-center gap-1.5">
-                          <Route className="h-3.5 w-3.5 text-primary/70" />
-                          <span className="font-semibold text-foreground">{leg.walkMin} min</span>
-                          <span className="text-[10px] text-muted-foreground">walking</span>
-                        </span>
-                      )}
+                      {/* Walking is ALWAYS shown so the user can choose
+                          their mode of transport — even if it's a long
+                          walk we let them see the number and decide. */}
+                      <span className="flex items-center gap-1.5">
+                        <Route className="h-3.5 w-3.5 text-primary/70" />
+                        <span className="font-semibold text-foreground">{fmt(leg?.walkMin ?? null, "min")}</span>
+                        <span className="text-[10px] text-muted-foreground">walking</span>
+                      </span>
                     </div>
                     {unavailableCopy && (
                       <p className="mt-1.5 text-[10.5px] leading-snug text-muted-foreground/80">

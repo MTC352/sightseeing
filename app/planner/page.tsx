@@ -337,6 +337,12 @@ export default function PlannerPage() {
   const [mapExpanded, setMapExpanded] = useState(false)
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "up" | "down">>({})
   const [centerItinerary, setCenterItinerary] = useState<Itinerary | null>(null)
+  // Visibility of the full-screen modal is now decoupled from the
+  // itinerary DATA. Closing the modal previously cleared centerItinerary,
+  // which (a) wiped localStorage and (b) flipped the sidebar back to
+  // "Build" even though the plan was already built. We now only flip
+  // this flag on close and keep the data intact for re-opening / reload.
+  const [centerItineraryOpen, setCenterItineraryOpen] = useState(false)
   const [itineraryRegenerating, setItineraryRegenerating] = useState(false)
   const itineraryRestoredRef = useRef(false)
   // Dynamic trips catalog — hydrated from DB on mount.
@@ -358,6 +364,17 @@ export default function PlannerPage() {
 
   const handleOpenItinerary = useCallback((itinerary: Itinerary) => {
     setCenterItinerary(itinerary)
+    setCenterItineraryOpen(true)
+    // Auto-close the cart drawer so the full-screen itinerary modal
+    // isn't visually obscured by (or stacked under) the right-side cart
+    // panel — happens when "View Itinerary" is clicked from inside the
+    // drawer on small / medium viewports.
+    setCartOpen(false)
+  }, [])
+  const handleCloseItinerary = useCallback(() => {
+    // Hide the modal but keep the data — so View Itinerary stays
+    // available and the plan survives page refreshes.
+    setCenterItineraryOpen(false)
   }, [])
 
   /* ─── Itinerary persistence ───
@@ -375,42 +392,55 @@ export default function PlannerPage() {
     [items],
   )
 
-  const itineraryCartFingerprint = useMemo(() => {
-    if (!centerItinerary) return null
-    return [...centerItinerary.steps.map((s) => s.tripId)].sort().join(",")
-  }, [centerItinerary])
+  // Set of trip ids currently in the cart — used by the drift guard
+  // below to test "is every itinerary step still represented in the
+  // cart?" instead of comparing fingerprints, which would falsely fire
+  // any time the AI picked only a subset of cart trips (perfectly normal
+  // — e.g. a closed venue gets excluded).
+  const cartTripIdSet = useMemo(() => new Set(items.map((i) => i.trip.id)), [items])
 
   // Restore on mount (once cart hydrated).
   useEffect(() => {
     if (!cartHydrated || !hydrated || itineraryRestoredRef.current) return
     itineraryRestoredRef.current = true
     try {
-      const raw = window.localStorage.getItem("sightseeing_itinerary_v1")
+      // v2 bumped: legacy entries (v1) didn't include the live travelLeg
+      // data, so reading them back would render misleading "routing
+      // service error" copy. The old key is best-effort cleared too.
+      try { window.localStorage.removeItem("sightseeing_itinerary_v1") } catch { /* ignore */ }
+      const raw = window.localStorage.getItem("sightseeing_itinerary_v2")
       if (!raw) return
       const saved = JSON.parse(raw) as { itinerary: Itinerary }
       const it = saved?.itinerary
       if (!it?.steps?.length) {
-        window.localStorage.removeItem("sightseeing_itinerary_v1")
+        window.localStorage.removeItem("sightseeing_itinerary_v2")
         return
       }
       const savedFp = [...it.steps.map((s) => s.tripId)].sort().join(",")
       if (savedFp === cartFingerprint) {
         setCenterItinerary(it)
       } else {
-        window.localStorage.removeItem("sightseeing_itinerary_v1")
+        window.localStorage.removeItem("sightseeing_itinerary_v2")
       }
     } catch {
-      try { window.localStorage.removeItem("sightseeing_itinerary_v1") } catch { /* ignore */ }
+      try { window.localStorage.removeItem("sightseeing_itinerary_v2") } catch { /* ignore */ }
     }
   }, [cartHydrated, hydrated, cartFingerprint])
 
-  // Drift guard — clear only if the cart contents no longer match.
+  // Drift guard — clear ONLY when the user actively removes a trip
+  // from the cart that the itinerary depended on. Previously this
+  // compared full fingerprints, which incorrectly fired whenever the
+  // AI built a plan with fewer trips than the cart held (e.g. it
+  // dropped a venue that was closed on the chosen date) — so the
+  // freshly-built itinerary was nuked the instant it landed and the
+  // "Build → View" button silently snapped back to "Build".
   useEffect(() => {
-    if (!itineraryRestoredRef.current || !centerItinerary || !itineraryCartFingerprint) return
-    if (itineraryCartFingerprint !== cartFingerprint) {
+    if (!itineraryRestoredRef.current || !centerItinerary) return
+    const stillRepresented = centerItinerary.steps.every((s) => cartTripIdSet.has(s.tripId))
+    if (!stillRepresented) {
       setCenterItinerary(null)
     }
-  }, [centerItinerary, itineraryCartFingerprint, cartFingerprint])
+  }, [centerItinerary, cartTripIdSet])
 
   // Persist whenever the itinerary changes — always keyed by the itinerary's
   // own self-fingerprint, never the (possibly drifted) cart fingerprint.
@@ -419,11 +449,11 @@ export default function PlannerPage() {
     try {
       if (centerItinerary) {
         window.localStorage.setItem(
-          "sightseeing_itinerary_v1",
+          "sightseeing_itinerary_v2",
           JSON.stringify({ itinerary: centerItinerary }),
         )
       } else {
-        window.localStorage.removeItem("sightseeing_itinerary_v1")
+        window.localStorage.removeItem("sightseeing_itinerary_v2")
       }
     } catch { /* quota / privacy-mode — silently skip */ }
   }, [centerItinerary])
@@ -432,13 +462,13 @@ export default function PlannerPage() {
   // element currently has focus (the backdrop's local onKeyDown only fires
   // when the backdrop itself is focused, which is rare in practice).
   useEffect(() => {
-    if (!centerItinerary) return
+    if (!centerItineraryOpen) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setCenterItinerary(null)
+      if (e.key === "Escape") setCenterItineraryOpen(false)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [centerItinerary])
+  }, [centerItineraryOpen])
 
   const handleRegenerateItinerary = useCallback(async () => {
     setItineraryRegenerating(true)
@@ -1267,20 +1297,20 @@ export default function PlannerPage() {
             never a no-op (the previous lg-only overlay left the panel
             invisible on narrower viewports — including the Replit preview
             iframe — and let underlying search results bleed through). */}
-        {centerItinerary && (
+        {centerItinerary && centerItineraryOpen && (
           <div className="fixed inset-0 z-[70] flex items-stretch justify-center bg-foreground/50 backdrop-blur-sm sm:items-center sm:p-4">
             <div
               className="absolute inset-0"
               role="button"
               tabIndex={0}
               aria-label="Close itinerary"
-              onClick={() => setCenterItinerary(null)}
-              onKeyDown={(e) => { if (e.key === "Escape" || e.key === "Enter") setCenterItinerary(null) }}
+              onClick={handleCloseItinerary}
+              onKeyDown={(e) => { if (e.key === "Escape" || e.key === "Enter") handleCloseItinerary() }}
             />
             <div className="relative z-[1] flex h-full w-full flex-col overflow-hidden bg-card shadow-2xl sm:h-[min(90vh,860px)] sm:max-w-2xl sm:rounded-2xl">
               <ItineraryPanel
                 itinerary={centerItinerary}
-                onClose={() => setCenterItinerary(null)}
+                onClose={handleCloseItinerary}
                 onRegenerate={handleRegenerateItinerary}
                 regenerating={itineraryRegenerating}
               />

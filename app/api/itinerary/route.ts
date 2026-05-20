@@ -586,6 +586,9 @@ ${tipsInstructions}`
       // "lat,lng" strings. Returns null on any failure / missing inputs so
       // the UI can show "—" instead of a fabricated number. Public transit
       // is not supported by Mapbox and is reported back as null too.
+      // IMPORTANT: `settings` earlier in this handler is shadowed to
+      // `allSettings.plannerBehavior`, so the apiKeys map lives on the
+      // top-level allSettings object — that's what we must read here.
       const mapboxToken =
         process.env.mapbox ||
         process.env.MAPBOX ||
@@ -594,7 +597,7 @@ ${tipsInstructions}`
         process.env.NEXT_PUBLIC_MAPBOX ||
         process.env.NEXT_PUBLIC_MAPBOX_TOKEN ||
         process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
-        settings?.apiKeys?.mapbox ||
+        (allSettings?.apiKeys as Record<string, string> | undefined)?.mapbox ||
         ""
 
       const parseLatLng = (s: string): { lat: number; lng: number } | null => {
@@ -631,12 +634,17 @@ ${tipsInstructions}`
             `${from.lng},${from.lat};${to.lng},${to.lat}` +
             `?access_token=${encodeURIComponent(mapboxToken)}&overview=false&geometries=geojson`
           const res = await fetch(url, { cache: "no-store" })
-          if (!res.ok) return null
+          if (!res.ok) {
+            const body = await res.text().catch(() => "")
+            console.warn(`[itinerary] mapbox ${profile} ${res.status}: ${body.slice(0, 200)}`)
+            return null
+          }
           const data = await res.json() as { routes?: Array<{ duration: number; distance: number }> }
           const r = data?.routes?.[0]
           if (!r) return null
           return { durationSec: r.duration, distanceM: r.distance }
-        } catch {
+        } catch (err) {
+          console.warn(`[itinerary] mapbox ${profile} fetch failed:`, err)
           return null
         }
       }
