@@ -532,11 +532,17 @@ ${tipsInstructions}`
         ...trips.map((t) => t.id),
         ...palisisIds.filter((p): p is string => Boolean(p)),
       ]))
-      const tripDetailsById = new Map<string, { highlights: string[]; notes: string }>()
+      const tripDetailsById = new Map<string, {
+        highlights: string[]
+        notes: string
+        city: string
+        location: string
+      }>()
       if (tripIdsForDetails.length > 0) {
         try {
           const rows = (await query(
-            `SELECT id, palisis_id, highlights, essential_information, short_description
+            `SELECT id, palisis_id, highlights, essential_information, short_description,
+                    city, departure_location
                FROM trips
               WHERE id = ANY($1::text[]) OR palisis_id = ANY($1::text[])`,
             [tripIdsForDetails],
@@ -546,16 +552,20 @@ ${tipsInstructions}`
             highlights: string[] | null
             essential_information: string | null
             short_description: string | null
+            city: string | null
+            departure_location: string | null
           }>
           for (const row of rows) {
-            // Trim notes to a single readable line so the timeline stays tight.
-            const noteSrc = (row.essential_information || row.short_description || "").trim()
-            const notes = noteSrc.length > 160 ? noteSrc.slice(0, 157).trimEnd() + "..." : noteSrc
+            // Keep the full essential-info text — the UI applies a collapsible
+            // "Read more" once it crosses a length threshold.
+            const notes = (row.essential_information || row.short_description || "").trim()
             const entry = {
               highlights: Array.isArray(row.highlights)
-                ? row.highlights.filter((h): h is string => typeof h === "string" && h.trim() !== "").slice(0, 3)
+                ? row.highlights.filter((h): h is string => typeof h === "string" && h.trim() !== "").slice(0, 4)
                 : [],
               notes,
+              city: (row.city || "").trim(),
+              location: (row.departure_location || "").trim(),
             }
             tripDetailsById.set(row.id, entry)
             if (row.palisis_id) tripDetailsById.set(row.palisis_id, entry)
@@ -613,6 +623,8 @@ ${tipsInstructions}`
             travelMinutes,
             tripHighlights: details?.highlights ?? [],
             tripNotes: details?.notes ?? "",
+            tripCity: details?.city ?? "",
+            tripLocation: details?.location ?? "",
           }
         })
         // Final pass: sort chronologically so the timeline stays coherent even

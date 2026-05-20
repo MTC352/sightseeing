@@ -7,7 +7,7 @@ import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bus, Car, Building2, ArrowRight,
   Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
-  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info,
+  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin,
 } from "lucide-react"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"
 
@@ -105,8 +105,12 @@ interface ItineraryStep {
   spacesRemaining?: string | null
   /** Short "things to do" bullets pulled from the trip's highlights column */
   tripHighlights?: string[]
-  /** A single-line essential note pulled from the trip (truncated server-side) */
+  /** Full essential-info text (UI shows "Read more" past a threshold) */
   tripNotes?: string
+  /** City this stop is in — drives the small map pin under the title */
+  tripCity?: string
+  /** Optional precise departure address — preferred over city when present */
+  tripLocation?: string
 }
 
 interface UnavailableTrip {
@@ -680,9 +684,16 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
   const effectiveSnapped = hasLiveData ? null : snapped
   const displayTime = effectiveSnapped?.time ?? step.time
   const dayLabel = effectiveSnapped?.day === "tomorrow" ? "Tomorrow " : ""
+  const NOTE_PREVIEW_CHARS = 140
+  const noteIsLong = (step.tripNotes?.length ?? 0) > NOTE_PREVIEW_CHARS
+  const [noteExpanded, setNoteExpanded] = useState(false)
+  const notePreview = noteIsLong && !noteExpanded
+    ? (step.tripNotes ?? "").slice(0, NOTE_PREVIEW_CHARS).trimEnd() + "..."
+    : step.tripNotes ?? ""
+  const locationLabel = step.tripLocation || step.tripCity
   return (
     <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-bold text-primary">
           <span className="text-[10px] font-medium text-muted-foreground">
             {hasLiveData ? "Confirmed: " : effectiveSnapped ? "Recommended: " : "Suggested: "}
@@ -693,14 +704,22 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
             <span className="text-[11px] font-medium text-muted-foreground"> – {step.endTime}</span>
           )}
         </span>
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Clock className="h-3 w-3" />
+        {/* Duration — bumped to bold/foreground so it reads as a stat, not a footnote. */}
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-foreground">
+          <Clock className="h-3 w-3 text-muted-foreground" />
           {step.durationMinutes} min
         </span>
       </div>
-      <p className="mt-1 text-sm font-semibold text-foreground">{step.tripTitle}</p>
+      {/* Title — slightly larger so it dominates the card. */}
+      <p className="mt-1.5 text-[15px] font-bold leading-snug text-foreground">{step.tripTitle}</p>
+      {locationLabel && (
+        <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground" title={locationLabel}>
+          <MapPin className="h-3 w-3 text-primary/60" />
+          <span className="truncate">{locationLabel}</span>
+        </p>
+      )}
       {hasLiveData && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
           {step.priceFrom && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
               <Tag className="h-2.5 w-2.5" />
@@ -718,28 +737,39 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
           )}
         </div>
       )}
-      {/* Things to do — small bullet list pulled from the trip's highlights. */}
+      {/* Things to do — short bullet list pulled from the trip's highlights. */}
       {step.tripHighlights && step.tripHighlights.length > 0 && (
-        <div className="mt-2 border-t border-border/60 pt-2">
+        <div className="mt-2.5 border-t border-border/60 pt-2.5">
           <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             <Sparkles className="h-2.5 w-2.5 text-primary/70" />
             Things to do
           </div>
-          <ul className="mt-1 space-y-0.5">
+          <ul className="mt-1.5 space-y-1">
             {step.tripHighlights.map((h, i) => (
-              <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-muted-foreground">
-                <span className="mt-1 inline-block h-1 w-1 shrink-0 rounded-full bg-primary/60" />
+              <li key={i} className="flex gap-1.5 text-[11.5px] leading-snug text-foreground/80">
+                <span className="mt-[5px] inline-block h-1 w-1 shrink-0 rounded-full bg-primary/60" />
                 <span>{h}</span>
               </li>
             ))}
           </ul>
         </div>
       )}
-      {/* Important note — one trimmed line of essential info, only if present. */}
+      {/* Important note — collapsible "Read more" once it crosses the threshold. */}
       {step.tripNotes && (
-        <div className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50/50 px-2 py-1.5 text-[11px] leading-snug text-amber-900/80">
+        <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200/60 bg-amber-50/60 px-2 py-1.5 text-[11.5px] leading-snug text-amber-900/85">
           <Info className="mt-px h-3 w-3 shrink-0 text-amber-600" />
-          <span>{step.tripNotes}</span>
+          <span>
+            {notePreview}
+            {noteIsLong && (
+              <button
+                type="button"
+                onClick={() => setNoteExpanded((v) => !v)}
+                className="ml-1 inline font-semibold text-amber-700 underline decoration-amber-400/60 underline-offset-2 hover:text-amber-800"
+              >
+                {noteExpanded ? "Show less" : "Read more"}
+              </button>
+            )}
+          </span>
         </div>
       )}
       {/* Only show the today/tomorrow chip helper when we have no authoritative
@@ -881,33 +911,34 @@ export function ItineraryPanel({
                       </span>
                     </div>
                   )}
-                  <div className={`rounded-xl border p-3 ${
+                  <div className={`rounded-xl border-2 p-3 ${
                     step.breakAfter.type === "coffee"
-                      ? "border-amber-200/60 bg-amber-50/40"
-                      : "border-orange-200/60 bg-orange-50/40"
+                      ? "border-amber-300/70 bg-amber-50/70"
+                      : "border-orange-300/70 bg-orange-50/70"
                   }`}>
                     <div className="flex items-center gap-2">
                       {step.breakAfter.type === "coffee"
-                        ? <Coffee className="h-3.5 w-3.5 text-amber-600" />
-                        : <UtensilsCrossed className="h-3.5 w-3.5 text-orange-500" />
+                        ? <Coffee className="h-5 w-5 text-amber-600" />
+                        : <UtensilsCrossed className="h-5 w-5 text-orange-500" />
                       }
-                      <span className="text-xs font-semibold text-foreground">{step.breakAfter.label}</span>
-                      <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="text-sm font-bold text-foreground">{step.breakAfter.label}</span>
+                      <span className="ml-auto flex items-center gap-1 rounded-full bg-white/60 px-2 py-0.5 text-[11px] font-semibold text-foreground">
                         <Clock className="h-2.5 w-2.5" />
                         {step.breakAfter.durationMinutes} min
                       </span>
                     </div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    <p className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <MapPin className="h-3 w-3 text-foreground/40" />
                       {"Near " + step.breakAfter.location}
                     </p>
                     <Link
                       href={tripAdvisorUrl(step.breakAfter.location, step.breakAfter.type)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`mt-2 flex items-center gap-1.5 text-[11px] font-medium transition-colors ${
+                      className={`mt-2 inline-flex items-center gap-1.5 text-[11.5px] font-semibold underline underline-offset-2 transition-colors ${
                         step.breakAfter.type === "coffee"
-                          ? "text-amber-700 hover:text-amber-800"
-                          : "text-orange-600 hover:text-orange-700"
+                          ? "text-amber-700 decoration-amber-400 hover:text-amber-800"
+                          : "text-orange-600 decoration-orange-400 hover:text-orange-700"
                       }`}
                     >
                       <ExternalLink className="h-3 w-3" />
@@ -926,12 +957,12 @@ export function ItineraryPanel({
                   + step.travelMinutes. */}
               {step.travelToNext && (
                 <div className="ml-2 mt-2 space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
-                    <Bus className="h-3 w-3" />
-                    <span>{step.travelToNext}</span>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Bus className="h-3 w-3 text-primary/70" />
+                    <span className="font-semibold text-foreground/80">{step.travelToNext}</span>
                     {arrivalTime && (
-                      <span className="ml-auto text-[11px] tabular-nums text-muted-foreground/60">
-                        arrives by {arrivalTime}
+                      <span className="ml-auto text-[11px] font-medium tabular-nums text-foreground/70">
+                        arrives by <span className="font-semibold text-foreground">{arrivalTime}</span>
                       </span>
                     )}
                   </div>

@@ -325,7 +325,7 @@ function TripCard({ trip, onSelect }: { trip: Trip; onSelect: (trip: Trip) => vo
 export default function PlannerPage() {
   const wx = useMemo(deriveWx, [])
   const { temp, humidity, wind, condition } = weatherData.current
-  const { addItem, totalItems, items } = useCart()
+  const { addItem, totalItems, items, hydrated: cartHydrated } = useCart()
 
   /* State */
   const [prefs, setPrefs] = useState<Preferences | null>(null)
@@ -338,6 +338,7 @@ export default function PlannerPage() {
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "up" | "down">>({})
   const [centerItinerary, setCenterItinerary] = useState<Itinerary | null>(null)
   const [itineraryRegenerating, setItineraryRegenerating] = useState(false)
+  const itineraryRestoredRef = useRef(false)
   // Dynamic trips catalog — hydrated from DB on mount.
   // Bootstraps from the static seed so the first render isn't empty and so
   // the page still works if the DB endpoint is unreachable.
@@ -358,6 +359,87 @@ export default function PlannerPage() {
   const handleOpenItinerary = useCallback((itinerary: Itinerary) => {
     setCenterItinerary(itinerary)
   }, [])
+
+  /* ─── Itinerary persistence ───
+     Survives hard refresh by mirroring `centerItinerary` to localStorage.
+     A fingerprint is computed from the cart's sorted trip ids and the visit
+     date. Critically, the fingerprint is also derived from the itinerary
+     itself (its own steps + visitDate) so we can detect drift without
+     relying on `prefs.startDate` alone — the sidebar can change the visit
+     date independently via cookie, and the itinerary carries the
+     authoritative date the server actually planned for.
+
+     Rules:
+     - On mount: restore the saved itinerary only if its self-fingerprint
+       matches the current cart fingerprint.
+     - Live: whenever the cart or date drifts away from the itinerary's
+       self-fingerprint, drop the itinerary so we never show stale data
+       (and never re-save it under a fresh fingerprint by mistake). */
+  const computeFingerprint = useCallback((tripIds: string[], date: string) => {
+    return `${date}|${[...tripIds].sort().join(",")}`
+  }, [])
+
+  const currentFingerprint = useMemo(
+    () => computeFingerprint(items.map((i) => i.trip.id), prefs?.startDate || ""),
+    [items, prefs?.startDate, computeFingerprint],
+  )
+
+  const itinerarySelfFingerprint = useMemo(() => {
+    if (!centerItinerary) return null
+    const ids = centerItinerary.steps.map((s) => s.tripId)
+    return computeFingerprint(ids, centerItinerary.visitDate || prefs?.startDate || "")
+  }, [centerItinerary, prefs?.startDate, computeFingerprint])
+
+  // Restore on mount (once cart + prefs hydrated).
+  useEffect(() => {
+    if (!cartHydrated || !hydrated || itineraryRestoredRef.current) return
+    itineraryRestoredRef.current = true
+    try {
+      const raw = window.localStorage.getItem("sightseeing_itinerary_v1")
+      if (!raw) return
+      const saved = JSON.parse(raw) as { itinerary: Itinerary }
+      const it = saved?.itinerary
+      if (!it?.steps?.length) {
+        window.localStorage.removeItem("sightseeing_itinerary_v1")
+        return
+      }
+      const savedFp = computeFingerprint(
+        it.steps.map((s) => s.tripId),
+        it.visitDate || "",
+      )
+      if (savedFp === currentFingerprint) {
+        setCenterItinerary(it)
+      } else {
+        window.localStorage.removeItem("sightseeing_itinerary_v1")
+      }
+    } catch {
+      try { window.localStorage.removeItem("sightseeing_itinerary_v1") } catch { /* ignore */ }
+    }
+  }, [cartHydrated, hydrated, currentFingerprint, computeFingerprint])
+
+  // Drift guard — if the cart/date no longer matches the itinerary, clear it.
+  useEffect(() => {
+    if (!itineraryRestoredRef.current || !centerItinerary || !itinerarySelfFingerprint) return
+    if (itinerarySelfFingerprint !== currentFingerprint) {
+      setCenterItinerary(null)
+    }
+  }, [centerItinerary, itinerarySelfFingerprint, currentFingerprint])
+
+  // Persist whenever the itinerary changes — always keyed by the itinerary's
+  // own self-fingerprint, never the (possibly drifted) cart fingerprint.
+  useEffect(() => {
+    if (!itineraryRestoredRef.current) return
+    try {
+      if (centerItinerary) {
+        window.localStorage.setItem(
+          "sightseeing_itinerary_v1",
+          JSON.stringify({ itinerary: centerItinerary }),
+        )
+      } else {
+        window.localStorage.removeItem("sightseeing_itinerary_v1")
+      }
+    } catch { /* quota / privacy-mode — silently skip */ }
+  }, [centerItinerary])
 
   // Global ESC handler — closes the itinerary modal regardless of which
   // element currently has focus (the backdrop's local onKeyDown only fires

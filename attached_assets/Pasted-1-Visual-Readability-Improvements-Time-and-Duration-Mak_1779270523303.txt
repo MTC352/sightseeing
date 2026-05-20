@@ -1,0 +1,54 @@
+1. Visual & Readability Improvements
+Time and Duration
+Make the duration (e.g., 90 min) visually more distinct by slightly increasing font size or bolding it next to the clock icon.
+Activity Titles
+Slightly enlarge or accent the activity titles (e.g., “Entry Ticket to Chateau de Beaufort”) so they stand out from the “Things To Do” list.
+Things To Do
+Make long descriptions collapsible with a “Read more” toggle.
+Ensure the bulleted list is neatly spaced and visually separated from the title.
+Breaks (Lunch/Coffee)
+Use a different background shade or subtle border for breaks.
+Slightly enlarge the icon (fork/coffee) for instant recognition.
+Travel Time
+Add a subtle connector line or arrow between activities to represent travel.
+Bold or color the travel time (e.g., 15 min) for visibility.
+Pricing & Availability
+Highlight price with a colored badge (e.g., €8).
+Keep availability text subtle but legible.
+Spacing & Hierarchy
+Add a bit more spacing between sections and optionally shade alternating activities lightly.
+Interactive Links
+Make links (e.g., “Find restaurants”) more visually distinct, bright orange and underlined.
+2. Location & Travel Enhancements
+Departure & Arrival Locations
+Show a small location pin icon for each activity.
+Tooltip/hover can display full address or coordinates.
+
+Example:
+
+📍 Chateau de Beaufort, Luxembourg
+Travel Time Analysis
+Calculate travel time from return location of current activity to departure location of next activity using stored coordinates.
+
+Display travel time inline, e.g.:
+
+🚗 15 min from Chateau de Beaufort → Lunch near Luxembourg
+Nearby Amenities
+If possible, calculate distance to nearby restaurants or coffee shops.
+
+Show inline suggestion for convenience:
+
+🍴 5 min walk to nearest restaurant
+Integration in Timeline
+
+Add location and travel info in a subtle inline layout:
+
+11:30 – Lunch break 🍴
+📍 Near Luxembourg City
+🚶 10 min from Chateau de Beaufort
+Goal
+Users should instantly understand:
+Where they need to be next
+How long each activity takes
+Travel time and nearby options
+Timeline should remain clean, visually consistent, and easy to scan.
