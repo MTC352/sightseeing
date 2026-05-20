@@ -44,6 +44,10 @@ async function fetchLiveWeather(): Promise<WeatherSnapshot> {
 /* ── Tools ── */
 // Will be populated per-request with live data
 let _liveWeather: WeatherSnapshot = { temp: 11, condition: "Partly Cloudy", wx: "cloudy" }
+// Per-request default visit date (YYYY-MM-DD) derived from the user's onboarding
+// pick. Tools fall back to this when the model omits the date argument, so the
+// chosen visit date is guaranteed to flow through even if the model forgets.
+let _defaultVisitDate: string | null = null
 
 /**
  * Rich trip shape merging Trip basics with Palisis-imported fields.
@@ -409,7 +413,8 @@ const getTripDatesAndDealsTool = tool({
     endDate: z.string().optional().describe("YYYY-MM-DD end of the date range. Defaults to 14 days from start."),
   }),
   execute: async ({ tripId, startDate, endDate }) => {
-    const start = startDate || todayYMD()
+    // Priority: explicit arg > user-picked visit date > today.
+    const start = startDate || _defaultVisitDate || todayYMD()
     const end   = endDate   || addDaysYMD(start, 14)
     const config = await getTourCMSConfig()
     if (!config) {
@@ -467,21 +472,23 @@ const getTripDatesAndDealsTool = tool({
 
 const getTripTimeslotsTool = tool({
   description:
-    "Fetch REAL-TIME BOOKABLE TIMESLOTS for ONE trip on a SPECIFIC date — exact start/end times, current spaces, and live pricing. Use when the user picks a date and asks 'what times are available on Friday', 'is there a morning slot', 'when does it start tomorrow', or before recommending a precise booking. Never cache the result. For wider date-range planning use getTripDatesAndDeals instead.",
+    "Fetch REAL-TIME BOOKABLE TIMESLOTS for ONE trip on a SPECIFIC date — exact start/end times, current spaces, and live pricing. Use when the user picks a date and asks 'what times are available on Friday', 'is there a morning slot', 'when does it start tomorrow', or before recommending a precise booking. Never cache the result. For wider date-range planning use getTripDatesAndDeals instead. If `date` is omitted, the user's previously selected visit date is used.",
   inputSchema: z.object({
     tripId: z.string().describe("Internal trip id (e.g. 'tcms_22') or Palisis tour_id (e.g. '22')"),
-    date: z.string().describe("YYYY-MM-DD specific date to check"),
+    date: z.string().optional().describe("YYYY-MM-DD specific date to check. Defaults to the user's onboarding visit date."),
   }),
   execute: async ({ tripId, date }) => {
+    // Priority: explicit arg > user-picked visit date > today (last-resort).
+    const effectiveDate = date || _defaultVisitDate || todayYMD()
     const config = await getTourCMSConfig()
     if (!config) {
-      return { ok: false, error: "TOURCMS_NOT_CONFIGURED", tripId, date, timeslots: [] }
+      return { ok: false, error: "TOURCMS_NOT_CONFIGURED", tripId, date: effectiveDate, timeslots: [] }
     }
     const { palisisId, tripRow } = await resolvePalisisId(tripId)
     if (!palisisId) {
-      return { ok: false, error: "NO_PALISIS_LINK", tripId, date, timeslots: [] }
+      return { ok: false, error: "NO_PALISIS_LINK", tripId, date: effectiveDate, timeslots: [] }
     }
-    const res = await checkAvailability(config, palisisId, { date, show_pickups: "0" })
+    const res = await checkAvailability(config, palisisId, { date: effectiveDate, show_pickups: "0" })
     if (!res.ok) {
       return {
         ok: false,
@@ -559,6 +566,8 @@ interface TravelerPreferences {
   interests: string[]
   duration: string
   budget: string
+  /** YYYY-MM-DD — the date the user plans to visit. */
+  startDate?: string
 }
 
 // ── Luxembourg timezone + public holiday helpers ──────────────────────────
@@ -704,6 +713,38 @@ export async function POST(req: Request) {
       ? "PROFILE: " + preferences.group + ", interests: [" + preferences.interests.join(", ") + "], time: " + preferences.duration + ", budget: " + preferences.budget
       : ""
 
+    // ── Visit date context ───────────────────────────────────────────────────
+    // The user picked a specific date during onboarding. We surface it loudly
+    // so the model uses it as the DEFAULT startDate / date for the live
+    // availability tools (getTripDatesAndDeals / getTripTimeslots) and tunes
+    // recommendations to that day (day-of-week, holiday status, weather).
+    const rawVisit = preferences?.startDate && /^\d{4}-\d{2}-\d{2}$/.test(preferences.startDate)
+      ? preferences.startDate
+      : null
+    // Reject past dates so a stale cookie can't poison the tool defaults.
+    const visitDateYMD = rawVisit && rawVisit >= todayYMD() ? rawVisit : null
+    // Publish to module scope so tools (getTripDatesAndDeals / getTripTimeslots)
+    // fall back to it deterministically when the model omits the date arg.
+    _defaultVisitDate = visitDateYMD
+    let visitDateContext = ""
+    if (visitDateYMD) {
+      const [vy, vm, vd] = visitDateYMD.split("-").map(Number)
+      const visitDate = new Date(Date.UTC(vy, vm - 1, vd))
+      const vDayName = DAYS[visitDate.getUTCDay()]
+      const vIsWeekend = visitDate.getUTCDay() === 0 || visitDate.getUTCDay() === 6
+      const vHoliday = getLuxembourgHoliday(visitDate)
+      const todayMs = Date.UTC(luxNow.getUTCFullYear(), luxNow.getUTCMonth(), luxNow.getUTCDate())
+      const visitMs = visitDate.getTime()
+      const daysAhead = Math.round((visitMs - todayMs) / 86400000)
+      const relLabel = daysAhead === 0 ? "today" : daysAhead === 1 ? "tomorrow" : `in ${daysAhead} days`
+      visitDateContext = [
+        `VISIT DATE: ${vDayName}, ${visitDate.getUTCDate()} ${MONTHS[visitDate.getUTCMonth()]} ${visitDate.getUTCFullYear()} (${visitDateYMD}) — ${relLabel}.`,
+        vIsWeekend ? "This is a weekend day." : `This is a weekday (${vDayName}).`,
+        vHoliday ? `THIS DAY IS A PUBLIC HOLIDAY: ${vHoliday}.` : "",
+        "ALWAYS pass this YYYY-MM-DD as the `startDate` for getTripDatesAndDeals and as the `date` for getTripTimeslots unless the user explicitly asks for a different date.",
+      ].filter(Boolean).join("\n")
+    }
+
     // Get planner behavior settings (must be fetched before use)
     const settings = await dbGetSettings()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -732,6 +773,7 @@ export async function POST(req: Request) {
       "You are the AI trip planner for sightseeing.lu. Warm, helpful, and conversational.",
       "",
       dateContext,
+      visitDateContext,
       "WEATHER: " + temp + "\u00b0C, " + condition + " (" + wx + ").",
       profileLine + cartSection + groupSection,
       "",
@@ -785,6 +827,18 @@ export async function POST(req: Request) {
       "    - Morning (before 10:00): suggest early-opening attractions and morning walks.",
       "    - Weekend: recommend full-day itineraries and multi-stop adventures.",
       "    - Weekday: suggest compact 2-3 hour experiences that fit around schedules.",
+      "15. VISIT DATE & TIME-OF-DAY FIT (CRITICAL — read carefully):",
+      visitDateYMD
+        ? `    - The user committed to visiting on ${visitDateYMD}. Treat this as the AUTHORITATIVE planning date. Pass it as startDate to getTripDatesAndDeals and as date to getTripTimeslots by default.`
+        : "    - The user has not picked a visit date — ask them politely before checking live availability.",
+      "    - BEFORE recommending trips, read each candidate's rich fields end-to-end: title, shortDescription, longDescription, experienceHighlights, itinerary, essentialInformation, restrictions, included/excluded, tripTags, tourType, duration. Infer time-of-day suitability from this content. Examples of signals to look for:",
+      "        • NIGHT / EVENING trips: words like 'nightlife', 'pub', 'bar crawl', 'dinner', 'sunset', 'evening', 'after dark', 'illuminated', 'night tour', 'casino'.",
+      "        • DAY trips: 'morning', 'breakfast', 'daylight', 'sightseeing', 'museum opening hours', most walking/biking/sightseeing tours.",
+      "        • OUTDOOR vs INDOOR: weather sensitivity (see rule 8 for weather).",
+      "        • AGE / GROUP restrictions: `restrictions`, `minBookingSize`/`maxBookingSize`, family-vs-adult-only.",
+      "    - NEVER recommend a night-only experience for a daytime visit (or vice versa) without explicitly flagging it and offering to adjust the date/time. If the user picked a date but the trip's first available timeslot is at an incompatible time-of-day, surface that conflict and propose an alternative date.",
+      "    - When the user requests an itinerary, FIRST search and shortlist by description fit + day-of-week + weather, THEN call getTripDatesAndDeals (and getTripTimeslots for finalists) using the visit date to ground the plan in real bookable slots, prices, and deals. Use the cheapest available deal when prices vary across the day.",
+      "    - For multi-trip itineraries on the same visit date, ensure timeslots do not overlap and respect the planner-behavior buffer and day-window settings above.",
     ]
     
     // Append admin-configured custom system prompt if available

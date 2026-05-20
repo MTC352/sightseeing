@@ -24,7 +24,7 @@ import {
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,
   CloudSun, CloudRain, Sun, Thermometer, Droplets, Wind,
   Users, Heart, Baby, UserRound,
-  Clock, DollarSign, ChevronRight, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy,
+  Clock, DollarSign, ChevronRight, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
 } from "lucide-react"
 
@@ -47,8 +47,40 @@ interface Preferences {
   interests: string[]
   duration: string
   budget: string
+  /** YYYY-MM-DD — the day the user plans to visit (used for timeslots & deals). */
+  startDate: string
 }
-const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "" }
+const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "" }
+
+/* ─── Date helpers ─── */
+function ymdLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+function todayYMD(): string { return ymdLocal(new Date()) }
+function tomorrowYMD(): string {
+  const d = new Date(); d.setDate(d.getDate() + 1); return ymdLocal(d)
+}
+/** Next Saturday (or today if today is Saturday). */
+function nextWeekendYMD(): string {
+  const d = new Date()
+  const dow = d.getDay() // 0 Sun .. 6 Sat
+  const add = dow === 6 ? 0 : (6 - dow + 7) % 7
+  d.setDate(d.getDate() + add)
+  return ymdLocal(d)
+}
+function formatYMDPretty(ymd: string): string {
+  if (!ymd) return ""
+  const [y, m, d] = ymd.split("-").map(Number)
+  if (!y || !m || !d) return ymd
+  const dt = new Date(y, m - 1, d)
+  const t = todayYMD(); const tm = tomorrowYMD()
+  if (ymd === t) return "Today"
+  if (ymd === tm) return "Tomorrow"
+  return dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })
+}
 
 const GROUP_OPTIONS = [
   { value: "solo", label: "Solo", icon: UserRound },
@@ -118,20 +150,26 @@ function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }
   function selectBudget(value: string) {
     const updated = { ...prefs, budget: value }
     setPrefs(updated)
+    setTimeout(() => setStep(4), 200)
+  }
+  function selectStartDate(value: string) {
+    const updated = { ...prefs, startDate: value }
+    setPrefs(updated)
     setTimeout(() => onComplete(updated), 300)
   }
 
   const questions = [
     "Hey there! Let me help plan your perfect day in Luxembourg. First -- who's joining today?",
     "Great choice! Now, what sounds good to you? Pick up to 3 interests.",
-    "How much time do you have for exploring today?",
-    "Last one -- what's your vibe for today?",
+    "How much time do you have for exploring?",
+    "What's your vibe for the day?",
+    "When are you visiting? I'll match real timeslots and any current deals to your date.",
   ]
 
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex gap-1 px-4 pt-4">
-        {[0, 1, 2, 3].map((i) => (
+        {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i <= step ? "bg-primary" : "bg-border"}`} />
         ))}
       </div>
@@ -195,6 +233,43 @@ function Onboarding({ onComplete }: { onComplete: (prefs: Preferences) => void }
               className="mt-1 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border px-4 py-3 text-sm font-medium text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground">
               Skip — show all trips
             </button>
+          </div>
+        )}
+        {step === 4 && (
+          <div className="flex flex-col gap-2">
+            {[
+              { value: todayYMD(),       label: "Today" },
+              { value: tomorrowYMD(),    label: "Tomorrow" },
+              { value: nextWeekendYMD(), label: "This weekend" },
+            ].map((opt) => (
+              <button key={opt.value} type="button" onClick={() => selectStartDate(opt.value)}
+                className={`flex items-center gap-3 rounded-xl border-2 px-4 py-3.5 text-sm font-medium transition-all ${prefs.startDate === opt.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-foreground hover:border-primary/30"}`}>
+                <Calendar className="h-5 w-5 shrink-0" />
+                <span>{opt.label}</span>
+                <span className="ml-auto text-xs text-muted-foreground">{formatYMDPretty(opt.value)}</span>
+              </button>
+            ))}
+            <div className="mt-1 flex flex-col gap-2 rounded-xl border-2 border-dashed border-border px-4 py-3">
+              <label htmlFor="planner-start-date" className="text-xs font-medium text-muted-foreground">
+                Or pick a specific date
+              </label>
+              <input
+                id="planner-start-date"
+                type="date"
+                min={todayYMD()}
+                value={prefs.startDate}
+                onChange={(e) => setPrefs((p) => ({ ...p, startDate: e.target.value }))}
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={!prefs.startDate || prefs.startDate < todayYMD()}
+                onClick={() => selectStartDate(prefs.startDate)}
+                className="mx-auto mt-1 flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+              >
+                Start planning <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -336,7 +411,10 @@ export default function PlannerPage() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Preferences
-        if (parsed.group && parsed.interests?.length && parsed.duration && parsed.budget) setPrefs(parsed)
+        // Require a startDate that is today or later; otherwise discard so the
+        // user is re-prompted (we never want to plan against a stale past date).
+        const validDate = parsed.startDate && parsed.startDate >= todayYMD()
+        if (parsed.group && parsed.interests?.length && parsed.duration && parsed.budget && validDate) setPrefs(parsed)
       } catch { /* ignore */ }
     }
     setHydrated(true)
@@ -390,7 +468,10 @@ export default function PlannerPage() {
     if (hydrated && prefs && !didSendInitial.current && messages.length === 0 && status === "ready") {
       didSendInitial.current = true
       const t = setTimeout(() => {
-        sendMessage({ text: `Find the best trips for me today based on my preferences and the current weather.` })
+        const visitDate = prefs.startDate || todayYMD()
+        const isToday = visitDate === todayYMD()
+        const datePhrase = isToday ? "today" : `on ${formatYMDPretty(visitDate)} (${visitDate})`
+        sendMessage({ text: `Find the best trips for me ${datePhrase} based on my preferences and the weather. Analyse each trip's description and details (day vs night activities, opening hours, indoor vs outdoor) to match trips that genuinely fit my visit date and time-of-day, then check real availability for ${visitDate}.` })
       }, 300)
       return () => clearTimeout(t)
     }
@@ -1009,6 +1090,11 @@ export default function PlannerPage() {
                 </div>
                 {prefs && (
                   <div className="flex flex-wrap gap-1.5">
+                    {prefs.startDate && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
+                        <Calendar className="h-3 w-3" />{formatYMDPretty(prefs.startDate)}
+                      </span>
+                    )}
                     <span className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{prefs.group}</span>
                     {prefs.interests.map((i) => (
                       <span key={i} className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{i}</span>
