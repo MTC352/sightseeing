@@ -4,7 +4,7 @@
  * from lib/admin-store.ts. Shape of returned objects matches AdminTrip,
  * AdminPost, etc. so existing API handlers need minimal changes.
  */
-import { query, queryOne } from "@/lib/db"
+import { query, queryOne, pool } from "@/lib/db"
 
 // ── Trips ──────────────────────────────────────────────────────────────────
 
@@ -635,6 +635,16 @@ export async function dbGetSettings() {
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
+  // Snapshot the pre-edit values so first-edit rollback is possible.
+  const beforeRow = await queryOne<{ system_prompt: string; extra_config: unknown }>(
+    `SELECT system_prompt, extra_config FROM ai_system_configs WHERE system_key = 'itinerary'`,
+  )
+  const beforeSystemPrompt = beforeRow?.system_prompt ?? ''
+  const beforeExtra = (beforeRow?.extra_config && typeof beforeRow.extra_config === 'object')
+    ? beforeRow.extra_config as Record<string, unknown>
+    : {}
+  const beforeTipsPrompt = typeof beforeExtra.tipsPrompt === 'string' ? beforeExtra.tipsPrompt : ''
+
   const { systemPrompt, model, temperature, maxTokens, tipsPrompt, showCarWidget, showHotelWidget, maxMultiDayDays } = data as {
     systemPrompt?: string
     model?: string
@@ -688,6 +698,14 @@ export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
     maxTokens ?? null,
     JSON.stringify(extra),
   ])
+  // Snapshot both prompts for revision history (with baseline so the
+  // first edit is reversible).
+  if (typeof systemPrompt === 'string') {
+    await dbRecordPromptRevision('itinerary', 'systemPrompt', systemPrompt, beforeSystemPrompt)
+  }
+  if (typeof tipsPrompt === 'string') {
+    await dbRecordPromptRevision('itinerary', 'tipsPrompt', tipsPrompt, beforeTipsPrompt)
+  }
 }
 
 /**
@@ -792,7 +810,18 @@ export async function dbUpdateChatPlannerConfig(patch: {
     ? { ...(extra.planner as Record<string, unknown>) }
     : {}
   if (typeof patch.plannerSystemPrompt === 'string') {
+    const previousPlannerPrompt = typeof planner.systemPrompt === 'string'
+      ? (planner.systemPrompt as string)
+      : ''
     planner.systemPrompt = patch.plannerSystemPrompt
+    // Snapshot for revision history (passes the pre-edit value so the
+    // first-ever edit is reversible).
+    await dbRecordPromptRevision(
+      'chat',
+      'plannerSystemPrompt',
+      patch.plannerSystemPrompt,
+      previousPlannerPrompt,
+    )
   }
   if (patch.plannerForm && typeof patch.plannerForm === 'object') {
     const currentForm = (planner.form && typeof planner.form === 'object')
@@ -811,6 +840,165 @@ export async function dbUpdateChatPlannerConfig(patch: {
       extra_config = $1,
       updated_at = NOW()
   `, [JSON.stringify(extra)])
+}
+
+// ─── AI prompt revisions ──────────────────────────────────────────────
+// Every time any AI system prompt is updated from the admin panel we
+// snapshot the new text into `ai_prompt_revisions` so admins can preview
+// past versions and roll back. Keyed by (system_key, prompt_kind) where
+// prompt_kind is one of:
+//   - 'systemPrompt'         (any ai_system_configs.system_prompt)
+//   - 'plannerSystemPrompt'  (chat.extra_config.planner.systemPrompt)
+//   - 'tipsPrompt'           (itinerary.extra_config.tipsPrompt)
+// The table is created lazily on first use so we don't need a separate
+// migration step.
+
+let revisionsTableReady: Promise<void> | null = null
+async function ensureRevisionsTable(): Promise<void> {
+  if (!revisionsTableReady) {
+    revisionsTableReady = query(`
+      CREATE TABLE IF NOT EXISTS ai_prompt_revisions (
+        id SERIAL PRIMARY KEY,
+        system_key TEXT NOT NULL,
+        prompt_kind TEXT NOT NULL,
+        prompt_text TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_apr_lookup
+        ON ai_prompt_revisions (system_key, prompt_kind, created_at DESC);
+    `).then(() => undefined).catch((err) => {
+      // Reset on failure so a later call can retry.
+      revisionsTableReady = null
+      throw err
+    })
+  }
+  return revisionsTableReady
+}
+
+/**
+ * Snapshot a prompt change into the revisions table.
+ *
+ * Behaviour:
+ *  - No-op when the incoming text matches the most recent stored
+ *    revision for the same (system_key, prompt_kind).
+ *  - When `previousText` is supplied and the table has no history yet
+ *    for this key, the previous (pre-edit) value is snapshotted first
+ *    so the very first edit remains reversible.
+ *  - The check-and-insert sequence is serialized per-key using a
+ *    Postgres transaction-scoped advisory lock keyed on a stable hash
+ *    of `(system_key, prompt_kind)`. Concurrent saves for the same
+ *    prompt block each other for the duration of the dedupe; concurrent
+ *    saves for different prompts run in parallel.
+ */
+export async function dbRecordPromptRevision(
+  systemKey: string,
+  promptKind: string,
+  newText: string,
+  previousText?: string | null,
+): Promise<void> {
+  if (typeof newText !== 'string') return
+  try {
+    await ensureRevisionsTable()
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      // Per-key serialization. Released automatically at COMMIT/ROLLBACK.
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        [`apr:${systemKey}:${promptKind}`],
+      )
+
+      const lastRes = await client.query<{ prompt_text: string }>(
+        `SELECT prompt_text FROM ai_prompt_revisions
+         WHERE system_key = $1 AND prompt_kind = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [systemKey, promptKind],
+      )
+      const hasHistory = (lastRes.rowCount ?? 0) > 0
+      const latestText = hasHistory ? lastRes.rows[0].prompt_text : null
+
+      // Backfill baseline on very first edit so rollback is possible.
+      if (!hasHistory && typeof previousText === 'string' && previousText !== newText) {
+        await client.query(
+          `INSERT INTO ai_prompt_revisions (system_key, prompt_kind, prompt_text)
+           VALUES ($1, $2, $3)`,
+          [systemKey, promptKind, previousText],
+        )
+      }
+
+      const effectiveLatest = hasHistory
+        ? latestText
+        : (typeof previousText === 'string' ? previousText : null)
+      if (effectiveLatest !== newText) {
+        await client.query(
+          `INSERT INTO ai_prompt_revisions (system_key, prompt_kind, prompt_text)
+           VALUES ($1, $2, $3)`,
+          [systemKey, promptKind, newText],
+        )
+      }
+      await client.query('COMMIT')
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => undefined)
+      throw e
+    } finally {
+      client.release()
+    }
+  } catch (err) {
+    // Never let revision logging break the underlying save — just log it.
+    console.error('[prompt-revisions] failed to record:', err)
+  }
+}
+
+export interface PromptRevision {
+  id: number
+  systemKey: string
+  promptKind: string
+  promptText: string
+  createdAt: string
+}
+
+export async function dbListPromptRevisions(
+  systemKey: string,
+  promptKind: string,
+  limit = 50,
+): Promise<PromptRevision[]> {
+  await ensureRevisionsTable()
+  const rows = await query<{
+    id: number; system_key: string; prompt_kind: string; prompt_text: string; created_at: Date
+  }>(
+    `SELECT id, system_key, prompt_kind, prompt_text, created_at
+     FROM ai_prompt_revisions
+     WHERE system_key = $1 AND prompt_kind = $2
+     ORDER BY created_at DESC
+     LIMIT $3`,
+    [systemKey, promptKind, Math.max(1, Math.min(200, limit))],
+  )
+  return rows.map((r) => ({
+    id: r.id,
+    systemKey: r.system_key,
+    promptKind: r.prompt_kind,
+    promptText: r.prompt_text,
+    createdAt: (r.created_at instanceof Date ? r.created_at : new Date(r.created_at)).toISOString(),
+  }))
+}
+
+export async function dbGetPromptRevision(id: number): Promise<PromptRevision | null> {
+  await ensureRevisionsTable()
+  const row = await queryOne<{
+    id: number; system_key: string; prompt_kind: string; prompt_text: string; created_at: Date
+  }>(
+    `SELECT id, system_key, prompt_kind, prompt_text, created_at
+     FROM ai_prompt_revisions WHERE id = $1`,
+    [id],
+  )
+  if (!row) return null
+  return {
+    id: row.id,
+    systemKey: row.system_key,
+    promptKind: row.prompt_kind,
+    promptText: row.prompt_text,
+    createdAt: (row.created_at instanceof Date ? row.created_at : new Date(row.created_at)).toISOString(),
+  }
 }
 
 export async function dbUpdateApiKeys(data: Record<string, string>) {
@@ -833,6 +1021,14 @@ export async function dbUpdateWeglot(data: Record<string, unknown>) {
 }
 
 export async function dbUpdateAiSystem(systemKey: string, config: Record<string, unknown>) {
+  // Capture the pre-edit value so the very first revision can preserve
+  // the baseline (allows rollback of the first save).
+  const beforeRow = typeof config.systemPrompt === 'string'
+    ? await queryOne<{ system_prompt: string }>(
+        `SELECT system_prompt FROM ai_system_configs WHERE system_key = $1`,
+        [systemKey],
+      )
+    : null
   // Upsert (was UPDATE-only). Guarantees that a fresh DB or a missing
   // row doesn't silently swallow the save — important because the
   // Trip Chat admin page now writes per-trip fields AND planner
@@ -849,6 +1045,15 @@ export async function dbUpdateAiSystem(systemKey: string, config: Record<string,
       max_tokens = COALESCE($4, ai_system_configs.max_tokens),
       updated_at = NOW()
   `, [config.systemPrompt ?? null, config.model ?? null, config.temperature ?? null, config.maxTokens ?? null, systemKey])
+  // Snapshot the new prompt for revision history (no-op if unchanged).
+  if (typeof config.systemPrompt === 'string') {
+    await dbRecordPromptRevision(
+      systemKey,
+      'systemPrompt',
+      config.systemPrompt,
+      beforeRow?.system_prompt ?? null,
+    )
+  }
 }
 
 export async function dbUpdatePlannerBehavior(data: Record<string, unknown>) {

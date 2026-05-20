@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Plus, Trash2, RotateCcw, Wand2 } from "lucide-react"
+import { PromptRevisions } from "@/components/admin/prompt-revisions"
 
 const MODELS = [
   { value: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6 (Anthropic)" },
@@ -186,7 +187,15 @@ export default function TripChatAdminPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
-            <label className={labelClass}>System Prompt</label>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label className={labelClass + " mb-0"}>System Prompt</label>
+              <PromptRevisions
+                systemKey="chat"
+                promptKind="systemPrompt"
+                currentText={chat.systemPrompt}
+                onActivate={(text) => setChat((f) => ({ ...f, systemPrompt: text }))}
+              />
+            </div>
             <textarea
               rows={6}
               className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
@@ -252,16 +261,24 @@ export default function TripChatAdminPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <label className={labelClass + " mb-0"}>Planner system prompt (admin override)</label>
-              <button
-                type="button"
-                onClick={() => setPlannerPrompt(PLANNER_PROMPT_SUGGESTION)}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-                title="Replace with a sane default starting point"
-              >
-                <Wand2 className="h-3 w-3" /> Load default suggestion
-              </button>
+              <div className="flex items-center gap-2">
+                <PromptRevisions
+                  systemKey="chat"
+                  promptKind="plannerSystemPrompt"
+                  currentText={plannerPrompt}
+                  onActivate={(text) => setPlannerPrompt(text)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setPlannerPrompt(PLANNER_PROMPT_SUGGESTION)}
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  title="Replace with a sane default starting point"
+                >
+                  <Wand2 className="h-3 w-3" /> Load default suggestion
+                </button>
+              </div>
             </div>
             <textarea
               rows={8}

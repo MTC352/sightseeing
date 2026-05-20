@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Settings2, ChevronRight } from "lucide-react"
+import { PromptRevisions } from "@/components/admin/prompt-revisions"
 
 const MODELS = [
   { value: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6 (Anthropic)" },
@@ -132,7 +133,15 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
       <div className="max-w-2xl space-y-6">
         {/* System prompt */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <label className={labelClass}>System Prompt</label>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className={labelClass + " mb-0"}>System Prompt</label>
+            <PromptRevisions
+              systemKey={system}
+              promptKind="systemPrompt"
+              currentText={form.systemPrompt}
+              onActivate={(text) => setForm((f) => ({ ...f, systemPrompt: text }))}
+            />
+          </div>
           <textarea
             rows={8}
             className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb, Car, Building2 } from "lucide-react"
+import { PromptRevisions } from "@/components/admin/prompt-revisions"
 
 // Itinerary generation calls the Anthropic SDK directly (not the Vercel
 // Gateway), so we only expose Claude models here. Adding non-Anthropic ids
@@ -132,9 +133,17 @@ export default function ItineraryAiPage() {
       <div className="max-w-3xl space-y-6">
         {/* Build Itinerary Prompt */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center gap-2">
-            <Route className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Build Itinerary — System Prompt</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Route className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Build Itinerary — System Prompt</h2>
+            </div>
+            <PromptRevisions
+              systemKey="itinerary"
+              promptKind="systemPrompt"
+              currentText={form.systemPrompt}
+              onActivate={(text) => setForm((f) => ({ ...f, systemPrompt: text }))}
+            />
           </div>
           <p className="mb-2 text-[11px] text-muted-foreground">
             Available placeholders (filled at runtime from live data):{" "}
@@ -162,9 +171,17 @@ export default function ItineraryAiPage() {
 
         {/* Tips of the day */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center gap-2">
-            <Lightbulb className="h-4 w-4 text-amber-500" />
-            <h2 className="text-sm font-semibold text-foreground">Tips of the Day — Prompt</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-amber-500" />
+              <h2 className="text-sm font-semibold text-foreground">Tips of the Day — Prompt</h2>
+            </div>
+            <PromptRevisions
+              systemKey="itinerary"
+              promptKind="tipsPrompt"
+              currentText={form.tipsPrompt}
+              onActivate={(text) => setForm((f) => ({ ...f, tipsPrompt: text }))}
+            />
           </div>
           <p className="mb-2 text-[11px] text-muted-foreground">
             Appended to the build prompt and used to populate the <strong>&quot;Tips for your day&quot;</strong> panel under
