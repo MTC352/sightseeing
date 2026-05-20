@@ -502,6 +502,68 @@ ${tipsInstructions}`
         if (!m) return -1
         return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
       }
+      const addMinutes = (hhmm: string, mins: number): string => {
+        const base = toMinutes(hhmm)
+        if (base < 0) return hhmm
+        const total = Math.max(0, Math.min(24 * 60 - 1, base + Math.round(mins)))
+        const h = Math.floor(total / 60)
+        const m = total % 60
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+      }
+      const parseTravelMinutes = (s: string | null | undefined): number => {
+        if (!s) return 0
+        // Accumulate both hour and minute components so "1h 30min",
+        // "1 hr 15 min", "2 hours" and "45 minutes" all parse correctly.
+        let total = 0
+        const hourMatch = /(\d+(?:\.\d+)?)\s*(?:hr|hour|hours|h\b)/i.exec(s)
+        if (hourMatch) total += Math.round(parseFloat(hourMatch[1]) * 60)
+        const minMatch = /(\d+)\s*(?:min|mins|minute|minutes|m\b)/i.exec(s)
+        if (minMatch) total += parseInt(minMatch[1], 10)
+        if (total > 0) return total
+        // Fall back to the first bare integer ("15" → 15 min).
+        const bare = /\b(\d+)\b/.exec(s)
+        return bare ? parseInt(bare[1], 10) : 0
+      }
+
+      // One small batch fetch for per-trip "things to do" + "important notes".
+      // We match on either our internal id OR the palisis id we resolved earlier
+      // so the planner cart's mixed id formats both work.
+      const tripIdsForDetails = Array.from(new Set([
+        ...trips.map((t) => t.id),
+        ...palisisIds.filter((p): p is string => Boolean(p)),
+      ]))
+      const tripDetailsById = new Map<string, { highlights: string[]; notes: string }>()
+      if (tripIdsForDetails.length > 0) {
+        try {
+          const rows = (await query(
+            `SELECT id, palisis_id, highlights, essential_information, short_description
+               FROM trips
+              WHERE id = ANY($1::text[]) OR palisis_id = ANY($1::text[])`,
+            [tripIdsForDetails],
+          )) as Array<{
+            id: string
+            palisis_id: string | null
+            highlights: string[] | null
+            essential_information: string | null
+            short_description: string | null
+          }>
+          for (const row of rows) {
+            // Trim notes to a single readable line so the timeline stays tight.
+            const noteSrc = (row.essential_information || row.short_description || "").trim()
+            const notes = noteSrc.length > 160 ? noteSrc.slice(0, 157).trimEnd() + "..." : noteSrc
+            const entry = {
+              highlights: Array.isArray(row.highlights)
+                ? row.highlights.filter((h): h is string => typeof h === "string" && h.trim() !== "").slice(0, 3)
+                : [],
+              notes,
+            }
+            tripDetailsById.set(row.id, entry)
+            if (row.palisis_id) tripDetailsById.set(row.palisis_id, entry)
+          }
+        } catch (err) {
+          console.warn("[itinerary] trip details fetch failed:", err)
+        }
+      }
       const nearestSlot = (slots: LiveSlot[], target: string, taken: Set<string>): LiveSlot => {
         const targetMin = toMinutes(target)
         const free = slots.filter((s) => !taken.has(s.componentKey))
@@ -526,13 +588,31 @@ ${tipsInstructions}`
             availability.find((a) => a.trip.id === s.tripId)?.trip.duration,
             defaultActivityDuration,
           )
+          const finalDuration = s.durationMinutes && s.durationMinutes > 0 ? s.durationMinutes : dur
+
+          // Palisis often returns end_time === start_time when the underlying
+          // catalogue row doesn't carry a real duration. In that case we
+          // derive the real end from `finalDuration` so the timeline math
+          // (and the "Confirmed: 10:00 - 11:30" label) is meaningful.
+          const slotStartMin = toMinutes(chosen.startTime)
+          const slotEndMin = toMinutes(chosen.endTime)
+          const needsDerivedEnd =
+            slotEndMin < 0 || slotEndMin <= slotStartMin || slotEndMin - slotStartMin < finalDuration * 0.5
+          const endTime = needsDerivedEnd ? addMinutes(chosen.startTime, finalDuration) : chosen.endTime
+
+          const travelMinutes = parseTravelMinutes(s.travelToNext)
+          const details = tripDetailsById.get(s.tripId)
+
           return {
             ...s,
             time: chosen.startTime,
-            endTime: chosen.endTime,
+            endTime,
             priceFrom: chosen.totalPriceDisplay ?? chosen.totalPrice ?? null,
             spacesRemaining: chosen.spacesRemaining,
-            durationMinutes: s.durationMinutes && s.durationMinutes > 0 ? s.durationMinutes : dur,
+            durationMinutes: finalDuration,
+            travelMinutes,
+            tripHighlights: details?.highlights ?? [],
+            tripNotes: details?.notes ?? "",
           }
         })
         // Final pass: sort chronologically so the timeline stays coherent even

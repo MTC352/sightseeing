@@ -7,7 +7,7 @@ import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bus, Car, Building2, ArrowRight,
   Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
-  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users,
+  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info,
 } from "lucide-react"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"
 
@@ -94,11 +94,19 @@ interface ItineraryStep {
   tripId: string
   durationMinutes: number
   travelToNext: string | null
+  /** Numeric transit minutes parsed from travelToNext, so the UI can
+   *  compute true arrival time (endTime + travelMinutes) instead of
+   *  showing the next slot's start. */
+  travelMinutes?: number
   breakAfter?: BreakAfter
   /** Real timeslot data from Palisis — populated when the API used live data */
   endTime?: string | null
   priceFrom?: string | null
   spacesRemaining?: string | null
+  /** Short "things to do" bullets pulled from the trip's highlights column */
+  tripHighlights?: string[]
+  /** A single-line essential note pulled from the trip (truncated server-side) */
+  tripNotes?: string
 }
 
 interface UnavailableTrip {
@@ -710,6 +718,30 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
           )}
         </div>
       )}
+      {/* Things to do — small bullet list pulled from the trip's highlights. */}
+      {step.tripHighlights && step.tripHighlights.length > 0 && (
+        <div className="mt-2 border-t border-border/60 pt-2">
+          <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <Sparkles className="h-2.5 w-2.5 text-primary/70" />
+            Things to do
+          </div>
+          <ul className="mt-1 space-y-0.5">
+            {step.tripHighlights.map((h, i) => (
+              <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-muted-foreground">
+                <span className="mt-1 inline-block h-1 w-1 shrink-0 rounded-full bg-primary/60" />
+                <span>{h}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {/* Important note — one trimmed line of essential info, only if present. */}
+      {step.tripNotes && (
+        <div className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50/50 px-2 py-1.5 text-[11px] leading-snug text-amber-900/80">
+          <Info className="mt-px h-3 w-3 shrink-0 text-amber-600" />
+          <span>{step.tripNotes}</span>
+        </div>
+      )}
       {/* Only show the today/tomorrow chip helper when we have no authoritative
           live data for the chosen visit date. Otherwise the chips would
           contradict the confirmed Palisis slot. */}
@@ -774,6 +806,28 @@ export function ItineraryPanel({
         <div className="relative ml-14 border-l-2 border-primary/20 pl-6">
           {itinerary.steps.map((step, i) => {
             const nextStep = itinerary.steps[i + 1]
+            // Compute the real arrival time at the next stop: end of this step
+            // + parsed transit minutes. Falls back to the next slot's start
+            // time only when we genuinely have no other signal.
+            const travelMins = step.travelMinutes ?? 0
+            const breakMins =
+              step.breakAfter && step.breakAfter.type !== "none"
+                ? step.breakAfter.durationMinutes ?? 0
+                : 0
+            const arrivalTime = (() => {
+              if (!step.endTime) return nextStep?.time ?? null
+              const m = /^(\d{1,2}):(\d{2})/.exec(step.endTime)
+              if (!m) return nextStep?.time ?? null
+              // step end → optional break → transit → arrival
+              const total = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + breakMins + travelMins
+              const h = Math.floor(total / 60) % 24
+              const mm = total % 60
+              return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`
+            })()
+            // Lunch / coffee break sits between this step and the next on the
+            // timeline. Its start = end of this step (the bus leg, when
+            // present, is rendered AFTER the break).
+            const breakStartTime = step.endTime ?? null
             return (
             <div key={i} className="relative pb-6 last:pb-0">
               {/* Step number bubble */}
@@ -794,36 +848,32 @@ export function ItineraryPanel({
                 </div>
               )}
 
-              {/* Transit connector — shows the bus/walk segment and, when we have
-                  it, the start time of the NEXT step so the timeline reads:
-                  10:00 → step → 11:30 end → 15 min bus → 11:45 next step start */}
-              {step.travelToNext && (
-                <div className="ml-2 mt-2 space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
-                    <Bus className="h-3 w-3" />
-                    <span>{step.travelToNext}</span>
-                    {nextStep?.time && (
-                      <span className="ml-auto text-[11px] tabular-nums text-muted-foreground/60">
-                        arrives by {nextStep.time}
-                      </span>
-                    )}
-                  </div>
-                  {showCarWidget && (
-                    <Link
-                      href="/cars"
-                      className="flex items-center gap-1.5 text-xs text-blue-500/70 transition-colors hover:text-blue-600"
-                    >
-                      <Car className="h-3 w-3" />
-                      {"or rent a car \u2014 from 39\u20AC/day"}
-                      <ArrowRight className="h-2.5 w-2.5" />
-                    </Link>
-                  )}
-                </div>
-              )}
-
-              {/* Food / coffee break */}
+              {/* Food / coffee break — rendered FIRST (before the transit
+                  leg) because the break starts at step.endTime, then the
+                  bus/walk happens after the meal. */}
               {step.breakAfter && step.breakAfter.type !== "none" && step.breakAfter.location && (
-                <div className="ml-2 mt-3">
+                <div className="relative ml-2 mt-3">
+                  {/* Rail dot for the break, aligned to the parent's -left-[17px] rail */}
+                  <div className={`absolute -left-[27px] top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 bg-background ${
+                    step.breakAfter.type === "coffee"
+                      ? "border-amber-500"
+                      : "border-orange-500"
+                  }`}>
+                    {step.breakAfter.type === "coffee"
+                      ? <Coffee className="h-2.5 w-2.5 text-amber-600" />
+                      : <UtensilsCrossed className="h-2.5 w-2.5 text-orange-500" />
+                    }
+                  </div>
+                  {/* Start-time label on the left rail — matches the step labels */}
+                  {breakStartTime && (
+                    <div className="absolute -left-[98px] top-0 w-16 text-right">
+                      <span className={`text-sm font-bold tabular-nums ${
+                        step.breakAfter.type === "coffee" ? "text-amber-600" : "text-orange-500"
+                      }`}>
+                        {breakStartTime}
+                      </span>
+                    </div>
+                  )}
                   <div className={`rounded-xl border p-3 ${
                     step.breakAfter.type === "coffee"
                       ? "border-amber-200/60 bg-amber-50/40"
@@ -860,6 +910,34 @@ export function ItineraryPanel({
                       }
                     </Link>
                   </div>
+                </div>
+              )}
+
+              {/* Transit connector — rendered AFTER the break so DOM order
+                  reflects: step ends → break → transit → arrival at next stop.
+                  Arrival = step.endTime + step.breakAfter.durationMinutes (if any)
+                  + step.travelMinutes. */}
+              {step.travelToNext && (
+                <div className="ml-2 mt-2 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                    <Bus className="h-3 w-3" />
+                    <span>{step.travelToNext}</span>
+                    {arrivalTime && (
+                      <span className="ml-auto text-[11px] tabular-nums text-muted-foreground/60">
+                        arrives by {arrivalTime}
+                      </span>
+                    )}
+                  </div>
+                  {showCarWidget && (
+                    <Link
+                      href="/cars"
+                      className="flex items-center gap-1.5 text-xs text-blue-500/70 transition-colors hover:text-blue-600"
+                    >
+                      <Car className="h-3 w-3" />
+                      {"or rent a car \u2014 from 39\u20AC/day"}
+                      <ArrowRight className="h-2.5 w-2.5" />
+                    </Link>
+                  )}
                 </div>
               )}
             </div>
