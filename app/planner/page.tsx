@@ -1156,8 +1156,13 @@ export default function PlannerPage() {
             <ShoppingBag className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold text-foreground">My Trip</span>
           </div>
-          <div className="flex-1 overflow-y-auto">
+          {/* Scrollable trip list */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <TripCart />
+          </div>
+          {/* Smart Itinerary pinned to the bottom — stays visible while the
+              trip list scrolls so users never lose the Build Itinerary CTA. */}
+          <div className="shrink-0">
             <SidebarItinerary onOpenItinerary={handleOpenItinerary} />
           </div>
         </div>
@@ -1176,8 +1181,12 @@ export default function PlannerPage() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              {/* Scrollable trip list */}
+              <div className="min-h-0 flex-1 overflow-y-auto">
                 <TripCart />
+              </div>
+              {/* Sticky Smart Itinerary CTA at the bottom of the drawer */}
+              <div className="shrink-0">
                 <SidebarItinerary onOpenItinerary={handleOpenItinerary} />
               </div>
             </div>
