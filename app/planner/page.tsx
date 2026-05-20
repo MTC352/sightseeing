@@ -436,8 +436,13 @@ export default function PlannerPage() {
         window.localStorage.removeItem("sightseeing_itinerary_v2")
         return
       }
-      const savedFp = [...it.steps.map((s) => s.tripId)].sort().join(",")
-      if (savedFp === cartFingerprint) {
+      // Match the drift-guard semantics: keep the saved plan as long
+      // as every step is still present in the cart. (The AI may have
+      // intentionally built a plan with fewer trips than the cart —
+      // e.g. dropping a venue that was closed on the chosen date —
+      // and an exact-fingerprint compare would wrongly wipe it.)
+      const stillRepresented = it.steps.every((s) => cartTripIdSet.has(s.tripId))
+      if (stillRepresented) {
         setCenterItinerary(it)
       } else {
         window.localStorage.removeItem("sightseeing_itinerary_v2")
@@ -445,7 +450,7 @@ export default function PlannerPage() {
     } catch {
       try { window.localStorage.removeItem("sightseeing_itinerary_v2") } catch { /* ignore */ }
     }
-  }, [cartHydrated, hydrated, cartFingerprint])
+  }, [cartHydrated, hydrated, cartTripIdSet])
 
   // Drift guard — clear ONLY when the user actively removes a trip
   // from the cart that the itinerary depended on. Previously this
@@ -1116,9 +1121,44 @@ export default function PlannerPage() {
             </button>
           </div>
 
-          {/* (Itinerary now opens as a full-screen modal — see bottom of file) */}
-
-          {!showResults ? (
+          {/* Inline Day Itinerary takes over the center column whenever
+              the plan is open — regardless of whether we're in the
+              welcome state, a trip detail, or results. The Map View is
+              still rendered at the top so users can see the route +
+              numbered pins alongside the timeline. */}
+          {centerItinerary && centerItineraryOpen ? (
+            <div className="flex flex-col">
+              <div className="border-b border-border">
+                <button
+                  type="button"
+                  onClick={() => setMapExpanded(!mapExpanded)}
+                  className="flex w-full items-center justify-between px-6 py-2.5 text-left transition-colors hover:bg-secondary/50"
+                >
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium text-foreground">Map View</span>
+                    <span className="text-xs text-muted-foreground">{centerItinerary.steps.length} stops</span>
+                  </div>
+                  {mapExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </button>
+                <div className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
+                  <SightseeingMap
+                    trips={resultTrips}
+                    onSelect={handleTripSelect}
+                    visible={mapExpanded}
+                    suppressFullscreen
+                    itineraryTrips={itineraryMapTrips}
+                  />
+                </div>
+              </div>
+              <ItineraryPanel
+                itinerary={centerItinerary}
+                onClose={handleCloseItinerary}
+                onRegenerate={handleRegenerateItinerary}
+                regenerating={itineraryRegenerating}
+              />
+            </div>
+          ) : !showResults ? (
             /* ── Welcome / Waiting ── */
             <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-12">
               <div className={`rounded-2xl bg-gradient-to-br ${wx === "rainy" ? "from-blue-50 to-slate-100" : wx === "sunny" ? "from-amber-50 to-orange-50" : "from-slate-50 to-sky-50"} p-5 lg:p-6`}>
@@ -1253,7 +1293,9 @@ export default function PlannerPage() {
                 </div>
               </div>
 
-              {/* Results Grid */}
+              {/* Results Grid (the inline Day Itinerary is rendered at
+                  a higher level — see the top-level guard above — so
+                  this branch only renders when no plan is open). */}
               <div className="p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <h2 className="text-lg font-bold text-foreground">Recommended for you</h2>
@@ -1268,32 +1310,40 @@ export default function PlannerPage() {
                 <div className="mt-8 border-t border-border pt-6">
                   <TravelOffers compact />
                 </div>
-
-
               </div>
             </div>
           )}
         </div>
 
-        {/* ───── RIGHT: Cart / Itinerary panel (desktop) ─────
-            When the user clicks "View Itinerary", we swap this column
-            from the cart view to the live ItineraryPanel so they can
-            keep chatting on the left while interacting with the plan.
-            Closing the itinerary returns to the cart view — the plan
-            data stays in centerItinerary / localStorage. */}
-        <div className="hidden w-80 flex-col border-l border-border bg-card xl:flex 2xl:w-[420px]">
-          {centerItinerary && centerItineraryOpen ? (
-            <ItineraryPanel
-              itinerary={centerItinerary}
-              onClose={handleCloseItinerary}
-              onRegenerate={handleRegenerateItinerary}
-              regenerating={itineraryRegenerating}
-            />
-          ) : (
-            <>
-              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-                <ShoppingBag className="h-4 w-4 text-primary" />
-                <span className="text-sm font-semibold text-foreground">My Trip</span>
+        {/* ───── RIGHT: Cart (desktop) — always the cart, even when the
+            itinerary panel is open in the center. The Build/View
+            Itinerary CTA at the bottom controls the center panel. */}
+        <div className="hidden w-80 flex-col border-l border-border bg-card xl:flex">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+            <ShoppingBag className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold text-foreground">My Trip</span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <TripCart />
+          </div>
+          <div className="shrink-0">
+            <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
+          </div>
+        </div>
+
+        {/* Mobile / tablet cart drawer */}
+        {cartOpen && (
+          <div className="fixed inset-0 z-50 xl:hidden">
+            <div className="absolute inset-0 bg-foreground/40" onClick={() => setCartOpen(false)} onKeyDown={() => {}} role="button" tabIndex={0} aria-label="Close cart" />
+            <div className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-96">
+              <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <ShoppingBag className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-semibold text-foreground">My Trip</span>
+                </div>
+                <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
+                  <X className="h-4 w-4" />
+                </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <TripCart />
@@ -1301,41 +1351,6 @@ export default function PlannerPage() {
               <div className="shrink-0">
                 <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
               </div>
-            </>
-          )}
-        </div>
-
-        {/* Mobile / tablet cart drawer — same swap logic, same surface */}
-        {cartOpen && (
-          <div className="fixed inset-0 z-50 xl:hidden">
-            <div className="absolute inset-0 bg-foreground/40" onClick={() => setCartOpen(false)} onKeyDown={() => {}} role="button" tabIndex={0} aria-label="Close cart" />
-            <div className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-[420px]">
-              {centerItinerary && centerItineraryOpen ? (
-                <ItineraryPanel
-                  itinerary={centerItinerary}
-                  onClose={handleCloseItinerary}
-                  onRegenerate={handleRegenerateItinerary}
-                  regenerating={itineraryRegenerating}
-                />
-              ) : (
-                <>
-                  <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <ShoppingBag className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-semibold text-foreground">My Trip</span>
-                    </div>
-                    <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    <TripCart />
-                  </div>
-                  <div className="shrink-0">
-                    <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
-                  </div>
-                </>
-              )}
             </div>
           </div>
         )}
