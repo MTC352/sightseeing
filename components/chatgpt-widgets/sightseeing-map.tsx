@@ -140,19 +140,28 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     }
   }, [])
 
-  // Sync trip markers when trips or map readiness changes.
+  // Sync trip markers when the underlying SET of trips (or map readiness)
+  // changes. Keying the effect on a string signature of trip ids — not
+  // the array reference — stops Mapbox from tearing down and recreating
+  // every pin on every parent re-render. That was the source of the
+  // "pins blink / camera jitters" feel during typing or chat streaming.
   // In itinerary-mode we hide these generic price pins so the numbered
   // itinerary pins (rendered by the effect below) own the visual.
+  const tripsSig = trips.map((t) => `${t.id}:${t.price}`).join("|")
   useEffect(() => {
     const map = mapRef.current
     const mapboxgl = mapboxRef.current
     if (!map || !mapboxgl || !mapReady) return
 
-    markersRef.current.forEach((m) => m.remove())
-    markersRef.current = []
+    if (itineraryMode) {
+      markersRef.current.forEach((m) => m.remove())
+      markersRef.current = []
+      return
+    }
 
-    if (itineraryMode) return
-
+    // Build the new markers up-front, then swap them in one paint to
+    // avoid the "icons popping in one by one" effect.
+    const newMarkers: any[] = []
     trips.forEach((trip, i) => {
       const [lng, lat] = tripToCoords(trip, i)
       const el = document.createElement("button")
@@ -163,9 +172,11 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
         setSelected((prev) => (prev?.id === trip.id ? null : trip))
         setSelectedSpot(null)
       })
-      const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" }).setLngLat([lng, lat]).addTo(map)
-      markersRef.current.push(marker)
+      newMarkers.push(new mapboxgl.Marker({ element: el, anchor: "bottom" }).setLngLat([lng, lat]).addTo(map))
     })
+    // Swap atomically so the user never sees a half-empty map.
+    markersRef.current.forEach((m) => m.remove())
+    markersRef.current = newMarkers
 
     if (trips.length > 1) {
       const bounds = new mapboxgl.LngLatBounds()
@@ -175,7 +186,8 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
       const [lng, lat] = tripToCoords(trips[0], 0)
       map.flyTo({ center: [lng, lat], zoom: 13, duration: 600 })
     }
-  }, [trips, mapReady, itineraryMode])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripsSig, mapReady, itineraryMode])
 
   // ─── Itinerary markers + route polyline ────────────────────────────────
   // Draws numbered stop pins (1..N) and a driving route polyline between
@@ -310,25 +322,17 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     }
   }, [trips, mapReady, showPhotoSpots])
 
-  // Resize + refit whenever the panel becomes visible or goes fullscreen
+  // Resize whenever the panel becomes visible or goes fullscreen. We
+  // deliberately do NOT re-fit camera here — that's owned by the marker
+  // effect above and re-running it on every visibility flip caused the
+  // map to "jump" each time the user expanded/collapsed the section.
   useEffect(() => {
     const timer = setTimeout(() => {
       const map = mapRef.current
-      const mapboxgl = mapboxRef.current
-      if (!map) return
-      map.resize()
-      if (!mapboxgl || trips.length === 0) return
-      if (trips.length > 1) {
-        const bounds = new mapboxgl.LngLatBounds()
-        trips.forEach((t, i) => { const [lng, lat] = tripToCoords(t, i); bounds.extend([lng, lat]) })
-        map.fitBounds(bounds, { padding: 50, maxZoom: 13, duration: 400 })
-      } else {
-        const [lng, lat] = tripToCoords(trips[0], 0)
-        map.flyTo({ center: [lng, lat], zoom: 13, duration: 400 })
-      }
+      if (map) map.resize()
     }, 150)
     return () => clearTimeout(timer)
-  }, [isFullscreen, visible, trips])
+  }, [isFullscreen, visible])
 
   const handleCardClick = useCallback(() => {
     if (selected && onSelect) onSelect(selected)
@@ -365,9 +369,16 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
 
       {/* Map canvas */}
       <div className={`relative ${isFullscreen ? "flex-1" : "h-[320px]"}`}>
-        <div ref={containerRef} className="absolute inset-0" />
-        {!mapReady && !mapError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
+        <div
+          ref={containerRef}
+          className={`absolute inset-0 transition-opacity duration-300 ${mapReady ? "opacity-100" : "opacity-0"}`}
+        />
+        {/* Skeleton — fades out smoothly once the map's first paint
+            completes so the user never sees a hard pop-in. */}
+        {!mapError && (
+          <div
+            className={`pointer-events-none absolute inset-0 flex items-center justify-center bg-muted/40 transition-opacity duration-300 ${mapReady ? "opacity-0" : "opacity-100"}`}
+          >
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               <span>Loading map...</span>

@@ -1121,6 +1121,27 @@ export default function PlannerPage() {
             </button>
           </div>
 
+          {/* ── Trip Canvas header ──
+              Single label for the whole center column (Map View + the
+              swap below: Recommended for you / Day Itinerary). The chat
+              and the system prompt both refer to this region as
+              "Trip Canvas" so the assistant can say things like
+              "I've updated the Trip Canvas" without ambiguity. */}
+          <div className="hidden items-center gap-2 border-b border-border bg-background/95 px-6 py-2 sm:flex">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Trip Canvas
+            </span>
+            <span className="text-[10px] text-muted-foreground/70">
+              {centerItinerary && centerItineraryOpen
+                ? "Map + your Day Itinerary"
+                : selectedTrip
+                  ? "Trip detail"
+                  : showResults
+                    ? "Map + Recommended for you"
+                    : "Map + suggestions appear here"}
+            </span>
+          </div>
+
           {/* Inline Day Itinerary takes over the center column whenever
               the plan is open — regardless of whether we're in the
               welcome state, a trip detail, or results. The Map View is
