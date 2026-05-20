@@ -111,6 +111,17 @@ interface ItineraryStep {
   tripCity?: string
   /** Optional precise departure address — preferred over city when present */
   tripLocation?: string
+  /** Real travel data computed server-side via Mapbox Directions. Any null
+   *  field means "no data" and the UI must show "—" instead of guessing. */
+  travelLeg?: {
+    driveMin: number | null
+    walkMin: number | null
+    /** Always null today — Mapbox has no transit profile. The field exists
+     *  so the UI can render "—" and we can wire Google Distance Matrix in
+     *  later without another schema change. */
+    transitMin: number | null
+    distanceKm: number | null
+  }
 }
 
 interface UnavailableTrip {
@@ -840,7 +851,7 @@ export function ItineraryPanel({
         <p className="mb-5 text-sm leading-relaxed text-muted-foreground">{itinerary.summary}</p>
 
         {/* Timeline — time labels on the left rail so the day reads like a schedule */}
-        <div className="relative ml-14 border-l-2 border-primary/20 pl-6">
+        <div className="relative ml-20 border-l-2 border-primary/20 pl-7">
           {itinerary.steps.map((step, i) => {
             const nextStep = itinerary.steps[i + 1]
             // Compute the real arrival time at the next stop: end of this step
@@ -867,20 +878,26 @@ export function ItineraryPanel({
             const breakStartTime = step.endTime ?? null
             return (
             <div key={i} className="relative pb-6 last:pb-0">
-              {/* Step number bubble */}
-              <div className="absolute -left-[17px] top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 border-primary bg-background">
-                <span className="text-[8px] font-bold text-primary">{i + 1}</span>
+              {/* Step number bubble — bigger so the rail reads as a true
+                  numbered timeline (1 → fork → 2 → coffee → …). */}
+              <div className="absolute -left-[19px] top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-primary bg-background shadow-sm">
+                <span className="text-[11px] font-bold text-primary">{i + 1}</span>
               </div>
-              {/* Start time label — sits to the LEFT of the rail */}
-              <div className="absolute -left-[88px] top-0 w-16 text-right">
+              {/* Start time label — sits to the LEFT of the rail with a
+                  small gap so number and time don't visually collide. */}
+              <div className="absolute -left-[100px] top-1 w-16 text-right">
                 <span className="text-sm font-bold text-primary tabular-nums">{step.time}</span>
               </div>
 
               <ItineraryStepCard step={step} />
 
-              {/* End-of-step time label appears on the rail between cards */}
-              {step.endTime && (
-                <div className="absolute -left-[88px] top-[calc(100%-1.25rem)] w-16 text-right">
+              {/* End-of-step time label appears on the rail between cards.
+                  Suppressed when this step has a break, because the break's
+                  own label already shows the same time prominently — a
+                  second small label right above the next step's start time
+                  reads as a duplicate (e.g. "11:00" stacked above "13:00"). */}
+              {step.endTime && (!step.breakAfter || step.breakAfter.type === "none") && (
+                <div className="absolute -left-[100px] top-[calc(100%-1.25rem)] w-16 text-right">
                   <span className="text-[11px] font-medium text-muted-foreground tabular-nums">{step.endTime}</span>
                 </div>
               )}
@@ -890,20 +907,21 @@ export function ItineraryPanel({
                   bus/walk happens after the meal. */}
               {step.breakAfter && step.breakAfter.type !== "none" && step.breakAfter.location && (
                 <div className="relative ml-2 mt-3">
-                  {/* Rail dot for the break, aligned to the parent's -left-[17px] rail */}
-                  <div className={`absolute -left-[27px] top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 bg-background ${
+                  {/* Rail icon for the break (fork / coffee), sized to
+                      match the numbered step bubbles on the same rail. */}
+                  <div className={`absolute -left-[29px] top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 bg-background shadow-sm ${
                     step.breakAfter.type === "coffee"
                       ? "border-amber-500"
                       : "border-orange-500"
                   }`}>
                     {step.breakAfter.type === "coffee"
-                      ? <Coffee className="h-2.5 w-2.5 text-amber-600" />
-                      : <UtensilsCrossed className="h-2.5 w-2.5 text-orange-500" />
+                      ? <Coffee className="h-3.5 w-3.5 text-amber-600" />
+                      : <UtensilsCrossed className="h-3.5 w-3.5 text-orange-500" />
                     }
                   </div>
                   {/* Start-time label on the left rail — matches the step labels */}
                   {breakStartTime && (
-                    <div className="absolute -left-[98px] top-0 w-16 text-right">
+                    <div className="absolute -left-[110px] top-1 w-16 text-right">
                       <span className={`text-sm font-bold tabular-nums ${
                         step.breakAfter.type === "coffee" ? "text-amber-600" : "text-orange-500"
                       }`}>
@@ -953,31 +971,57 @@ export function ItineraryPanel({
 
               {/* Transit connector — rendered AFTER the break so DOM order
                   reflects: step ends → break → transit → arrival at next stop.
-                  Arrival = step.endTime + step.breakAfter.durationMinutes (if any)
-                  + step.travelMinutes. */}
-              {step.travelToNext && (
-                <div className="ml-2 mt-2 space-y-1">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Bus className="h-3 w-3 text-primary/70" />
-                    <span className="font-semibold text-foreground/80">{step.travelToNext}</span>
-                    {arrivalTime && (
-                      <span className="ml-auto text-[11px] font-medium tabular-nums text-foreground/70">
-                        arrives by <span className="font-semibold text-foreground">{arrivalTime}</span>
+                  All values come from the server's Mapbox Directions call;
+                  any null field renders as "—" instead of a guessed number. */}
+              {nextStep && (() => {
+                const leg = step.travelLeg
+                const has = leg && (leg.driveMin !== null || leg.walkMin !== null)
+                const fmt = (v: number | null, suffix: string) =>
+                  v === null ? "—" : `${v} ${suffix}`
+                return (
+                  <div className="ml-2 mt-2.5 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Travel to next stop
+                        {leg?.distanceKm !== null && leg?.distanceKm !== undefined && (
+                          <span className="ml-1.5 font-normal normal-case text-foreground/70">
+                            · {leg.distanceKm} km
+                          </span>
+                        )}
                       </span>
+                      {arrivalTime && has && (
+                        <span className="text-[11px] font-medium tabular-nums text-foreground/70">
+                          ETA at next stop · <span className="font-semibold text-foreground">{arrivalTime}</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <span className="flex items-center gap-1.5">
+                        <Car className="h-3.5 w-3.5 text-primary/70" />
+                        <span className="font-semibold text-foreground">{fmt(leg?.driveMin ?? null, "min")}</span>
+                        <span className="text-[10px] text-muted-foreground">by car</span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Bus className="h-3.5 w-3.5 text-foreground/40" />
+                        <span className="font-semibold text-foreground/70">{fmt(leg?.transitMin ?? null, "min")}</span>
+                        <span className="text-[10px] text-muted-foreground">by transit</span>
+                      </span>
+                      {leg?.walkMin !== null && leg?.walkMin !== undefined && leg.walkMin <= 60 && (
+                        <span className="flex items-center gap-1.5">
+                          <Route className="h-3.5 w-3.5 text-primary/70" />
+                          <span className="font-semibold text-foreground">{leg.walkMin} min</span>
+                          <span className="text-[10px] text-muted-foreground">walking</span>
+                        </span>
+                      )}
+                    </div>
+                    {!has && (
+                      <p className="mt-1 text-[10px] text-muted-foreground/70">
+                        Travel time unavailable — location data missing for one of the stops.
+                      </p>
                     )}
                   </div>
-                  {showCarWidget && (
-                    <Link
-                      href="/cars"
-                      className="flex items-center gap-1.5 text-xs text-blue-500/70 transition-colors hover:text-blue-600"
-                    >
-                      <Car className="h-3 w-3" />
-                      {"or rent a car \u2014 from 39\u20AC/day"}
-                      <ArrowRight className="h-2.5 w-2.5" />
-                    </Link>
-                  )}
-                </div>
-              )}
+                )
+              })()}
             </div>
           )})}
         </div>

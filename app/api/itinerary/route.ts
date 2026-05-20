@@ -537,12 +537,14 @@ ${tipsInstructions}`
         notes: string
         city: string
         location: string
+        departureGeo: string
+        endGeo: string
       }>()
       if (tripIdsForDetails.length > 0) {
         try {
           const rows = (await query(
             `SELECT id, palisis_id, highlights, essential_information, short_description,
-                    city, departure_location
+                    city, departure_location, departure_geocode, end_geocode
                FROM trips
               WHERE id = ANY($1::text[]) OR palisis_id = ANY($1::text[])`,
             [tripIdsForDetails],
@@ -554,6 +556,8 @@ ${tipsInstructions}`
             short_description: string | null
             city: string | null
             departure_location: string | null
+            departure_geocode: string | null
+            end_geocode: string | null
           }>
           for (const row of rows) {
             // Keep the full essential-info text — the UI applies a collapsible
@@ -566,12 +570,90 @@ ${tipsInstructions}`
               notes,
               city: (row.city || "").trim(),
               location: (row.departure_location || "").trim(),
+              departureGeo: (row.departure_geocode || "").trim(),
+              endGeo: (row.end_geocode || "").trim(),
             }
             tripDetailsById.set(row.id, entry)
             if (row.palisis_id) tripDetailsById.set(row.palisis_id, entry)
           }
         } catch (err) {
           console.warn("[itinerary] trip details fetch failed:", err)
+        }
+      }
+
+      // ─── Mapbox-backed travel-time helper ───────────────────────────────
+      // Calls the Directions API for driving + walking profiles between two
+      // "lat,lng" strings. Returns null on any failure / missing inputs so
+      // the UI can show "—" instead of a fabricated number. Public transit
+      // is not supported by Mapbox and is reported back as null too.
+      const mapboxToken =
+        process.env.mapbox ||
+        process.env.MAPBOX ||
+        process.env.MAPBOX_TOKEN ||
+        process.env.MAPBOX_ACCESS_TOKEN ||
+        process.env.NEXT_PUBLIC_MAPBOX ||
+        process.env.NEXT_PUBLIC_MAPBOX_TOKEN ||
+        process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
+        settings?.apiKeys?.mapbox ||
+        ""
+
+      const parseLatLng = (s: string): { lat: number; lng: number } | null => {
+        if (!s) return null
+        const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(s)
+        if (!m) return null
+        const lat = parseFloat(m[1])
+        const lng = parseFloat(m[2])
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+        return { lat, lng }
+      }
+
+      type TravelLeg = {
+        driveMin: number | null
+        walkMin: number | null
+        transitMin: number | null
+        distanceKm: number | null
+      }
+      const fetchProfile = async (
+        profile: "driving" | "walking",
+        from: { lat: number; lng: number },
+        to: { lat: number; lng: number },
+      ): Promise<{ durationSec: number; distanceM: number } | null> => {
+        if (!mapboxToken) return null
+        try {
+          const url =
+            `https://api.mapbox.com/directions/v5/mapbox/${profile}/` +
+            `${from.lng},${from.lat};${to.lng},${to.lat}` +
+            `?access_token=${encodeURIComponent(mapboxToken)}&overview=false&geometries=geojson`
+          const res = await fetch(url, { cache: "no-store" })
+          if (!res.ok) return null
+          const data = await res.json() as { routes?: Array<{ duration: number; distance: number }> }
+          const r = data?.routes?.[0]
+          if (!r) return null
+          return { durationSec: r.duration, distanceM: r.distance }
+        } catch {
+          return null
+        }
+      }
+      const computeLeg = async (originGeo: string, destGeo: string): Promise<TravelLeg> => {
+        const empty: TravelLeg = { driveMin: null, walkMin: null, transitMin: null, distanceKm: null }
+        const from = parseLatLng(originGeo)
+        const to = parseLatLng(destGeo)
+        if (!from || !to || !mapboxToken) return empty
+        // Same point → no travel at all.
+        if (Math.abs(from.lat - to.lat) < 1e-5 && Math.abs(from.lng - to.lng) < 1e-5) {
+          return { driveMin: 0, walkMin: 0, transitMin: null, distanceKm: 0 }
+        }
+        const [drive, walk] = await Promise.all([
+          fetchProfile("driving", from, to),
+          fetchProfile("walking", from, to),
+        ])
+        return {
+          driveMin: drive ? Math.max(1, Math.round(drive.durationSec / 60)) : null,
+          walkMin: walk ? Math.max(1, Math.round(walk.durationSec / 60)) : null,
+          // Mapbox doesn't support public transit — explicitly null so the UI
+          // shows "—" instead of fabricating a number.
+          transitMin: null,
+          distanceKm: drive ? Math.round((drive.distanceM / 1000) * 10) / 10 : null,
         }
       }
       const nearestSlot = (slots: LiveSlot[], target: string, taken: Set<string>): LiveSlot => {
@@ -630,6 +712,37 @@ ${tipsInstructions}`
         // Final pass: sort chronologically so the timeline stays coherent even
         // if the AI's ordering got tweaked by snapping.
         .sort((a, b) => toMinutes(a.time) - toMinutes(b.time))
+
+      // ─── Attach real travel times between consecutive stops via Mapbox ───
+      // For each consecutive pair we look up the END geocode of the current
+      // stop and the DEPARTURE geocode of the next, then hit the Directions
+      // API. Results overwrite the AI's hallucinated `travelToNext` text and
+      // also drive a structured `travelLeg` object the UI renders verbatim
+      // (driving / walking / distance / transit). Missing geocodes or token
+      // → travelLeg with all null fields → UI shows "—".
+      await Promise.all(
+        reconciledSteps.map(async (step, i) => {
+          const next = reconciledSteps[i + 1]
+          if (!next) return
+          const curDetails = tripDetailsById.get(step.tripId)
+          const nextDetails = tripDetailsById.get(next.tripId)
+          const leg = await computeLeg(curDetails?.endGeo ?? "", nextDetails?.departureGeo ?? "")
+          // Mutate in place — the array elements are plain objects we own.
+          ;(step as typeof step & { travelLeg: TravelLeg }).travelLeg = leg
+          if (leg.driveMin !== null) {
+            step.travelMinutes = leg.driveMin
+            const km = leg.distanceKm
+            step.travelToNext = km !== null
+              ? `${leg.driveMin} min by car · ${km} km`
+              : `${leg.driveMin} min by car`
+          } else {
+            // No real data — drop the AI's fabricated string entirely so the
+            // UI falls back to "—" labels instead of a fake "15 min".
+            step.travelMinutes = 0
+            step.travelToNext = null
+          }
+        }),
+      )
 
       // Apply admin widget toggles: if disabled, force-hide regardless of
       // what the AI recommended.
