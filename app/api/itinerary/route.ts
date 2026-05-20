@@ -162,6 +162,41 @@ interface TripAvailability {
   error?: string
 }
 
+/* ── Multi-day scan: find which dates in the next N days have slots ─────── */
+/** Add `n` days to a YYYY-MM-DD string (UTC math, returns YYYY-MM-DD) */
+function addDays(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split("-").map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + n)
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(dt)
+}
+
+/**
+ * Scan the next `days` calendar days for a single trip, in parallel,
+ * and return the list of dates with at least one bookable slot.
+ * We cap the number of dates returned per trip to keep responses small.
+ */
+async function scanTripDates(
+  config: NonNullable<Awaited<ReturnType<typeof getTourCMSConfig>>>,
+  palisisId: string,
+  startYMD: string,
+  days: number,
+  maxReturn: number = 8,
+): Promise<string[]> {
+  const dates = Array.from({ length: days }, (_, i) => addDays(startYMD, i + 1))
+  const results = await Promise.all(
+    dates.map(async (d) => {
+      try {
+        const res = await checkAvailability(config, palisisId, { date: d, show_pickups: "0" })
+        if (!res.ok) return null
+        const has = (res.components ?? []).some((c) => Boolean(c?.start_time))
+        return has ? d : null
+      } catch { return null }
+    }),
+  )
+  return results.filter((d): d is string => d !== null).slice(0, maxReturn)
+}
+
 export async function POST(req: Request) {
   try {
     const { trips, startDate } = await req.json() as { trips: TripInput[]; startDate?: string }
@@ -215,21 +250,74 @@ export async function POST(req: Request) {
     )
 
     const bookable = availability.filter((a) => a.status === "OK")
-    const unavailableTrips = availability
-      .filter((a) => a.status !== "OK")
-      .map((a) => ({
+    const unavailable = availability.filter((a) => a.status !== "OK")
+
+    /* 2b) For every trip that has no slots on the chosen date but does have a
+       resolved palisis_id, scan the next ~21 days and find alternative dates.
+       This lets the UI tell the user honestly which dates work for which trips
+       instead of just "try a different date". */
+    const SCAN_DAYS = 21
+    const scanTargets = unavailable.filter((a) => a.palisisId && a.status === "NO_SLOTS")
+    const scanned = await Promise.all(
+      scanTargets.map(async (a) => ({
         tripId: a.trip.id,
-        title: a.trip.title,
-        reason: a.status, // NO_SLOTS | NO_PALISIS_LINK | TOURCMS_ERROR
-      }))
+        dates: await scanTripDates(config, a.palisisId!, visitDate, SCAN_DAYS),
+      })),
+    )
+    const scannedByTripId = new Map(scanned.map((s) => [s.tripId, s.dates]))
+
+    const unavailableTrips = unavailable.map((a) => ({
+      tripId: a.trip.id,
+      title: a.trip.title,
+      reason: a.status,
+      // For NO_SLOTS we surface up to 8 alternative dates within the next 21 days.
+      suggestedDates: scannedByTripId.get(a.trip.id) ?? [],
+    }))
+
+    /* Compute aggregate "best dates" across ALL trips in the cart (bookable +
+       scanned). For trips already bookable on visitDate, we ALSO scan to know
+       which other dates they're available on — but keep it cheap by only
+       running this when there's at least one unavailable trip. The point is to
+       suggest a single date that covers as many trips as possible. */
+    let alternativeDates: Array<{ date: string; tripCount: number; totalTrips: number }> = []
+    if (unavailable.length > 0) {
+      const bookableScans = await Promise.all(
+        bookable
+          .filter((a) => a.palisisId)
+          .map(async (a) => ({
+            tripId: a.trip.id,
+            dates: await scanTripDates(config, a.palisisId!, visitDate, SCAN_DAYS, 30),
+          })),
+      )
+      const allScans = [
+        ...bookableScans,
+        ...scanned.map((s) => ({ tripId: s.tripId, dates: s.dates })),
+      ]
+      // Count how many trips are available on each candidate date.
+      const dateCounts = new Map<string, number>()
+      for (const s of allScans) {
+        for (const d of s.dates) dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1)
+      }
+      const totalTrips = trips.length
+      alternativeDates = [...dateCounts.entries()]
+        .map(([date, tripCount]) => ({ date, tripCount, totalTrips }))
+        // Prefer dates that cover the MOST trips, then the soonest date.
+        .sort((a, b) => (b.tripCount - a.tripCount) || a.date.localeCompare(b.date))
+        .slice(0, 6)
+    }
 
     // If nothing is bookable on the chosen date, return early — no plan possible.
     if (bookable.length === 0) {
+      const hasSuggestions = unavailableTrips.some((u) => u.suggestedDates.length > 0)
       return Response.json({
         error: "NO_AVAILABILITY",
-        message: `None of your saved trips have available timeslots on ${visitDate}. Try a different date.`,
+        message: hasSuggestions
+          ? `No timeslots for your saved trips on ${visitDate}. We checked the next ${SCAN_DAYS} days — see the suggested dates below.`
+          : `None of your saved trips have available timeslots on ${visitDate} or in the next ${SCAN_DAYS} days. Try later in the season.`,
         visitDate,
         unavailableTrips,
+        alternativeDates,
+        scanDays: SCAN_DAYS,
       }, { status: 409 })
     }
 
@@ -383,6 +471,8 @@ Return STRICTLY the JSON object matching the schema.`
         steps: reconciledSteps,
         visitDate,
         unavailableTrips,
+        alternativeDates,
+        scanDays: SCAN_DAYS,
       })
     } catch (aiErr) {
       console.error("[itinerary] AI generation failed:", aiErr)
@@ -391,6 +481,7 @@ Return STRICTLY the JSON object matching the schema.`
         message: "Could not build a plan from the live availability. Please try again.",
         visitDate,
         unavailableTrips,
+        alternativeDates,
       }, { status: 502 })
     }
   } catch (err) {

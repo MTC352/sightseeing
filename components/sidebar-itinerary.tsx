@@ -40,6 +40,16 @@ function nextWeekendYMD(): string {
   d.setDate(d.getDate() + (dow === 6 ? 0 : (6 - dow + 7) % 7))
   return ymdLocal(d)
 }
+/** Short date label e.g. "Sat 23 May" — used for compact suggestion chips. */
+function formatYMDShort(ymd: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd
+  const [y, m, d] = ymd.split("-").map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getUTCDay()]
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1]
+  return `${day} ${d} ${mon}`
+}
+
 function formatYMDPretty(ymd: string): string {
   if (!ymd) return ""
   const [y, m, d] = ymd.split("-").map(Number)
@@ -95,6 +105,14 @@ interface UnavailableTrip {
   tripId: string
   title: string
   reason: string
+  /** YYYY-MM-DD dates in the next ~21 days where this trip has bookable slots */
+  suggestedDates?: string[]
+}
+
+interface AlternativeDate {
+  date: string       // YYYY-MM-DD
+  tripCount: number  // how many cart trips have slots on this date
+  totalTrips: number // total trips in the cart
 }
 
 function tripAdvisorUrl(location: string, type: "food" | "coffee") {
@@ -130,6 +148,8 @@ export interface Itinerary {
   hotelSuggestion?: CrossSell
   visitDate?: string
   unavailableTrips?: UnavailableTrip[]
+  alternativeDates?: AlternativeDate[]
+  scanDays?: number
 }
 
 interface SidebarItineraryProps {
@@ -286,6 +306,15 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
   const [loading, setLoading] = useState(false)
   const [loadingDate, setLoadingDate] = useState<string>("")
   const [error, setError] = useState("")
+  // When the server returns a structured "no/partial availability" response,
+  // capture the suggested alternative dates + per-trip menus so we can render
+  // clickable chips even when there's no itinerary yet.
+  const [errorPayload, setErrorPayload] = useState<{
+    unavailableTrips?: UnavailableTrip[]
+    alternativeDates?: AlternativeDate[]
+    visitDate?: string
+    scanDays?: number
+  } | null>(null)
 
   /* ─── Visit-date gating ─────────────────────────────────────────────────
      The itinerary cannot be built without a visit date (timeslots, deals,
@@ -308,6 +337,7 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
     setLoading(true)
     setLoadingDate(dateForRun)
     setError("")
+    setErrorPayload(null)
     const minLoaderMs = 4200 // ensure the magical loader has time to breathe
     const startedAt = Date.now()
     try {
@@ -336,6 +366,14 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
               ? "Live booking is not yet configured for this site."
               : "Could not generate itinerary. Please try again.")
         setError(msg)
+        // Capture structured suggestions so the user can pick a new date
+        // without having to retype it.
+        setErrorPayload({
+          unavailableTrips: data?.unavailableTrips,
+          alternativeDates: data?.alternativeDates,
+          visitDate: data?.visitDate,
+          scanDays: data?.scanDays,
+        })
         return
       }
       // Honour the minimum loader duration so the magical stages can play.
@@ -462,22 +500,101 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
         </div>
       )}
 
-      {/* Unavailable trips warning (some trips had no slots on chosen date) */}
-      {itinerary?.unavailableTrips && itinerary.unavailableTrips.length > 0 && (
-        <div className="mb-2 rounded-md border border-amber-300/50 bg-amber-50/60 px-2 py-1.5">
-          <div className="flex items-center gap-1.5">
-            <AlertTriangle className="h-3 w-3 text-amber-600" />
-            <span className="text-[10px] font-semibold text-amber-800">
-              {itinerary.unavailableTrips.length} trip{itinerary.unavailableTrips.length === 1 ? "" : "s"} without availability
-            </span>
+      {/* ── AVAILABILITY SUGGESTIONS ──────────────────────────────────────
+          Whether the build fully failed (errorPayload set) or partially
+          succeeded (itinerary has unavailableTrips), we show:
+            1) "Best dates" chips — dates covering the most cart trips.
+               Clicking one rebuilds the itinerary for that date.
+            2) Per-trip suggested dates — so the user sees exactly which
+               days each trip is open on, in case they want to split the
+               visit across two days. */}
+      {(() => {
+        const unavail = itinerary?.unavailableTrips ?? errorPayload?.unavailableTrips ?? []
+        const alts = itinerary?.alternativeDates ?? errorPayload?.alternativeDates ?? []
+        const scanDays = itinerary?.scanDays ?? errorPayload?.scanDays ?? 21
+        if (unavail.length === 0 && alts.length === 0) return null
+        return (
+          <div className="mb-2 rounded-md border border-amber-300/50 bg-amber-50/60 px-2.5 py-2">
+            {unavail.length > 0 && (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle className="h-3 w-3 text-amber-600" />
+                  <span className="text-[10px] font-semibold text-amber-800">
+                    {unavail.length} trip{unavail.length === 1 ? "" : "s"} without availability
+                  </span>
+                </div>
+                <ul className="mt-1.5 space-y-1.5">
+                  {unavail.map((u) => (
+                    <li key={u.tripId} className="text-[10px] leading-snug text-amber-900">
+                      <div className="font-medium line-clamp-1">• {u.title}</div>
+                      {u.suggestedDates && u.suggestedDates.length > 0 ? (
+                        <div className="ml-2 mt-0.5 flex flex-wrap gap-1">
+                          <span className="text-[9px] text-amber-700">Open on:</span>
+                          {u.suggestedDates.slice(0, 5).map((d) => (
+                            <button
+                              key={d}
+                              type="button"
+                              onClick={() => handleConfirmDate(d)}
+                              disabled={loading}
+                              className="rounded-full border border-amber-400/60 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-amber-900 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                              title={`Rebuild itinerary for ${formatYMDPretty(d)}`}
+                            >
+                              {formatYMDShort(d)}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="ml-2 text-[9px] text-amber-700">
+                          No openings in the next {scanDays} days
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {alts.length > 0 && (
+              <div className={unavail.length > 0 ? "mt-2 border-t border-amber-300/50 pt-2" : ""}>
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="h-3 w-3 text-amber-700" />
+                  <span className="text-[10px] font-semibold text-amber-900">
+                    Best dates for your whole cart
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {alts.map((a) => {
+                    const covers = a.tripCount === a.totalTrips
+                    return (
+                      <button
+                        key={a.date}
+                        type="button"
+                        onClick={() => handleConfirmDate(a.date)}
+                        disabled={loading}
+                        className={
+                          "group flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors disabled:opacity-50 " +
+                          (covers
+                            ? "border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+                            : "border border-amber-400/60 bg-white text-amber-900 hover:bg-amber-100")
+                        }
+                        title={`Rebuild itinerary for ${formatYMDPretty(a.date)} — ${a.tripCount}/${a.totalTrips} trips available`}
+                      >
+                        <span>{formatYMDShort(a.date)}</span>
+                        <span className="rounded-full bg-black/5 px-1 text-[8px] font-bold opacity-80 group-hover:opacity-100">
+                          {a.tripCount}/{a.totalTrips}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="mt-1 text-[9px] leading-snug text-amber-700">
+                  Tap a date to rebuild — chips show how many of your saved trips are open that day.
+                </p>
+              </div>
+            )}
           </div>
-          <ul className="mt-1 ml-4 list-disc text-[10px] leading-snug text-amber-800/80">
-            {itinerary.unavailableTrips.map((u) => (
-              <li key={u.tripId} className="line-clamp-1">{u.title}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )
+      })()}
 
       <div className="flex gap-1.5">
         {/* Primary action: build OR open */}
