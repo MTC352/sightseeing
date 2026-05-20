@@ -612,6 +612,12 @@ ${tipsInstructions}`
         walkMin: number | null
         transitMin: number | null
         distanceKm: number | null
+        /** Why we couldn't compute a real value — drives the UI's helper
+         *  text ("add a Mapbox token" vs "address missing on the trip"). */
+        reason: "ok" | "no_token" | "no_geocode"
+        /** Human-readable origin / destination for the timeline. */
+        fromLabel: string | null
+        toLabel: string | null
       }
       const fetchProfile = async (
         profile: "driving" | "walking",
@@ -634,14 +640,24 @@ ${tipsInstructions}`
           return null
         }
       }
-      const computeLeg = async (originGeo: string, destGeo: string): Promise<TravelLeg> => {
-        const empty: TravelLeg = { driveMin: null, walkMin: null, transitMin: null, distanceKm: null }
+      const computeLeg = async (
+        originGeo: string,
+        destGeo: string,
+        fromLabel: string | null,
+        toLabel: string | null,
+      ): Promise<TravelLeg> => {
+        const base = { fromLabel, toLabel }
         const from = parseLatLng(originGeo)
         const to = parseLatLng(destGeo)
-        if (!from || !to || !mapboxToken) return empty
+        if (!from || !to) {
+          return { driveMin: null, walkMin: null, transitMin: null, distanceKm: null, reason: "no_geocode", ...base }
+        }
+        if (!mapboxToken) {
+          return { driveMin: null, walkMin: null, transitMin: null, distanceKm: null, reason: "no_token", ...base }
+        }
         // Same point → no travel at all.
         if (Math.abs(from.lat - to.lat) < 1e-5 && Math.abs(from.lng - to.lng) < 1e-5) {
-          return { driveMin: 0, walkMin: 0, transitMin: null, distanceKm: 0 }
+          return { driveMin: 0, walkMin: 0, transitMin: null, distanceKm: 0, reason: "ok", ...base }
         }
         const [drive, walk] = await Promise.all([
           fetchProfile("driving", from, to),
@@ -654,6 +670,8 @@ ${tipsInstructions}`
           // shows "—" instead of fabricating a number.
           transitMin: null,
           distanceKm: drive ? Math.round((drive.distanceM / 1000) * 10) / 10 : null,
+          reason: "ok",
+          ...base,
         }
       }
       const nearestSlot = (slots: LiveSlot[], target: string, taken: Set<string>): LiveSlot => {
@@ -726,8 +744,14 @@ ${tipsInstructions}`
           if (!next) return
           const curDetails = tripDetailsById.get(step.tripId)
           const nextDetails = tripDetailsById.get(next.tripId)
-          const leg = await computeLeg(curDetails?.endGeo ?? "", nextDetails?.departureGeo ?? "")
-          // Mutate in place — the array elements are plain objects we own.
+          const fromLabel = (curDetails?.location || curDetails?.city || "").trim() || null
+          const toLabel = (nextDetails?.location || nextDetails?.city || "").trim() || null
+          const leg = await computeLeg(
+            curDetails?.endGeo ?? "",
+            nextDetails?.departureGeo ?? "",
+            fromLabel,
+            toLabel,
+          )
           ;(step as typeof step & { travelLeg: TravelLeg }).travelLeg = leg
           if (leg.driveMin !== null) {
             step.travelMinutes = leg.driveMin
@@ -740,6 +764,37 @@ ${tipsInstructions}`
             // UI falls back to "—" labels instead of a fake "15 min".
             step.travelMinutes = 0
             step.travelToNext = null
+          }
+
+          // ─── Dynamic break-duration adjustment ──────────────────────────
+          // The AI proposes a break length up front, but until we know the
+          // real travel time we can't tell if it actually fits. Recompute
+          // it from the gap between this step's end and the next step's
+          // confirmed start, subtracting travel + a 5-minute arrival
+          // buffer. Three outcomes:
+          //   gap < travel+15        → no time for a break, drop it.
+          //   gap ≈ travel           → keep it short (15 min min).
+          //   gap > travel + break   → expand to fill so the timeline
+          //                            doesn't show awkward dead time.
+          const brk = step.breakAfter
+          if (brk && brk.type !== "none" && leg.driveMin !== null) {
+            const endMin = toMinutes(step.endTime || step.time)
+            const nextStartMin = toMinutes(next.time)
+            const gap = nextStartMin - endMin
+            const buffer = 5
+            const available = gap - leg.driveMin - buffer
+            if (available < 15) {
+              // No room for a meaningful break — silently drop it. The
+              // timeline already shows the travel block + ETA.
+              step.breakAfter = { ...brk, type: "none" }
+            } else {
+              const requested = brk.durationMinutes ?? 0
+              // Snap to the nearest 5 minutes for tidiness and clamp into
+              // [15, available] so the break + travel + buffer = gap.
+              const target = Math.max(15, Math.min(available, requested > 0 ? requested : available))
+              const snapped = Math.round(target / 5) * 5
+              step.breakAfter = { ...brk, durationMinutes: snapped }
+            }
           }
         }),
       )

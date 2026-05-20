@@ -121,6 +121,14 @@ interface ItineraryStep {
      *  later without another schema change. */
     transitMin: number | null
     distanceKm: number | null
+    /** Why a field is null, surfaced to the UI so users see actionable
+     *  copy ("add a Mapbox token" vs "address missing on the trip"). */
+    reason?: "ok" | "no_token" | "no_geocode" | null
+    /** Human-readable origin / destination so the timeline can show
+     *  "From <trip A end> → <trip B departure>" instead of leaving the
+     *  user to guess which two points were measured. */
+    fromLabel?: string | null
+    toLabel?: string | null
   }
 }
 
@@ -191,6 +199,10 @@ function decodeEntities(s: string | null | undefined): string {
 }
 
 interface SidebarItineraryProps {
+  /** Already-built itinerary lifted from the parent — when present the
+   *  sidebar shows "View Itinerary" instead of "Build Itinerary" even on
+   *  fresh mount / after a hard reload. */
+  existingItinerary?: Itinerary | null
   /** Called once itinerary loads — parent uses this to open the center panel */
   onOpenItinerary: (itinerary: Itinerary) => void
 }
@@ -338,9 +350,14 @@ function BuildItineraryLoader({
   )
 }
 
-export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
+export function SidebarItinerary({ onOpenItinerary, existingItinerary }: SidebarItineraryProps) {
   const { items } = useCart()
-  const [itinerary, setItinerary] = useState<Itinerary | null>(null)
+  // Local itinerary takes precedence (just-generated), then fall back to the
+  // parent's persisted copy so the View/Build button stays in sync even
+  // after the component remounts (route change, hard refresh, etc.).
+  const [localItinerary, setLocalItinerary] = useState<Itinerary | null>(null)
+  const itinerary = localItinerary ?? existingItinerary ?? null
+  const setItinerary = setLocalItinerary
   const [loading, setLoading] = useState(false)
   const [loadingDate, setLoadingDate] = useState<string>("")
   const [error, setError] = useState("")
@@ -878,26 +895,32 @@ export function ItineraryPanel({
             const breakStartTime = step.endTime ?? null
             return (
             <div key={i} className="relative pb-6 last:pb-0">
-              {/* Step number bubble — bigger so the rail reads as a true
-                  numbered timeline (1 → fork → 2 → coffee → …). */}
-              <div className="absolute -left-[19px] top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-primary bg-background shadow-sm">
+              {/* Step number bubble — centred ON the green rail (parent
+                  has `pl-7` + `border-l-2`, so x=0..2 is the rail; a 28px
+                  bubble at -left-[15px] sits at x=-15..13 → centre +1
+                  which matches the rail centre). */}
+              <div className="absolute -left-[15px] top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-primary bg-background shadow-sm">
                 <span className="text-[11px] font-bold text-primary">{i + 1}</span>
               </div>
               {/* Start time label — sits to the LEFT of the rail with a
-                  small gap so number and time don't visually collide. */}
-              <div className="absolute -left-[100px] top-1 w-16 text-right">
+                  comfortable gap so number and time don't collide. */}
+              <div className="absolute -left-[104px] top-1 w-16 text-right">
                 <span className="text-sm font-bold text-primary tabular-nums">{step.time}</span>
               </div>
 
               <ItineraryStepCard step={step} />
 
               {/* End-of-step time label appears on the rail between cards.
-                  Suppressed when this step has a break, because the break's
-                  own label already shows the same time prominently — a
-                  second small label right above the next step's start time
-                  reads as a duplicate (e.g. "11:00" stacked above "13:00"). */}
-              {step.endTime && (!step.breakAfter || step.breakAfter.type === "none") && (
-                <div className="absolute -left-[100px] top-[calc(100%-1.25rem)] w-16 text-right">
+                  Suppressed in two cases:
+                  (a) this step has a break — the break's own label already
+                      shows that time prominently;
+                  (b) there's a Travel block below — that block's header
+                      already states the leg, so a free-floating end-time
+                      stacked above the next start time reads as noise.
+                  In short: only show the loose end-time when this is the
+                  very last step on the timeline. */}
+              {step.endTime && !nextStep && (
+                <div className="absolute -left-[104px] top-[calc(100%-1.25rem)] w-16 text-right">
                   <span className="text-[11px] font-medium text-muted-foreground tabular-nums">{step.endTime}</span>
                 </div>
               )}
@@ -907,9 +930,11 @@ export function ItineraryPanel({
                   bus/walk happens after the meal. */}
               {step.breakAfter && step.breakAfter.type !== "none" && step.breakAfter.location && (
                 <div className="relative ml-2 mt-3">
-                  {/* Rail icon for the break (fork / coffee), sized to
-                      match the numbered step bubbles on the same rail. */}
-                  <div className={`absolute -left-[29px] top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 bg-background shadow-sm ${
+                  {/* Rail icon for the break (fork / coffee). The wrapper
+                      is offset by ml-2 (8px) so we offset the bubble by an
+                      extra 8px (15 + 8 = 23) to keep its centre on the
+                      green rail, matching the numbered step bubbles. */}
+                  <div className={`absolute -left-[23px] top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 bg-background shadow-sm ${
                     step.breakAfter.type === "coffee"
                       ? "border-amber-500"
                       : "border-orange-500"
@@ -921,7 +946,7 @@ export function ItineraryPanel({
                   </div>
                   {/* Start-time label on the left rail — matches the step labels */}
                   {breakStartTime && (
-                    <div className="absolute -left-[110px] top-1 w-16 text-right">
+                    <div className="absolute -left-[112px] top-1 w-16 text-right">
                       <span className={`text-sm font-bold tabular-nums ${
                         step.breakAfter.type === "coffee" ? "text-amber-600" : "text-orange-500"
                       }`}>
@@ -978,20 +1003,45 @@ export function ItineraryPanel({
                 const has = leg && (leg.driveMin !== null || leg.walkMin !== null)
                 const fmt = (v: number | null, suffix: string) =>
                   v === null ? "—" : `${v} ${suffix}`
+                // Prefer the server-supplied human address; fall back to
+                // the trip's display location so the user always sees a
+                // real "from → to" rather than just "next stop".
+                const fromLabel = leg?.fromLabel || step.tripLocation || step.tripCity || step.tripTitle
+                const toLabel = leg?.toLabel || nextStep.tripLocation || nextStep.tripCity || nextStep.tripTitle
+                const unavailableCopy = (() => {
+                  if (has) return null
+                  if (leg?.reason === "no_token") {
+                    return "Travel time unavailable — add a Mapbox public access token in Admin → Integrations to enable live driving / walking times."
+                  }
+                  if (leg?.reason === "no_geocode") {
+                    return "Travel time unavailable — one of these trips is missing GPS coordinates on its catalogue record."
+                  }
+                  return "Travel time unavailable — could not reach the routing service. Try again in a moment."
+                })()
                 return (
-                  <div className="ml-2 mt-2.5 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs">
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Travel to next stop
-                        {leg?.distanceKm !== null && leg?.distanceKm !== undefined && (
-                          <span className="ml-1.5 font-normal normal-case text-foreground/70">
-                            · {leg.distanceKm} km
+                  <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 px-3.5 py-2.5 text-xs">
+                    <div className="mb-1.5 flex items-start justify-between gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Travel to next stop
+                          {leg?.distanceKm !== null && leg?.distanceKm !== undefined && (
+                            <span className="ml-1.5 font-normal normal-case text-foreground/70">
+                              · {leg.distanceKm} km
+                            </span>
+                          )}
+                        </span>
+                        <span className="flex items-center gap-1 text-[10.5px] leading-snug text-muted-foreground/90">
+                          <MapPin className="h-2.5 w-2.5 shrink-0 text-foreground/40" />
+                          <span className="truncate">
+                            <span className="text-foreground/80">{fromLabel}</span>
+                            <span className="mx-1 text-foreground/40">→</span>
+                            <span className="text-foreground/80">{toLabel}</span>
                           </span>
-                        )}
-                      </span>
+                        </span>
+                      </div>
                       {arrivalTime && has && (
-                        <span className="text-[11px] font-medium tabular-nums text-foreground/70">
-                          ETA at next stop · <span className="font-semibold text-foreground">{arrivalTime}</span>
+                        <span className="shrink-0 text-[11px] font-medium tabular-nums text-foreground/70">
+                          ETA · <span className="font-semibold text-foreground">{arrivalTime}</span>
                         </span>
                       )}
                     </div>
@@ -1014,9 +1064,9 @@ export function ItineraryPanel({
                         </span>
                       )}
                     </div>
-                    {!has && (
-                      <p className="mt-1 text-[10px] text-muted-foreground/70">
-                        Travel time unavailable — location data missing for one of the stops.
+                    {unavailableCopy && (
+                      <p className="mt-1.5 text-[10.5px] leading-snug text-muted-foreground/80">
+                        {unavailableCopy}
                       </p>
                     )}
                   </div>

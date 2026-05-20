@@ -1232,7 +1232,7 @@ export default function PlannerPage() {
           {/* Smart Itinerary pinned to the bottom — stays visible while the
               trip list scrolls so users never lose the Build Itinerary CTA. */}
           <div className="shrink-0">
-            <SidebarItinerary onOpenItinerary={handleOpenItinerary} />
+            <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
           </div>
         </div>
 
@@ -1256,7 +1256,7 @@ export default function PlannerPage() {
               </div>
               {/* Sticky Smart Itinerary CTA at the bottom of the drawer */}
               <div className="shrink-0">
-                <SidebarItinerary onOpenItinerary={handleOpenItinerary} />
+                <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
               </div>
             </div>
           </div>
