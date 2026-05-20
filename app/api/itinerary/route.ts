@@ -5,8 +5,8 @@ import { dbGetSettings, dbGetTrip } from "@/lib/db/queries"
 import { query } from "@/lib/db"
 import {
   getTourCMSConfig,
-  checkAvailability,
-  type AvailabilityComponent,
+  showTourDatesAndDeals,
+  type DepartureDate,
 } from "@/lib/tourcms"
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -16,13 +16,19 @@ import {
    user-selected visit date. We:
 
      1. Resolve each cart trip's Palisis tour_id from our DB.
-     2. Call TourCMS `checkavail.xml` IN PARALLEL for every trip on the
-        chosen date — this is the *exact* same call the booking flow uses,
-        so the timeslots we surface are guaranteed to be real and bookable.
+     2. Call TourCMS `datesndeals/search.xml` IN PARALLEL for every trip,
+        asking for the full window [visitDate … visitDate + SCAN_DAYS].
+        This is the SAME "dates and deals" API that the public Palisis
+        booking widget on the trip detail page uses to list departure
+        dates and times. One call per trip covers BOTH the chosen date's
+        timeslots AND the alternative-date scan — much cheaper than
+        21 × checkavail calls and, critically, returns inventory even
+        when no rate/quantity has been selected yet.
      3. Feed the AI a per-trip menu of real timeslots and require it to
         place each step at one of those exact start times.
-     4. Return the final itinerary plus an `unavailableTrips` list so the
-        UI can honestly tell the user "no slots for X on Friday".
+     4. Return the final itinerary plus an `unavailableTrips` list with
+        suggestedDates so the UI can show "X is available on these dates
+        instead".
 
    We DO NOT fabricate timeslots, use heuristic clock math, or fall back
    to "around 09:00" defaults. If TourCMS is not configured we refuse
@@ -111,23 +117,37 @@ async function resolvePalisisId(tripId: string): Promise<string | null> {
 
 /* ── Timeslot shaping ──────────────────────────────────────────────────── */
 interface LiveSlot {
+  /** YYYY-MM-DD the slot departs */
+  date: string
   startTime: string
   endTime: string | null
   totalPrice: string | null
   totalPriceDisplay: string | null
   spacesRemaining: string | null
+  /** Synthetic stable key (date + start_time) — used for "already taken" tracking */
   componentKey: string
 }
 
-function shapeSlot(c: AvailabilityComponent): LiveSlot | null {
-  if (!c.start_time) return null
+/** Convert a DepartureDate (datesndeals row) into our LiveSlot shape. */
+function shapeSlotFromDeparture(d: DepartureDate): LiveSlot | null {
+  if (!d.start_time || !d.start_date) return null
+  // Some departures legitimately come back with status="cancelled" or 0 spaces.
+  // We treat them as not bookable. spaces_remaining can be "UNLIMITED".
+  const raw = d.spaces_remaining
+  if (raw && raw !== "UNLIMITED" && parseInt(raw, 10) <= 0) return null
+  if (d.status && /cancel/i.test(d.status)) return null
+  const startTime = String(d.start_time).slice(0, 5)
+  const offerDisplay = d.offer_price_1_display ?? null
+  const priceDisplay = offerDisplay ?? d.price_1_display ?? null
+  const priceRaw = d.offer_price_1 ?? d.price_1 ?? null
   return {
-    startTime: String(c.start_time).slice(0, 5),
-    endTime: c.end_time ? String(c.end_time).slice(0, 5) : null,
-    totalPrice: c.total_price ?? null,
-    totalPriceDisplay: c.total_price_display ?? null,
-    spacesRemaining: c.spaces_remaining ?? null,
-    componentKey: c.component_key,
+    date: String(d.start_date),
+    startTime,
+    endTime: d.end_time ? String(d.end_time).slice(0, 5) : null,
+    totalPrice: priceRaw,
+    totalPriceDisplay: priceDisplay,
+    spacesRemaining: raw ?? null,
+    componentKey: `${d.start_date}T${startTime}`,
   }
 }
 
@@ -162,39 +182,12 @@ interface TripAvailability {
   error?: string
 }
 
-/* ── Multi-day scan: find which dates in the next N days have slots ─────── */
 /** Add `n` days to a YYYY-MM-DD string (UTC math, returns YYYY-MM-DD) */
 function addDays(ymd: string, n: number): string {
   const [y, m, d] = ymd.split("-").map(Number)
   const dt = new Date(Date.UTC(y, m - 1, d))
   dt.setUTCDate(dt.getUTCDate() + n)
   return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(dt)
-}
-
-/**
- * Scan the next `days` calendar days for a single trip, in parallel,
- * and return the list of dates with at least one bookable slot.
- * We cap the number of dates returned per trip to keep responses small.
- */
-async function scanTripDates(
-  config: NonNullable<Awaited<ReturnType<typeof getTourCMSConfig>>>,
-  palisisId: string,
-  startYMD: string,
-  days: number,
-  maxReturn: number = 8,
-): Promise<string[]> {
-  const dates = Array.from({ length: days }, (_, i) => addDays(startYMD, i + 1))
-  const results = await Promise.all(
-    dates.map(async (d) => {
-      try {
-        const res = await checkAvailability(config, palisisId, { date: d, show_pickups: "0" })
-        if (!res.ok) return null
-        const has = (res.components ?? []).some((c) => Boolean(c?.start_time))
-        return has ? d : null
-      } catch { return null }
-    }),
-  )
-  return results.filter((d): d is string => d !== null).slice(0, maxReturn)
 }
 
 export async function POST(req: Request) {
@@ -226,25 +219,50 @@ export async function POST(req: Request) {
     /* 1) Resolve palisis ids in parallel. */
     const palisisIds = await Promise.all(trips.map((t) => resolvePalisisId(t.id)))
 
-    /* 2) Fetch real timeslots for the visit date in parallel. */
-    const availability: TripAvailability[] = await Promise.all(
-      trips.map(async (trip, i): Promise<TripAvailability> => {
+    /* 2) For each trip, ONE call to datesndeals/search.xml covering both the
+       visit date AND the 21-day alternative-date scan window. This is the
+       same API the public Palisis booking widget uses to populate its
+       departure-date picker, so the data is guaranteed to match what the
+       user sees on /trip/[id]. */
+    const SCAN_DAYS = 21
+    const windowEnd = addDays(visitDate, SCAN_DAYS)
+
+    type TripWindow = TripAvailability & {
+      /** All bookable slots in the window, grouped by date */
+      slotsByDate: Map<string, LiveSlot[]>
+    }
+
+    const availability: TripWindow[] = await Promise.all(
+      trips.map(async (trip, i): Promise<TripWindow> => {
         const palisisId = palisisIds[i]
         if (!palisisId) {
-          return { trip, palisisId: null, slots: [], status: "NO_PALISIS_LINK" }
+          return { trip, palisisId: null, slots: [], slotsByDate: new Map(), status: "NO_PALISIS_LINK" }
         }
         try {
-          const res = await checkAvailability(config, palisisId, { date: visitDate, show_pickups: "0" })
+          const res = await showTourDatesAndDeals(config, palisisId, {
+            startdate_start: visitDate,
+            startdate_end: windowEnd,
+          })
           if (!res.ok) {
-            return { trip, palisisId, slots: [], status: "TOURCMS_ERROR", error: res.error }
+            return { trip, palisisId, slots: [], slotsByDate: new Map(), status: "TOURCMS_ERROR", error: res.error }
           }
-          const shaped = res.components.map(shapeSlot).filter((s): s is LiveSlot => s !== null)
-          if (shaped.length === 0) {
-            return { trip, palisisId, slots: [], status: "NO_SLOTS" }
+          const shaped = res.dates
+            .map(shapeSlotFromDeparture)
+            .filter((s): s is LiveSlot => s !== null)
+          const slotsByDate = new Map<string, LiveSlot[]>()
+          for (const s of shaped) {
+            const arr = slotsByDate.get(s.date) ?? []
+            arr.push(s)
+            slotsByDate.set(s.date, arr)
           }
-          return { trip, palisisId, slots: sortSlots(shaped), status: "OK" }
+          for (const [k, arr] of slotsByDate) slotsByDate.set(k, sortSlots(arr))
+          const visitSlots = slotsByDate.get(visitDate) ?? []
+          if (visitSlots.length === 0) {
+            return { trip, palisisId, slots: [], slotsByDate, status: "NO_SLOTS" }
+          }
+          return { trip, palisisId, slots: visitSlots, slotsByDate, status: "OK" }
         } catch (err) {
-          return { trip, palisisId, slots: [], status: "TOURCMS_ERROR", error: String(err) }
+          return { trip, palisisId, slots: [], slotsByDate: new Map(), status: "TOURCMS_ERROR", error: String(err) }
         }
       }),
     )
@@ -252,56 +270,36 @@ export async function POST(req: Request) {
     const bookable = availability.filter((a) => a.status === "OK")
     const unavailable = availability.filter((a) => a.status !== "OK")
 
-    /* 2b) For every trip that has no slots on the chosen date but does have a
-       resolved palisis_id, scan the next ~21 days and find alternative dates.
-       This lets the UI tell the user honestly which dates work for which trips
-       instead of just "try a different date". */
-    const SCAN_DAYS = 21
-    const scanTargets = unavailable.filter((a) => a.palisisId && a.status === "NO_SLOTS")
-    const scanned = await Promise.all(
-      scanTargets.map(async (a) => ({
-        tripId: a.trip.id,
-        dates: await scanTripDates(config, a.palisisId!, visitDate, SCAN_DAYS),
-      })),
-    )
-    const scannedByTripId = new Map(scanned.map((s) => [s.tripId, s.dates]))
+    /* 2b) Derive per-trip suggested dates from the same window we already
+       fetched — no extra API calls. */
+    const suggestedFor = (a: TripWindow): string[] =>
+      [...a.slotsByDate.keys()]
+        .filter((d) => d !== visitDate && d >= visitDate && d <= windowEnd)
+        .sort()
+        .slice(0, 8)
 
     const unavailableTrips = unavailable.map((a) => ({
       tripId: a.trip.id,
       title: a.trip.title,
       reason: a.status,
-      // For NO_SLOTS we surface up to 8 alternative dates within the next 21 days.
-      suggestedDates: scannedByTripId.get(a.trip.id) ?? [],
+      suggestedDates: suggestedFor(a),
     }))
 
-    /* Compute aggregate "best dates" across ALL trips in the cart (bookable +
-       scanned). For trips already bookable on visitDate, we ALSO scan to know
-       which other dates they're available on — but keep it cheap by only
-       running this when there's at least one unavailable trip. The point is to
-       suggest a single date that covers as many trips as possible. */
+    /* Aggregate "best dates" across ALL trips — counts how many trips are
+       available on each date in the window. Already free (we have the full
+       slotsByDate map in memory). */
     let alternativeDates: Array<{ date: string; tripCount: number; totalTrips: number }> = []
     if (unavailable.length > 0) {
-      const bookableScans = await Promise.all(
-        bookable
-          .filter((a) => a.palisisId)
-          .map(async (a) => ({
-            tripId: a.trip.id,
-            dates: await scanTripDates(config, a.palisisId!, visitDate, SCAN_DAYS, 30),
-          })),
-      )
-      const allScans = [
-        ...bookableScans,
-        ...scanned.map((s) => ({ tripId: s.tripId, dates: s.dates })),
-      ]
-      // Count how many trips are available on each candidate date.
       const dateCounts = new Map<string, number>()
-      for (const s of allScans) {
-        for (const d of s.dates) dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1)
+      for (const a of availability) {
+        for (const d of a.slotsByDate.keys()) {
+          if (d <= visitDate || d > windowEnd) continue
+          dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1)
+        }
       }
       const totalTrips = trips.length
       alternativeDates = [...dateCounts.entries()]
         .map(([date, tripCount]) => ({ date, tripCount, totalTrips }))
-        // Prefer dates that cover the MOST trips, then the soonest date.
         .sort((a, b) => (b.tripCount - a.tripCount) || a.date.localeCompare(b.date))
         .slice(0, 6)
     }
@@ -372,7 +370,7 @@ Travel mode between stops: ${travelMethodLabel}
 Buffer between activities: ${bufferTimeBetweenStops} minutes
 Maximum stops: ${maxStopsPerDay}
 
-CART TRIPS WITH LIVE TIMESLOTS (from Palisis checkavail.xml):
+CART TRIPS WITH LIVE TIMESLOTS (from Palisis datesndeals/search.xml):
 
 ${tripMenuLines}${unavailableLines}
 
@@ -412,7 +410,7 @@ Return STRICTLY the JSON object matching the schema.`
       const modelId =
         typeof settings.model === "string" && settings.model.startsWith("claude")
           ? (settings.model as string)
-          : "claude-3-5-haiku-latest"
+          : "claude-haiku-4-5-20251001"
       const { output } = await generateText({
         model: anthropic(modelId),
         output: Output.object({ schema: itinerarySchema }),
