@@ -120,13 +120,49 @@ function buildFallbackItinerary(trips: { id: string; title: string; city: string
 
 export async function POST(req: Request) {
   try {
-    const { trips } = await req.json() as {
+    const { trips, startDate } = await req.json() as {
       trips: { id: string; title: string; city: string; duration: string; category: string }[]
+      startDate?: string
     }
 
     if (!trips?.length) {
       return Response.json({ error: "No trips provided" }, { status: 400 })
     }
+
+    // Validate the visit date. The UI picks dates in the user's local timezone
+    // (Europe/Luxembourg for this site), so we must compare against the same
+    // local day rather than raw UTC — otherwise a user selecting "today" in
+    // the evening UTC-side may be wrongly rejected as past.
+    // We also strictly parse the calendar date so impossible values like
+    // "2026-02-31" don't slip through and produce garbled prompt context.
+    const APP_TZ = "Europe/Luxembourg"
+    function localTodayYMD(): string {
+      // en-CA gives YYYY-MM-DD shape directly in the requested timezone.
+      return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date())
+    }
+    function parseStrictYMD(s: string | undefined | null): string | null {
+      if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+      const [y, m, d] = s.split("-").map(Number)
+      if (m < 1 || m > 12 || d < 1 || d > 31) return null
+      // Round-trip through Date and verify the parts match — rejects 2026-02-31, etc.
+      const probe = new Date(Date.UTC(y, m - 1, d))
+      if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return null
+      return s
+    }
+    const today = localTodayYMD()
+    const parsedDate = parseStrictYMD(startDate)
+    const visitDate = parsedDate && parsedDate >= today ? parsedDate : null
+    if (!visitDate) {
+      return Response.json({ error: "MISSING_VISIT_DATE", message: "A valid visit date (YYYY-MM-DD, today or later) is required to build an itinerary." }, { status: 400 })
+    }
+
+    // Day-of-week context — helps the model pick realistic times for the chosen date.
+    const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    const [vy, vm, vd] = visitDate.split("-").map(Number)
+    const visitDateObj = new Date(Date.UTC(vy, vm - 1, vd))
+    const visitDayName = DAYS[visitDateObj.getUTCDay()]
+    const visitPretty = `${visitDayName}, ${vd} ${MONTHS[vm - 1]} ${vy}`
 
     const tripList = trips.map((t, i) => `${i + 1}. "${t.title}" [${t.id}] in ${t.city} (${t.duration}, ${t.category})`).join("\n")
     
@@ -142,6 +178,9 @@ export async function POST(req: Request) {
         model: settings.model || "openai/gpt-4o-mini",
         output: Output.object({ schema: itinerarySchema }),
         prompt: `You are a Luxembourg travel planner. Build a RELAXED day itinerary from these saved trips.
+
+VISIT DATE: ${visitPretty} (${visitDate}). Plan specifically for this date — treat it as authoritative when choosing realistic times, accounting for the day of week, typical opening hours, and night-vs-day suitability of each trip.
+
 Sequence them by geographic proximity, suggest realistic start times beginning at ${settings.dayStartTime}.
 Include ${travelMethodLabel} travel between stops.
 

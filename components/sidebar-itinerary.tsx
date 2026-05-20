@@ -1,14 +1,74 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useCart } from "@/lib/cart-context"
 import Link from "next/link"
 import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bus, Car, Building2, ArrowRight,
-  Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink,
+  Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
 } from "lucide-react"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"
+
+/* ─── Visit-date helpers — must match the planner page so cookies are shared ─── */
+const PREFS_COOKIE = "sightseeing_prefs"
+const MAX_AGE = 60 * 60 * 24 * 7
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null
+  try {
+    const m = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`))
+    return m ? decodeURIComponent(m.split("=").slice(1).join("=")) : null
+  } catch { return null }
+}
+function writeCookie(name: string, value: string) {
+  if (typeof document === "undefined") return
+  document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${MAX_AGE};SameSite=Lax`
+}
+function ymdLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+function todayYMD(): string { return ymdLocal(new Date()) }
+function tomorrowYMD(): string { const d = new Date(); d.setDate(d.getDate() + 1); return ymdLocal(d) }
+function nextWeekendYMD(): string {
+  const d = new Date()
+  const dow = d.getDay()
+  d.setDate(d.getDate() + (dow === 6 ? 0 : (6 - dow + 7) % 7))
+  return ymdLocal(d)
+}
+function formatYMDPretty(ymd: string): string {
+  if (!ymd) return ""
+  const [y, m, d] = ymd.split("-").map(Number)
+  if (!y || !m || !d) return ymd
+  const t = todayYMD(); const tm = tomorrowYMD()
+  if (ymd === t) return "Today"
+  if (ymd === tm) return "Tomorrow"
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })
+}
+
+/** Read startDate from the shared prefs cookie. Returns null if missing, malformed, or in the past. */
+function readVisitDate(): string | null {
+  const raw = readCookie(PREFS_COOKIE)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { startDate?: string }
+    const sd = parsed?.startDate
+    if (sd && /^\d{4}-\d{2}-\d{2}$/.test(sd) && sd >= todayYMD()) return sd
+  } catch { /* ignore */ }
+  return null
+}
+
+/** Persist startDate into the shared prefs cookie, preserving any other fields. */
+function writeVisitDate(date: string) {
+  const raw = readCookie(PREFS_COOKIE)
+  let obj: Record<string, unknown> = {}
+  if (raw) { try { obj = JSON.parse(raw) ?? {} } catch { obj = {} } }
+  obj.startDate = date
+  writeCookie(PREFS_COOKIE, JSON.stringify(obj))
+}
 
 interface BreakAfter {
   type: "food" | "coffee" | "none"
@@ -70,7 +130,24 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  const generate = useCallback(async () => {
+  /* ─── Visit-date gating ─────────────────────────────────────────────────
+     The itinerary cannot be built without a visit date (timeslots, deals,
+     and day-of-week logic depend on it). If the user added trips directly
+     from /explore or /trip/[id] without going through the planner
+     onboarding, the prefs cookie will be missing the startDate — we
+     surface an inline date picker before allowing the build. */
+  const [visitDate, setVisitDate] = useState<string | null>(null)
+  const [showDatePrompt, setShowDatePrompt] = useState(false)
+  const [pendingDate, setPendingDate] = useState<string>("")
+
+  // Read date from cookie on mount AND whenever the cart contents change
+  // (the user may have completed onboarding in the chat panel after opening
+  // the cart, and we want the date to flow through without a full refresh).
+  useEffect(() => {
+    setVisitDate(readVisitDate())
+  }, [items.length])
+
+  const runGenerate = useCallback(async (dateForRun: string) => {
     setLoading(true)
     setError("")
     try {
@@ -84,7 +161,7 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
       const res = await fetch("/api/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trips }),
+        body: JSON.stringify({ trips, startDate: dateForRun }),
       })
       if (!res.ok) throw new Error("Failed to generate")
       const data: Itinerary = await res.json()
@@ -97,6 +174,26 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
       setLoading(false)
     }
   }, [items, onOpenItinerary])
+
+  const handleBuildClick = useCallback(() => {
+    const existing = readVisitDate()
+    if (existing) {
+      setVisitDate(existing)
+      void runGenerate(existing)
+    } else {
+      // No date saved — prompt for one before building.
+      setPendingDate("")
+      setShowDatePrompt(true)
+    }
+  }, [runGenerate])
+
+  const handleConfirmDate = useCallback((dateValue: string) => {
+    if (!dateValue || dateValue < todayYMD()) return
+    writeVisitDate(dateValue)
+    setVisitDate(dateValue)
+    setShowDatePrompt(false)
+    void runGenerate(dateValue)
+  }, [runGenerate])
 
   if (items.length < 2) return null
 
@@ -112,10 +209,65 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
         )}
       </div>
 
-      {!itinerary && !loading && (
+      {!itinerary && !loading && !showDatePrompt && (
         <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground">
-          {"Optimise your " + items.length + " saved trips into a day plan with transit times."}
+          {visitDate
+            ? `Planned for ${formatYMDPretty(visitDate)} — we'll optimise your ${items.length} saved trips into a day plan with transit times.`
+            : `Optimise your ${items.length} saved trips into a day plan with transit times.`}
         </p>
+      )}
+
+      {/* Inline date prompt — shown when the user has no saved visit date yet. */}
+      {showDatePrompt && !itinerary && (
+        <div className="mb-2 rounded-xl border border-primary/40 bg-primary/5 p-2.5">
+          <div className="mb-2 flex items-start gap-1.5">
+            <Calendar className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <p className="text-[11px] leading-snug text-foreground">
+              When are you visiting? We need a date to fetch real timeslots and current deals.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {[
+              { value: todayYMD(),       label: "Today" },
+              { value: tomorrowYMD(),    label: "Tomorrow" },
+              { value: nextWeekendYMD(), label: "Weekend" },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => handleConfirmDate(opt.value)}
+                className="rounded-md border border-border bg-card px-1.5 py-1.5 text-[10px] font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5"
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <input
+              type="date"
+              min={todayYMD()}
+              value={pendingDate}
+              onChange={(e) => setPendingDate(e.target.value)}
+              className="flex-1 rounded-md border border-border bg-card px-2 py-1.5 text-[11px] text-foreground focus:border-primary focus:outline-none"
+              aria-label="Pick visit date"
+            />
+            <button
+              type="button"
+              disabled={!pendingDate || pendingDate < todayYMD()}
+              onClick={() => handleConfirmDate(pendingDate)}
+              className="rounded-md bg-primary px-2.5 py-1.5 text-[10px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              Use date
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowDatePrompt(false)}
+            className="mt-1.5 w-full text-center text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </div>
       )}
 
       {error && <p className="mb-2 text-[10px] text-destructive">{error}</p>}
@@ -125,8 +277,8 @@ export function SidebarItinerary({ onOpenItinerary }: SidebarItineraryProps) {
         {!itinerary ? (
           <button
             type="button"
-            onClick={generate}
-            disabled={loading}
+            onClick={handleBuildClick}
+            disabled={loading || showDatePrompt}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
           >
             {loading ? (

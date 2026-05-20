@@ -381,10 +381,14 @@ export default function PlannerPage() {
         duration: i.trip.duration,
         category: i.trip.category,
       }))
+      // Always re-read the latest prefs at call time — the dependency array
+      // intentionally tracks `prefs` so onboarding changes flow through, but
+      // this guards against any stale-closure edge case as well.
+      const visitDate = prefs?.startDate || todayYMD()
       const res = await fetch("/api/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trips }),
+        body: JSON.stringify({ trips, startDate: visitDate }),
       })
       if (!res.ok) throw new Error("Failed")
       const data: Itinerary = await res.json()
@@ -392,7 +396,7 @@ export default function PlannerPage() {
     } catch { /* silent */ } finally {
       setItineraryRegenerating(false)
     }
-  }, [items])
+  }, [items, prefs])
 
   const sendFeedback = useCallback(async (messageId: string, vote: "up" | "down") => {
     setFeedbackGiven((prev) => ({ ...prev, [messageId]: vote }))
