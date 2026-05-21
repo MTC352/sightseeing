@@ -1,4 +1,6 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
+import { createAnthropic } from "@ai-sdk/anthropic"
+import { dbGetSettings } from "@/lib/db/queries"
 
 export const maxDuration = 30
 
@@ -45,16 +47,71 @@ export async function POST(req: Request) {
       messages = body.messages ?? []
     }
 
-    const systemPrompt = `You are a help assistant for sightseeing.lu. Answer questions based solely on the following FAQ articles. Do not discuss specific trip details or make up information. Be concise, warm, and helpful. No markdown formatting.
+    const DEFAULT_HELP_PROMPT = `You are a help assistant for sightseeing.lu. Answer questions based solely on the following FAQ articles. Do not discuss specific trip details or make up information. Be concise, warm, and helpful. No markdown formatting.
 
 ${FAQ_CONTENT}
 
 If the user asks something not covered by the FAQ, acknowledge it honestly and suggest they email info@sightseeing.lu for personalised help.`
 
+    // ── Model resolution ──────────────────────────────────────────────────
+    // Mirror the planner/itinerary/blog routes: prefer the AI Gateway when
+    // its env key is set, otherwise fall back to Anthropic via @ai-sdk/anthropic
+    // using the DB-stored key. The previous code passed "openai/gpt-4o-mini"
+    // straight to streamText, which silently produced an empty stream when
+    // neither AI_GATEWAY_API_KEY nor OPENAI_API_KEY was available — so the
+    // help widget appeared to "not respond" while actually receiving an
+    // empty stream and never displaying any tokens.
+    const settings = await dbGetSettings()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const helpCfg = (settings.ai as Record<string, Record<string, unknown>>)?.help ?? {}
+    // Honor the admin-configured system prompt from /admin/ai-systems/help
+    // when one is saved; otherwise fall back to the hardcoded FAQ prompt.
+    const adminPrompt = (helpCfg.systemPrompt as string)?.trim()
+    const systemPrompt = adminPrompt && adminPrompt.length > 0 ? adminPrompt : DEFAULT_HELP_PROMPT
+    const adminModel = (helpCfg.model as string) || ""
+    // Clamp runtime controls to safe ranges in case the DB holds garbage.
+    const rawTemp = typeof helpCfg.temperature === "number" ? helpCfg.temperature : 0.3
+    const temperature = Math.min(1, Math.max(0, rawTemp))
+    const rawMax = typeof helpCfg.maxTokens === "number" ? helpCfg.maxTokens : 1024
+    const maxOutputTokens = Math.min(4096, Math.max(128, Math.floor(rawMax)))
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
+    const anthropicKey = apiKeys?.anthropic || process.env.ANTHROPIC_API_KEY
+    const gatewayKey = process.env.AI_GATEWAY_API_KEY
+
+    if (!gatewayKey && !anthropicKey) {
+      const msg = "Help chat AI is not configured. Please email info@sightseeing.lu and we'll respond personally."
+      console.error("[help-chat] No AI credentials available")
+      const sse =
+        `data: ${JSON.stringify({ type: "start" })}\n\n` +
+        `data: ${JSON.stringify({ type: "error", errorText: msg })}\n\n` +
+        `data: [DONE]\n\n`
+      return new Response(sse, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
+      })
+    }
+
+    let model: Parameters<typeof streamText>[0]["model"]
+    if (gatewayKey) {
+      model = adminModel || "anthropic/claude-haiku-4-5-20251001"
+    } else {
+      const anthropic = createAnthropic({ apiKey: anthropicKey! })
+      const modelId = adminModel.startsWith("anthropic/")
+        ? adminModel.slice("anthropic/".length)
+        : adminModel.startsWith("claude")
+          ? adminModel
+          : "claude-haiku-4-5-20251001"
+      model = anthropic(modelId)
+    }
+
     const result = streamText({
-      model: "openai/gpt-4o-mini",
+      model,
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
+      temperature,
+      maxOutputTokens,
     })
 
     return result.toUIMessageStreamResponse()
