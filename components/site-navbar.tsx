@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect, useContext } from "react"
+import { useState, useEffect, useContext, useRef } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Menu, X, ShoppingBag, Search, Globe } from "lucide-react"
 import { CartContext } from "@/lib/cart-context"
 
@@ -131,13 +131,8 @@ export function Navbar() {
             </div>
           )}
 
-          <Link
-            href="/search?q=Luxembourg+City"
-            className="hidden rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:flex"
-          >
-            <Search className="h-5 w-5" />
-            <span className="sr-only">Search</span>
-          </Link>
+          <SearchPopover />
+
 
           <Link
             href="/checkout"
@@ -204,5 +199,102 @@ export function Navbar() {
         </div>
       )}
     </nav>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * SearchPopover
+ *
+ * Click the magnifying-glass to expand a small text input inline. Submitting
+ * the form (Enter or the embedded button) navigates to /search?q=<term>,
+ * which is the existing search-results page (app/search/page.tsx) that
+ * matches trip titles, categories, cities, etc.
+ *
+ * Behaviour:
+ *  - Closed by default; only the icon shows in the navbar (matches the
+ *    previous static link's footprint so the layout doesn't shift).
+ *  - Opens on icon click, focuses the input.
+ *  - Closes on Esc, on outside click, or after a successful submit.
+ *  - Empty submissions are ignored (we don't redirect to an empty query).
+ * ───────────────────────────────────────────────────────────────────────── */
+function SearchPopover() {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState("")
+  const router = useRouter()
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+
+  // Focus the input as soon as the popover opens.
+  useEffect(() => {
+    if (open) {
+      // Defer to next tick so the input is in the DOM before .focus()
+      const id = window.setTimeout(() => inputRef.current?.focus(), 0)
+      return () => window.clearTimeout(id)
+    }
+  }, [open])
+
+  // Close on Esc or outside click while open.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false)
+    }
+    const onClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("keydown", onKey)
+    document.addEventListener("mousedown", onClick)
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      document.removeEventListener("mousedown", onClick)
+    }
+  }, [open])
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const q = value.trim()
+    if (!q) return
+    router.push(`/search?q=${encodeURIComponent(q)}`)
+    setOpen(false)
+    setValue("")
+  }
+
+  return (
+    <div ref={wrapRef} className="relative hidden md:flex">
+      {open ? (
+        <form
+          onSubmit={submit}
+          role="search"
+          className="flex items-center gap-1 rounded-lg border border-border bg-background px-1 py-0.5 shadow-sm"
+        >
+          <input
+            ref={inputRef}
+            type="search"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Search trips…"
+            aria-label="Search trips"
+            className="w-48 bg-transparent px-2 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+          <button
+            type="submit"
+            aria-label="Search"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Open search"
+          aria-expanded={false}
+          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <Search className="h-5 w-5" />
+        </button>
+      )}
+    </div>
   )
 }
