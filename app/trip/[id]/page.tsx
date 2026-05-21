@@ -260,7 +260,9 @@ export default async function TripPage({
   const selectedDate = typeof sp.date === "string" ? sp.date : undefined
   const selectedTime = typeof sp.time === "string" ? sp.time : undefined
 
-  const { trip, dbRow } = await resolveTrip(id)
+  const resolved = await resolveTrip(id)
+  const { dbRow } = resolved
+  let trip = resolved.trip
   const detail = getTripDetail(id)
   const dbDetail = dbRow ? mapDbDetail(dbRow) : null
   const faqs = trip ? buildFaqs(dbDetail, trip, detail?.goodToKnow) : []
@@ -300,6 +302,28 @@ export default async function TripPage({
         selectedTime={selectedTime}
       />
     )
+  }
+
+  /* ─── Augment gallery when the upstream feed only gives us 1 image ────
+   * Palisis/TourCMS often returns a single `images.image[]` entry per tour,
+   * which leaves the trip-detail slider with just the cover photo and no
+   * navigation. To restore the multi-image gallery UX, fall back to images
+   * from related DB trips (same category preferred). Original static seed
+   * did the same in lib/data.ts (see getTripDetail fallback).
+   * We only augment when the trip itself doesn't already provide a true
+   * multi-image gallery, and we keep the trip's own image first.            */
+  if ((trip.gallery ?? []).length <= 1) {
+    const base = trip.image ? [trip.image] : []
+    const extras: string[] = []
+    for (const r of relatedTrips) {
+      if (r.image && r.image !== trip.image && !extras.includes(r.image)) {
+        extras.push(r.image)
+      }
+      if (extras.length >= 3) break
+    }
+    if (extras.length > 0) {
+      trip = { ...trip, gallery: [...base, ...extras] }
+    }
   }
 
   const imageUrl = trip.image.startsWith("/") ? `${BASE}${trip.image}` : trip.image
