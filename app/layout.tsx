@@ -161,7 +161,23 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 var s = document.createElement('script');
                 s.src = 'https://cdn.weglot.com/weglot.min.js';
                 s.onload = function() {
-                  Weglot.initialize({ api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7' });
+                  Weglot.initialize({
+                    api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7',
+                    // Hide Weglot's default floating bottom-right switcher;
+                    // the navbar provides its own EN / FR / DE buttons.
+                    hide_switcher: true
+                  });
+                  // Belt-and-braces: if Weglot still injects the widget for any
+                  // reason (older cached script, race), strip it from the DOM.
+                  try {
+                    var kill = function() {
+                      var nodes = document.querySelectorAll('.weglot-container, .country-selector, aside.country-selector');
+                      for (var i = 0; i < nodes.length; i++) nodes[i].remove();
+                    };
+                    kill();
+                    setTimeout(kill, 500);
+                    setTimeout(kill, 2000);
+                  } catch (e) {}
                 };
                 document.head.appendChild(s);
               })();
