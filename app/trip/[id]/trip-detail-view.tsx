@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, memo } from "react"
+import { trackTripView } from "@/lib/use-recently-viewed"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -143,6 +144,14 @@ export default function TripDetailClient({
   useEffect(() => {
     setCanGoBack(window.history.length > 2)
   }, [])
+
+  // Record this trip as "recently viewed" so the home-page rail can surface it
+  // on the visitor's next visit. Skipped if the trip didn't resolve.
+  useEffect(() => {
+    if (trip?.id !== undefined && trip?.id !== null) {
+      trackTripView(trip.id)
+    }
+  }, [trip?.id])
 
   if (!trip) {
     return (

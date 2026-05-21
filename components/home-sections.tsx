@@ -7,6 +7,7 @@ import { TripCard } from "./trip-card"
 import { tripSummaries as staticTrips, categories, reviews } from "@/lib/data"
 import { useGetPublicTripsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
+import { useRecentlyViewed } from "@/lib/use-recently-viewed"
 
 /**
  * Hook: returns ONLY trip summaries whose IDs are currently published in the
@@ -26,13 +27,13 @@ function usePublishedTrips(): typeof staticTrips {
   const publishedIds = new Set(arr.map((t) => String(t.id)))
   return staticTrips.filter((t) => publishedIds.has(String(t.id)))
 }
-import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock } from "lucide-react"
+import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import { DeparturesSoonSection } from "@/components/departing-soon-section"
 
 export { DeparturesSoonSection }
 
-const CATEGORY_ICONS: Record<string, React.ElementType> = { "Food & Events": Utensils, "Sports & Nature": Bike, Culture: Landmark, Tours: Map, "Gift Vouchers": Gift, "Private Tours": Users, Dinnerhopping: Wine, "LUGA Goodies": Sparkles }
+const CATEGORY_ICONS: Record<string, React.ElementType> = { "Food & Events": Utensils, "Sports & Nature": Bike, Culture: Landmark, Tours: MapIcon, "Gift Vouchers": Gift, "Private Tours": Users, Dinnerhopping: Wine, "LUGA Goodies": Sparkles }
 const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
 
 /* Trending Section */
@@ -220,7 +221,7 @@ export function CategoriesSection() {
         <EditableText id="home:categories:subheading" defaultValue="From cultural tours to adventurous activities." />
       </p>
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
-        {categories.map((c) => { const Icon = CATEGORY_ICONS[c.name] || Map; return (
+        {categories.map((c) => { const Icon = CATEGORY_ICONS[c.name] || MapIcon; return (
           <Link key={c.name} href={`/search?q=${encodeURIComponent(c.name)}`} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-primary/5">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
             <span className="text-xs font-semibold text-foreground">{c.name}</span>
@@ -301,12 +302,70 @@ function BestsellerSidebar() {
   )
 }
 
-/* Recently Viewed (small card format) */
+/* Recently Viewed (small card format)
+ *
+ * Dynamic: reads the visitor's recently-viewed trip ids from localStorage
+ * (recorded on each /trip/[id] visit) and renders the latest 4 that are still
+ * published. The whole section is hidden until the visitor has actually viewed
+ * at least one trip so we never render an empty rail or stale static seeds. */
 export function RecentlyViewed() {
-  const trips = usePublishedTrips()
-  const recent = trips.slice(0, 4)
+  // Source DB trips directly (not the static-seed intersection) — DB IDs are
+  // shaped "tcms_25" and don't collide with the legacy numeric ids in
+  // lib/data.ts, so usePublishedTrips() would never find them.
+  const { data, isLoading, isError } = useGetPublicTripsQuery()
+  const recentIds = useRecentlyViewed()
+
+  // Normalise the API response into the minimal Trip shape TripCard expects.
+  const apiTrips = React.useMemo(() => {
+    if (isLoading || isError || !data) return [] as Array<typeof staticTrips[number]>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const arr: any[] = Array.isArray(data as any) ? (data as any) : ((data as any)?.trips ?? [])
+    return arr.map((t) => ({
+      id: String(t.id),
+      title: String(t.title ?? ""),
+      category: String(t.category ?? "Tours"),
+      city: t.city ? String(t.city) : undefined,
+      image: String(t.image ?? "/placeholder.svg"),
+      price: typeof t.price === "number" ? t.price : Number(t.price ?? 0),
+      rating: typeof t.rating === "number" ? t.rating : Number(t.rating ?? 0),
+      reviewCount: typeof t.reviewCount === "number" ? t.reviewCount : Number(t.reviewCount ?? 0),
+      duration: String(t.duration ?? ""),
+      tags: Array.isArray(t.tags) ? t.tags : [],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    })) as any as typeof staticTrips
+  }, [data, isLoading, isError])
+
+  // Lookup by id, then re-order by recency. Drops any id whose trip is no
+  // longer published (or never existed in the catalog).
+  const byId = React.useMemo(() => {
+    const m = new globalThis.Map<string, (typeof apiTrips)[number]>()
+    for (const t of apiTrips) m.set(String(t.id), t)
+    return m
+  }, [apiTrips])
+
+  const recent = React.useMemo(() => {
+    const out: typeof apiTrips = []
+    const seen = new Set<string>()
+    for (const id of recentIds) {
+      const key = String(id)
+      if (seen.has(key)) continue
+      const t = byId.get(key)
+      if (t) {
+        out.push(t)
+        seen.add(key)
+        if (out.length >= 4) break
+      }
+    }
+    return out
+  }, [recentIds, byId])
+
+  // Section hidden entirely when the visitor has no recent views yet —
+  // matches the screenshot the user shared (heading without empty grid only
+  // appears once they've actually viewed trips).
+  if (recent.length === 0) return null
+
   return (
-    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <section data-testid="recently-viewed" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
         <Clock className="h-5 w-5 text-primary" />
         <EditableText id="home:recent:heading" defaultValue="Recently Viewed" />
@@ -314,7 +373,11 @@ export function RecentlyViewed() {
       <p className="mt-1 text-sm text-muted-foreground">
         <EditableText id="home:recent:subheading" defaultValue="Pick up where you left off." />
       </p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{recent.map((t, i) => <TripCard key={t.id} trip={t} variant="small" priority={i === 0} />)}</div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {recent.map((t, i) => (
+          <TripCard key={t.id} trip={t} variant="small" priority={i === 0} />
+        ))}
+      </div>
     </section>
   )
 }
