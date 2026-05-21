@@ -22,9 +22,10 @@ export function WeglotLoader({ apiKey }: WeglotLoaderProps) {
             // Weglot automatically handles:
             // - hreflang tags for SEO
             // - Subdirectory URLs (/fr/..., /de/...)
-            // - Language switcher UI
             // - Translation caching
-            hide_switcher: false,
+            // We hide Weglot's default floating bottom-right switcher; any
+            // language switching lives in the navbar / footer instead.
+            hide_switcher: true,
             auto_switch: true,
             auto_switch_fallback: "en",
             exceptions: [
