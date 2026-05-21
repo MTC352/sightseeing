@@ -297,7 +297,17 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
         signal: ctrl.signal,
       })
 
-      if (!res.ok) throw new Error(`API error ${res.status}`)
+      if (!res.ok) {
+        // Surface the real error message (e.g. 503 "AI is not configured. Add
+        // your Anthropic API key…") instead of a generic status code, so the
+        // admin knows exactly what to fix.
+        let msg = `Generation failed (HTTP ${res.status})`
+        try {
+          const body = await res.json()
+          if (body?.error) msg = body.error
+        } catch { /* not JSON, keep generic */ }
+        throw new Error(msg)
+      }
 
       const reader = res.body?.getReader()
       if (!reader) throw new Error("No response body")
@@ -551,18 +561,34 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
                 )}
 
                 {/* ── Streaming preview (live) ──────────────────────────── */}
-                {generating && hasContent && (
+                {generating && (
                   <div>
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Live Preview
+                    <p className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                      {hasContent ? "Live Preview — streaming…" : "Waking up the model…"}
                     </p>
                     <div
                       ref={streamBoxRef}
-                      className="max-h-52 overflow-y-auto rounded-lg border border-border bg-secondary/30 p-3"
+                      className="relative max-h-52 min-h-[7rem] overflow-y-auto rounded-lg border border-border bg-secondary/30 p-3"
+                      data-testid="blog-gen-live-preview"
                     >
-                      <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/80">
-                        {generatedContent}
-                      </pre>
+                      {hasContent ? (
+                        <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/80">
+                          {generatedContent}
+                          <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-primary align-middle" />
+                        </pre>
+                      ) : (
+                        // Shimmer skeleton shown during the initial round-trip
+                        // before the first token arrives, so the UI never looks
+                        // frozen between "Initializing" and the first chunk.
+                        <div className="space-y-2 p-1">
+                          <div className="h-2.5 w-3/4 animate-pulse rounded bg-foreground/10" />
+                          <div className="h-2.5 w-5/6 animate-pulse rounded bg-foreground/10" style={{ animationDelay: "120ms" }} />
+                          <div className="h-2.5 w-2/3 animate-pulse rounded bg-foreground/10" style={{ animationDelay: "240ms" }} />
+                          <div className="h-2.5 w-4/5 animate-pulse rounded bg-foreground/10" style={{ animationDelay: "360ms" }} />
+                          <div className="h-2.5 w-1/2 animate-pulse rounded bg-foreground/10" style={{ animationDelay: "480ms" }} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
