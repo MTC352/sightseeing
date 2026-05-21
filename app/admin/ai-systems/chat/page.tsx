@@ -26,8 +26,21 @@ const MODELS = [
   { value: "google/gemini-3-flash", label: "Gemini 3 Flash (Google)" },
 ]
 
+// Default starter prompt for the Per-trip Chat. Loaded into the textarea
+// when the DB returns an empty prompt (first-time setup) so the admin
+// always sees a sensible baseline instead of a blank box. Also restored
+// by the "Load default suggestion" button.
+const CHAT_PROMPT_SUGGESTION = `You are the AI concierge for sightseeing.lu, embedded inside a single trip's detail page. You have full context on the current trip (title, description, price, duration, included/excluded items, itinerary, languages, cancellation policy) plus the broader published catalog, blog articles, and open jobs.
+
+Your job:
+- Answer questions about THIS trip accurately and concisely (2–4 sentences).
+- Never invent prices, dates, or availability — only quote what is in the provided context.
+- If the visitor asks about something not covered by this trip, recommend a relevant alternative from the catalog with a short reason.
+- For multi-stop itineraries or full-day plans, redirect the user to /planner.
+- Be warm, local, and helpful. Use British English. Mention Luxembourg City landmarks naturally when relevant.`
+
 const CHAT_DEFAULTS = {
-  systemPrompt: "",
+  systemPrompt: CHAT_PROMPT_SUGGESTION,
   model: "anthropic/claude-opus-4.6",
   temperature: 0.7,
   maxTokens: 1024,
@@ -82,9 +95,18 @@ export default function TripChatAdminPage() {
   const [plannerPrompt, setPlannerPrompt] = useState("")
   const [plannerForm, setPlannerForm] = useState<PlannerForm>(DEFAULT_PLANNER_FORM)
 
+  // Snapshot of the values as they were when we last loaded from / saved to
+  // the DB. Used to detect "dirty" prompt edits so the confirm-before-save
+  // modal only nags the admin when the prompts actually changed.
+  const [initial, setInitial] = useState<{ chatPrompt: string; plannerPrompt: string }>({
+    chatPrompt: CHAT_PROMPT_SUGGESTION,
+    plannerPrompt: PLANNER_PROMPT_SUGGESTION,
+  })
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Load both blocks (per-trip chat from settings, planner overrides from
   // the dedicated endpoint). Tolerant of missing fields.
@@ -96,16 +118,65 @@ export default function TripChatAdminPage() {
     ]).then(([settings, planner]) => {
       if (cancelled) return
       const chatCfg = settings?.ai?.chat
-      if (chatCfg) setChat({ ...CHAT_DEFAULTS, ...chatCfg })
+      // If DB has an empty/missing prompt, pre-fill with the suggested default
+      // so the admin always sees the working baseline rather than a blank box.
+      const chatNext = chatCfg
+        ? {
+            ...CHAT_DEFAULTS,
+            ...chatCfg,
+            systemPrompt:
+              typeof chatCfg.systemPrompt === "string" && chatCfg.systemPrompt.trim().length > 0
+                ? chatCfg.systemPrompt
+                : CHAT_PROMPT_SUGGESTION,
+          }
+        : { ...CHAT_DEFAULTS }
+      setChat(chatNext)
+
+      // Same first-time-setup behaviour as the chat prompt: if the DB has
+      // no planner override yet, pre-fill with the suggested baseline so
+      // the admin never sees a confusing empty box.
+      let plannerNext = PLANNER_PROMPT_SUGGESTION
       if (planner) {
-        if (typeof planner.plannerSystemPrompt === "string") setPlannerPrompt(planner.plannerSystemPrompt)
+        if (typeof planner.plannerSystemPrompt === "string" && planner.plannerSystemPrompt.trim().length > 0) {
+          plannerNext = planner.plannerSystemPrompt
+        }
         if (planner.plannerForm) setPlannerForm({ ...DEFAULT_PLANNER_FORM, ...planner.plannerForm })
       }
+      setPlannerPrompt(plannerNext)
+
+      setInitial({ chatPrompt: chatNext.systemPrompt, plannerPrompt: plannerNext })
     })
     return () => { cancelled = true }
   }, [])
 
-  async function save() {
+  const chatPromptDirty = chat.systemPrompt !== initial.chatPrompt
+  const plannerPromptDirty = plannerPrompt !== initial.plannerPrompt
+  const anyPromptDirty = chatPromptDirty || plannerPromptDirty
+
+  // Close the confirm modal on Escape so keyboard users can dismiss it
+  // without clicking the backdrop / Cancel button.
+  useEffect(() => {
+    if (!confirmOpen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setConfirmOpen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [confirmOpen])
+
+  function onSaveClick() {
+    setError("")
+    // Only nag when a prompt actually changed — model / token tweaks save
+    // silently because they don't reshape AI responses the same way.
+    if (anyPromptDirty) {
+      setConfirmOpen(true)
+    } else {
+      void doSave()
+    }
+  }
+
+  async function doSave() {
+    setConfirmOpen(false)
     setSaving(true)
     setError("")
     try {
@@ -127,6 +198,7 @@ export default function TripChatAdminPage() {
         }),
       ])
       if (!a.ok || !b.ok) throw new Error("save failed")
+      setInitial({ chatPrompt: chat.systemPrompt, plannerPrompt })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch {
@@ -158,7 +230,7 @@ export default function TripChatAdminPage() {
         </div>
         <button
           type="button"
-          onClick={save}
+          onClick={onSaveClick}
           disabled={saving}
           className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
             saved ? "bg-emerald-500/15 text-emerald-600" : "bg-primary text-primary-foreground hover:bg-primary/90"
@@ -187,14 +259,24 @@ export default function TripChatAdminPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-1.5 flex items-center justify-between">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <label className={labelClass + " mb-0"}>System Prompt</label>
-              <PromptRevisions
-                systemKey="chat"
-                promptKind="systemPrompt"
-                currentText={chat.systemPrompt}
-                onActivate={(text) => setChat((f) => ({ ...f, systemPrompt: text }))}
-              />
+              <div className="flex items-center gap-2">
+                <PromptRevisions
+                  systemKey="chat"
+                  promptKind="systemPrompt"
+                  currentText={chat.systemPrompt}
+                  onActivate={(text) => setChat((f) => ({ ...f, systemPrompt: text }))}
+                />
+                <button
+                  type="button"
+                  onClick={() => setChat((f) => ({ ...f, systemPrompt: CHAT_PROMPT_SUGGESTION }))}
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  title="Replace with the suggested baseline"
+                >
+                  <Wand2 className="h-3 w-3" /> Load default suggestion
+                </button>
+              </div>
             </div>
             <textarea
               rows={6}
@@ -362,6 +444,76 @@ export default function TripChatAdminPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Confirm-before-save modal ──
+       * Fires whenever a system prompt has been edited. We single this out
+       * because the prompt directly shapes how every visitor conversation
+       * is answered — model/token tweaks are far lower-risk and save
+       * silently. Cancel restores the form intact so admins can keep
+       * editing; Confirm pushes both endpoints atomically (Promise.all). */}
+      {confirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setConfirmOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-save-title"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15">
+                <AlertCircle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 id="confirm-save-title" className="text-base font-semibold text-foreground">
+                  Update live AI prompts?
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This will change how the AI responds in real visitor conversations.
+                  Existing chats keep their current prompt; new chats and new planner
+                  sessions start using the updated prompt immediately.
+                </p>
+              </div>
+            </div>
+
+            <ul className="mb-5 space-y-1.5 rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
+              {chatPromptDirty && (
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-amber-600" />
+                  <span><strong className="text-foreground">Per-trip Chat</strong> system prompt changed</span>
+                </li>
+              )}
+              {plannerPromptDirty && (
+                <li className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-amber-600" />
+                  <span><strong className="text-foreground">Planner Conversation</strong> system prompt changed</span>
+                </li>
+              )}
+            </ul>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void doSave()}
+                disabled={saving}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Yes, update prompts"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
