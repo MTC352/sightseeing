@@ -8,7 +8,6 @@ import { Navbar } from "@/components/site-navbar"
 import { TripCart } from "@/components/planner/trip-cart"
 import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
 import { SightseeingAlbum } from "@/components/chatgpt-widgets/sightseeing-album"
-import { TravelOffers } from "@/components/travel-offers"
 import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { SidebarItinerary, ItineraryPanel, type Itinerary } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
@@ -479,12 +478,50 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
 /* ────────────────────────────────────── */
 /* TRIP GRID CARD                          */
 /* ────────────────────────────────────── */
-function TripCard({ trip, onSelect }: { trip: Trip; onSelect: (trip: Trip) => void }) {
+function TripCard({
+  trip,
+  onSelect,
+  isInCart,
+  onAdd,
+}: {
+  trip: Trip
+  onSelect: (trip: Trip) => void
+  isInCart: boolean
+  onAdd: (trip: Trip) => void
+}) {
+  // One-tick guard: cart state is render-time, so a fast double-click /
+  // double-tap could fire onAdd twice before isInCart re-renders. We flip
+  // a local "pending" flag synchronously on the first activation and use
+  // it to disable the button until the next render.
+  const [adding, setAdding] = useState(false)
+
+  function handleAddClick(e: React.MouseEvent) {
+    // Stop the click from bubbling to the parent <div role=button> so the
+    // trip detail panel doesn't also open.
+    e.stopPropagation()
+    e.preventDefault()
+    if (isInCart || adding) return
+    setAdding(true)
+    onAdd(trip)
+  }
+  function handleCardKey(e: React.KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault()
+      onSelect(trip)
+    }
+  }
   return (
-    <button
-      type="button"
+    // Switched from <button> to <div role=button> so we can nest the
+    // hover "Add to My Trip" pill (which is itself interactive) without
+    // producing invalid nested-button HTML.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(trip)}
-      className="group flex items-stretch gap-0 overflow-hidden rounded-xl border border-border bg-card text-left transition-all hover:border-primary/30 hover:shadow-md"
+      onKeyDown={handleCardKey}
+      data-testid={`planner-trip-card-${trip.id}`}
+      data-in-cart={isInCart ? "true" : "false"}
+      className="group relative flex items-stretch gap-0 overflow-hidden rounded-xl border border-border bg-card text-left transition-all hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
     >
       {/* Thumbnail */}
       <div className="relative w-36 shrink-0 overflow-hidden sm:w-44">
@@ -493,6 +530,31 @@ function TripCard({ trip, onSelect }: { trip: Trip; onSelect: (trip: Trip) => vo
           <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">{trip.badge}</span>
         )}
       </div>
+
+      {/* Top-right corner: either persistent "Added" badge (when the trip
+          is already in My Trip) or a hover-revealed "Add" pill. Pointer
+          events are pinned so the pill is clickable as soon as it fades in. */}
+      {isInCart ? (
+        <span
+          className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
+          data-testid={`planner-trip-added-${trip.id}`}
+          aria-label="Added to My Trip"
+        >
+          <Check className="h-3 w-3" /> Added to Trip list
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={handleAddClick}
+          disabled={adding}
+          data-testid={`planner-trip-add-${trip.id}`}
+          aria-label={`Add ${trip.title} to My Trip`}
+          className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground opacity-0 shadow-sm transition-opacity hover:bg-primary/90 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 group-hover:opacity-100"
+        >
+          <Plus className="h-3 w-3" /> Add to My Trip
+        </button>
+      )}
+
       {/* Content */}
       <div className="flex flex-1 flex-col justify-between gap-2 p-3.5">
         <div>
@@ -514,7 +576,7 @@ function TripCard({ trip, onSelect }: { trip: Trip; onSelect: (trip: Trip) => vo
           </div>
         </div>
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -524,7 +586,7 @@ function TripCard({ trip, onSelect }: { trip: Trip; onSelect: (trip: Trip) => vo
 export default function PlannerPage() {
   const wx = useMemo(deriveWx, [])
   const { temp, humidity, wind, condition } = weatherData.current
-  const { addItem, totalItems, items, hydrated: cartHydrated } = useCart()
+  const { addItem, totalItems, items, isInCart, hydrated: cartHydrated } = useCart()
 
   /* State */
   const [prefs, setPrefs] = useState<Preferences | null>(null)
@@ -1674,21 +1736,44 @@ export default function PlannerPage() {
 
               {/* Results Grid (the inline Day Itinerary is rendered at
                   a higher level — see the top-level guard above — so
-                  this branch only renders when no plan is open). */}
+                  this branch only renders when no plan is open).
+                  Recommendations are hidden until the visitor has picked
+                  at least one interest, so the section is genuinely
+                  preference-driven instead of a generic "top trips" list. */}
               <div className="p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <h2 className="text-lg font-bold text-foreground">Recommended for you</h2>
-                </div>
-                <div className="flex flex-col gap-3">
-                  {resultTrips.map((trip) => (
-                    <TripCard key={trip.id} trip={trip} onSelect={handleTripSelect} />
-                  ))}
+                  {prefs && prefs.interests.length > 0 && (
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground" data-testid="planner-prefs-count">
+                      {prefs.interests.length} interest{prefs.interests.length === 1 ? "" : "s"}
+                    </span>
+                  )}
                 </div>
 
-                {/* Travel partner offers */}
-                <div className="mt-8 border-t border-border pt-6">
-                  <TravelOffers compact />
-                </div>
+                {!prefs || prefs.interests.length === 0 ? (
+                  <div
+                    className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
+                    data-testid="planner-recs-empty"
+                  >
+                    <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
+                    <p className="text-sm font-medium text-foreground">Tell the AI what you like</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Pick one or more interests in the chat (Food, Culture, Outdoor, Nightlife…) and we'll analyse the catalog to suggest trips that genuinely match.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3" data-testid="planner-recs-list">
+                    {resultTrips.map((trip) => (
+                      <TripCard
+                        key={trip.id}
+                        trip={trip}
+                        onSelect={handleTripSelect}
+                        isInCart={isInCart(trip.id)}
+                        onAdd={addItem}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
