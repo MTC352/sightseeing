@@ -31,15 +31,29 @@ import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
 const PREFS_COOKIE = "sightseeing_prefs"
+// Mirror of the prefs cookie in localStorage. Some environments (Replit's
+// iframed dev preview, third-party-cookie blockers, strict ITP) drop the
+// cookie across reloads — without this mirror, the user is bounced through
+// onboarding on every refresh.
+const PREFS_LOCAL_KEY = "sightseeing_prefs_v1"
 const MAX_AGE = 60 * 60 * 24 * 7
 function setCookie(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${MAX_AGE};SameSite=Lax`
+  // Mirror to localStorage so prefs survive even when the cookie is stripped.
+  if (name === PREFS_COOKIE) {
+    try { window.localStorage.setItem(PREFS_LOCAL_KEY, value) } catch { /* ignore */ }
+  }
 }
 function getCookie(name: string): string | null {
   try {
     const match = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`))
-    return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : null
-  } catch { return null }
+    if (match) return decodeURIComponent(match.split("=").slice(1).join("="))
+  } catch { /* fall through */ }
+  // Fall back to the localStorage mirror.
+  if (name === PREFS_COOKIE) {
+    try { return window.localStorage.getItem(PREFS_LOCAL_KEY) } catch { /* ignore */ }
+  }
+  return null
 }
 
 /* ─── Preferences ─── */
@@ -781,8 +795,13 @@ export default function PlannerPage() {
      matches `prefs.startDate` (the onboarding date never updates when the
      sidebar mutates the visit-date cookie). Adding/removing trips from
      the cart still clears any stale itinerary. */
+  // Stable signature of the cart's trip composition. MUST stay byte-for-byte
+  // identical to `fingerprintFromItinerary` in components/sidebar-itinerary.tsx
+  // — dedupe via Set, sort, then join with "|" — otherwise the sidebar will
+  // always think the cart has drifted from the built itinerary and show
+  // "Rebuild & View" even right after a fresh build.
   const cartFingerprint = useMemo(
-    () => [...items.map((i) => i.trip.id)].sort().join(","),
+    () => [...new Set(items.map((i) => i.trip.id).filter(Boolean))].sort().join("|"),
     [items],
   )
 
@@ -978,16 +997,22 @@ export default function PlannerPage() {
 
   const handleTripSelect = useCallback((trip: Trip) => setSelectedTrip(trip), [])
 
-  /* Hydrate prefs from cookie */
+  /* Hydrate prefs from cookie (with localStorage fallback) */
   useEffect(() => {
     const saved = getCookie(PREFS_COOKIE)
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Partial<Preferences>
-        // Require a startDate that is today or later; otherwise discard so the
-        // user is re-prompted (we never want to plan against a stale past date).
-        const validDate = parsed.startDate && parsed.startDate >= todayYMD()
-        if (parsed.group && parsed.interests?.length && parsed.duration && parsed.budget && validDate) {
+        // Only the four core fields are mandatory. If startDate is missing
+        // OR has slipped into the past (the user came back a few days
+        // later), we snap it forward to today rather than discarding the
+        // entire preference set — otherwise visitors would be forced back
+        // through onboarding every time the calendar rolls over.
+        if (parsed.group && parsed.interests?.length && parsed.duration && parsed.budget) {
+          const today = todayYMD()
+          const startDate = parsed.startDate && parsed.startDate >= today
+            ? parsed.startDate
+            : today
           // Backfill adults/children for cookies written before this field existed.
           const party = defaultPartyFor(parsed.group)
           setPrefs({
@@ -995,7 +1020,7 @@ export default function PlannerPage() {
             interests: parsed.interests,
             duration: parsed.duration,
             budget: parsed.budget,
-            startDate: parsed.startDate!,
+            startDate,
             adults: typeof parsed.adults === "number" && parsed.adults >= 1 ? parsed.adults : party.adults,
             children: typeof parsed.children === "number" && parsed.children >= 0 ? parsed.children : party.children,
             // Backfill dayCount for legacy cookies. If duration is multi-day
@@ -1283,6 +1308,7 @@ export default function PlannerPage() {
     // Clear persisted chat history too — a fresh onboarding shouldn't show
     // the previous visitor's conversation in the background.
     try {
+      window.localStorage.removeItem(PREFS_LOCAL_KEY)
       window.localStorage.removeItem(CHAT_STORAGE_KEY)
       setMessages([])
     } catch { /* ignore */ }
@@ -1508,7 +1534,19 @@ export default function PlannerPage() {
             </button>
           </div>
 
-          {!prefs ? (
+          {!hydrated ? (
+            // While we're still reading the prefs cookie/localStorage on
+            // mount, show a lightweight skeleton rather than flashing the
+            // Onboarding wizard. Without this guard, returning visitors
+            // see a full onboarding form for a frame and (when cookies
+            // are dropped by the iframe) get bounced through it.
+            <div className="flex flex-1 items-center justify-center p-6" data-testid="planner-hydrating">
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
+                <span className="text-xs">Loading your trip planner…</span>
+              </div>
+            </div>
+          ) : !prefs ? (
             // Key on enabledSteps so the wizard fully remounts (and
             // re-derives its initial step) once the async form-config
             // fetch resolves. Without this, the component would stick

@@ -13,18 +13,34 @@ import { ItineraryTimeslots } from "@/components/timeslot-chips"
 
 /* ─── Visit-date helpers — must match the planner page so cookies are shared ─── */
 const PREFS_COOKIE = "sightseeing_prefs"
+// Keep this in lock-step with PREFS_LOCAL_KEY in app/planner/page.tsx — both
+// sides need the same localStorage mirror so that prefs survive in
+// cookie-hostile environments (Replit iframe preview, strict ITP, third-party
+// cookie blockers). Without the mirror the sidebar would re-prompt for the
+// visit date and send `preferences: null` to /api/itinerary even when the
+// planner page has perfectly valid prefs in state.
+const PREFS_LOCAL_KEY = "sightseeing_prefs_v1"
 const MAX_AGE = 60 * 60 * 24 * 7
 
 function readCookie(name: string): string | null {
   if (typeof document === "undefined") return null
   try {
     const m = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`))
-    return m ? decodeURIComponent(m.split("=").slice(1).join("=")) : null
-  } catch { return null }
+    if (m) return decodeURIComponent(m.split("=").slice(1).join("="))
+  } catch { /* fall through to mirror */ }
+  if (name === PREFS_COOKIE) {
+    try { return window.localStorage.getItem(PREFS_LOCAL_KEY) } catch { /* ignore */ }
+  }
+  return null
 }
 function writeCookie(name: string, value: string) {
   if (typeof document === "undefined") return
   document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${MAX_AGE};SameSite=Lax`
+  // Mirror prefs writes so the sidebar's date updates survive even when the
+  // cookie is stripped by the browser.
+  if (name === PREFS_COOKIE) {
+    try { window.localStorage.setItem(PREFS_LOCAL_KEY, value) } catch { /* ignore */ }
+  }
 }
 function ymdLocal(d: Date): string {
   const y = d.getFullYear()
@@ -183,6 +199,11 @@ export interface Itinerary {
   scanDays?: number
   /** Admin-controlled widget toggles from /admin/ai-systems/itinerary */
   widgets?: { showCarWidget: boolean; showHotelWidget: boolean }
+  /** Fingerprint of the cart that was passed in when this itinerary was
+   *  built. Lets us tell whether the user has changed the cart since the
+   *  build — independent of which trips the AI ended up scheduling (it
+   *  may legitimately drop trips with no slots on the chosen date). */
+  builtFromCartFp?: string
 }
 
 /** Decode any HTML entities the API may have passed through unsanitized
@@ -359,13 +380,23 @@ function BuildItineraryLoader({
   )
 }
 
-/** Build the same fingerprint the planner page produces, so we can compare
- *  the cart's current shape against whatever cart the loaded itinerary
- *  was built from. Sorted ids only — quantity / date changes don't
- *  invalidate (the user can rebuild explicitly for those). */
+/** Build the same fingerprint the planner page produces from a list of trip
+ *  ids. Used at build time to snapshot the cart that was sent to the API,
+ *  so later drift checks compare like-with-like even when the AI dropped
+ *  trips with no availability on the chosen date. */
+function fingerprintFromIds(ids: Array<string | undefined | null>): string {
+  return [...new Set(ids.filter((id): id is string => !!id))].sort().join("|")
+}
+
+/** Fallback for older itineraries that were persisted before
+ *  `builtFromCartFp` was recorded — derive it from the steps. New builds
+ *  always carry the input-cart fingerprint, so this only runs for legacy
+ *  localStorage entries. */
 function fingerprintFromItinerary(it: Itinerary | null | undefined): string {
-  if (!it?.steps?.length) return ""
-  return [...new Set(it.steps.map((s) => s.tripId).filter(Boolean))].sort().join("|")
+  if (!it) return ""
+  if (it.builtFromCartFp) return it.builtFromCartFp
+  if (!it.steps?.length) return ""
+  return fingerprintFromIds(it.steps.map((s) => s.tripId))
 }
 
 export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint }: SidebarItineraryProps) {
@@ -421,6 +452,9 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
         duration: i.trip.duration,
         category: i.trip.category,
       }))
+      // Snapshot the cart shape we're about to build from, so later drift
+      // checks compare the *input* not the (possibly trimmed) AI output.
+      const inputCartFp = fingerprintFromIds(trips.map((t) => t.id))
       // Forward the visitor's saved preferences (group, party size, interests,
       // budget, duration, multi-day count) so the AI can tailor the day plan
       // — without these the itinerary builder was scheduling generically.
@@ -462,12 +496,13 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       if (elapsed < minLoaderMs) {
         await new Promise((r) => setTimeout(r, minLoaderMs - elapsed))
       }
-      setItinerary(data)
-      onOpenItinerary(data)
+      const enriched: Itinerary = { ...data, builtFromCartFp: inputCartFp }
+      setItinerary(enriched)
+      onOpenItinerary(enriched)
       // Notify the planner page so it can echo this build into the chat
       // log — keeps the AI's conversational context aligned with the
       // canvas state the user is now seeing.
-      onItineraryBuilt?.(data)
+      onItineraryBuilt?.(enriched)
     } catch {
       setError("Could not generate itinerary. Please try again.")
     } finally {
