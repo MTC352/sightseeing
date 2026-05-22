@@ -22,6 +22,10 @@ export default function TripTagsPage() {
   const [newHomepage, setNewHomepage] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Listing filter — when ON, hides every tag whose `show_on_homepage`
+  // flag is false. Lives client-side; we already load the full catalog
+  // from the API so toggling is instant and reset-safe.
+  const [onlyHomepage, setOnlyHomepage] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -90,6 +94,7 @@ export default function TripTagsPage() {
   }
 
   const homepageCount = tags.filter((t) => t.show_on_homepage).length
+  const visibleTags = onlyHomepage ? tags.filter((t) => t.show_on_homepage) : tags
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -149,6 +154,27 @@ export default function TripTagsPage() {
         </button>
       </form>
 
+      {/* Listing filters */}
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <label
+          className="inline-flex cursor-pointer select-none items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/40"
+          data-testid="filter-homepage-only"
+        >
+          <input
+            type="checkbox"
+            checked={onlyHomepage}
+            onChange={(e) => setOnlyHomepage(e.target.checked)}
+            data-testid="filter-homepage-only-input"
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          <Home className="h-3.5 w-3.5 text-primary" />
+          Show only homepage tags
+        </label>
+        <span className="text-xs text-muted-foreground">
+          Showing {visibleTags.length} of {tags.length}
+        </span>
+      </div>
+
       {/* Table */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <table className="w-full text-sm">
@@ -169,7 +195,14 @@ export default function TripTagsPage() {
             {!loading && tags.length === 0 && (
               <tr><td className="p-6 text-center text-muted-foreground" colSpan={6}>No tags yet.</td></tr>
             )}
-            {tags.map((t) => {
+            {!loading && tags.length > 0 && visibleTags.length === 0 && (
+              <tr>
+                <td className="p-6 text-center text-muted-foreground" colSpan={6}>
+                  No tags match the current filter — none are flagged "Show on homepage".
+                </td>
+              </tr>
+            )}
+            {visibleTags.map((t) => {
               const Icon = iconForSlug(t.slug)
               const isSaving = savingSlug === t.slug
               return (
