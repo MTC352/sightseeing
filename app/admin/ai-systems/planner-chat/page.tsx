@@ -296,22 +296,36 @@ export default function TripPlannerChatAdminPage() {
 
           <div className="rounded-xl border border-border bg-card p-5">
             <label className={labelClass}>Max interests a visitor can select</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number" min={1} max={10} step={1}
-                data-testid="planner-max-interests"
-                value={plannerForm.maxInterests}
-                onChange={(e) => setPlannerForm((f) => ({
-                  ...f,
-                  maxInterests: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)),
-                }))}
-                className={`${inputClass} max-w-[120px]`}
-              />
-              <span className="text-xs text-muted-foreground">interests (1–10)</span>
-            </div>
-            <p className="mt-1.5 text-[11px] text-muted-foreground/60">
-              Caps how many interest tiles a visitor can pick during onboarding on /planner. Also enforced server-side when the AI updates preferences.
-            </p>
+            {(() => {
+              // The cap can never exceed the number of interest tiles
+              // currently configured — picking more than what exists is
+              // impossible. Recomputed live as the admin adds / removes
+              // tiles above so the upper bound stays in sync.
+              const interestCap = Math.max(1, plannerForm.interests.length)
+              return (
+                <>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number" min={1} max={interestCap} step={1}
+                      data-testid="planner-max-interests"
+                      value={Math.min(plannerForm.maxInterests, interestCap)}
+                      onChange={(e) => setPlannerForm((f) => {
+                        const cap = Math.max(1, f.interests.length)
+                        const v = parseInt(e.target.value) || 1
+                        return { ...f, maxInterests: Math.max(1, Math.min(cap, v)) }
+                      })}
+                      className={`${inputClass} max-w-[120px]`}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      interests (1–{interestCap})
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-muted-foreground/60">
+                    Caps how many interest tiles a visitor can pick during onboarding on /planner. The upper bound matches the number of interest tiles you configure above ({interestCap} currently). Also enforced server-side when the AI updates preferences.
+                  </p>
+                </>
+              )
+            })()}
           </div>
           <OptionListEditor
             title="Durations"

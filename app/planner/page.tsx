@@ -682,7 +682,7 @@ export default function PlannerPage() {
           durations: sane(data.durations, DEFAULT_DURATION_OPTIONS),
           budgets: sane(data.budgets, DEFAULT_BUDGET_OPTIONS),
           maxMultiDayDays: Number.isFinite(days) && days >= 2 && days <= 14 ? days : 2,
-          maxInterests: Number.isFinite(maxI) && maxI >= 1 && maxI <= 10 ? Math.floor(maxI) : 3,
+          maxInterests: Number.isFinite(maxI) && maxI >= 1 ? Math.floor(maxI) : 3,
           enabledSteps: (() => {
             const raw = (data as { enabledSteps?: Partial<EnabledSteps> }).enabledSteps
             if (!raw || typeof raw !== "object") return DEFAULT_ENABLED_STEPS

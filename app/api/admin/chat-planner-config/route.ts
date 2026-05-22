@@ -71,7 +71,10 @@ export async function PUT(req: Request) {
       }
       const maxInterests = Number(formIn.maxInterests)
       if (Number.isFinite(maxInterests)) {
-        formPatch.maxInterests = Math.max(1, Math.min(10, Math.floor(maxInterests)))
+        // No fixed upper bound — the cap is naturally the number of
+        // interest tiles configured (visitors can't pick more than what
+        // exists). Just ensure a positive integer.
+        formPatch.maxInterests = Math.max(1, Math.floor(maxInterests))
       }
       // Refuse to delete the multi-day duration if admin replaces durations
       // without it — the multi-day stepper sub-step is referenced from code

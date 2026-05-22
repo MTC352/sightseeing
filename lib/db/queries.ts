@@ -958,7 +958,10 @@ export async function dbGetChatPlannerConfig(): Promise<{
       maxMultiDayDays: Number.isFinite(maxDaysRaw) && maxDaysRaw >= 2 && maxDaysRaw <= 14
         ? Math.floor(maxDaysRaw)
         : DEFAULT_PLANNER_FORM.maxMultiDayDays,
-      maxInterests: Number.isFinite(maxInterestsRaw) && maxInterestsRaw >= 1 && maxInterestsRaw <= 10
+      // No fixed upper bound — the cap is naturally the number of
+      // interest tiles configured (the planner UI can't render more
+      // than that). Just ensure a positive integer.
+      maxInterests: Number.isFinite(maxInterestsRaw) && maxInterestsRaw >= 1
         ? Math.floor(maxInterestsRaw)
         : DEFAULT_PLANNER_FORM.maxInterests,
       enabledSteps: (() => {
