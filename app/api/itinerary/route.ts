@@ -233,12 +233,32 @@ interface IncomingPreferences {
 
 export async function POST(req: Request) {
   try {
-    const { trips, startDate, preferences } = await req.json() as {
-      trips: TripInput[]
+    const { trips: rawTrips, startDate, preferences } = await req.json() as {
+      trips: Array<Partial<TripInput> & { id: string }>
       startDate?: string
       preferences?: IncomingPreferences | null
     }
-    if (!trips?.length) {
+    if (!rawTrips?.length) {
+      return Response.json({ error: "No trips provided" }, { status: 400 })
+    }
+    // Hydrate trips: accept either fully-populated {id,title,city,duration,
+    // category} (cart path) OR id-only payloads (chat path where the AI's
+    // plan references trips that may not be in the visitor's cart yet).
+    // Missing fields are resolved from our DB so the prompt and the
+    // Palisis lookup downstream both get the canonical row.
+    const trips: TripInput[] = await Promise.all(rawTrips.map(async (t) => {
+      const needsHydration = !t.title || !t.duration || !t.city || !t.category
+      if (!needsHydration) return t as TripInput
+      const row = (await dbGetTrip(t.id, { publicOnly: true }).catch(() => null)) as Record<string, unknown> | null
+      return {
+        id: t.id,
+        title: t.title || (typeof row?.title === "string" ? row.title : t.id),
+        city: t.city || (typeof row?.city === "string" ? row.city : ""),
+        duration: t.duration || (typeof row?.duration === "string" ? row.duration : ""),
+        category: t.category || (typeof row?.category === "string" ? row.category : ""),
+      }
+    }))
+    if (trips.length === 0) {
       return Response.json({ error: "No trips provided" }, { status: 400 })
     }
     // Normalise visitor preferences (all optional — older clients won't send them).

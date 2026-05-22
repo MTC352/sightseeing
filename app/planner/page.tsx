@@ -1002,16 +1002,20 @@ export default function PlannerPage() {
       handleOpenItinerary(existing)
       return
     }
-    // Build a fresh itinerary from cart trips matching the plan (fall back
-    // to entire cart if none of the AI's ids resolve in the current cart).
-    const cartMatch = items.filter((i) => wanted.has(i.trip.id))
-    const tripsForApi = (cartMatch.length > 0 ? cartMatch : items).map((i) => ({
-      id: i.trip.id,
-      title: i.trip.title,
-      city: i.trip.city,
-      duration: i.trip.duration,
-      category: i.trip.category,
-    }))
+    // Build from the AI plan's trip ids directly — NOT a cart intersection.
+    // The chat may have built an itinerary from trips the visitor never
+    // added to the cart (e.g. AI recommendations). /api/itinerary now
+    // hydrates id-only trips from the DB so this works for any trip id
+    // in our catalog. Cart trips with extra fields (title/city/…) are
+    // still preferred so we forward those when available.
+    const cartById = new Map(items.map((i) => [i.trip.id, i.trip]))
+    const tripsForApi = planTripIds.map((id) => {
+      const t = cartById.get(id)
+      return t ? {
+        id: t.id, title: t.title, city: t.city,
+        duration: t.duration, category: t.category,
+      } : { id }
+    })
     if (tripsForApi.length === 0) return
     setItineraryRegenerating(true)
     const visitDate = prefsRef.current?.startDate || todayYMD()
@@ -1555,15 +1559,20 @@ export default function PlannerPage() {
     if (lastAutoBuiltToolCallIdRef.current === latest.toolCallId) return
     lastAutoBuiltToolCallIdRef.current = latest.toolCallId
 
-    const wanted = new Set(latest.tripIds)
-    const cartMatch = items.filter((i) => wanted.has(i.trip.id))
-    const tripsForApi = (cartMatch.length > 0 ? cartMatch : items).map((i) => ({
-      id: i.trip.id,
-      title: i.trip.title,
-      city: i.trip.city,
-      duration: i.trip.duration,
-      category: i.trip.category,
-    }))
+    // Build from the AI plan's trip ids directly so the auto-built
+    // itinerary matches what the chat card showed — even when those
+    // trips aren't in the cart (AI recommendations, "create itinerary
+    // from recommended trips" flow). /api/itinerary hydrates id-only
+    // payloads from the DB. Cart trips with extra fields are still
+    // preferred so we forward those when available.
+    const cartById = new Map(items.map((i) => [i.trip.id, i.trip]))
+    const tripsForApi = latest.tripIds.map((id) => {
+      const t = cartById.get(id)
+      return t ? {
+        id: t.id, title: t.title, city: t.city,
+        duration: t.duration, category: t.category,
+      } : { id }
+    })
     if (tripsForApi.length === 0) return
 
     const visitDate = prefsRef.current?.startDate || todayYMD()
@@ -1629,29 +1638,57 @@ export default function PlannerPage() {
     const dateLabel = built.visitDate ? formatYMDPretty(built.visitDate) : "your visit date"
     // Partial-success awareness: when some cart trips couldn't fit on the
     // chosen date the chat must reflect that truth instead of cheerfully
-    // claiming "N stops now live" while the sidebar shows an availability
-    // warning. (User-reported bug: chat said "3 stops live" when the build
-    // had actually flagged one trip as unbookable and prompted for a new
-    // date.)
+    // claiming "N stops now live".
     const unavail = built.unavailableTrips ?? []
     const skippedCount = unavail.length
     const totalRequested = stops + skippedCount
-    let text: string
+    let summary: string
     if (skippedCount > 0) {
-      const names = unavail.slice(0, 2).map((u) => `**"${u.title}"**`).join(" and ")
+      const names = unavail.slice(0, 2).map((u) => `"${u.title}"`).join(" and ")
       const extra = skippedCount > 2 ? ` (+${skippedCount - 2} more)` : ""
-      text = `Itinerary built for **${dateLabel}** — **${stops} of ${totalRequested} stops** on the Trip Canvas. ` +
-        `Couldn't fit ${names}${extra} on this date — tap one of the suggested dates in the cart, or ask me to find a day when all your trips are open.`
+      summary = `Itinerary built for ${dateLabel} — ${stops} of ${totalRequested} stops on the Trip Canvas. ` +
+        `Couldn't fit ${names}${extra} on this date — try another day to fit them all.`
     } else {
-      text = `Itinerary built for **${dateLabel}** — **${stops} stop${stops === 1 ? "" : "s"}** now live on the Trip Canvas. Ask me to swap, reorder, or add a break anywhere.`
+      summary = `Active day for ${dateLabel} with ${stops} stop${stops === 1 ? "" : "s"}. Ask me to swap, reorder, or add a break anywhere.`
     }
+    // Push a synthetic `tool-buildItinerary` part so the existing chat
+    // renderer surfaces the "Your Day Itinerary" timeline card with the
+    // View Itinerary button (or "Loaded on Trip Canvas" badge when it's
+    // already the active panel) — exactly the same UX as when the AI
+    // calls buildItinerary itself.
+    //
+    // CRITICAL: pre-claim this toolCallId in the auto-build ref BEFORE
+    // appending the message. The auto-build effect listens for new
+    // `tool-buildItinerary` outputs and would otherwise re-fire
+    // /api/itinerary against the just-built plan (and possibly overwrite
+    // the real result or surface a contradictory failure). The "manual-"
+    // prefix also makes the intent obvious in logs.
+    const syntheticToolCallId = `manual-${Date.now()}`
+    lastAutoBuiltToolCallIdRef.current = syntheticToolCallId
     setMessages((prev) => ([
       ...prev,
       {
         id: `itinerary-built-${Date.now()}`,
         role: "assistant",
-        parts: [{ type: "text", text }],
-      } as PlannerMessage,
+        parts: [
+          {
+            type: "tool-buildItinerary",
+            toolCallId: syntheticToolCallId,
+            state: "output-available",
+            input: undefined,
+            output: {
+              summary,
+              steps: built.steps.map((s) => ({
+                time: s.time,
+                tripTitle: s.tripTitle,
+                tripId: s.tripId,
+                durationMinutes: s.durationMinutes,
+                travelToNext: s.travelToNext ?? undefined,
+              })),
+            },
+          },
+        ],
+      } as unknown as PlannerMessage,
     ]))
   }, [setMessages])
 
@@ -2169,15 +2206,36 @@ export default function PlannerPage() {
                                       </div>
                                     ))}
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenOrRebuildFromChat(planTripIds)}
-                                    disabled={itineraryRegenerating}
-                                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-                                  >
-                                    <Maximize2 className="h-3 w-3" />
-                                    View Itinerary on Trip Canvas
-                                  </button>
+                                  {(() => {
+                                    // If centerItinerary already represents this exact plan and the
+                                    // panel is open, we show a confirmation badge instead of the View
+                                    // button — clicking would be a no-op anyway and the badge makes
+                                    // it crystal-clear the day is already loaded on the canvas.
+                                    const planSet = new Set(planTripIds)
+                                    const builtSet = new Set(centerItinerary?.steps.map((s) => s.tripId) ?? [])
+                                    const sameSet = centerItinerary
+                                      && builtSet.size === planSet.size
+                                      && [...planSet].every((id) => builtSet.has(id))
+                                    if (sameSet && centerItineraryOpen) {
+                                      return (
+                                        <div className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary/10 py-1.5 text-[11px] font-semibold text-primary">
+                                          <Check className="h-3 w-3" />
+                                          Loaded on Trip Canvas
+                                        </div>
+                                      )
+                                    }
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenOrRebuildFromChat(planTripIds)}
+                                        disabled={itineraryRegenerating}
+                                        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                      >
+                                        <Maximize2 className="h-3 w-3" />
+                                        View Itinerary on Trip Canvas
+                                      </button>
+                                    )
+                                  })()}
                                 </div>
                               </div>
                             )
