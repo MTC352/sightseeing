@@ -685,10 +685,15 @@ function getUpcomingLuxembourgHolidays(luxDate: Date, days: number): { name: str
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { preferences, cartItems, groupMembers } = body as {
+    const { preferences, cartItems, groupMembers, itinerarySummary } = body as {
       preferences?: TravelerPreferences
       cartItems?: { id: string; title: string }[]
       groupMembers?: { name: string; interests: string[] }[]
+      itinerarySummary?: {
+        visitDate?: string
+        summary?: string
+        steps?: { tripId: string; tripTitle: string; time: string; durationMinutes: number }[]
+      } | null
     }
 
     let messages: PlannerMessage[]
@@ -706,6 +711,16 @@ export async function POST(req: Request) {
 
     const cartSection = cartItems?.length
       ? `\nSAVED TRIPS (${cartItems.length}): ${cartItems.map(c => `${c.title} [${c.id}]`).join(", ")}`
+      : ""
+
+    // ── Live Trip Canvas state ────────────────────────────────────────────────
+    // The chat is "aware" of what's currently rendered in the center panel.
+    // When a Day Itinerary is open we tell the model exactly which trips are
+    // sequenced, on what date, and in what order — so it can answer
+    // "what's next?", "swap the morning stop", "is the cathedral still in?"
+    // accurately without needing a tool call.
+    const itinerarySection = itinerarySummary?.steps?.length
+      ? `\nTRIP CANVAS — DAY ITINERARY IS OPEN${itinerarySummary.visitDate ? ` for ${itinerarySummary.visitDate}` : ""} (${itinerarySummary.steps.length} stop${itinerarySummary.steps.length === 1 ? "" : "s"}):\n${itinerarySummary.steps.map((s, i) => `  ${i + 1}. ${s.time} — ${s.tripTitle} [${s.tripId}] (${s.durationMinutes} min)`).join("\n")}${itinerarySummary.summary ? `\nSummary: ${itinerarySummary.summary}` : ""}\n→ The visitor can see this itinerary right now. Do NOT re-describe stops, times, or routes — just confirm or take the next action.`
       : ""
 
     const groupSection = groupMembers?.length
@@ -817,7 +832,7 @@ export async function POST(req: Request) {
       dateContext,
       visitDateContext,
       "WEATHER: " + temp + "\u00b0C, " + condition + " (" + wx + ").",
-      profileLine + cartSection + groupSection,
+      profileLine + cartSection + groupSection + itinerarySection,
       "",
       "PLANNER BEHAVIOR (from admin settings):",
       `- Optimization: ${optimizationHint}`,
@@ -861,7 +876,8 @@ export async function POST(req: Request) {
       "   - NEVER offer a coupon on the very first message. Build rapport first.",
       "11. TRANSIT: When the user asks about buses, trains, getting there, call showTransitPlanner. Luxembourg has free public transport.",
       "12. ITINERARY: When user has 3+ saved trips and asks for a plan/route/schedule/itinerary, call buildItinerary with optimized steps. Sequence by proximity, suggest realistic times starting at 09:00. The server overwrites travel times with real Mapbox driving/walking data — do NOT invent or recite minutes/distances in chat; the panel shows them.",
-      "12a. AFTER buildItinerary: respond with ONE sentence like \"Day Itinerary is live on the Trip Canvas — want me to tweak the order or swap anything?\". Never recap the schedule, route, or per-stop travel.",
+      "12a. AFTER buildItinerary: the inline itinerary card in chat already shows a 'View Itinerary' button and the Trip Canvas auto-opens the full plan (with live timeslots + map route). Reply with ONE short sentence like \"Itinerary is ready on the Trip Canvas — tap View Itinerary above or ask me to swap a stop.\" Never recap the schedule, route, or per-stop travel.",
+      "12b. CANVAS AWARENESS: When the 'TRIP CANVAS — DAY ITINERARY IS OPEN' block above is present, the visitor is already looking at that exact plan. Treat it as ground truth — answer questions about order, timing, or contents from that block directly. If they ask to add/remove/swap a stop, acknowledge the change and call buildItinerary again with the updated sequence; the canvas will refresh automatically.",
       "13. GROUP TRIPS: When groupMembers exist, find experiences that satisfy overlapping interests. Note conflicts and suggest compromises. Mention each member by name when explaining why a trip fits.",
       "13a. PARTY SIZE: The PROFILE line above tells you exactly how many adults and children are in the party. ALWAYS factor this in when recommending trips and building itineraries — avoid adult-only venues if children are present, prefer family-friendly / stroller-accessible options when children > 0, and consider group capacity for friends groups of 6+.",
       "13b. UPDATING PREFERENCES MID-CHAT: When the user changes any preference in conversation (e.g. \"actually we're 2 adults and 3 kids\", \"make it just me\", \"switch to outdoor instead\", \"can we do half-day\", \"let's go tomorrow instead\", \"bump the budget up\"), IMMEDIATELY call the `updatePreferences` tool with ONLY the field(s) they changed. Then, in the same turn, re-run `searchTrips` (or rebuild the itinerary) with the new preferences and acknowledge the change in one short sentence (e.g. \"Updated to 2 adults + 3 kids — Trip Canvas now shows family-friendly picks\"). The new prefs persist for the rest of the conversation.",

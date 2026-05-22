@@ -25,6 +25,7 @@ import {
   Users, Heart, Baby, UserRound, Minus, Plus,
   Clock, DollarSign, ChevronRight, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
+  Maximize2, Loader2,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -886,6 +887,59 @@ export default function PlannerPage() {
     return () => window.removeEventListener("keydown", onKey)
   }, [centerItineraryOpen])
 
+  // Forward-declared so it can be referenced by callbacks above the
+  // useChat declaration. Re-assigned right after useChat resolves.
+  const lastAutoBuiltToolCallIdRef = useRef<string | null>(null)
+
+  /* Called from the "View Itinerary on Trip Canvas" button on the inline
+     chat itinerary card. If we already have a real itinerary loaded for
+     these exact trips, just open the Canvas. Otherwise (or if the cart
+     drifted since the last build) trigger a fresh build via /api/itinerary
+     and then open. This guarantees the button always does something
+     useful — never a silent no-op like before. */
+  const handleOpenOrRebuildFromChat = useCallback(async (planTripIds: string[]) => {
+    const existing = centerItinerary
+    const existingIds = new Set(existing?.steps.map((s) => s.tripId) ?? [])
+    const wanted = new Set(planTripIds)
+    const sameSet = existing
+      && existingIds.size === wanted.size
+      && [...wanted].every((id) => existingIds.has(id))
+    if (sameSet && existing) {
+      handleOpenItinerary(existing)
+      return
+    }
+    // Build a fresh itinerary from cart trips matching the plan (fall back
+    // to entire cart if none of the AI's ids resolve in the current cart).
+    const cartMatch = items.filter((i) => wanted.has(i.trip.id))
+    const tripsForApi = (cartMatch.length > 0 ? cartMatch : items).map((i) => ({
+      id: i.trip.id,
+      title: i.trip.title,
+      city: i.trip.city,
+      duration: i.trip.duration,
+      category: i.trip.category,
+    }))
+    if (tripsForApi.length === 0) return
+    setItineraryRegenerating(true)
+    try {
+      const res = await fetch("/api/itinerary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trips: tripsForApi,
+          startDate: prefsRef.current?.startDate || todayYMD(),
+          preferences: prefsRef.current,
+        }),
+      })
+      if (!res.ok) return
+      const data = (await res.json()) as Itinerary
+      if (!data?.steps?.length) return
+      setCenterItinerary(data)
+      handleOpenItinerary(data)
+    } catch { /* silent */ } finally {
+      setItineraryRegenerating(false)
+    }
+  }, [centerItinerary, items, handleOpenItinerary])
+
   const handleRegenerateItinerary = useCallback(async () => {
     setItineraryRegenerating(true)
     try {
@@ -959,12 +1013,32 @@ export default function PlannerPage() {
   /* AI Chat */
   const cartSummary = useMemo(() => items.map(i => ({ id: i.trip.id, title: i.trip.title })), [items])
 
+  // Mirror centerItinerary into a ref so the transport's prepare callback
+  // (captured once when DefaultChatTransport is created) always reads the
+  // latest plan without forcing the transport to recreate on every change
+  // — recreating the transport mid-conversation breaks the useChat stream.
+  const itineraryForApiRef = useRef<Itinerary | null>(null)
+  useEffect(() => { itineraryForApiRef.current = centerItinerary }, [centerItinerary])
+
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/planner",
-      prepareSendMessagesRequest: ({ id, messages: msgs }) => ({
-        body: { id, messages: msgs, preferences: prefs, cartItems: cartSummary },
-      }),
+      prepareSendMessagesRequest: ({ id, messages: msgs }) => {
+        const it = itineraryForApiRef.current
+        const itinerarySummary = it ? {
+          visitDate: it.visitDate,
+          summary: it.summary,
+          steps: it.steps.map(s => ({
+            tripId: s.tripId,
+            tripTitle: s.tripTitle,
+            time: s.time,
+            durationMinutes: s.durationMinutes,
+          })),
+        } : null
+        return {
+          body: { id, messages: msgs, preferences: prefs, cartItems: cartSummary, itinerarySummary },
+        }
+      },
     }),
     [prefs, cartSummary]
   )
@@ -1079,6 +1153,88 @@ export default function PlannerPage() {
       }
     },
   })
+
+  /* ─── Auto-build the REAL itinerary when the AI calls buildItinerary ───
+     The AI's buildItinerary tool only returns a lightweight sketch
+     (titles + suggested times). The Trip Canvas needs the full plan
+     produced by /api/itinerary (live Palisis timeslots + Mapbox routing).
+     When we see a new tool-buildItinerary output land in the chat, we
+     immediately POST to /api/itinerary using the cart trips that match
+     the AI's plan, then set centerItinerary + open the Canvas so the
+     chat's "Day Itinerary is live on the Trip Canvas" line is actually
+     true. Tracked by toolCallId so each AI invocation fires exactly once. */
+  useEffect(() => {
+    if (!hydrated) return
+    let latest: { toolCallId: string; tripIds: string[] } | null = null
+    outer: for (let i = messages.length - 1; i >= 0; i--) {
+      for (const part of messages[i].parts) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const p = part as any
+        if (p?.type === "tool-buildItinerary" && p?.state === "output-available") {
+          const out = p.output as { steps?: { tripId?: string }[] } | undefined
+          const ids = (out?.steps ?? [])
+            .map((s) => (s?.tripId ? String(s.tripId) : ""))
+            .filter(Boolean)
+          if (ids.length > 0 && p.toolCallId) {
+            latest = { toolCallId: String(p.toolCallId), tripIds: ids }
+            break outer
+          }
+        }
+      }
+    }
+    if (!latest) return
+    if (lastAutoBuiltToolCallIdRef.current === latest.toolCallId) return
+    lastAutoBuiltToolCallIdRef.current = latest.toolCallId
+
+    const wanted = new Set(latest.tripIds)
+    const cartMatch = items.filter((i) => wanted.has(i.trip.id))
+    const tripsForApi = (cartMatch.length > 0 ? cartMatch : items).map((i) => ({
+      id: i.trip.id,
+      title: i.trip.title,
+      city: i.trip.city,
+      duration: i.trip.duration,
+      category: i.trip.category,
+    }))
+    if (tripsForApi.length === 0) return
+
+    const visitDate = prefsRef.current?.startDate || todayYMD()
+    setItineraryRegenerating(true)
+    void fetch("/api/itinerary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trips: tripsForApi, startDate: visitDate, preferences: prefsRef.current }),
+    })
+      .then((r) => (r.ok ? (r.json() as Promise<Itinerary>) : null))
+      .then((data) => {
+        if (!data?.steps?.length) return
+        setCenterItinerary(data)
+        setCenterItineraryOpen(true)
+        setCartOpen(true)
+        setMapExpanded(true)
+      })
+      .catch(() => { /* silent — chat card still shows the sketch */ })
+      .finally(() => setItineraryRegenerating(false))
+  }, [messages, items, hydrated])
+
+  /* Called by SidebarItinerary after a manual build succeeds. We push a
+     synthetic assistant message into the chat so the conversation log
+     reflects that an itinerary now exists on the canvas — and so the
+     chat's context (which is sent as itinerarySummary on the next user
+     turn) is consistent with what the visitor is looking at. */
+  const handleItineraryBuilt = useCallback((built: Itinerary) => {
+    const stops = built.steps?.length ?? 0
+    if (stops === 0) return
+    const dateLabel = built.visitDate ? formatYMDPretty(built.visitDate) : "your visit date"
+    const text = `Itinerary built for ${dateLabel} — ${stops} stop${stops === 1 ? "" : "s"} now live on the Trip Canvas. Ask me to swap, reorder, or add a break anywhere.`
+    setMessages((prev) => ([
+      ...prev,
+      {
+        id: `itinerary-built-${Date.now()}`,
+        role: "assistant",
+        parts: [{ type: "text", text }],
+      } as PlannerMessage,
+    ]))
+  }, [setMessages])
 
   /* Auto-scroll chat */
   useEffect(() => {
@@ -1520,11 +1676,24 @@ export default function PlannerPage() {
                         case "tool-buildItinerary": {
                           if (part.state === "output-available") {
                             const itinerary = part.output as { steps: { time: string; tripTitle: string; tripId: string; durationMinutes: number; travelToNext?: string }[]; summary: string }
+                            // Trip ids from this AI plan — drives the View
+                            // Itinerary button: if a real itinerary is
+                            // already loaded for the same set of trips,
+                            // just open it; otherwise (re)build via the
+                            // /api/itinerary endpoint so live Palisis +
+                            // Mapbox data drives the Canvas panel.
+                            const planTripIds = itinerary.steps.map((s) => s.tripId).filter(Boolean)
                             textParts.push(
                               <div key={idx} className="mt-2.5 overflow-hidden rounded-xl border border-border bg-card">
                                 <div className="flex items-center gap-2 bg-primary/5 px-3 py-2">
                                   <Route className="h-3.5 w-3.5 text-primary" />
                                   <span className="text-xs font-bold text-foreground">Your Day Itinerary</span>
+                                  {itineraryRegenerating && (
+                                    <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Loading live times…
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="px-3 py-2.5">
                                   <p className="mb-3 text-xs text-muted-foreground">{itinerary.summary}</p>
@@ -1546,6 +1715,15 @@ export default function PlannerPage() {
                                       </div>
                                     ))}
                                   </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenOrRebuildFromChat(planTripIds)}
+                                    disabled={itineraryRegenerating}
+                                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                  >
+                                    <Maximize2 className="h-3 w-3" />
+                                    View Itinerary on Trip Canvas
+                                  </button>
                                 </div>
                               </div>
                             )
@@ -1919,7 +2097,12 @@ export default function PlannerPage() {
             <TripCart />
           </div>
           <div className="shrink-0">
-            <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
+            <SidebarItinerary
+              onOpenItinerary={handleOpenItinerary}
+              onItineraryBuilt={handleItineraryBuilt}
+              existingItinerary={centerItinerary}
+              cartFingerprint={cartFingerprint}
+            />
           </div>
         </div>
 
@@ -1941,7 +2124,12 @@ export default function PlannerPage() {
                 <TripCart />
               </div>
               <div className="shrink-0">
-                <SidebarItinerary onOpenItinerary={handleOpenItinerary} existingItinerary={centerItinerary} />
+                <SidebarItinerary
+                  onOpenItinerary={handleOpenItinerary}
+                  onItineraryBuilt={handleItineraryBuilt}
+                  existingItinerary={centerItinerary}
+                  cartFingerprint={cartFingerprint}
+                />
               </div>
             </div>
           </div>

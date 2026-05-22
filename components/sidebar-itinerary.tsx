@@ -205,6 +205,15 @@ interface SidebarItineraryProps {
   existingItinerary?: Itinerary | null
   /** Called once itinerary loads — parent uses this to open the center panel */
   onOpenItinerary: (itinerary: Itinerary) => void
+  /** Fired after a NEW itinerary finishes building (not on plain "View"
+   *  clicks). The planner page uses this to post a synthetic assistant
+   *  message into the chat so the AI context stays in sync with what the
+   *  visitor is now looking at on the Trip Canvas. */
+  onItineraryBuilt?: (itinerary: Itinerary) => void
+  /** Stable signature of the current cart (e.g. sorted tripIds joined).
+   *  When this changes vs. the loaded itinerary's signature, the "View
+   *  Itinerary" button regenerates instead of opening the stale plan. */
+  cartFingerprint?: string
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -350,7 +359,16 @@ function BuildItineraryLoader({
   )
 }
 
-export function SidebarItinerary({ onOpenItinerary, existingItinerary }: SidebarItineraryProps) {
+/** Build the same fingerprint the planner page produces, so we can compare
+ *  the cart's current shape against whatever cart the loaded itinerary
+ *  was built from. Sorted ids only — quantity / date changes don't
+ *  invalidate (the user can rebuild explicitly for those). */
+function fingerprintFromItinerary(it: Itinerary | null | undefined): string {
+  if (!it?.steps?.length) return ""
+  return [...new Set(it.steps.map((s) => s.tripId).filter(Boolean))].sort().join("|")
+}
+
+export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint }: SidebarItineraryProps) {
   const { items } = useCart()
   // Local itinerary takes precedence (just-generated), then fall back to the
   // parent's persisted copy so the View/Build button stays in sync even
@@ -446,6 +464,10 @@ export function SidebarItinerary({ onOpenItinerary, existingItinerary }: Sidebar
       }
       setItinerary(data)
       onOpenItinerary(data)
+      // Notify the planner page so it can echo this build into the chat
+      // log — keeps the AI's conversational context aligned with the
+      // canvas state the user is now seeing.
+      onItineraryBuilt?.(data)
     } catch {
       setError("Could not generate itinerary. Please try again.")
     } finally {
@@ -682,15 +704,45 @@ export function SidebarItinerary({ onOpenItinerary, existingItinerary }: Sidebar
           </button>
         ) : (
           <>
-            <button
-              type="button"
-              onClick={() => onOpenItinerary(itinerary)}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              <Maximize2 className="h-3 w-3" />
-              View Itinerary
-            </button>
-
+            {(() => {
+              const itineraryFp = fingerprintFromItinerary(itinerary)
+              const cartDrifted = !!cartFingerprint && !!itineraryFp && cartFingerprint !== itineraryFp
+              // A changed visit date also makes the plan stale — timeslots,
+              // weather, and day-of-week logic all hinge on the date.
+              const currentDate = readVisitDate()
+              const dateDrifted = !!itinerary.visitDate && !!currentDate && currentDate !== itinerary.visitDate
+              const drifted = cartDrifted || dateDrifted
+              const handleClick = () => {
+                if (drifted) {
+                  // Cart changed since this itinerary was built — rebuild
+                  // before opening so the Canvas reflects the user's
+                  // actual saved trips, not a stale list.
+                  const date = readVisitDate() || itinerary.visitDate || todayYMD()
+                  void runGenerate(date)
+                } else {
+                  onOpenItinerary(itinerary)
+                }
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={handleClick}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  {drifted ? (
+                    <>
+                      <Sparkles className="h-3 w-3" />
+                      Rebuild &amp; View
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="h-3 w-3" />
+                      View Itinerary
+                    </>
+                  )}
+                </button>
+              )
+            })()}
           </>
         )}
       </div>
