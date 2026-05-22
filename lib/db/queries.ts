@@ -740,6 +740,37 @@ export const DEFAULT_PLANNER_FORM = {
     { value: 'premium', label: 'Treat ourselves' },
   ],
   maxMultiDayDays: 2,
+  // Maximum number of interest tiles a visitor may select during the
+  // /planner onboarding. Admin-configurable from "Trip Planner Chat".
+  maxInterests: 3,
+}
+
+/**
+ * Distinct `trip_tags` across published trips, returned as planner-form
+ * { value, label } options (label is humanised from the slug). Used both
+ * by the admin "Load trip tags as defaults" button on the Trip Planner
+ * Chat page and by dbGetChatPlannerConfig when no admin-set interests
+ * exist — so the onboarding list always reflects the live catalog
+ * instead of the legacy hardcoded food/culture/outdoor placeholders
+ * which never matched any real trip.
+ */
+export async function dbListTripTagOptions(): Promise<{ value: string; label: string }[]> {
+  const rows = await query<{ tag: string }>(
+    `SELECT DISTINCT unnest(trip_tags) AS tag
+       FROM trips
+      WHERE status = 'published' AND trip_tags IS NOT NULL
+      ORDER BY tag`
+  )
+  return rows
+    .map((r) => (typeof r.tag === 'string' ? r.tag.trim() : ''))
+    .filter((v) => v.length > 0 && /^[a-z0-9-]+$/.test(v))
+    .map((value) => ({
+      value,
+      label: value
+        .split('-')
+        .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : w))
+        .join(' '),
+    }))
 }
 
 /**
@@ -777,16 +808,35 @@ export async function dbGetChatPlannerConfig(): Promise<{
     return cleaned.length > 0 ? cleaned : fallback
   }
   const maxDaysRaw = Number(formRaw.maxMultiDayDays)
+  const maxInterestsRaw = Number(formRaw.maxInterests)
+  // If admin has never saved a custom interests list, fall back to the
+  // live trip_tags catalog (not the legacy food/culture/outdoor stubs)
+  // so the onboarding form always shows tags that actually match real
+  // trips. Best-effort: if the lookup fails we still fall back to the
+  // bundled defaults so the form keeps working.
+  let interestsFallback = DEFAULT_PLANNER_FORM.interests
+  const interestsSaved = Array.isArray(formRaw.interests) && formRaw.interests.length > 0
+  if (!interestsSaved) {
+    try {
+      const tagOptions = await dbListTripTagOptions()
+      if (tagOptions.length > 0) interestsFallback = tagOptions
+    } catch (err) {
+      console.error('[dbGetChatPlannerConfig] trip-tag fallback failed:', err)
+    }
+  }
   return {
     plannerSystemPrompt: typeof plannerExtra.systemPrompt === 'string' ? plannerExtra.systemPrompt : '',
     plannerForm: {
       groups: sanitiseList(formRaw.groups, DEFAULT_PLANNER_FORM.groups),
-      interests: sanitiseList(formRaw.interests, DEFAULT_PLANNER_FORM.interests),
+      interests: sanitiseList(formRaw.interests, interestsFallback),
       durations: sanitiseList(formRaw.durations, DEFAULT_PLANNER_FORM.durations),
       budgets: sanitiseList(formRaw.budgets, DEFAULT_PLANNER_FORM.budgets),
       maxMultiDayDays: Number.isFinite(maxDaysRaw) && maxDaysRaw >= 2 && maxDaysRaw <= 14
         ? Math.floor(maxDaysRaw)
         : DEFAULT_PLANNER_FORM.maxMultiDayDays,
+      maxInterests: Number.isFinite(maxInterestsRaw) && maxInterestsRaw >= 1 && maxInterestsRaw <= 10
+        ? Math.floor(maxInterestsRaw)
+        : DEFAULT_PLANNER_FORM.maxInterests,
     },
   }
 }

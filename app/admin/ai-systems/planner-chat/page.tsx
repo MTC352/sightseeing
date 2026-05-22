@@ -32,6 +32,7 @@ type PlannerForm = {
   durations: Option[]
   budgets: Option[]
   maxMultiDayDays: number
+  maxInterests: number
 }
 const DEFAULT_PLANNER_FORM: PlannerForm = {
   groups: [
@@ -40,14 +41,10 @@ const DEFAULT_PLANNER_FORM: PlannerForm = {
     { value: "family", label: "Family with kids" },
     { value: "friends", label: "Friends group" },
   ],
-  interests: [
-    { value: "food", label: "Food & Drinks" },
-    { value: "culture", label: "History & Culture" },
-    { value: "outdoor", label: "Outdoor & Nature" },
-    { value: "night", label: "Nightlife" },
-    { value: "sport", label: "Active & Sports" },
-    { value: "indoor", label: "Hidden Gems" },
-  ],
+  // Empty by default — the GET endpoint hydrates this from the live
+  // `trip_tags` catalog so the form always shows tags that actually
+  // match real trips. Admin can still customise / override.
+  interests: [],
   durations: [
     { value: "1-2h", label: "1-2 hours" },
     { value: "half-day", label: "Half day" },
@@ -60,6 +57,7 @@ const DEFAULT_PLANNER_FORM: PlannerForm = {
     { value: "premium", label: "Treat ourselves" },
   ],
   maxMultiDayDays: 2,
+  maxInterests: 3,
 }
 
 export default function TripPlannerChatAdminPage() {
@@ -246,12 +244,44 @@ export default function TripPlannerChatAdminPage() {
           />
           <OptionListEditor
             title="Interests"
-            help="Visitors pick up to 3. Keep this list short."
+            help="Sourced by default from your live trip tags so options always match real bookable trips. Use the buttons to repopulate from tags or to add custom entries."
             options={plannerForm.interests}
             defaultOption={{ value: "new-interest", label: "New interest" }}
             onChange={(v) => setPlannerForm((f) => ({ ...f, interests: v }))}
-            onReset={() => setPlannerForm((f) => ({ ...f, interests: DEFAULT_PLANNER_FORM.interests }))}
+            onReset={async () => {
+              try {
+                const res = await fetch("/api/admin/trip-tags").then((r) => r.json())
+                const opts = Array.isArray(res?.options) ? res.options : []
+                if (opts.length > 0) {
+                  setPlannerForm((f) => ({ ...f, interests: opts }))
+                  return
+                }
+              } catch { /* fall through to bundled defaults */ }
+              setPlannerForm((f) => ({ ...f, interests: DEFAULT_PLANNER_FORM.interests }))
+            }}
+            resetLabel="Load from trip tags"
+            resetTestId="load-trip-tags"
           />
+
+          <div className="rounded-xl border border-border bg-card p-5">
+            <label className={labelClass}>Max interests a visitor can select</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number" min={1} max={10} step={1}
+                data-testid="planner-max-interests"
+                value={plannerForm.maxInterests}
+                onChange={(e) => setPlannerForm((f) => ({
+                  ...f,
+                  maxInterests: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)),
+                }))}
+                className={`${inputClass} max-w-[120px]`}
+              />
+              <span className="text-xs text-muted-foreground">interests (1–10)</span>
+            </div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground/60">
+              Caps how many interest tiles a visitor can pick during onboarding on /planner. Also enforced server-side when the AI updates preferences.
+            </p>
+          </div>
           <OptionListEditor
             title="Durations"
             help="The 'multi-day' value is required (it controls the day-count stepper) and will be auto-restored if removed."
@@ -354,7 +384,7 @@ export default function TripPlannerChatAdminPage() {
  *  don't accidentally save spaces or upper-case that would break the
  *  server-side allow-list. */
 function OptionListEditor({
-  title, help, options, defaultOption, onChange, onReset,
+  title, help, options, defaultOption, onChange, onReset, resetLabel, resetTestId,
 }: {
   title: string
   help: string
@@ -362,6 +392,8 @@ function OptionListEditor({
   defaultOption: Option
   onChange: (next: Option[]) => void
   onReset: () => void
+  resetLabel?: string
+  resetTestId?: string
 }) {
   function update(i: number, patch: Partial<Option>) {
     onChange(options.map((o, idx) => idx === i ? { ...o, ...patch } : o))
@@ -386,9 +418,10 @@ function OptionListEditor({
         <button
           type="button"
           onClick={onReset}
+          data-testid={resetTestId}
           className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
         >
-          <RotateCcw className="h-3 w-3" /> Reset
+          <RotateCcw className="h-3 w-3" /> {resetLabel ?? "Reset"}
         </button>
       </div>
       <div className="space-y-2">

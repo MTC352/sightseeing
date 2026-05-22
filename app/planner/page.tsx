@@ -149,6 +149,7 @@ type FormOptions = {
   durations: { value: string; label: string }[]
   budgets: { value: string; label: string }[]
   maxMultiDayDays: number
+  maxInterests: number
 }
 const DEFAULT_FORM_OPTIONS: FormOptions = {
   groups: DEFAULT_GROUP_OPTIONS,
@@ -156,6 +157,7 @@ const DEFAULT_FORM_OPTIONS: FormOptions = {
   durations: DEFAULT_DURATION_OPTIONS,
   budgets: DEFAULT_BUDGET_OPTIONS,
   maxMultiDayDays: 2,
+  maxInterests: 3,
 }
 
 /* ─── Weather ─── */
@@ -224,7 +226,7 @@ function PartyStepper({
 /* ONBOARDING                              */
 /* ────────────────────────────────────── */
 function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferences) => void; formOptions: FormOptions }) {
-  const { groups: GROUP_OPTIONS, interests: INTEREST_OPTIONS, durations: DURATION_OPTIONS, budgets: BUDGET_OPTIONS, maxMultiDayDays } = formOptions
+  const { groups: GROUP_OPTIONS, interests: INTEREST_OPTIONS, durations: DURATION_OPTIONS, budgets: BUDGET_OPTIONS, maxMultiDayDays, maxInterests } = formOptions
   const [step, setStep] = useState(0)
   const [prefs, setPrefs] = useState<Preferences>(EMPTY_PREFS)
   // Sub-step inside step 2: when "Multi-day trip" is picked we ask for
@@ -259,7 +261,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
   function toggleInterest(value: string) {
     setPrefs((p) => {
       const has = p.interests.includes(value)
-      return { ...p, interests: has ? p.interests.filter((v) => v !== value) : p.interests.length < 3 ? [...p.interests, value] : p.interests }
+      return { ...p, interests: has ? p.interests.filter((v) => v !== value) : p.interests.length < maxInterests ? [...p.interests, value] : p.interests }
     })
   }
   function selectDuration(value: string) {
@@ -291,7 +293,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
 
   const questions = [
     "Hey there! Let me help plan your perfect day in Luxembourg. First -- who's joining today?",
-    "Great choice! Now, what sounds good to you? Pick up to 3 interests.",
+    `Great choice! Now, what sounds good to you? Pick up to ${maxInterests} interest${maxInterests === 1 ? "" : "s"}.`,
     "How much time do you have for exploring?",
     "What's your vibe for the day?",
     "When are you visiting? I'll match real timeslots and any current deals to your date.",
@@ -376,7 +378,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
                 )
               })}
             </div>
-            <p className="text-center text-[10px] text-muted-foreground">{prefs.interests.length}/3 selected</p>
+            <p className="text-center text-[10px] text-muted-foreground" data-testid="interest-count">{prefs.interests.length}/{maxInterests} selected</p>
             <button type="button" disabled={prefs.interests.length === 0} onClick={() => setStep(2)}
               className="mx-auto flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
               Continue <ChevronRight className="h-4 w-4" />
@@ -607,12 +609,14 @@ export default function PlannerPage() {
             ? arr.filter((o): o is { value: string; label: string } => !!o && typeof o === "object" && typeof (o as { value?: unknown }).value === "string" && typeof (o as { label?: unknown }).label === "string")
             : fb
         const days = Number(data.maxMultiDayDays)
+        const maxI = Number(data.maxInterests)
         setFormOptions({
           groups: sane(data.groups, DEFAULT_GROUP_OPTIONS),
           interests: sane(data.interests, DEFAULT_INTEREST_OPTIONS),
           durations: sane(data.durations, DEFAULT_DURATION_OPTIONS),
           budgets: sane(data.budgets, DEFAULT_BUDGET_OPTIONS),
           maxMultiDayDays: Number.isFinite(days) && days >= 2 && days <= 14 ? days : 2,
+          maxInterests: Number.isFinite(maxI) && maxI >= 1 && maxI <= 10 ? Math.floor(maxI) : 3,
         })
       })
       .catch(() => { /* keep defaults */ })
@@ -904,7 +908,7 @@ export default function PlannerPage() {
         // Per-field merge with strict validation.
         const next: Preferences = {
           group: typeof patch.group === "string" && patch.group ? patch.group : base.group,
-          interests: Array.isArray(patch.interests) ? patch.interests.slice(0, 3) : base.interests,
+          interests: Array.isArray(patch.interests) ? patch.interests.slice(0, formOptions.maxInterests) : base.interests,
           duration: typeof patch.duration === "string" && patch.duration ? patch.duration : base.duration,
           budget: typeof patch.budget === "string" && patch.budget ? patch.budget : base.budget,
           startDate: typeof patch.startDate === "string" && patch.startDate ? patch.startDate : base.startDate,

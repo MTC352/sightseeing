@@ -69,6 +69,10 @@ export async function PUT(req: Request) {
       if (Number.isFinite(maxDays)) {
         formPatch.maxMultiDayDays = Math.max(2, Math.min(14, Math.floor(maxDays)))
       }
+      const maxInterests = Number(formIn.maxInterests)
+      if (Number.isFinite(maxInterests)) {
+        formPatch.maxInterests = Math.max(1, Math.min(10, Math.floor(maxInterests)))
+      }
       // Refuse to delete the multi-day duration if admin replaces durations
       // without it — the multi-day stepper sub-step is referenced from code
       // by exactly that slug, removing it would silently break the cap UI.

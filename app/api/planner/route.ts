@@ -554,7 +554,7 @@ const updatePreferencesTool = tool({
     group: z.enum(["solo", "couple", "family", "friends"]).optional().describe("Travel party type."),
     adults: z.number().int().min(1).max(20).optional().describe("Number of adults (ages 13+)."),
     children: z.number().int().min(0).max(20).optional().describe("Number of children (ages 0-12)."),
-    interests: z.array(z.string()).max(3).optional().describe("Up to 3 interest tags: food, culture, outdoor, night, sport, indoor."),
+    interests: z.array(z.string()).max(10).optional().describe("Interest tags chosen by the visitor. The UI caps how many are allowed; pass only what the user explicitly mentions."),
     duration: z.enum(["1-2h", "half-day", "full-day"]).optional().describe("Trip duration preference."),
     budget: z.enum(["casual", "mid-range", "premium", "any"]).optional().describe("Budget preference."),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Visit date in YYYY-MM-DD format."),
