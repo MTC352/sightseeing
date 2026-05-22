@@ -788,6 +788,25 @@ export async function dbListTripTags(): Promise<TripTagRow[]> {
   )
 }
 
+/** Same as `dbListTripTags` but joins a per-tag published-trip count.
+ *  Used by the admin Trip Tags listing page so editors can see how many
+ *  trips are tagged with each entry at a glance, and by the public/admin
+ *  trip-tags endpoints so the search filter / planner onboarding can
+ *  decide whether a tag is worth showing at all. */
+export async function dbListTripTagsWithCounts(): Promise<TripTagWithCount[]> {
+  return await query<TripTagWithCount>(
+    `SELECT tt.slug, tt.label, tt.show_on_homepage, tt.sort_order,
+            COALESCE(c.trip_count, 0)::int AS trip_count
+       FROM trip_tags tt
+  LEFT JOIN (
+              SELECT tag, COUNT(*) AS trip_count
+                FROM (SELECT unnest(trip_tags) AS tag FROM trips WHERE status='published') s
+               GROUP BY tag
+            ) c ON c.tag = tt.slug
+      ORDER BY tt.sort_order ASC, tt.label ASC`
+  )
+}
+
 /** Homepage-flagged tags with a published trip count for "N experiences". */
 export async function dbListHomepageTripTagsWithCounts(): Promise<TripTagWithCount[]> {
   return await query<TripTagWithCount>(
@@ -853,13 +872,24 @@ export async function dbDeleteTripTag(slug: string): Promise<void> {
 
 /** Planner-form { value, label } projection.  Reads the canonical
  *  `trip_tags` table so the Trip Planner Chat onboarding tiles stay in
- *  sync with the admin Trip Tags page automatically. */
+ *  sync with the admin Trip Tags page automatically.  Filters out any
+ *  tag that isn't currently attached to at least one published trip so
+ *  the onboarding never shows an interest tile with zero matching
+ *  experiences (which would always yield empty AI results). */
 export async function dbListTripTagOptions(): Promise<{ value: string; label: string }[]> {
-  const rows = await query<{ slug: string; label: string }>(
-    `SELECT slug, label FROM trip_tags ORDER BY sort_order ASC, label ASC`
+  const rows = await query<{ slug: string; label: string; trip_count: number }>(
+    `SELECT tt.slug, tt.label,
+            COALESCE(c.trip_count, 0)::int AS trip_count
+       FROM trip_tags tt
+  LEFT JOIN (
+              SELECT tag, COUNT(*) AS trip_count
+                FROM (SELECT unnest(trip_tags) AS tag FROM trips WHERE status='published') s
+               GROUP BY tag
+            ) c ON c.tag = tt.slug
+      ORDER BY tt.sort_order ASC, tt.label ASC`
   )
   return rows
-    .filter((r) => r.slug && /^[a-z0-9-]+$/.test(r.slug))
+    .filter((r) => r.slug && /^[a-z0-9-]+$/.test(r.slug) && r.trip_count > 0)
     .map((r) => ({ value: r.slug, label: r.label }))
 }
 

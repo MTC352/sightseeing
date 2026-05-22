@@ -9,6 +9,9 @@ interface TripTag {
   label: string
   show_on_homepage: boolean
   sort_order: number
+  /** Published trips currently using this tag. Server-computed via the
+   *  admin GET /api/admin/trip-tags endpoint. */
+  trip_count?: number
 }
 
 export default function TripTagsPage() {
@@ -102,7 +105,7 @@ export default function TripTagsPage() {
             automatically from each tag's slug.
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {tags.length} tags · {homepageCount} shown on homepage
+            {tags.length} tags · {homepageCount} shown on homepage · {tags.filter((t) => (t.trip_count ?? 0) > 0).length} linked to at least one trip
           </p>
         </div>
       </div>
@@ -154,16 +157,17 @@ export default function TripTagsPage() {
               <th className="px-4 py-2 text-left">Icon</th>
               <th className="px-4 py-2 text-left">Label</th>
               <th className="px-4 py-2 text-left">Slug</th>
+              <th className="px-4 py-2 text-center">Trips</th>
               <th className="px-4 py-2 text-center">Homepage</th>
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td className="p-6 text-center text-muted-foreground" colSpan={5}>Loading…</td></tr>
+              <tr><td className="p-6 text-center text-muted-foreground" colSpan={6}>Loading…</td></tr>
             )}
             {!loading && tags.length === 0 && (
-              <tr><td className="p-6 text-center text-muted-foreground" colSpan={5}>No tags yet.</td></tr>
+              <tr><td className="p-6 text-center text-muted-foreground" colSpan={6}>No tags yet.</td></tr>
             )}
             {tags.map((t) => {
               const Icon = iconForSlug(t.slug)
@@ -187,6 +191,24 @@ export default function TripTagsPage() {
                     />
                   </td>
                   <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{t.slug}</td>
+                  <td
+                    className="px-4 py-2 text-center"
+                    data-testid={`trip-tag-count-${t.slug}`}
+                    title={`${t.trip_count ?? 0} published trip(s) tagged with "${t.label}"`}
+                  >
+                    {(t.trip_count ?? 0) > 0 ? (
+                      <span className="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                        {t.trip_count}
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex min-w-[2rem] items-center justify-center rounded-full bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        title="No published trips currently use this tag — it won't appear on the planner or search filter."
+                      >
+                        0
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-center">
                     <label className="inline-flex items-center gap-1.5">
                       <input

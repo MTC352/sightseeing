@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import {
-  dbListTripTags,
   dbCreateTripTag,
   dbListTripTagOptions,
+  dbListTripTagsWithCounts,
 } from "@/lib/db/queries"
 
 export const dynamic = "force-dynamic"
@@ -21,8 +21,13 @@ export const dynamic = "force-dynamic"
  */
 export async function GET() {
   try {
+    // `tags` now carries a per-tag published-trip count so the admin
+    // listing can render a "Trips" column.  `options` keeps the same
+    // legacy shape consumed by the planner-chat admin's "Load from
+    // trip tags" button — and it now reflects only tags that have at
+    // least one published trip (mirroring the visitor planner).
     const [tags, options] = await Promise.all([
-      dbListTripTags(),
+      dbListTripTagsWithCounts(),
       dbListTripTagOptions(),
     ])
     return NextResponse.json({ tags, options })
