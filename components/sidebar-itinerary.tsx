@@ -947,7 +947,24 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
                         </div>
                       ) : (
                         <div className="ml-2 text-[9px] text-amber-700">
-                          No openings in the next {scanDays} days
+                          {(() => {
+                            // Distinguish the four real causes instead of
+                            // collapsing them all into "No openings in 21
+                            // days" (which was misleading when the trip was
+                            // simply never linked to Palisis, or when the
+                            // live API call itself failed).
+                            switch (u.reason) {
+                              case "NO_PALISIS_LINK":
+                                return "Not bookable online — ask reception"
+                              case "TOURCMS_ERROR":
+                                return "Live availability unavailable — try again in a moment"
+                              case "DOES_NOT_FIT_DURATION":
+                                return "Won't fit your current duration — change duration or drop a trip"
+                              case "NO_SLOTS":
+                              default:
+                                return `No openings in the next ${scanDays} days`
+                            }
+                          })()}
                         </div>
                       )}
                     </li>

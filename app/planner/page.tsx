@@ -978,6 +978,15 @@ export default function PlannerPage() {
   // Forward-declared so it can be referenced by callbacks above the
   // useChat declaration. Re-assigned right after useChat resolves.
   const lastAutoBuiltToolCallIdRef = useRef<string | null>(null)
+  /* Composite-key marker for preflight NEEDS_DECISION outcomes. The
+     simple toolCallId-only marker above can't distinguish "already
+     built successfully" from "already preflighted and waiting for the
+     visitor to resolve a conflict" — when the visitor THEN changes
+     prefs (e.g. picks full-day) or cart (drops a trip), the same
+     toolCallId is still in the chat but the inputs have changed and a
+     fresh preflight is warranted. Key = `${toolCallId}|${prefsFp}|
+     ${cartFp}` so any change to prefs or cart invalidates it. */
+  const preflightFailedKeyRef = useRef<string | null>(null)
   /* Forward reference to useChat's `setMessages` so earlier handlers
      (handleOpenOrRebuildFromChat, handleRegenerateItinerary) can push
      truthful failure messages into the chat without forcing useChat —
@@ -1008,8 +1017,16 @@ export default function PlannerPage() {
     // hydrates id-only trips from the DB so this works for any trip id
     // in our catalog. Cart trips with extra fields (title/city/…) are
     // still preferred so we forward those when available.
+    // Defensive: drop meal-break placeholder ids (lunch/dinner/coffee/
+    // meal_*) — these aren't real trips and would surface as "tcms_lunch
+    // unavailable" in the sidebar. Mirrors the auto-build effect filter.
+    const isMealBreakId = (id: string) =>
+      id === "lunch" || id === "dinner" || id === "coffee"
+      || id.startsWith("meal_") || id.startsWith("tcms_lunch")
+      || id.startsWith("tcms_dinner") || id.startsWith("tcms_coffee")
+    const cleanPlanTripIds = planTripIds.filter((id) => id && !isMealBreakId(id))
     const cartById = new Map(items.map((i) => [i.trip.id, i.trip]))
-    const tripsForApi = planTripIds.map((id) => {
+    const tripsForApi = cleanPlanTripIds.map((id) => {
       const t = cartById.get(id)
       return t ? {
         id: t.id, title: t.title, city: t.city,
@@ -1595,9 +1612,17 @@ export default function PlannerPage() {
         const p = part as any
         if (p?.type === "tool-buildItinerary" && p?.state === "output-available") {
           const out = p.output as { steps?: { tripId?: string }[] } | undefined
+          // Filter meal-break placeholders out of the trip-id list. The AI
+          // emits steps with tripId "lunch"/"dinner"/"coffee" (or any id
+          // starting with "meal_") for break stops — these aren't real
+          // trips and would surface in /api/itinerary as "tcms_lunch — no
+          // openings in 21 days". Same filter is applied defensively on
+          // the server in /api/itinerary.
+          const isMealBreakId = (id: string) =>
+            id === "lunch" || id === "dinner" || id === "coffee" || id.startsWith("meal_") || id.startsWith("tcms_lunch") || id.startsWith("tcms_dinner") || id.startsWith("tcms_coffee")
           const ids = (out?.steps ?? [])
             .map((s) => (s?.tripId ? String(s.tripId) : ""))
-            .filter(Boolean)
+            .filter((id) => id && !isMealBreakId(id))
           if (ids.length > 0 && p.toolCallId) {
             latest = { toolCallId: String(p.toolCallId), tripIds: ids }
             break outer
@@ -1607,7 +1632,29 @@ export default function PlannerPage() {
     }
     if (!latest) return
     if (lastAutoBuiltToolCallIdRef.current === latest.toolCallId) return
-    lastAutoBuiltToolCallIdRef.current = latest.toolCallId
+    /* Compute a composite fingerprint so a preflight NEEDS_DECISION
+       outcome doesn't permanently block rebuilds for this toolCallId.
+       When the visitor resolves the conflict (changes prefs, drops a
+       trip from the cart, picks a different date), the fingerprint
+       shifts → preflight re-runs → if now READY, the real build
+       proceeds. Note: lastAutoBuiltToolCallIdRef is now ONLY set after
+       a successful build (further down), so the simple-key guard above
+       is the "skip if I already built this exact plan" lock. */
+    /* Read from the `prefs` STATE (which is in this effect's deps), not
+       from prefsRef.current — the ref is updated by a separate effect
+       declared later in the file, so on the render right after setPrefs
+       this effect would otherwise see stale prefs and bail on the old
+       preflightKey. (Architect feedback: prevents the "Make it full-day"
+       resolution from being silently ignored.) */
+    const prefsFp = JSON.stringify({
+      d: prefs?.duration,
+      s: prefs?.startDate,
+      a: prefs?.adults,
+      c: prefs?.children,
+    })
+    const cartFp = items.map((i) => i.trip.id).sort().join(",")
+    const preflightKey = `${latest.toolCallId}|${prefsFp}|${cartFp}`
+    if (preflightFailedKeyRef.current === preflightKey) return
 
     // Build from the AI plan's trip ids directly so the auto-built
     // itinerary matches what the chat card showed — even when those
@@ -1625,14 +1672,73 @@ export default function PlannerPage() {
     })
     if (tripsForApi.length === 0) return
 
-    const visitDate = prefsRef.current?.startDate || todayYMD()
+    // Use the live `prefs` state (in deps) — see prefsFp comment above.
+    const visitDate = prefs?.startDate || todayYMD()
     setItineraryRegenerating(true)
     void (async () => {
       try {
+        /* ─── Preflight gate ───────────────────────────────────────────
+           Ask /api/itinerary to run trip hydration + TourCMS availability
+           + duration-vs-time-budget conflict detection WITHOUT calling
+           the AI. If the preflight surfaces a duration conflict or any
+           unavailable trips, push the decision question to chat and
+           bail — do NOT load anything onto the Trip Canvas. The
+           visitor's chosen resolution (change duration, switch date,
+           drop a trip) triggers a fresh build via the prefs-drift
+           handler. This ordering matches the product requirement: ASK
+           FIRST, build after. Without this gate the visitor would see
+           a partial itinerary appear AND a conflict question at the
+           same time, which is confusing.                                */
+        const pre = await fetch("/api/itinerary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "preflight", trips: tripsForApi, startDate: visitDate, preferences: prefs }),
+        })
+        const preData = await pre.json().catch(() => null) as {
+          kind?: "preflight"
+          status?: "READY" | "NEEDS_DECISION"
+          conflict?: PlanConflictPayload["conflict"] | null
+          unavailableTrips?: ItineraryFailurePayload["unavailableTrips"]
+          alternativeDates?: ItineraryFailurePayload["alternativeDates"]
+          visitDate?: string
+        } | null
+        if (pre.ok && preData?.kind === "preflight" && preData.status === "NEEDS_DECISION") {
+          if (preData.conflict) {
+            handlePlanConflict({
+              message:
+                `Your saved trips need more time than your **${preData.conflict.currentDuration}** plan allows ` +
+                `(${Math.round(preData.conflict.estimatedMinutes / 60 * 10) / 10}h needed vs ` +
+                `${Math.round(preData.conflict.availableMinutes / 60 * 10) / 10}h available). ` +
+                `Pick how to resolve this before I load the Trip Canvas:`,
+              visitDate: preData.visitDate || visitDate,
+              conflict: preData.conflict,
+            })
+          } else {
+            const dropped = preData.unavailableTrips ?? []
+            handleItineraryFailure({
+              message: `Before I load the Trip Canvas — ${dropped.length} of your ${dropped.length === 1 ? "trip isn't" : "trips aren't"} bookable on **${formatYMDPretty(preData.visitDate || visitDate)}**. Want to pick a different date, drop those trips, or carry on with just the bookable ones?`,
+              error: "PREFLIGHT_AVAILABILITY",
+              visitDate: preData.visitDate || visitDate,
+              unavailableTrips: dropped,
+              alternativeDates: preData.alternativeDates ?? [],
+            })
+          }
+          // Record this preflight outcome against the composite key so
+          // the effect doesn't loop preflight-calls on every render but
+          // WILL re-run as soon as prefs/cart change (composite key
+          // shifts).
+          preflightFailedKeyRef.current = preflightKey
+          setItineraryRegenerating(false)
+          // IMPORTANT: do NOT setCenterItinerary, do NOT open canvas.
+          // The visitor's chosen resolution (via the chat buttons) will
+          // mutate prefs/cart and the drift-rebuild path will re-fire.
+          return
+        }
+        /* Preflight passed (READY) — proceed to the real AI build. */
         const r = await fetch("/api/itinerary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trips: tripsForApi, startDate: visitDate, preferences: prefsRef.current }),
+          body: JSON.stringify({ trips: tripsForApi, startDate: visitDate, preferences: prefs }),
         })
         const data = await r.json().catch(() => null) as
           | (Itinerary & { error?: string; message?: string; conflict?: PlanConflictPayload["conflict"]; unavailableTrips?: ItineraryFailurePayload["unavailableTrips"]; alternativeDates?: ItineraryFailurePayload["alternativeDates"]; visitDate?: string })
@@ -1677,6 +1783,12 @@ export default function PlannerPage() {
         setCenterItineraryOpen(true)
         setCartOpen(true)
         setMapExpanded(true)
+        /* Mark this toolCallId as fully built so subsequent renders
+           (e.g. cart adds via the loop above) don't re-trigger the
+           effect for the same plan. Set ONLY on success — failed
+           preflights record on preflightFailedKeyRef instead so a
+           prefs/cart change can retrigger. */
+        lastAutoBuiltToolCallIdRef.current = latest!.toolCallId
         // ─── Reconcile chat ↔ canvas ────────────────────────────────────
         // The AI's sketch (tool-buildItinerary output) often has hallucinated
         // times and may list trips that turned out to be unavailable on the
@@ -1751,7 +1863,10 @@ export default function PlannerPage() {
         setItineraryRegenerating(false)
       }
     })()
-  }, [messages, items, hydrated, handlePlanConflict, handleItineraryFailure])
+    // `prefs` is in deps so that when the visitor resolves a preflight
+    // NEEDS_DECISION outcome by changing duration/date, the composite
+    // preflight key shifts and the effect re-runs.
+  }, [messages, items, hydrated, prefs, handlePlanConflict, handleItineraryFailure])
 
   /* Called by SidebarItinerary after a manual build succeeds. We push a
      synthetic assistant message into the chat so the conversation log

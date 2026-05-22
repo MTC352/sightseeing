@@ -233,14 +233,34 @@ interface IncomingPreferences {
 
 export async function POST(req: Request) {
   try {
-    const { trips: rawTrips, startDate, preferences } = await req.json() as {
+    // eslint-disable-next-line prefer-const
+    let { trips: rawTrips, startDate, preferences, mode } = await req.json() as {
       trips: Array<Partial<TripInput> & { id: string }>
       startDate?: string
       preferences?: IncomingPreferences | null
+      /** "preflight" → run availability + duration-conflict checks and
+       *  return the decision payload WITHOUT calling the AI. The planner
+       *  page calls this first so the chat can ask the user about
+       *  conflicts BEFORE any "Your Day Itinerary" card or canvas load.
+       *  Anything else (undefined included) does the full build. */
+      mode?: "preflight" | "build"
     }
     if (!rawTrips?.length) {
       return Response.json({ error: "No trips provided" }, { status: 400 })
     }
+    // Defensive: meal-break placeholder ids (lunch/dinner/coffee, meal_*,
+    // tcms_lunch, etc.) sometimes leak in from the AI's buildItinerary
+    // step list. They aren't real trips and would otherwise surface in
+    // the "trips without availability" sidebar panel as "tcms_lunch".
+    const isMealBreakId = (id: string) =>
+      id === "lunch" || id === "dinner" || id === "coffee"
+      || id.startsWith("meal_") || id.startsWith("tcms_lunch")
+      || id.startsWith("tcms_dinner") || id.startsWith("tcms_coffee")
+    rawTrips = rawTrips.filter((t) => !isMealBreakId(t.id))
+    if (!rawTrips.length) {
+      return Response.json({ error: "No trips provided" }, { status: 400 })
+    }
+    const isPreflight = mode === "preflight"
     // Hydrate trips: accept either fully-populated {id,title,city,duration,
     // category} (cart path) OR id-only payloads (chat path where the AI's
     // plan references trips that may not be in the visitor's cart yet).
@@ -768,6 +788,7 @@ ${coffeeRule}
       for (let i = bookable.length - 1; i >= 0; i--) {
         if (!keepIds.has(bookable[i].trip.id)) bookable.splice(i, 1)
       }
+      // PREFLIGHT EARLY RETURN — see block below the if-conflict scope.
       tripMenuLines = bookable.map((a, i) => {
         const slotLines = a.slots.map((s) =>
           `      • ${s.startTime}${s.endTime ? ` → ${s.endTime}` : ""}` +
@@ -787,6 +808,30 @@ ${slotLines}`
       tripCities = buildTripCities()
       travelMatrixLines = buildTravelMatrixLines(tripCities)
       cityTravelMatrix = buildCityTravelMatrix(travelMatrixLines)
+    }
+
+    /* ─── PREFLIGHT EARLY RETURN ──────────────────────────────────────
+       The planner page calls this endpoint TWICE for chat-built plans:
+       once with mode:"preflight" to discover availability + duration
+       conflicts, and (only if the preflight is clean) a second time
+       without `mode` for the real AI build. This way the chat can ask
+       the visitor about conflicts BEFORE any "Your Day Itinerary" card
+       appears on the Trip Canvas. Preflight skips the AI call entirely
+       so the round-trip is cheap (just trip hydration + TourCMS
+       availability fetches that the real build would do anyway).      */
+    if (isPreflight) {
+      const status: "READY" | "NEEDS_DECISION" =
+        (conflictPayload || unavailableTrips.length > 0) ? "NEEDS_DECISION" : "READY"
+      return Response.json({
+        kind: "preflight",
+        status,
+        visitDate,
+        scanDays: SCAN_DAYS,
+        conflict: conflictPayload,
+        unavailableTrips,
+        alternativeDates,
+        bookableTripIds: bookable.map((b) => b.trip.id),
+      })
     }
 
     const placeholders: Record<string, string> = {
