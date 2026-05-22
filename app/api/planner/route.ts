@@ -164,26 +164,52 @@ async function loadTripCatalog(): Promise<RichTrip[]> {
 
 const searchTripsTool = tool({
   description:
-    "Search and filter trips from the catalog. ALWAYS call this tool when the user asks for recommendations, wants to explore, or mentions interests. Returns matching trips with full Palisis-sourced details (itinerary, included/excluded, languages, booking constraints, cancellation policy) — use these fields when answering follow-up questions.",
+    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns the matching trips with full Palisis-sourced details — use those fields for follow-up Q&A without re-searching.",
   inputSchema: z.object({
-    query: z.string().describe("Search query or interest keywords"),
+    query: z.string().describe("Search query or interest keywords. Pass an empty string when you are pinning by `ids` and don't need keyword ranking."),
     tags: z
       .array(z.string())
       .optional()
       .describe("Tags to filter: food, outdoor, indoor, culture, sport, night, family, popular, romantic"),
-    maxResults: z.number().optional().describe("Max results. Omit (or pass a large number like 50) to return ALL matching trips — the planner UI scrolls and we want every relevant match shown, not a fixed top-N slice."),
+    ids: z
+      .array(z.string())
+      .optional()
+      .describe("Pin the Trip Canvas to EXACTLY these trip ids (in order). Use this after you've shortlisted the day's best matches so the canvas shows only those trips instead of the broader tag search. The returned `trips` will be filtered AND ordered to match this list."),
+    maxResults: z.number().optional().describe("Optional cap. Omit to return every matching trip — the catalog has ~17 published trips and the panel scrolls."),
   }),
-  execute: async ({ query, tags, maxResults }) => {
+  execute: async ({ query, tags, ids, maxResults }) => {
     const wx = _liveWeather.wx
-    // No artificial cap — the catalog is only ~60 published trips and the
-    // /planner "Recommended for you" panel scrolls. Returning every match
-    // lets the visitor see all trips that genuinely fit their tags.
-    const limit = maxResults ?? 100
-    const lower = query.toLowerCase()
     const catalog = await loadTripCatalog()
+    const catalogSize = catalog.length
+    const limit = maxResults ?? catalogSize
+    const lower = (query ?? "").toLowerCase()
     let results: RichTrip[] = [...catalog]
 
-    if (tags && tags.length > 0) {
+    // Explicit id-pinning takes precedence over keyword/tag search so the
+    // AI can lock the Trip Canvas to its conversational shortlist. We
+    // dedupe while preserving first-seen order, and only treat this as
+    // "pinned" if at least one id actually resolves — otherwise we fall
+    // through to the regular tag/keyword path so a typoed shortlist
+    // can't silently dump the whole catalog back onto the canvas.
+    let hasValidPinnedIds = false
+    if (ids && ids.length > 0) {
+      const byId = new Map(catalog.map((t) => [t.id, t]))
+      const ordered: RichTrip[] = []
+      const seenIds = new Set<string>()
+      for (const id of ids) {
+        if (seenIds.has(id)) continue
+        const hit = byId.get(id)
+        if (hit) {
+          seenIds.add(id)
+          ordered.push(hit)
+        }
+      }
+      if (ordered.length > 0) {
+        results = ordered
+        hasValidPinnedIds = true
+      }
+    }
+    if (!hasValidPinnedIds && tags && tags.length > 0) {
       const tagged = results.filter((t) =>
         tags.some((tag) =>
           t.tags.includes(tag) || (t.tripTags ?? []).includes(tag),
@@ -192,7 +218,7 @@ const searchTripsTool = tool({
       if (tagged.length > 0) results = tagged
     }
 
-    if (lower) {
+    if (lower && !hasValidPinnedIds) {
       const keywords = lower.split(/\s+/).filter(Boolean)
       results.sort((a, b) => {
         const scoreFor = (t: RichTrip) => {
@@ -219,15 +245,19 @@ const searchTripsTool = tool({
       })
     }
 
-    results.sort((a, b) => {
-      let aS = 0, bS = 0
-      const aTags = [...a.tags, ...(a.tripTags ?? [])]
-      const bTags = [...b.tags, ...(b.tripTags ?? [])]
-      if (wx === "rainy") { aS += aTags.includes("indoor") ? 5 : -2; bS += bTags.includes("indoor") ? 5 : -2 }
-      else if (wx === "sunny") { aS += aTags.includes("outdoor") ? 5 : 0; bS += bTags.includes("outdoor") ? 5 : 0 }
-      aS += a.rating >= 4.7 ? 2 : 0; bS += b.rating >= 4.7 ? 2 : 0
-      return bS - aS
-    })
+    // When pinning by ids, preserve the caller's exact order — don't
+    // re-sort by weather/rating, which would scramble the AI's shortlist.
+    if (!hasValidPinnedIds) {
+      results.sort((a, b) => {
+        let aS = 0, bS = 0
+        const aTags = [...a.tags, ...(a.tripTags ?? [])]
+        const bTags = [...b.tags, ...(b.tripTags ?? [])]
+        if (wx === "rainy") { aS += aTags.includes("indoor") ? 5 : -2; bS += bTags.includes("indoor") ? 5 : -2 }
+        else if (wx === "sunny") { aS += aTags.includes("outdoor") ? 5 : 0; bS += bTags.includes("outdoor") ? 5 : 0 }
+        aS += a.rating >= 4.7 ? 2 : 0; bS += b.rating >= 4.7 ? 2 : 0
+        return bS - aS
+      })
+    }
 
     return {
       trips: results.slice(0, limit).map((t) => ({
@@ -257,6 +287,7 @@ const searchTripsTool = tool({
       })),
       weather: wx,
       total: results.length,
+      catalogTotal: catalogSize,
     }
   },
 })
@@ -811,8 +842,24 @@ export async function POST(req: Request) {
       ? "Focus on popular, well-reviewed tourist attractions."
       : "Balance popular attractions with local favorites."
 
+    // Inject the real published-trip count so the model can never invent
+    // numbers like "50+ trips". This is the same catalog `searchTrips`
+    // reads from, so the figure is always in sync.
+    const publishedCatalogSize = (await loadTripCatalog()).length
     const systemPromptParts = [
-      "You are the AI trip planner for sightseeing.lu. Warm, helpful, conversational — and CONCISE.",
+      "You are the AI trip planner for sightseeing.lu. Warm, helpful — and EXTREMELY CONCISE.",
+      "",
+      "★★★ THE ONE RULE THAT OVERRIDES EVERYTHING ELSE ★★★",
+      "Every visible reply you send is ONE short sentence (≤ 25 words). Never two paragraphs, never a list, never a labelled section.",
+      "You are FORBIDDEN from writing any of the following in chat:",
+      "  • Numbered or dashed lists of trips (no \"1. E-Bike Tour — €76\", no \"- Boat Cruise\").",
+      "  • Labelled headers like \"BEST MATCHES:\", \"NOT SUITABLE:\", \"WEATHER FIT:\", \"DAYTIME:\", \"ANYTIME:\", \"NIGHT/EVENING:\", \"FIT FOR SUNDAY:\".",
+      "  • Multiple trip names, prices, durations, or timeslots in the same reply.",
+      "  • Any per-stop schedule, route, or travel-time recap.",
+      "The Trip Canvas (the cards in the centre of the screen) is the ONLY surface where trip details, prices, and times live. Your job is to update it via tool calls and then send a one-sentence pointer.",
+      "If you feel the urge to write a list — STOP and instead call `searchTrips` with `ids: [<your shortlist>]` to pin the canvas, then reply with one short sentence.",
+      "",
+      `CATALOG SIZE: There are exactly ${publishedCatalogSize} published trips on sightseeing.lu right now. Never claim more (no "50+ trips", no "dozens of options") and never claim fewer. If you need to reference the total, say "all ${publishedCatalogSize}" or "our ${publishedCatalogSize} published trips".`,
       "",
       "KNOWLEDGE BASE — what you know about:",
       "• You have read-only access to the FULL published trip catalog (titles, categories, descriptions, prices, durations, ratings, tags, itineraries, languages, included/excluded items, cancellation policies). Query it via the `searchTrips` tool — never invent trips or details.",
@@ -844,15 +891,19 @@ export async function POST(req: Request) {
       `- Max stops per day: ${plannerBehavior?.maxStopsPerDay || 6}`,
       "",
       "RULES:",
-      "1. To recommend trips, ALWAYS call searchTrips tool. The results panel updates automatically -- do NOT list or describe trips in your text.",
+      "1. To recommend trips, ALWAYS call searchTrips tool. The Trip Canvas updates automatically -- do NOT list or describe trips in your text.",
       "2. On the first message, also call showWeatherAlert to proactively inform the user about weather conditions:",
       "   - If rainy: alertType \"rainy\", suggest indoor/culture activities",
       "   - If sunny: alertType \"sunny\", encourage outdoor adventures",
       "   - If cloudy: alertType \"cloudy\", suggest a mix",
       "   Then call searchTrips with tags [" + defaultTags + "] — do NOT pass maxResults so EVERY matching trip is returned. The Trip Canvas panel scrolls.",
       "3. After calling searchTrips, reply with ONE short line (≤ 20 words) referencing the Trip Canvas + one nudge or question. Never recap the list.",
-      "4. NEVER list trip names, prices, descriptions, or travel times in chat. The Trip Canvas (Map + Recommended / Day Itinerary) handles that.",
-      "5. FORMATTING: The ONLY markdown you may use is `**bold**` — wrap every trip name, every concrete date (e.g. **Saturday 25 May**, **Friday 29 May**), every time (e.g. **09:00**), and every price (e.g. **€66**, **€99–109**) in `**…**`. No headings, no bullet points, no numbered lists, no italics, no links.",
+      "4. ABSOLUTE NO-RECAP RULE — VIOLATING THIS IS A CRITICAL BUG: do NOT in any reply enumerate trip names, prices, durations, timeslots, addresses, day-by-day plans, per-stop travel times, or labelled sections like \"BEST MATCHES:\", \"NOT SUITABLE:\", \"WEATHER FIT:\". The Trip Canvas (cards on the left side of the canvas) is the ONLY place trip details belong. Your reply is a single short sentence (≤ 25 words) that points at the canvas — e.g. \"Trip Canvas now has 5 daytime picks for **Sunday 25 May** — want me to add the morning **E-Bike** to your day?\". One bolded name at most, never a list.",
+      "4b. SHORTLISTING — HOW TO NARROW THE CANVAS:",
+      "    - When you've identified the day's best matches (e.g. 4–8 trips that fit the date, weather, party, and prefs), call `searchTrips` AGAIN with `ids: [<your shortlisted trip ids in order>]`. The Trip Canvas will replace the broader list with EXACTLY those trips, in your order. This is how you communicate the shortlist — NOT by typing names in chat.",
+      "    - Never describe the shortlist in prose (\"Best matches: 1. E-Bike Tour…\"). The canvas is the shortlist. Your chat just says e.g. \"Trip Canvas narrowed to 5 picks for **Sunday 25 May** — say the word and I'll build the day.\"",
+      "    - When the user broadens (\"show me more\", \"any others?\"), drop the `ids` and re-search by tags so the full match set returns.",
+      "5. FORMATTING: The ONLY markdown you may use is `**bold**`. Use it sparingly — only for the one or two specific values you reference in your single sentence (a trip name, a date, a time, or a price). DO NOT use bold to enumerate a list. No headings, no bullet points, no numbered lists, no italics, no links.",
       "6. Only call addToCart when user explicitly asks to add, book, or save a specific trip.",
       "7. For weather questions, call showWeather.",
       "8. For follow-up requests that ask for DIFFERENT options or NEW filtering (e.g. \"show me cheaper ones\", \"any outdoor instead\", \"what about tomorrow\"), call searchTrips again with adjusted query/tags. Do NOT re-search for factual questions about trips already shown — answer those from the rich fields in the previous tool output (see rule 9a).",
@@ -976,6 +1027,32 @@ export async function POST(req: Request) {
       messages: await convertToModelMessages(messages),
       tools,
       stopWhen: stepCountIs(5),
+      // Hard kill-switch: if Claude starts emitting labelled-section recaps
+      // (BEST MATCHES:, NOT SUITABLE:, WEATHER FIT:, DAYTIME / SUNDAY-SUITABLE,
+      // ANYTIME:, NIGHT / EVENING:, FIT FOR…) or a numbered enumeration
+      // ("1. <Trip Name>" at line start), we cut the stream right there.
+      // The visible reply then ends before the recap can render. The system
+      // prompt + this safety net together enforce the no-recap rule.
+      // Narrow, high-precision recap markers. We only stop on the exact
+      // labelled-header forms ("BEST MATCHES:", "NOT SUITABLE:", …) — not
+      // bare words like "EVENING" or "ANYTIME" which can appear in
+      // legitimate prose. The numbered "1. " line-starter is the
+      // signature of a trip enumeration.
+      stopSequences: [
+        "\nBEST MATCHES:",
+        "\nNOT SUITABLE:",
+        "\nWEATHER FIT:",
+        "\nDAYTIME:",
+        "\nDAYTIME /",
+        "\nNIGHT:",
+        "\nNIGHT /",
+        "\nEVENING:",
+        "\nANYTIME:",
+        "\nFIT FOR ",
+        "\nNOT FIT FOR",
+        "\n1. ",
+        "\n1) ",
+      ],
     })
 
     return result.toUIMessageStreamResponse()
