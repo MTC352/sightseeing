@@ -1025,9 +1025,9 @@ export default function PlannerPage() {
       const lines: string[] = [msg]
       if (alternativeDates.length > 0) {
         const top = alternativeDates.slice(0, 3)
-          .map((a) => `${formatYMDPretty(a.date)} (${a.tripCount} of your trips open)`)
+          .map((a) => `**${formatYMDPretty(a.date)}** (${a.tripCount} of your trips open)`)
           .join(", ")
-        lines.push(`Best alternative dates: ${top}. Want me to rebuild for one of these?`)
+        lines.push(`**Best alternative dates:** ${top}. Want me to rebuild for one of these?`)
       }
       setMessagesRef.current?.((prev) => ([
         ...prev,
@@ -1036,9 +1036,9 @@ export default function PlannerPage() {
     }
     const pushConflict = (msg: string, conflict: PlanConflictPayload["conflict"]) => {
       const optionLines = conflict.options
-        .map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)
+        .map((o, i) => `${i + 1}. **${o.label}** — ${o.description}`)
         .join("\n")
-      const text = `${msg}\n\nOptions:\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
+      const text = `${msg}\n\n**Options:**\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
       setMessagesRef.current?.((prev) => ([
         ...prev,
         { id: `plan-conflict-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
@@ -1088,9 +1088,9 @@ export default function PlannerPage() {
       const lines: string[] = [msg]
       if (alternativeDates.length > 0) {
         const top = alternativeDates.slice(0, 3)
-          .map((a) => `${formatYMDPretty(a.date)} (${a.tripCount} of your trips open)`)
+          .map((a) => `**${formatYMDPretty(a.date)}** (${a.tripCount} of your trips open)`)
           .join(", ")
-        lines.push(`Best alternative dates: ${top}. Want me to rebuild for one of these?`)
+        lines.push(`**Best alternative dates:** ${top}. Want me to rebuild for one of these?`)
       }
       setMessagesRef.current?.((prev) => ([
         ...prev,
@@ -1099,9 +1099,9 @@ export default function PlannerPage() {
     }
     const pushConflict = (msg: string, conflict: PlanConflictPayload["conflict"]) => {
       const optionLines = conflict.options
-        .map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)
+        .map((o, i) => `${i + 1}. **${o.label}** — ${o.description}`)
         .join("\n")
-      const text = `${msg}\n\nOptions:\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
+      const text = `${msg}\n\n**Options:**\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
       setMessagesRef.current?.((prev) => ([
         ...prev,
         { id: `plan-conflict-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
@@ -1493,9 +1493,9 @@ export default function PlannerPage() {
      useEffect so the effect can reference it without a TDZ error. */
   const handlePlanConflict = useCallback((payload: PlanConflictPayload) => {
     const optionLines = payload.conflict.options
-      .map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)
+      .map((o, i) => `${i + 1}. **${o.label}** — ${o.description}`)
       .join("\n")
-    const text = `${payload.message}\n\nOptions:\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
+    const text = `${payload.message}\n\n**Options:**\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
     setMessages((prev) => ([
       ...prev,
       { id: `plan-conflict-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
@@ -1510,12 +1510,12 @@ export default function PlannerPage() {
     const lines: string[] = [payload.message]
     if (payload.alternativeDates && payload.alternativeDates.length > 0) {
       const top = payload.alternativeDates.slice(0, 3)
-        .map((a) => `${formatYMDPretty(a.date)} (${a.tripCount} of your trips open)`)
+        .map((a) => `**${formatYMDPretty(a.date)}** (${a.tripCount} of your trips open)`)
         .join(", ")
-      lines.push(`Best alternative dates: ${top}. Want me to rebuild for one of these?`)
+      lines.push(`**Best alternative dates:** ${top}. Want me to rebuild for one of these?`)
     } else if (payload.unavailableTrips && payload.unavailableTrips.length > 0) {
-      const names = payload.unavailableTrips.slice(0, 2).map((u) => `"${u.title}"`).join(" and ")
-      lines.push(`Trips without slots on ${formatYMDPretty(payload.visitDate)}: ${names}.`)
+      const names = payload.unavailableTrips.slice(0, 2).map((u) => `**"${u.title}"**`).join(" and ")
+      lines.push(`Trips without slots on **${formatYMDPretty(payload.visitDate)}**: ${names}.`)
     }
     setMessages((prev) => ([
       ...prev,
@@ -1638,12 +1638,12 @@ export default function PlannerPage() {
     const totalRequested = stops + skippedCount
     let text: string
     if (skippedCount > 0) {
-      const names = unavail.slice(0, 2).map((u) => `"${u.title}"`).join(" and ")
+      const names = unavail.slice(0, 2).map((u) => `**"${u.title}"**`).join(" and ")
       const extra = skippedCount > 2 ? ` (+${skippedCount - 2} more)` : ""
-      text = `Itinerary built for ${dateLabel} — ${stops} of ${totalRequested} stops on the Trip Canvas. ` +
+      text = `Itinerary built for **${dateLabel}** — **${stops} of ${totalRequested} stops** on the Trip Canvas. ` +
         `Couldn't fit ${names}${extra} on this date — tap one of the suggested dates in the cart, or ask me to find a day when all your trips are open.`
     } else {
-      text = `Itinerary built for ${dateLabel} — ${stops} stop${stops === 1 ? "" : "s"} now live on the Trip Canvas. Ask me to swap, reorder, or add a break anywhere.`
+      text = `Itinerary built for **${dateLabel}** — **${stops} stop${stops === 1 ? "" : "s"}** now live on the Trip Canvas. Ask me to swap, reorder, or add a break anywhere.`
     }
     setMessages((prev) => ([
       ...prev,
