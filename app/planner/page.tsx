@@ -503,11 +503,20 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
         )}
         {step === 4 && (
           <div className="flex flex-col gap-2">
-            {[
-              { value: todayYMD(),       label: "Today" },
-              { value: tomorrowYMD(),    label: "Tomorrow" },
-              { value: nextWeekendYMD(), label: "This weekend" },
-            ].map((opt) => (
+            {/* De-dupe by value so calendar collisions (e.g. tomorrow IS
+                the weekend, or today IS the weekend) don't render two
+                buttons with the same key. First occurrence wins so the
+                more specific label ("Today"/"Tomorrow") is preferred
+                over the generic "This weekend". */}
+            {(() => {
+              const raw = [
+                { value: todayYMD(),       label: "Today" },
+                { value: tomorrowYMD(),    label: "Tomorrow" },
+                { value: nextWeekendYMD(), label: "This weekend" },
+              ]
+              const seen = new Set<string>()
+              return raw.filter((o) => (seen.has(o.value) ? false : (seen.add(o.value), true)))
+            })().map((opt) => (
               <button key={opt.value} type="button" onClick={() => selectStartDate(opt.value)}
                 className={`flex items-center gap-3 rounded-xl border-2 px-4 py-3.5 text-sm font-medium transition-all ${prefs.startDate === opt.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-foreground hover:border-primary/30"}`}>
                 <Calendar className="h-5 w-5 shrink-0" />
