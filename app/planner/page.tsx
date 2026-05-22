@@ -997,43 +997,159 @@ export default function PlannerPage() {
 
   const handleTripSelect = useCallback((trip: Trip) => setSelectedTrip(trip), [])
 
-  /* Hydrate prefs from cookie (with localStorage fallback) */
+  /* Hydrate prefs with a layered fallback:
+   *   1. prefs cookie
+   *   2. localStorage mirror (handled inside getCookie)
+   *   3. persisted chat history — scan the most recent `updatePreferences`
+   *      tool call for the actual saved values (chat persists even in
+   *      cookie-hostile environments)
+   *   4. persisted itinerary — if a built itinerary exists we know the user
+   *      already finished onboarding, so synthesize sensible defaults from
+   *      `EMPTY_PREFS` rather than re-prompting them
+   * Without this layering, visitors in iframe/strict-cookie contexts were
+   * bounced through onboarding on every refresh even though their chat,
+   * cart, and itinerary were all still on disk. */
   useEffect(() => {
-    const saved = getCookie(PREFS_COOKIE)
-    if (saved) {
+    function buildPrefs(parsed: Partial<Preferences>): Preferences | null {
+      if (!parsed.group || !parsed.interests?.length || !parsed.duration || !parsed.budget) return null
+      const today = todayYMD()
+      const startDate = parsed.startDate && parsed.startDate >= today ? parsed.startDate : today
+      const party = defaultPartyFor(parsed.group)
+      return {
+        group: parsed.group,
+        interests: parsed.interests,
+        duration: parsed.duration,
+        budget: parsed.budget,
+        startDate,
+        adults: typeof parsed.adults === "number" && parsed.adults >= 1 ? parsed.adults : party.adults,
+        children: typeof parsed.children === "number" && parsed.children >= 0 ? parsed.children : party.children,
+        dayCount: typeof parsed.dayCount === "number" && parsed.dayCount >= 1
+          ? parsed.dayCount
+          : (parsed.duration === "multi-day" ? 2 : 1),
+      }
+    }
+
+    /** Walk persisted UI messages newest→oldest and MERGE every
+     *  `updatePreferences` tool input — the AI is instructed to send
+     *  only the fields that actually changed, so any single tool call
+     *  typically holds a partial patch. We accumulate patches until
+     *  the required core fields are all present (or we run out of
+     *  history). Returns null when nothing usable was found. */
+    function extractPrefsFromChat(): { merged: Partial<Preferences> | null; sawTool: boolean } {
+      const acc: Partial<Preferences> = {}
+      let sawTool = false
       try {
-        const parsed = JSON.parse(saved) as Partial<Preferences>
-        // Only the four core fields are mandatory. If startDate is missing
-        // OR has slipped into the past (the user came back a few days
-        // later), we snap it forward to today rather than discarding the
-        // entire preference set — otherwise visitors would be forced back
-        // through onboarding every time the calendar rolls over.
-        if (parsed.group && parsed.interests?.length && parsed.duration && parsed.budget) {
-          const today = todayYMD()
-          const startDate = parsed.startDate && parsed.startDate >= today
-            ? parsed.startDate
-            : today
-          // Backfill adults/children for cookies written before this field existed.
-          const party = defaultPartyFor(parsed.group)
-          setPrefs({
-            group: parsed.group,
-            interests: parsed.interests,
-            duration: parsed.duration,
-            budget: parsed.budget,
-            startDate,
-            adults: typeof parsed.adults === "number" && parsed.adults >= 1 ? parsed.adults : party.adults,
-            children: typeof parsed.children === "number" && parsed.children >= 0 ? parsed.children : party.children,
-            // Backfill dayCount for legacy cookies. If duration is multi-day
-            // and no count was stored, default to 2.
-            dayCount: typeof parsed.dayCount === "number" && parsed.dayCount >= 1
-              ? parsed.dayCount
-              : (parsed.duration === "multi-day" ? 2 : 1),
-          })
+        const raw = window.localStorage.getItem("sightseeing_chat_v1")
+        if (!raw) return { merged: null, sawTool: false }
+        const msgs = JSON.parse(raw) as Array<{ parts?: Array<Record<string, unknown>> }>
+        if (!Array.isArray(msgs)) return { merged: null, sawTool: false }
+        const isComplete = (a: Partial<Preferences>) =>
+          !!(a.group && a.interests?.length && a.duration && a.budget)
+        outer:
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const parts = msgs[i]?.parts
+          if (!Array.isArray(parts)) continue
+          for (let j = parts.length - 1; j >= 0; j--) {
+            const p = parts[j] ?? {}
+            const t = String(p.type ?? "")
+            const toolName = (p as { toolName?: string }).toolName
+            const isPrefsTool =
+              t === "tool-updatePreferences" ||
+              (t === "tool-call" && toolName === "updatePreferences") ||
+              (t === "tool" && toolName === "updatePreferences")
+            if (!isPrefsTool) continue
+            sawTool = true
+            // `input` may be an object (AI SDK v5) or a JSON string (legacy
+            // tool-call shapes). Be defensive on both.
+            let raw: unknown = p.input ?? (p as { args?: unknown }).args
+            if (typeof raw === "string") {
+              try { raw = JSON.parse(raw) } catch { raw = null }
+            }
+            if (!raw || typeof raw !== "object") continue
+            const patch = raw as Partial<Preferences>
+            // Newest-wins merge: only fill fields we haven't already taken
+            // from a more-recent patch.
+            if (patch.group && !acc.group) acc.group = patch.group
+            if (patch.interests?.length && !acc.interests?.length) acc.interests = patch.interests
+            if (patch.duration && !acc.duration) acc.duration = patch.duration
+            if (patch.budget && !acc.budget) acc.budget = patch.budget
+            if (patch.startDate && !acc.startDate) acc.startDate = patch.startDate
+            if (typeof patch.adults === "number" && acc.adults == null) acc.adults = patch.adults
+            if (typeof patch.children === "number" && acc.children == null) acc.children = patch.children
+            if (typeof patch.dayCount === "number" && acc.dayCount == null) acc.dayCount = patch.dayCount
+            if (isComplete(acc)) break outer
+          }
         }
       } catch { /* ignore */ }
+      return { merged: Object.keys(acc).length ? acc : null, sawTool }
+    }
+
+    /** Strong proof that the visitor finished onboarding in a previous
+     *  session — used as the gate for synthesising default prefs when
+     *  every persistence layer is empty. We require either:
+     *    - a built itinerary persisted (signed off on full onboarding), OR
+     *    - at least one `updatePreferences` tool call was recorded
+     *  Mere chat length is NOT sufficient (architect feedback: a stray
+     *  prior conversation should not bypass onboarding). */
+    function hasStrongPriorActivity(sawPrefsTool: boolean): boolean {
+      if (sawPrefsTool) return true
+      try {
+        const itin = window.localStorage.getItem("sightseeing_itinerary_v2")
+        if (itin) {
+          const parsed = JSON.parse(itin) as { steps?: unknown[] }
+          if (Array.isArray(parsed?.steps) && parsed.steps.length > 0) return true
+        }
+      } catch { /* ignore */ }
+      return false
+    }
+
+    // 1+2: cookie / localStorage mirror
+    let restored: Preferences | null = null
+    const saved = getCookie(PREFS_COOKIE)
+    if (saved) {
+      try { restored = buildPrefs(JSON.parse(saved) as Partial<Preferences>) } catch { /* ignore */ }
+    }
+
+    // 3: recover from chat history by merging every updatePreferences
+    //     patch newest→oldest until we have a complete set.
+    const { merged, sawTool } = extractPrefsFromChat()
+    if (!restored && merged) {
+      restored = buildPrefs(merged)
+    }
+
+    // 4: last-ditch — we have STRONG proof the user was onboarded before
+    //    (a persisted itinerary, or a recorded prefs tool call), but no
+    //    persistence layer holds a complete preference set. Fall back to
+    //    sensible defaults so we don't re-prompt and lose their context.
+    if (!restored && hasStrongPriorActivity(sawTool)) {
+      restored = buildPrefs({
+        group: "friends",
+        interests: ["culture", "food"],
+        duration: "full-day",
+        budget: "mid-range",
+        startDate: todayYMD(),
+      })
+    }
+
+    if (restored) {
+      setPrefs(restored)
+      // Re-mirror to BOTH layers so subsequent refreshes don't need the
+      // fallback path at all.
+      try { setCookie(PREFS_COOKIE, JSON.stringify(restored)) } catch { /* ignore */ }
     }
     setHydrated(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /* Defense-in-depth: any time `prefs` changes (onboarding completion,
+   *  AI tool update, party-size tweak, etc.) mirror to BOTH the cookie
+   *  and the localStorage backup. This guarantees the persistence layer
+   *  stays current even if some future code path forgets to call
+   *  `setCookie()` after mutating `prefs`. */
+  useEffect(() => {
+    if (!hydrated || !prefs) return
+    try { setCookie(PREFS_COOKIE, JSON.stringify(prefs)) } catch { /* ignore */ }
+  }, [hydrated, prefs])
 
   /* AI Chat */
   const cartSummary = useMemo(() => items.map(i => ({ id: i.trip.id, title: i.trip.title })), [items])
