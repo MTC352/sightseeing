@@ -497,7 +497,7 @@ export async function POST(req: Request) {
     // values. We also expose the short description + tags so the AI can
     // detect time-of-day suitability (nightlife, sunrise, indoor wet-
     // weather, kids-friendly, etc.) and proximity hints.
-    const tripMenuLines = bookable.map((a, i) => {
+    let tripMenuLines = bookable.map((a, i) => {
       const slotLines = a.slots.map((s) =>
         `      • ${s.startTime}${s.endTime ? ` → ${s.endTime}` : ""}` +
         `${s.totalPriceDisplay ? `  ${s.totalPriceDisplay}` : ""}` +
@@ -535,20 +535,31 @@ ${slotLines}`
       larochette: { larochette: 10, "luxembourg city": 25 },
     }
     const normCity = (c?: string): string => (c || "luxembourg city").toLowerCase().replace(/\s+/g, " ").replace(/[^a-z\s-]/g, "").trim() || "luxembourg city"
-    const tripCities = Array.from(new Set(bookable.map((b) => normCity(b.trip.city))))
-    const travelMatrixLines: string[] = []
-    for (const a of tripCities) {
-      for (const b of tripCities) {
-        if (a >= b) continue // upper triangle only
-        const mins = CITY_TRAVEL_MIN[a]?.[b] ?? CITY_TRAVEL_MIN[b]?.[a]
-        if (typeof mins === "number") {
-          travelMatrixLines.push(`  • ${a} ↔ ${b}: ~${mins} min by ${travelMethodLabel}`)
+    // Both `tripCities` and the prompt-facing travel/menu blocks are
+    // rebuilt from `bookable` AFTER any plan-conflict trim below, so the
+    // AI never sees trips that were dropped to fit the visitor's duration
+    // (architect feedback: prompt + reconciliation must operate on the
+    // same trip set).
+    const buildTripCities = () => Array.from(new Set(bookable.map((b) => normCity(b.trip.city))))
+    const buildTravelMatrixLines = (cities: string[]) => {
+      const lines: string[] = []
+      for (const a of cities) {
+        for (const b of cities) {
+          if (a >= b) continue
+          const mins = CITY_TRAVEL_MIN[a]?.[b] ?? CITY_TRAVEL_MIN[b]?.[a]
+          if (typeof mins === "number") {
+            lines.push(`  • ${a} ↔ ${b}: ~${mins} min by ${travelMethodLabel}`)
+          }
         }
       }
+      return lines
     }
-    const cityTravelMatrix = travelMatrixLines.length
-      ? `INTER-CITY TRAVEL TIMES (use these to compute realistic gaps between stops):\n${travelMatrixLines.join("\n")}\n  • Same city / same neighbourhood: ~10–15 min on foot or public transport`
+    const buildCityTravelMatrix = (lines: string[]) => lines.length
+      ? `INTER-CITY TRAVEL TIMES (use these to compute realistic gaps between stops):\n${lines.join("\n")}\n  • Same city / same neighbourhood: ~10–15 min on foot or public transport`
       : `All cart trips are in the same city — keep travel between stops to ~10–15 min on foot or public transport.`
+    let tripCities = buildTripCities()
+    let travelMatrixLines = buildTravelMatrixLines(tripCities)
+    let cityTravelMatrix = buildCityTravelMatrix(travelMatrixLines)
 
     const unavailableLines = unavailableTrips.length
       ? `\n\nTRIPS WITHOUT AVAILABILITY ON ${visitDate} (DO NOT include in the itinerary):\n` +
@@ -638,58 +649,144 @@ ${coffeeRule}
     const overshootRatio = estimatedTotalMinutes / Math.max(1, availableMinutes)
     const hasPlanConflict = !isMultiDay && bookable.length >= 2 && overshootRatio > 1.15
 
+    /* When the visitor's saved trips overshoot their chosen duration, we
+       used to refuse with 422 and leave the Trip Canvas empty. The
+       visitor was then stuck staring at an empty plan with no clue what
+       to change. New behaviour: we still surface the "change duration /
+       go multi-day / drop trips" suggestion in chat (via `conflict` on
+       the success response), but we ALSO build a best-fit subset that
+       respects the visitor's CURRENT preferences so the Trip Canvas
+       has something real to render. The subset is greedy-shortest-first
+       so we keep as many trips as possible within the time window.   */
+    let conflictPayload: {
+      reason: string
+      tripCount: number
+      estimatedMinutes: number
+      availableMinutes: number
+      currentDuration: string
+      droppedForFit: Array<{ tripId: string; title: string; reason: string }>
+      options: Array<{
+        id: string
+        label: string
+        description: string
+        action: "updateDuration" | "promptDrop"
+        duration?: string
+        dayCount?: number
+        candidateTripIds?: string[]
+      }>
+    } | null = null
+
     if (hasPlanConflict) {
       const overshootMin = Math.max(15, estimatedTotalMinutes - availableMinutes)
       const minDayCount = Math.max(2, Math.ceil(estimatedTotalMinutes / Math.max(1, dayWindowMinutes)))
-      const tripsSortedShortest = bookable
+      const tripsSortedLongest = bookable
         .map((b) => ({
           id: b.trip.id,
           title: b.trip.title,
           minutes: parseDurationMinutes(b.trip.duration, defaultActivityDuration),
         }))
         .sort((a, b) => b.minutes - a.minutes)
-      // The 1–2 longest trips are the most likely "drop these to fit" suggestions.
-      const dropCandidates = tripsSortedShortest.slice(0, Math.min(2, bookable.length - 1))
+      const dropCandidates = tripsSortedLongest.slice(0, Math.min(2, bookable.length - 1))
 
-      return Response.json({
-        error: "PLAN_CONFLICT",
-        message:
-          `You've saved ${bookable.length} trips — roughly ${Math.round(estimatedTotalMinutes / 60 * 10) / 10}h of activity ` +
-          `with travel, buffers and meal breaks. That's about ${Math.round(overshootMin / 60 * 10) / 10}h more than a ` +
-          `${prefs.duration || "single-day"} plan can hold. Pick one of the options below and I'll rebuild for you.`,
-        visitDate,
-        conflict: {
-          reason: "TOO_MANY_TRIPS_FOR_DURATION",
-          tripCount: bookable.length,
-          estimatedMinutes: estimatedTotalMinutes,
-          availableMinutes,
-          currentDuration: prefs.duration || "full-day",
-          options: [
-            ...(prefs.duration !== "full-day" ? [{
-              id: "switch-fullday",
-              label: "Make it a full-day trip",
-              description: `Use the full ${dayStartTime}–${dayEndTime} window so all ${bookable.length} trips can fit.`,
-              action: "updateDuration" as const,
-              duration: "full-day",
-            }] : []),
-            {
-              id: "switch-multiday",
-              label: `Spread across ${minDayCount} days`,
-              description: `Plan ${bookable.length} trips over ${minDayCount} consecutive days starting ${visitDate}.`,
-              action: "updateDuration" as const,
-              duration: "multi-day",
-              dayCount: minDayCount,
-            },
-            {
-              id: "drop-trips",
-              label: "Drop the longest trips",
-              description: `Remove ${dropCandidates.map((d) => `"${d.title}"`).join(" and ")} from your cart to fit the ${prefs.duration || "single-day"} window.`,
-              action: "promptDrop" as const,
-              candidateTripIds: dropCandidates.map((d) => d.id),
-            },
-          ],
-        },
-      }, { status: 422 })
+      // Greedy-shortest-first fit with INCREMENTAL overhead. The earlier
+      // version pre-subtracted overhead computed from the FULL cart, which
+      // was overly pessimistic — adding fewer trips means fewer buffers,
+      // fewer city hops, and (usually) one meal break instead of N. Here
+      // we charge overhead per additional kept trip so the budget reflects
+      // the actual subset being built.
+      const tripsByShortest = [...tripsSortedLongest].sort((a, b) => a.minutes - b.minutes)
+      const oneMealMinutes = (autoInsertMealBreaks || userMealBreaks.size > 0)
+        ? (userMealBreaks.size > 0
+            ? Math.max(...Array.from(userMealBreaks.values()).map((m) => m.durationMinutes))
+            : mealBreakDuration)
+        : 0
+      // Per-extra-trip overhead = one buffer + average inter-city hop.
+      // We use 15 min as the same-city baseline the matrix block falls
+      // back to, matching what the AI prompt is told to assume.
+      const perExtraTripOverhead = bufferTimeBetweenStops + 15
+      const keepIds = new Set<string>()
+      let consumed = oneMealMinutes // meal break charged once if used at all
+      for (const t of tripsByShortest) {
+        const incremental = t.minutes + (keepIds.size > 0 ? perExtraTripOverhead : 0)
+        if (consumed + incremental <= availableMinutes) {
+          keepIds.add(t.id)
+          consumed += incremental
+        }
+      }
+      // Always keep at least one trip so the canvas has something to show.
+      if (keepIds.size === 0 && tripsByShortest.length > 0) {
+        keepIds.add(tripsByShortest[0].id)
+      }
+
+      const droppedForFit = bookable
+        .filter((b) => !keepIds.has(b.trip.id))
+        .map((b) => ({
+          tripId: b.trip.id,
+          title: b.trip.title,
+          reason: `Would not fit your ${prefs.duration || "single-day"} window — change duration or visit date to include it.`,
+        }))
+
+      conflictPayload = {
+        reason: "TOO_MANY_TRIPS_FOR_DURATION",
+        tripCount: bookable.length,
+        estimatedMinutes: estimatedTotalMinutes,
+        availableMinutes,
+        currentDuration: prefs.duration || "full-day",
+        droppedForFit,
+        options: [
+          ...(prefs.duration !== "full-day" ? [{
+            id: "switch-fullday",
+            label: "Make it a full-day trip",
+            description: `Use the full ${dayStartTime}–${dayEndTime} window so all ${bookable.length} trips can fit.`,
+            action: "updateDuration" as const,
+            duration: "full-day",
+          }] : []),
+          {
+            id: "switch-multiday",
+            label: `Spread across ${minDayCount} days`,
+            description: `Plan ${bookable.length} trips over ${minDayCount} consecutive days starting ${visitDate}.`,
+            action: "updateDuration" as const,
+            duration: "multi-day",
+            dayCount: minDayCount,
+          },
+          {
+            id: "drop-trips",
+            label: "Drop the longest trips",
+            description: `Remove ${dropCandidates.map((d) => `"${d.title}"`).join(" and ")} from your cart to fit the ${prefs.duration || "single-day"} window.`,
+            action: "promptDrop" as const,
+            candidateTripIds: dropCandidates.map((d) => d.id),
+          },
+        ],
+      }
+
+      // Trim `bookable` to the fitting subset for the rest of the
+      // pipeline AND rebuild every prompt-facing block derived from it,
+      // so the AI prompt and the server-side reconciliation operate on
+      // the SAME trip set (architect feedback). Overshoot estimate is
+      // unused beyond this point.
+      void overshootMin
+      for (let i = bookable.length - 1; i >= 0; i--) {
+        if (!keepIds.has(bookable[i].trip.id)) bookable.splice(i, 1)
+      }
+      tripMenuLines = bookable.map((a, i) => {
+        const slotLines = a.slots.map((s) =>
+          `      • ${s.startTime}${s.endTime ? ` → ${s.endTime}` : ""}` +
+          `${s.totalPriceDisplay ? `  ${s.totalPriceDisplay}` : ""}` +
+          `${s.spacesRemaining ? `  (${s.spacesRemaining} spaces)` : ""}`,
+        ).join("\n")
+        const dur = parseDurationMinutes(a.trip.duration, defaultActivityDuration)
+        const enrich = enrichmentById.get(a.trip.id)
+        const blurb = (enrich?.shortDescription ?? enrich?.description ?? "")
+          .replace(/\s+/g, " ").trim().slice(0, 240)
+        const tagLine = enrich?.tags?.length ? `   Tags: ${enrich.tags.slice(0, 8).join(", ")}\n` : ""
+        const blurbLine = blurb ? `   What it is: ${blurb}${blurb.length === 240 ? "…" : ""}\n` : ""
+        return `${i + 1}. "${a.trip.title}" [${a.trip.id}] — ${a.trip.city || "Luxembourg"} — duration ${dur} min — category ${a.trip.category || "n/a"}
+${blurbLine}${tagLine}    Available timeslots on ${visitDate}:
+${slotLines}`
+      }).join("\n\n")
+      tripCities = buildTripCities()
+      travelMatrixLines = buildTravelMatrixLines(tripCities)
+      cityTravelMatrix = buildCityTravelMatrix(travelMatrixLines)
     }
 
     const placeholders: Record<string, string> = {
@@ -1189,17 +1286,32 @@ ${tipsInstructions}`
         ? output.hotelSuggestion
         : { ...output.hotelSuggestion, recommended: false }
 
+      // Roll the "dropped to fit the visitor's chosen duration" trips
+      // into unavailableTrips so the existing partial-success chat path
+      // names them. They aren't unavailable per se (Palisis had slots) —
+      // the visitor's prefs simply couldn't fit them. The conflict
+      // payload below carries the structured prefs-change options.
+      const combinedUnavailable = [
+        ...unavailableTrips,
+        ...(conflictPayload?.droppedForFit.map((d) => ({
+          tripId: d.tripId,
+          title: d.title,
+          reason: "DOES_NOT_FIT_DURATION",
+          suggestedDates: [] as string[],
+        })) ?? []),
+      ]
       return Response.json({
         ...output,
         carSuggestion,
         hotelSuggestion,
         steps: reconciledSteps,
         visitDate,
-        unavailableTrips,
+        unavailableTrips: combinedUnavailable,
         alternativeDates,
         scanDays: SCAN_DAYS,
         widgets: { showCarWidget, showHotelWidget },
         autoFilledTrips: droppedByAi,
+        conflict: conflictPayload,
       })
     } catch (aiErr) {
       console.error("[itinerary] AI generation failed:", aiErr)

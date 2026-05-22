@@ -1078,6 +1078,44 @@ export default function PlannerPage() {
       }
       setCenterItinerary(data)
       handleOpenItinerary(data)
+      // Partial-success honesty: same surfacing as the auto-build effect.
+      // Conflicts (saved trips overshoot the visitor's duration) now come
+      // back on the success response — surface the prefs-change options
+      // in chat so the visitor knows why the canvas has fewer stops than
+      // their cart.
+      const viewConflict = (data as { conflict?: PlanConflictPayload["conflict"] | null }).conflict
+      if (viewConflict) {
+        handlePlanConflict({
+          message:
+            `Your saved trips need more time than your **${viewConflict.currentDuration}** plan allows ` +
+            `(${Math.round(viewConflict.estimatedMinutes / 60 * 10) / 10}h needed vs ` +
+            `${Math.round(viewConflict.availableMinutes / 60 * 10) / 10}h available). ` +
+            `Trip Canvas is showing the **${data.steps.length} stop${data.steps.length === 1 ? "" : "s"}** that fit your current preferences — change duration, pick a different date, or drop a trip to include the rest.`,
+          visitDate: (data as { visitDate?: string }).visitDate || visitDate,
+          conflict: viewConflict,
+        })
+        return
+      }
+      const droppedView = Array.isArray((data as { unavailableTrips?: unknown }).unavailableTrips)
+        ? ((data as { unavailableTrips: ItineraryFailurePayload["unavailableTrips"] }).unavailableTrips)
+        : []
+      if (droppedView.length > 0) {
+        const dateLbl = formatYMDPretty((data as { visitDate?: string }).visitDate || visitDate)
+        const names = droppedView.slice(0, 2).map((u) => `**"${u.title}"**`).join(" and ")
+        const extra = droppedView.length > 2 ? ` (+${droppedView.length - 2} more)` : ""
+        const lines = [
+          `Heads up — ${droppedView.length} of your requested trip${droppedView.length === 1 ? "" : "s"} ${droppedView.length === 1 ? "isn't" : "aren't"} available on **${dateLbl}** (${names}${extra}), so the Trip Canvas shows ${data.steps.length} stop${data.steps.length === 1 ? "" : "s"} instead.`,
+        ]
+        const alts = (data as { alternativeDates?: AlternativeDate[] }).alternativeDates || []
+        if (alts.length > 0) {
+          const top = alts.slice(0, 3).map((a) => `**${formatYMDPretty(a.date)}** (${a.tripCount} of your trips open)`).join(", ")
+          lines.push(`**Best alternative dates:** ${top}. Want me to rebuild for one of these?`)
+        }
+        setMessagesRef.current?.((prev) => ([
+          ...prev,
+          { id: `itinerary-partial-${Date.now()}`, role: "assistant", parts: [{ type: "text", text: lines.join("\n\n") }] } as PlannerMessage,
+        ]))
+      }
     } catch {
       pushFailure("Network hiccup while opening your itinerary — please try again in a moment.")
     } finally {
@@ -1146,6 +1184,18 @@ export default function PlannerPage() {
         return
       }
       setCenterItinerary(data)
+      // Conflict-on-success: surface prefs-change options if the cart
+      // overshot the duration window (canvas already shows best-fit subset).
+      const regenConflict = (data as { conflict?: PlanConflictPayload["conflict"] | null }).conflict
+      if (regenConflict) {
+        pushConflict(
+          `Your saved trips need more time than your **${regenConflict.currentDuration}** plan allows ` +
+          `(${Math.round(regenConflict.estimatedMinutes / 60 * 10) / 10}h needed vs ` +
+          `${Math.round(regenConflict.availableMinutes / 60 * 10) / 10}h available). ` +
+          `Trip Canvas is showing the **${data.steps.length} stop${data.steps.length === 1 ? "" : "s"}** that fit your current preferences — change duration, pick a different date, or drop a trip to include the rest.`,
+          regenConflict,
+        )
+      }
     } catch {
       pushFailure("Network hiccup while rebuilding your itinerary — please try again in a moment.")
     } finally {
@@ -1609,10 +1659,86 @@ export default function PlannerPage() {
           return
         }
         if (!data?.steps?.length) return
+        // ─── Auto-add chat-built trips to the cart ───────────────────────
+        // The drift guard (~line 942) nukes centerItinerary the instant a
+        // step's trip isn't in the cart. For chat-built itineraries the
+        // visitor typically hasn't manually added these trips, so without
+        // this step the canvas panel would flash open and immediately
+        // close itself. Adding them also makes the linkage explicit:
+        // chat-planned trips show up in My Trip just like cart-built ones,
+        // and removing them from the cart cleanly clears the itinerary.
+        const cartIds = new Set(items.map((i) => i.trip.id))
+        for (const step of data.steps) {
+          if (!step.tripId || cartIds.has(step.tripId)) continue
+          const trip = allTripsRef.current.find((t) => t.id === step.tripId)
+          if (trip) addItem(trip)
+        }
         setCenterItinerary(data)
         setCenterItineraryOpen(true)
         setCartOpen(true)
         setMapExpanded(true)
+        // ─── Reconcile chat ↔ canvas ────────────────────────────────────
+        // The AI's sketch (tool-buildItinerary output) often has hallucinated
+        // times and may list trips that turned out to be unavailable on the
+        // chosen date. Now that we have the LIVE /api/itinerary result,
+        // overwrite that exact tool output so the chat card reflects the same
+        // steps, real timeslots, real visit date, and real summary that the
+        // Trip Canvas shows. This prevents the bug where chat says "Sunday,
+        // 3 stops" while the canvas shows "Thu 28 May, 1 stop".
+        const liveSteps = data.steps.map((s) => ({
+          time: s.time,
+          tripTitle: s.tripTitle ?? "",
+          tripId: s.tripId,
+          durationMinutes: s.durationMinutes,
+          travelToNext: s.travelToNext ?? undefined,
+        }))
+        const liveOutput = {
+          steps: liveSteps,
+          summary: data.summary || "Day plan loaded on the Trip Canvas.",
+          visitDate: data.visitDate || visitDate,
+        }
+        setMessages((prev) => prev.map((m) => ({
+          ...m,
+          parts: m.parts.map((part) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const p = part as any
+            if (p?.type === "tool-buildItinerary" && p?.toolCallId === latest!.toolCallId) {
+              return { ...p, output: liveOutput }
+            }
+            return part
+          }),
+        })))
+        // ─── Partial-success honesty ────────────────────────────────────
+        // Two sources of "fewer stops on canvas than the chat asked for":
+        //   (a) Palisis had no timeslot for the trip on the chosen date
+        //   (b) Visitor's saved duration prefs couldn't fit every trip
+        // The /api/itinerary route now folds both into `unavailableTrips`
+        // (reason: "NO_SLOTS"/"NO_PALISIS_LINK" vs "DOES_NOT_FIT_DURATION")
+        // and carries a structured `conflict` payload with concrete prefs
+        // change suggestions. We branch the chat message so duration
+        // conflicts explicitly call out "change duration or date" instead
+        // of the generic "no availability" line.
+        const dropped = Array.isArray(data.unavailableTrips) ? data.unavailableTrips : []
+        const conflict = (data as { conflict?: PlanConflictPayload["conflict"] | null }).conflict
+        if (conflict) {
+          handlePlanConflict({
+            message:
+              `Your saved trips need more time than your **${conflict.currentDuration}** plan allows ` +
+              `(${Math.round(conflict.estimatedMinutes / 60 * 10) / 10}h needed vs ` +
+              `${Math.round(conflict.availableMinutes / 60 * 10) / 10}h available). ` +
+              `Trip Canvas is showing the **${data.steps.length} stop${data.steps.length === 1 ? "" : "s"}** that fit your current preferences — change duration, pick a different date, or drop a trip to include the rest.`,
+            visitDate: data.visitDate || visitDate,
+            conflict,
+          })
+        } else if (dropped.length > 0) {
+          handleItineraryFailure({
+            message: `Heads up — ${dropped.length} of your requested trip${dropped.length === 1 ? "" : "s"} ${dropped.length === 1 ? "isn't" : "aren't"} available on **${formatYMDPretty(data.visitDate || visitDate)}**, so the Trip Canvas shows ${data.steps.length} stop${data.steps.length === 1 ? "" : "s"} instead.`,
+            error: "PARTIAL_AVAILABILITY",
+            visitDate: data.visitDate || visitDate,
+            unavailableTrips: dropped,
+            alternativeDates: Array.isArray(data.alternativeDates) ? data.alternativeDates : [],
+          })
+        }
       } catch {
         handleItineraryFailure({
           message: "Network hiccup while building your itinerary — please try again in a moment.",
@@ -1642,12 +1768,24 @@ export default function PlannerPage() {
     const unavail = built.unavailableTrips ?? []
     const skippedCount = unavail.length
     const totalRequested = stops + skippedCount
+    // Distinguish "dropped because no Palisis slot on this date" vs
+    // "dropped because the visitor's duration pref couldn't fit it". The
+    // dedicated conflict chat message already explains the duration case
+    // with concrete options, so the itinerary-built summary stays neutral
+    // when EVERY dropped trip is a duration-conflict drop (avoids the
+    // contradictory "try another day" wording the architect flagged).
+    const durationDrops = unavail.filter((u) => u.reason === "DOES_NOT_FIT_DURATION").length
+    const availabilityDrops = skippedCount - durationDrops
     let summary: string
-    if (skippedCount > 0) {
-      const names = unavail.slice(0, 2).map((u) => `"${u.title}"`).join(" and ")
-      const extra = skippedCount > 2 ? ` (+${skippedCount - 2} more)` : ""
+    if (availabilityDrops > 0) {
+      const availUnavail = unavail.filter((u) => u.reason !== "DOES_NOT_FIT_DURATION")
+      const names = availUnavail.slice(0, 2).map((u) => `"${u.title}"`).join(" and ")
+      const extra = availUnavail.length > 2 ? ` (+${availUnavail.length - 2} more)` : ""
       summary = `Itinerary built for ${dateLabel} — ${stops} of ${totalRequested} stops on the Trip Canvas. ` +
         `Couldn't fit ${names}${extra} on this date — try another day to fit them all.`
+    } else if (durationDrops > 0) {
+      summary = `Itinerary built for ${dateLabel} — ${stops} of ${totalRequested} stops on the Trip Canvas. ` +
+        `See the message above for how to fit the rest.`
     } else {
       summary = `Active day for ${dateLabel} with ${stops} stop${stops === 1 ? "" : "s"}. Ask me to swap, reorder, or add a break anywhere.`
     }
@@ -2166,7 +2304,7 @@ export default function PlannerPage() {
                         }
                         case "tool-buildItinerary": {
                           if (part.state === "output-available") {
-                            const itinerary = part.output as { steps: { time: string; tripTitle: string; tripId: string; durationMinutes: number; travelToNext?: string }[]; summary: string }
+                            const itinerary = part.output as { steps: { time: string; tripTitle: string; tripId: string; durationMinutes: number; travelToNext?: string }[]; summary: string; visitDate?: string }
                             // Trip ids from this AI plan — drives the View
                             // Itinerary button: if a real itinerary is
                             // already loaded for the same set of trips,
@@ -2179,6 +2317,11 @@ export default function PlannerPage() {
                                 <div className="flex items-center gap-2 bg-primary/5 px-3 py-2">
                                   <Route className="h-3.5 w-3.5 text-primary" />
                                   <span className="text-xs font-bold text-foreground">Your Day Itinerary</span>
+                                  {itinerary.visitDate && (
+                                    <span className="text-[10px] font-semibold text-muted-foreground">
+                                      · {formatYMDPretty(itinerary.visitDate)}
+                                    </span>
+                                  )}
                                   {itineraryRegenerating && (
                                     <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
                                       <Loader2 className="h-3 w-3 animate-spin" />

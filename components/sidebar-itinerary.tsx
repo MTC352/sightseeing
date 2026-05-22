@@ -690,6 +690,30 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       }
       setItinerary(enriched)
       onOpenItinerary(enriched)
+      // Conflict-on-success: /api/itinerary now returns 200 + a `conflict`
+      // payload when the cart overshoots the visitor's duration prefs.
+      // The canvas already shows the best-fit subset; we still need to
+      // surface the prefs-change options to chat so the user knows why
+      // some saved trips were left off.
+      const successConflict = (data as unknown as { conflict?: PlanConflictPayload["conflict"] | null })?.conflict
+      if (successConflict) {
+        setErrorPayload({
+          unavailableTrips: data?.unavailableTrips,
+          alternativeDates: data?.alternativeDates,
+          visitDate: data?.visitDate,
+          scanDays: data?.scanDays,
+          planConflict: successConflict,
+        })
+        onPlanConflict?.({
+          message:
+            `Your saved trips need more time than your ${successConflict.currentDuration} plan allows ` +
+            `(${Math.round(successConflict.estimatedMinutes / 60 * 10) / 10}h needed vs ` +
+            `${Math.round(successConflict.availableMinutes / 60 * 10) / 10}h available). ` +
+            `Showing the ${enriched.steps?.length ?? 0} stops that fit — change duration, pick a different date, or drop a trip to include the rest.`,
+          visitDate: data?.visitDate ?? dateForRun,
+          conflict: successConflict,
+        })
+      }
       // Notify the planner page so it can echo this build into the chat
       // log — keeps the AI's conversational context aligned with the
       // canvas state the user is now seeing.
