@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
 import { isFieldEditable, resolvePolicy, type TripFieldPolicy } from "@/lib/trip-field-policy"
@@ -38,45 +38,9 @@ const GRADE_OPTIONS = [
   "Extreme",
 ]
 const COMMERCIAL_PRIORITY_OPTIONS = ["HIGH", "MEDIUM", "LOW"]
-/** Full TourCMS trip-tag vocabulary. Tokens stored as-is in DB. */
-const TRIP_TAG_VOCAB: { token: string; label: string }[] = [
-  { token: "adults-only", label: "Adults only" },
-  { token: "animals", label: "Animals" },
-  { token: "audio-guide", label: "Audio guide" },
-  { token: "beaches", label: "Beaches" },
-  { token: "bike-tours", label: "Bike tours" },
-  { token: "boat-tours", label: "Boat tours" },
-  { token: "city-cards", label: "City cards" },
-  { token: "classes", label: "Classes" },
-  { token: "day-trips", label: "Day trips" },
-  { token: "family-friendly", label: "Family friendly" },
-  { token: "fast-track", label: "Fast track" },
-  { token: "food", label: "Food" },
-  { token: "history", label: "History" },
-  { token: "hop-on-hop-off", label: "Hop on hop off" },
-  { token: "literature", label: "Literature" },
-  { token: "live-music", label: "Live music" },
-  { token: "museums", label: "Museums" },
-  { token: "nightlife", label: "Nightlife" },
-  { token: "outdoors", label: "Outdoors" },
-  { token: "private-tours", label: "Private tours" },
-  { token: "romantic", label: "Romantic" },
-  { token: "small-group-tours", label: "Small group tours" },
-  { token: "sports", label: "Sports" },
-  { token: "suitable-for-solo", label: "Suitable for solo" },
-  { token: "suitable-for-couples", label: "Suitable for couples" },
-  { token: "suitable-for-children", label: "Suitable for children" },
-  { token: "suitable-for-groups", label: "Suitable for groups" },
-  { token: "suitable-for-students", label: "Suitable for students" },
-  { token: "suitable-for-business", label: "Suitable for business" },
-  { token: "suitable-for-wheelchairs", label: "Suitable for wheelchairs" },
-  { token: "theme-parks", label: "Theme parks" },
-  { token: "walking-tours", label: "Walking tours" },
-  { token: "official-ticket", label: "Official ticket" },
-  { token: "operator-direct-product", label: "Operator direct product" },
-  { token: "transfer", label: "Transfer" },
-  { token: "entrance-ticket", label: "Entrance ticket" },
-]
+/** Trip-tag vocabulary type — populated at runtime from /api/admin/trip-tags
+ *  (the canonical `trip_tags` table managed in /admin/trip-tags). */
+type TripTagOption = { token: string; label: string }
 
 export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | null; policy?: TripFieldPolicy }) {
   const policy = policyProp ?? resolvePolicy(null)
@@ -119,6 +83,21 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
   )
 
   const [tripTagInput, setTripTagInput] = useState("")
+  // Trip-tag vocab fetched from the canonical `trip_tags` table; updates in
+  // /admin/trip-tags propagate here automatically on next mount.
+  const [tripTagVocab, setTripTagVocab] = useState<TripTagOption[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/admin/trip-tags", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { tags: [] }))
+      .then((j) => {
+        if (cancelled) return
+        const tags = Array.isArray(j?.tags) ? j.tags : []
+        setTripTagVocab(tags.map((t: { slug: string; label: string }) => ({ token: t.slug, label: t.label })))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   const [highlightInput, setHighlightInput] = useState("")
   const [languageInput, setLanguageInput] = useState("")
   const [uploadingFeatured, setUploadingFeatured] = useState(false)
@@ -549,7 +528,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           {(form.tripTags ?? []).length > 0 && (
             <div className="mb-3 flex flex-wrap gap-1.5">
               {(form.tripTags ?? []).map((token) => {
-                const def = TRIP_TAG_VOCAB.find((v) => v.token === token)
+                const def = tripTagVocab.find((v) => v.token === token)
                 return (
                   <span key={token} className="flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
                     {def?.label ?? token}
@@ -586,7 +565,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
             <div>
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Suggested</div>
               <div className="flex flex-wrap gap-1.5">
-                {TRIP_TAG_VOCAB.map(({ token, label }) => {
+                {tripTagVocab.map(({ token, label }) => {
                   const selected = (form.tripTags ?? []).includes(token)
                   return (
                     <button

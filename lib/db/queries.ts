@@ -754,23 +754,101 @@ export const DEFAULT_PLANNER_FORM = {
  * instead of the legacy hardcoded food/culture/outdoor placeholders
  * which never matched any real trip.
  */
+export interface TripTagRow {
+  slug: string
+  label: string
+  show_on_homepage: boolean
+  sort_order: number
+}
+
+export interface TripTagWithCount extends TripTagRow {
+  trip_count: number
+}
+
+/** Canonical Trip Tag catalog from the `trip_tags` table (ordered).  Source
+ *  of truth for the admin Trip Tags page, trip edit picker, planner-chat
+ *  interest defaults and the homepage Categories grid. */
+export async function dbListTripTags(): Promise<TripTagRow[]> {
+  return await query<TripTagRow>(
+    `SELECT slug, label, show_on_homepage, sort_order
+       FROM trip_tags
+      ORDER BY sort_order ASC, label ASC`
+  )
+}
+
+/** Homepage-flagged tags with a published trip count for "N experiences". */
+export async function dbListHomepageTripTagsWithCounts(): Promise<TripTagWithCount[]> {
+  return await query<TripTagWithCount>(
+    `SELECT tt.slug, tt.label, tt.show_on_homepage, tt.sort_order,
+            COALESCE(c.trip_count, 0)::int AS trip_count
+       FROM trip_tags tt
+  LEFT JOIN (
+              SELECT tag, COUNT(*) AS trip_count
+                FROM (SELECT unnest(trip_tags) AS tag FROM trips WHERE status='published') s
+               GROUP BY tag
+            ) c ON c.tag = tt.slug
+      WHERE tt.show_on_homepage = TRUE
+      ORDER BY tt.sort_order ASC, tt.label ASC`
+  )
+}
+
+export async function dbCreateTripTag(input: {
+  slug: string
+  label: string
+  show_on_homepage: boolean
+  sort_order: number
+}): Promise<TripTagRow | null> {
+  const rows = await query<TripTagRow>(
+    `INSERT INTO trip_tags (slug, label, show_on_homepage, sort_order)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (slug) DO NOTHING
+     RETURNING slug, label, show_on_homepage, sort_order`,
+    [input.slug, input.label, input.show_on_homepage, input.sort_order],
+  )
+  return rows[0] ?? null
+}
+
+export async function dbUpdateTripTag(
+  slug: string,
+  patch: { label?: string; show_on_homepage?: boolean; sort_order?: number },
+): Promise<TripTagRow | null> {
+  const sets: string[] = []
+  const vals: unknown[] = []
+  let i = 1
+  if (patch.label !== undefined)            { sets.push(`label = $${i++}`);            vals.push(patch.label) }
+  if (patch.show_on_homepage !== undefined) { sets.push(`show_on_homepage = $${i++}`); vals.push(patch.show_on_homepage) }
+  if (patch.sort_order !== undefined)       { sets.push(`sort_order = $${i++}`);       vals.push(patch.sort_order) }
+  if (sets.length === 0) {
+    const rows = await query<TripTagRow>(
+      `SELECT slug, label, show_on_homepage, sort_order FROM trip_tags WHERE slug = $1`,
+      [slug],
+    )
+    return rows[0] ?? null
+  }
+  sets.push(`updated_at = NOW()`)
+  vals.push(slug)
+  const rows = await query<TripTagRow>(
+    `UPDATE trip_tags SET ${sets.join(', ')} WHERE slug = $${i}
+     RETURNING slug, label, show_on_homepage, sort_order`,
+    vals,
+  )
+  return rows[0] ?? null
+}
+
+export async function dbDeleteTripTag(slug: string): Promise<void> {
+  await query(`DELETE FROM trip_tags WHERE slug = $1`, [slug])
+}
+
+/** Planner-form { value, label } projection.  Reads the canonical
+ *  `trip_tags` table so the Trip Planner Chat onboarding tiles stay in
+ *  sync with the admin Trip Tags page automatically. */
 export async function dbListTripTagOptions(): Promise<{ value: string; label: string }[]> {
-  const rows = await query<{ tag: string }>(
-    `SELECT DISTINCT unnest(trip_tags) AS tag
-       FROM trips
-      WHERE status = 'published' AND trip_tags IS NOT NULL
-      ORDER BY tag`
+  const rows = await query<{ slug: string; label: string }>(
+    `SELECT slug, label FROM trip_tags ORDER BY sort_order ASC, label ASC`
   )
   return rows
-    .map((r) => (typeof r.tag === 'string' ? r.tag.trim() : ''))
-    .filter((v) => v.length > 0 && /^[a-z0-9-]+$/.test(v))
-    .map((value) => ({
-      value,
-      label: value
-        .split('-')
-        .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : w))
-        .join(' '),
-    }))
+    .filter((r) => r.slug && /^[a-z0-9-]+$/.test(r.slug))
+    .map((r) => ({ value: r.slug, label: r.label }))
 }
 
 /**

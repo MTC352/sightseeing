@@ -165,6 +165,68 @@ async function seedHelpArticles() {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
+/**
+ * Trip Tags — canonical tag catalog shared by:
+ *   • trip edit form's "Suggested" picker
+ *   • Trip Planner Chat onboarding "Interests"
+ *   • homepage "Currently trending categories" grid
+ */
+async function seedTripTags() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS trip_tags (
+      slug TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      show_on_homepage BOOLEAN NOT NULL DEFAULT FALSE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_trip_tags_homepage
+      ON trip_tags (show_on_homepage, sort_order)
+      WHERE show_on_homepage = TRUE
+  `)
+
+  const vocab = [
+    ['adults-only','Adults only'],['animals','Animals'],['audio-guide','Audio guide'],
+    ['beaches','Beaches'],['bike-tours','Bike tours'],['boat-tours','Boat tours'],
+    ['city-cards','City cards'],['classes','Classes'],['day-trips','Day trips'],
+    ['family-friendly','Family friendly'],['fast-track','Fast track'],['food','Food'],
+    ['history','History'],['hop-on-hop-off','Hop on hop off'],['literature','Literature'],
+    ['live-music','Live music'],['museums','Museums'],['nightlife','Nightlife'],
+    ['outdoors','Outdoors'],['private-tours','Private tours'],['romantic','Romantic'],
+    ['small-group-tours','Small group tours'],['sports','Sports'],
+    ['suitable-for-solo','Suitable for solo'],['suitable-for-couples','Suitable for couples'],
+    ['suitable-for-children','Suitable for children'],['suitable-for-groups','Suitable for groups'],
+    ['suitable-for-students','Suitable for students'],['suitable-for-business','Suitable for business'],
+    ['suitable-for-wheelchairs','Suitable for wheelchairs'],['theme-parks','Theme parks'],
+    ['walking-tours','Walking tours'],['official-ticket','Official ticket'],
+    ['operator-direct-product','Operator direct product'],['transfer','Transfer'],
+    ['entrance-ticket','Entrance ticket'],
+  ]
+  const homepageDefaults = new Set([
+    'food','sports','museums','walking-tours','day-trips','private-tours',
+  ])
+  for (let i = 0; i < vocab.length; i++) {
+    const [slug, label] = vocab[i]
+    await query(
+      `INSERT INTO trip_tags (slug, label, show_on_homepage, sort_order)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (slug) DO NOTHING`,
+      [slug, label, homepageDefaults.has(slug), i],
+    )
+  }
+  await query(`
+    INSERT INTO trip_tags (slug, label, show_on_homepage, sort_order)
+    SELECT DISTINCT tag, INITCAP(REPLACE(tag, '-', ' ')), FALSE, 999
+      FROM (SELECT DISTINCT unnest(trip_tags) AS tag FROM trips WHERE status='published') t
+     WHERE tag ~ '^[a-z0-9-]+$' AND tag NOT IN (SELECT slug FROM trip_tags)
+    ON CONFLICT (slug) DO NOTHING
+  `)
+  console.log('  ✓ trip_tags seeded')
+}
+
 async function main() {
   try {
     console.log('Seeding database...')
@@ -173,6 +235,7 @@ async function main() {
     await seedBlogPosts()
     await seedJobs()
     await seedHelpArticles()
+    await seedTripTags()
 
     // Verify final counts
     const { rows } = await query(`
@@ -185,7 +248,8 @@ async function main() {
         (SELECT COUNT(*) FROM ai_system_configs) as ai_configs,
         (SELECT COUNT(*) FROM integrations)      as integrations,
         (SELECT COUNT(*) FROM header_footer_blocks) as hf_blocks,
-        (SELECT COUNT(*) FROM pages)             as pages
+        (SELECT COUNT(*) FROM pages)             as pages,
+        (SELECT COUNT(*) FROM trip_tags)         as trip_tags
     `)
     console.log('\n── Final row counts ──')
     console.table(rows[0])

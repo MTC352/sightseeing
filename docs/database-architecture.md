@@ -415,6 +415,34 @@ CREATE INDEX taxonomies_group_key_idx ON taxonomies(group_key);
 
 ---
 
+### 6.10b `trip_tags`
+
+Canonical catalog of trip tag slugs. Source of truth for the trip edit form's
+"Suggested" tag picker, the Trip Planner Chat onboarding "Interests" tiles,
+and the homepage "Currently trending categories" grid. Managed from
+`/admin/trip-tags`. Icons are auto-derived from the slug via `lib/tag-icons.ts`.
+
+```sql
+CREATE TABLE trip_tags (
+  slug             TEXT        PRIMARY KEY,         -- kebab-case, e.g. 'walking-tours'
+  label            TEXT        NOT NULL,            -- "Walking tours"
+  show_on_homepage BOOLEAN     NOT NULL DEFAULT FALSE,
+  sort_order       INTEGER     NOT NULL DEFAULT 0,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_trip_tags_homepage
+  ON trip_tags (show_on_homepage, sort_order)
+  WHERE show_on_homepage = TRUE;
+```
+
+**When updated:** When admin creates/edits/deletes tags or toggles the
+"show on homepage" flag in `/admin/trip-tags`. Seeded from the legacy
+TourCMS vocabulary plus any slugs already present in `trips.trip_tags[]`.
+
+---
+
 ### 6.11 `pages`
 
 Admin-managed pages — created, edited, and published from `/admin/pages`. Supports custom slugs so new pages can be added beyond the built-in set. Content is stored as JSONB for flexible block/widget structure.

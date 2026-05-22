@@ -28,6 +28,7 @@ function usePublishedTrips(): typeof staticTrips {
   return staticTrips.filter((t) => publishedIds.has(String(t.id)))
 }
 import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock } from "lucide-react"
+import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
 import { DeparturesSoonSection } from "@/components/departing-soon-section"
 
@@ -210,8 +211,22 @@ export function WeatherSection() {
   )
 }
 
-/* Categories Section */
+/* Categories Section — driven by the `trip_tags` table (admin-managed at
+ *  /admin/trip-tags).  Each card links to /search?tag={slug} so the search
+ *  page can pre-select the filter. */
+interface HomepageTag { slug: string; label: string; trip_count: number }
+
 export function CategoriesSection() {
+  const [tags, setTags] = React.useState<HomepageTag[]>([])
+  React.useEffect(() => {
+    let cancelled = false
+    fetch("/api/trip-tags?homepage=1", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : { tags: [] })
+      .then((j) => { if (!cancelled) setTags(Array.isArray(j?.tags) ? j.tags : []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  if (tags.length === 0) return null
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <h2 className="text-xl font-bold text-foreground">
@@ -221,13 +236,16 @@ export function CategoriesSection() {
         <EditableText id="home:categories:subheading" defaultValue="From cultural tours to adventurous activities." />
       </p>
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
-        {categories.map((c) => { const Icon = CATEGORY_ICONS[c.name] || MapIcon; return (
-          <Link key={c.name} href={`/search?q=${encodeURIComponent(c.name)}`} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-primary/5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
-            <span className="text-xs font-semibold text-foreground">{c.name}</span>
-            <span className="text-[10px] text-muted-foreground">{c.count} experiences</span>
-          </Link>
-        )})}
+        {tags.map((t) => {
+          const Icon = iconForSlug(t.slug)
+          return (
+            <Link key={t.slug} href={`/search?tag=${encodeURIComponent(t.slug)}`} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-primary/5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
+              <span className="text-xs font-semibold text-foreground">{t.label}</span>
+              <span className="text-[10px] text-muted-foreground">{t.trip_count} experience{t.trip_count === 1 ? "" : "s"}</span>
+            </Link>
+          )
+        })}
       </div>
     </section>
   )

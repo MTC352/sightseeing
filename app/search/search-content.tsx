@@ -724,13 +724,23 @@ export function SearchContent({
   const [availLoading, setAvailLoading]     = useState(true)
 
   // Initialize filters from URL params (preserves hero search selections)
-  const [activeFilters, setActiveFilters] = useState<Filters>(() => ({
-    ...DEFAULT_FILTERS,
-    dateFrom: searchParams.get("date")     ?? "",
-    timeFrom: searchParams.get("timeFrom") ?? "",
-    timeTo:   searchParams.get("timeTo")   ?? "",
-    persons:  Math.max(1, parseInt(searchParams.get("persons") ?? "1", 10) || 1),
-  }))
+  const [activeFilters, setActiveFilters] = useState<Filters>(() => {
+    // Support both ?tag=slug and ?tag=slug1,slug2 — used by the homepage
+    // "Currently Trending Categories" cards to pre-select a tag filter.
+    const tagParam = searchParams.get("tag") ?? ""
+    const tagsFromUrl = tagParam
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean)
+    return {
+      ...DEFAULT_FILTERS,
+      dateFrom: searchParams.get("date")     ?? "",
+      timeFrom: searchParams.get("timeFrom") ?? "",
+      timeTo:   searchParams.get("timeTo")   ?? "",
+      persons:  Math.max(1, parseInt(searchParams.get("persons") ?? "1", 10) || 1),
+      tags:     tagsFromUrl,
+    }
+  })
 
   // Sync URL params when date/time/persons filters change (so URL stays shareable)
   const isMounted = useRef(false)
@@ -742,8 +752,9 @@ export function SearchContent({
     if (activeFilters.timeFrom)  params.set("timeFrom", activeFilters.timeFrom)
     if (activeFilters.timeTo)    params.set("timeTo",   activeFilters.timeTo)
     if (activeFilters.persons > 1) params.set("persons", String(activeFilters.persons))
+    if (activeFilters.tags.length > 0) params.set("tag", activeFilters.tags.join(","))
     router.replace(`/search?${params.toString()}`, { scroll: false })
-  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons, activeFilters.tags]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Fetch availability — only re-fires when the DATE changes.
      Time + person filtering is fully client-side so those changes never

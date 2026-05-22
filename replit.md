@@ -84,7 +84,8 @@ All 16 tables created and seeded. Data persists across restarts.
 | help_articles | 17 | FAQ / help articles |
 | support_tickets | 0 | Customer support tickets |
 | ticket_replies | 0 | Replies to tickets |
-| taxonomies | 0 | Trip categories/tags |
+| taxonomies | 0 | Trip categories/tags (legacy K/V site copy store) |
+| trip_tags | 36 | Canonical Trip Tag catalog (drives trip edit picker, planner chat interests, homepage categories) |
 | pages | 10 | System pages (CMS) |
 | page_revisions | 0 | Page version history |
 | page_content | 0 | Page block content |
