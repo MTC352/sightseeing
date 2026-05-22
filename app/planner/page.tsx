@@ -77,10 +77,27 @@ function todayYMD(): string { return ymdLocal(new Date()) }
 function tomorrowYMD(): string {
   const d = new Date(); d.setDate(d.getDate() + 1); return ymdLocal(d)
 }
-/** Next Saturday (or today if today is Saturday). */
+/** The next weekend day (Sat or Sun) that is NOT today and NOT
+ *  tomorrow — so the "This weekend" planner option always lands on a
+ *  distinct, additional date relative to the "Today" / "Tomorrow"
+ *  buttons. Falls back to the nearest weekend day overall if today is
+ *  somehow already on a future weekend (defensive). */
 function nextWeekendYMD(): string {
+  const today = ymdLocal(new Date())
+  const tmrw = (() => { const x = new Date(); x.setDate(x.getDate() + 1); return ymdLocal(x) })()
+  // Scan the next 14 days for the first Sat/Sun that isn't today/tomorrow.
+  for (let i = 0; i < 14; i++) {
+    const d = new Date()
+    d.setDate(d.getDate() + i)
+    const dow = d.getDay() // 0 Sun .. 6 Sat
+    if (dow !== 0 && dow !== 6) continue
+    const ymd = ymdLocal(d)
+    if (ymd === today || ymd === tmrw) continue
+    return ymd
+  }
+  // Defensive fallback: next Saturday (or today if today is Saturday).
   const d = new Date()
-  const dow = d.getDay() // 0 Sun .. 6 Sat
+  const dow = d.getDay()
   const add = dow === 6 ? 0 : (6 - dow + 7) % 7
   d.setDate(d.getDate() + add)
   return ymdLocal(d)
