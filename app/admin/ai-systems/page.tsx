@@ -26,6 +26,12 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
     icon: MessageSquare,
     href: "/admin/ai-systems/chat",
   },
+  "planner-chat": {
+    label: "Trip Planner Chat",
+    description: "Conversational planner on /planner — admin prompt overrides plus the onboarding form options (groups, interests, durations, budgets, multi-day cap).",
+    icon: Bot,
+    href: "/admin/ai-systems/planner-chat",
+  },
   help: {
     label: "Help & FAQ Chat",
     description: "Customer support bot on /help. Handles bookings, payments, and cancellations.",

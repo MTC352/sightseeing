@@ -2,20 +2,18 @@
 
 /**
  * Trip Chat admin page (static — takes precedence over the dynamic
- * [system]/page.tsx). Manages THREE things in one screen:
- *   1. Per-trip Chat AI config (system prompt, model, temperature, max tokens)
- *      — what /api/chat uses on /trip/[id].
- *   2. Planner Conversation system prompt — appended to the hardcoded
- *      /api/planner prompt as "CUSTOM INSTRUCTIONS FROM ADMIN".
- *   3. Planner Onboarding Form options — groups / interests / durations /
- *      budgets / multi-day day cap that drive the /planner first-time UI.
+ * [system]/page.tsx). Manages the per-trip AI chat shown on every
+ * /trip/[id] page: system prompt, model, temperature, max tokens.
  *
- * (2) and (3) replace the old standalone "Trip Planner" admin card.
+ * The Planner Conversation prompt and Planner Onboarding Form used to
+ * live on this same screen but were split out into their own dedicated
+ * page at /admin/ai-systems/planner-chat so per-trip chat and planner
+ * chat settings stay fully separate.
  */
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Check, Bot, AlertCircle, Plus, Trash2, RotateCcw, Wand2 } from "lucide-react"
+import { ArrowLeft, Save, Check, Bot, AlertCircle, Wand2 } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 
 const MODELS = [
@@ -26,10 +24,8 @@ const MODELS = [
   { value: "google/gemini-3-flash", label: "Gemini 3 Flash (Google)" },
 ]
 
-// Default starter prompt for the Per-trip Chat. Loaded into the textarea
-// when the DB returns an empty prompt (first-time setup) so the admin
-// always sees a sensible baseline instead of a blank box. Also restored
-// by the "Load default suggestion" button.
+// Default starter prompt — loaded into the textarea on first-time setup
+// (when the DB returns an empty prompt) and via "Load default suggestion".
 const CHAT_PROMPT_SUGGESTION = `You are the AI concierge for sightseeing.lu, embedded inside a single trip's detail page. You have full context on the current trip (title, description, price, duration, included/excluded items, itinerary, languages, cancellation policy) plus the broader published catalog, blog articles, and open jobs.
 
 Your job:
@@ -46,115 +42,47 @@ const CHAT_DEFAULTS = {
   maxTokens: 1024,
 }
 
-// Loaded into the planner prompt box when admin clicks "Load default
-// suggestion". This is a copy of the supplemental tone/policy text that
-// historically lived in the `planner` row's system_prompt seed.
-const PLANNER_PROMPT_SUGGESTION = `You are the dedicated trip-planning assistant for sightseeing.lu. Keep replies short, warm, and conversational (1–2 sentences). Surface real, bookable trips from the catalog. Never invent prices, durations, or availability — call the right tool instead. When the user is ready, propose an itinerary; otherwise keep narrowing options with one focused follow-up question.`
-
-type Option = { value: string; label: string }
-type PlannerForm = {
-  groups: Option[]
-  interests: Option[]
-  durations: Option[]
-  budgets: Option[]
-  maxMultiDayDays: number
-}
-const DEFAULT_PLANNER_FORM: PlannerForm = {
-  groups: [
-    { value: "solo", label: "Solo" },
-    { value: "couple", label: "Couple" },
-    { value: "family", label: "Family with kids" },
-    { value: "friends", label: "Friends group" },
-  ],
-  interests: [
-    { value: "food", label: "Food & Drinks" },
-    { value: "culture", label: "History & Culture" },
-    { value: "outdoor", label: "Outdoor & Nature" },
-    { value: "night", label: "Nightlife" },
-    { value: "sport", label: "Active & Sports" },
-    { value: "indoor", label: "Hidden Gems" },
-  ],
-  durations: [
-    { value: "1-2h", label: "1-2 hours" },
-    { value: "half-day", label: "Half day" },
-    { value: "full-day", label: "Full day" },
-    { value: "multi-day", label: "Multi-day trip" },
-  ],
-  budgets: [
-    { value: "casual", label: "Keep it casual" },
-    { value: "mid-range", label: "Mid-range" },
-    { value: "premium", label: "Treat ourselves" },
-  ],
-  maxMultiDayDays: 2,
-}
-
 export default function TripChatAdminPage() {
   const router = useRouter()
 
   const [chat, setChat] = useState({ ...CHAT_DEFAULTS })
-  const [plannerPrompt, setPlannerPrompt] = useState("")
-  const [plannerForm, setPlannerForm] = useState<PlannerForm>(DEFAULT_PLANNER_FORM)
 
-  // Snapshot of the values as they were when we last loaded from / saved to
-  // the DB. Used to detect "dirty" prompt edits so the confirm-before-save
-  // modal only nags the admin when the prompts actually changed.
-  const [initial, setInitial] = useState<{ chatPrompt: string; plannerPrompt: string }>({
-    chatPrompt: CHAT_PROMPT_SUGGESTION,
-    plannerPrompt: PLANNER_PROMPT_SUGGESTION,
-  })
+  // Snapshot of the prompt as it was last loaded from / saved to the DB so
+  // we can detect "dirty" edits and only nag with the confirm-before-save
+  // modal when the prompt actually changed.
+  const [initialPrompt, setInitialPrompt] = useState<string>(CHAT_PROMPT_SUGGESTION)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  // Load both blocks (per-trip chat from settings, planner overrides from
-  // the dedicated endpoint). Tolerant of missing fields.
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      fetch("/api/admin/settings").then((r) => r.json()).catch(() => null),
-      fetch("/api/admin/chat-planner-config").then((r) => r.json()).catch(() => null),
-    ]).then(([settings, planner]) => {
-      if (cancelled) return
-      const chatCfg = settings?.ai?.chat
-      // If DB has an empty/missing prompt, pre-fill with the suggested default
-      // so the admin always sees the working baseline rather than a blank box.
-      const chatNext = chatCfg
-        ? {
-            ...CHAT_DEFAULTS,
-            ...chatCfg,
-            systemPrompt:
-              typeof chatCfg.systemPrompt === "string" && chatCfg.systemPrompt.trim().length > 0
-                ? chatCfg.systemPrompt
-                : CHAT_PROMPT_SUGGESTION,
-          }
-        : { ...CHAT_DEFAULTS }
-      setChat(chatNext)
-
-      // Same first-time-setup behaviour as the chat prompt: if the DB has
-      // no planner override yet, pre-fill with the suggested baseline so
-      // the admin never sees a confusing empty box.
-      let plannerNext = PLANNER_PROMPT_SUGGESTION
-      if (planner) {
-        if (typeof planner.plannerSystemPrompt === "string" && planner.plannerSystemPrompt.trim().length > 0) {
-          plannerNext = planner.plannerSystemPrompt
-        }
-        if (planner.plannerForm) setPlannerForm({ ...DEFAULT_PLANNER_FORM, ...planner.plannerForm })
-      }
-      setPlannerPrompt(plannerNext)
-
-      setInitial({ chatPrompt: chatNext.systemPrompt, plannerPrompt: plannerNext })
-    })
+    fetch("/api/admin/settings")
+      .then((r) => r.json())
+      .catch(() => null)
+      .then((settings) => {
+        if (cancelled) return
+        const chatCfg = settings?.ai?.chat
+        const chatNext = chatCfg
+          ? {
+              ...CHAT_DEFAULTS,
+              ...chatCfg,
+              systemPrompt:
+                typeof chatCfg.systemPrompt === "string" && chatCfg.systemPrompt.trim().length > 0
+                  ? chatCfg.systemPrompt
+                  : CHAT_PROMPT_SUGGESTION,
+            }
+          : { ...CHAT_DEFAULTS }
+        setChat(chatNext)
+        setInitialPrompt(chatNext.systemPrompt)
+      })
     return () => { cancelled = true }
   }, [])
 
-  const chatPromptDirty = chat.systemPrompt !== initial.chatPrompt
-  const plannerPromptDirty = plannerPrompt !== initial.plannerPrompt
-  const anyPromptDirty = chatPromptDirty || plannerPromptDirty
+  const promptDirty = chat.systemPrompt !== initialPrompt
 
-  // Close the confirm modal on Escape so keyboard users can dismiss it
-  // without clicking the backdrop / Cancel button.
   useEffect(() => {
     if (!confirmOpen) return
     function onKey(e: KeyboardEvent) {
@@ -166,9 +94,7 @@ export default function TripChatAdminPage() {
 
   function onSaveClick() {
     setError("")
-    // Only nag when a prompt actually changed — model / token tweaks save
-    // silently because they don't reshape AI responses the same way.
-    if (anyPromptDirty) {
+    if (promptDirty) {
       setConfirmOpen(true)
     } else {
       void doSave()
@@ -180,25 +106,13 @@ export default function TripChatAdminPage() {
     setSaving(true)
     setError("")
     try {
-      // Two independent endpoints — fail-fast if either rejects so the
-      // admin can fix and retry rather than silently shipping a partial.
-      const [a, b] = await Promise.all([
-        fetch("/api/admin/settings", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ section: "ai", data: { system: "chat", ...chat } }),
-        }),
-        fetch("/api/admin/chat-planner-config", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            plannerSystemPrompt: plannerPrompt,
-            plannerForm,
-          }),
-        }),
-      ])
-      if (!a.ok || !b.ok) throw new Error("save failed")
-      setInitial({ chatPrompt: chat.systemPrompt, plannerPrompt })
+      const res = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "ai", data: { system: "chat", ...chat } }),
+      })
+      if (!res.ok) throw new Error("save failed")
+      setInitialPrompt(chat.systemPrompt)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch {
@@ -225,19 +139,20 @@ export default function TripChatAdminPage() {
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">AI Systems</p>
           <h1 className="mt-1 text-2xl font-bold text-foreground">Trip Chat</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Controls the AI assistant on individual trip pages, plus the planner conversation prompt and the onboarding form shown on first visit to /planner.
+            Controls the AI assistant shown on individual trip detail pages. Planner conversation settings have moved to their own page.
           </p>
         </div>
         <button
           type="button"
           onClick={onSaveClick}
           disabled={saving}
+          data-testid="chat-save-button"
           className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
             saved ? "bg-emerald-500/15 text-emerald-600" : "bg-primary text-primary-foreground hover:bg-primary/90"
           }`}
         >
           {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-          {saved ? "Saved!" : saving ? "Saving…" : "Save all"}
+          {saved ? "Saved!" : saving ? "Saving…" : "Save"}
         </button>
       </div>
 
@@ -249,7 +164,6 @@ export default function TripChatAdminPage() {
       )}
 
       <div className="max-w-3xl space-y-8">
-        {/* ── 1. Per-trip chat ─────────────────────────────────── */}
         <section className="space-y-4">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Per-trip Chat (/trip/[id])</h2>
@@ -280,6 +194,7 @@ export default function TripChatAdminPage() {
             </div>
             <textarea
               rows={6}
+              data-testid="chat-system-prompt"
               className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
               value={chat.systemPrompt}
               onChange={(e) => setChat((f) => ({ ...f, systemPrompt: e.target.value }))}
@@ -333,124 +248,21 @@ export default function TripChatAdminPage() {
           </div>
         </section>
 
-        {/* ── 2. Planner conversation prompt ───────────────────── */}
-        <section className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Planner Conversation (/planner)</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Custom instructions appended to the planner's hardcoded system prompt. Use this to add operator-specific tone, restrictions, or seasonal nudges. Leave empty to use the defaults baked into /api/planner.
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <label className={labelClass + " mb-0"}>Planner system prompt (admin override)</label>
-              <div className="flex items-center gap-2">
-                <PromptRevisions
-                  systemKey="chat"
-                  promptKind="plannerSystemPrompt"
-                  currentText={plannerPrompt}
-                  onActivate={(text) => setPlannerPrompt(text)}
-                />
-                <button
-                  type="button"
-                  onClick={() => setPlannerPrompt(PLANNER_PROMPT_SUGGESTION)}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  title="Replace with a sane default starting point"
-                >
-                  <Wand2 className="h-3 w-3" /> Load default suggestion
-                </button>
-              </div>
-            </div>
-            <textarea
-              rows={8}
-              className={`${inputClass} resize-y font-mono text-xs leading-relaxed`}
-              value={plannerPrompt}
-              onChange={(e) => setPlannerPrompt(e.target.value)}
-              placeholder="(optional) Extra instructions for the planner AI…"
-            />
-            <p className="mt-1.5 text-[11px] text-muted-foreground/60">
-              {plannerPrompt.length} chars · Appended after the hardcoded planner prompt. Dynamic context (weather, cart, group, behaviour) stays managed in code.
-            </p>
-          </div>
-        </section>
-
-        {/* ── 3. Planner onboarding form ───────────────────────── */}
-        <section className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Planner Onboarding Form</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Options visitors see in the first-time wizard on /planner. You can rename labels and add/remove options. <strong>Values are stable slugs</strong> (lowercase, a–z 0–9 and dashes only) — changing a value resets visitors who had it saved. Icons stay code-mapped by value; new values get a generic icon.
-            </p>
-          </div>
-
-          <OptionListEditor
-            title="Group types"
-            help="Asked first. Family / Friends also trigger a party-size sub-step."
-            options={plannerForm.groups}
-            defaultOption={{ value: "new-group", label: "New group" }}
-            onChange={(v) => setPlannerForm((f) => ({ ...f, groups: v }))}
-            onReset={() => setPlannerForm((f) => ({ ...f, groups: DEFAULT_PLANNER_FORM.groups }))}
-          />
-          <OptionListEditor
-            title="Interests"
-            help="Visitors pick up to 3. Keep this list short."
-            options={plannerForm.interests}
-            defaultOption={{ value: "new-interest", label: "New interest" }}
-            onChange={(v) => setPlannerForm((f) => ({ ...f, interests: v }))}
-            onReset={() => setPlannerForm((f) => ({ ...f, interests: DEFAULT_PLANNER_FORM.interests }))}
-          />
-          <OptionListEditor
-            title="Durations"
-            help="The 'multi-day' value is required (it controls the day-count stepper) and will be auto-restored if removed."
-            options={plannerForm.durations}
-            defaultOption={{ value: "new-duration", label: "New duration" }}
-            onChange={(v) => setPlannerForm((f) => ({ ...f, durations: v }))}
-            onReset={() => setPlannerForm((f) => ({ ...f, durations: DEFAULT_PLANNER_FORM.durations }))}
-          />
-          <OptionListEditor
-            title="Budgets"
-            help="Shown after duration."
-            options={plannerForm.budgets}
-            defaultOption={{ value: "new-budget", label: "New budget" }}
-            onChange={(v) => setPlannerForm((f) => ({ ...f, budgets: v }))}
-            onReset={() => setPlannerForm((f) => ({ ...f, budgets: DEFAULT_PLANNER_FORM.budgets }))}
-          />
-
-          <div className="rounded-xl border border-border bg-card p-5">
-            <label className={labelClass}>Multi-day trip — maximum days</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number" min={2} max={14} step={1}
-                value={plannerForm.maxMultiDayDays}
-                onChange={(e) => setPlannerForm((f) => ({
-                  ...f,
-                  maxMultiDayDays: Math.max(2, Math.min(14, parseInt(e.target.value) || 2)),
-                }))}
-                className={`${inputClass} max-w-[120px]`}
-              />
-              <span className="text-xs text-muted-foreground">days (2–14)</span>
-            </div>
-            <p className="mt-1.5 text-[11px] text-muted-foreground/60">
-              Caps the stepper shown after picking "Multi-day trip". Also enforced server-side when building itineraries.
-            </p>
-          </div>
-        </section>
-
         <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
           <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" />
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Changes take effect immediately for new conversations and new onboarding sessions. Active conversations keep the prompt that was current when they started.
+            Looking for the planner conversation prompt or onboarding form?
+            <button
+              type="button"
+              onClick={() => router.push("/admin/ai-systems/planner-chat")}
+              className="ml-1 font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Open Trip Planner Chat →
+            </button>
           </p>
         </div>
       </div>
 
-      {/* ── Confirm-before-save modal ──
-       * Fires whenever a system prompt has been edited. We single this out
-       * because the prompt directly shapes how every visitor conversation
-       * is answered — model/token tweaks are far lower-risk and save
-       * silently. Cancel restores the form intact so admins can keep
-       * editing; Confirm pushes both endpoints atomically (Promise.all). */}
       {confirmOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -469,30 +281,14 @@ export default function TripChatAdminPage() {
               </div>
               <div>
                 <h3 id="confirm-save-title" className="text-base font-semibold text-foreground">
-                  Update live AI prompts?
+                  Update live Per-trip Chat prompt?
                 </h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  This will change how the AI responds in real visitor conversations.
-                  Existing chats keep their current prompt; new chats and new planner
-                  sessions start using the updated prompt immediately.
+                  This will change how the AI responds in real visitor conversations on every trip page.
+                  Existing chats keep their current prompt; new chats start using the updated prompt immediately.
                 </p>
               </div>
             </div>
-
-            <ul className="mb-5 space-y-1.5 rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
-              {chatPromptDirty && (
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-amber-600" />
-                  <span><strong className="text-foreground">Per-trip Chat</strong> system prompt changed</span>
-                </li>
-              )}
-              {plannerPromptDirty && (
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-amber-600" />
-                  <span><strong className="text-foreground">Planner Conversation</strong> system prompt changed</span>
-                </li>
-              )}
-            </ul>
 
             <div className="flex items-center justify-end gap-2">
               <button
@@ -508,95 +304,12 @@ export default function TripChatAdminPage() {
                 disabled={saving}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
               >
-                {saving ? "Saving…" : "Yes, update prompts"}
+                {saving ? "Saving…" : "Yes, update prompt"}
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-/* ─── Option list editor ───
- * Renders a list of { value, label } rows with add / remove / reset. Slugs
- * are auto-normalised on blur so admin doesn't accidentally save spaces or
- * upper-case values that would break the server-side allow-list.
- */
-function OptionListEditor({
-  title, help, options, defaultOption, onChange, onReset,
-}: {
-  title: string
-  help: string
-  options: Option[]
-  defaultOption: Option
-  onChange: (next: Option[]) => void
-  onReset: () => void
-}) {
-  function update(i: number, patch: Partial<Option>) {
-    onChange(options.map((o, idx) => idx === i ? { ...o, ...patch } : o))
-  }
-  function remove(i: number) {
-    onChange(options.filter((_, idx) => idx !== i))
-  }
-  function add() {
-    onChange([...options, { ...defaultOption }])
-  }
-  function normaliseSlug(s: string) {
-    return s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
-  }
-
-  return (
-    <div className="rounded-xl border border-border bg-card p-5">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground/70">{help}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onReset}
-          className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-        >
-          <RotateCcw className="h-3 w-3" /> Reset
-        </button>
-      </div>
-      <div className="space-y-2">
-        {options.map((opt, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <input
-              type="text"
-              value={opt.value}
-              onChange={(e) => update(i, { value: e.target.value })}
-              onBlur={(e) => update(i, { value: normaliseSlug(e.target.value) })}
-              placeholder="slug"
-              className="w-32 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[11px] text-foreground focus:border-primary/50 focus:outline-none"
-            />
-            <input
-              type="text"
-              value={opt.label}
-              onChange={(e) => update(i, { label: e.target.value })}
-              placeholder="Label shown to visitor"
-              className="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground focus:border-primary/50 focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => remove(i)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-              aria-label="Remove option"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={add}
-          className="flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
-        >
-          <Plus className="h-3.5 w-3.5" /> Add option
-        </button>
-      </div>
     </div>
   )
 }
