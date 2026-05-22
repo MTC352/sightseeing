@@ -26,9 +26,9 @@ const NAV: NavItem[] = [
     icon: Map,
     children: [
       { href: "/admin/trips/archived", label: "Archived", icon: Archive },
+      { href: "/admin/trip-tags", label: "Trip Tags", icon: Tag },
     ],
   },
-  { href: "/admin/trip-tags", label: "Trip Tags", icon: Tag },
   { href: "/admin/blog", label: "Blog", icon: FileText },
   { href: "/admin/jobs", label: "Jobs", icon: Briefcase },
   { href: "/admin/help", label: "Help & FAQ", icon: HelpCircle },
