@@ -120,6 +120,7 @@ export default function TripDetailClient({
   relatedTrips,
   selectedDate,
   selectedTime,
+  selectedFrom,
 }: {
   id: string
   trip: Trip | null
@@ -128,7 +129,20 @@ export default function TripDetailClient({
   relatedTrips: RelatedTrip[]
   selectedDate?: string
   selectedTime?: string
+  /** Which homepage rail the visitor clicked to land here, so the
+   *  selected-slot banner can be labelled accurately ("Fill up fast slot",
+   *  "Soon departuring slot") instead of the generic "Your selected slot". */
+  selectedFrom?: "deals" | "departing"
 }) {
+  // Map of source → eyebrow text shown above the date/time inside the
+  // selected-slot card. Falls back to the original generic label when the
+  // visitor lands without a `from` hint (e.g. direct link, search result).
+  const slotEyebrow =
+    selectedFrom === "deals"
+      ? "Fill up fast slot"
+      : selectedFrom === "departing"
+        ? "Soon departuring slot"
+        : "Your selected slot"
   // Fail-closed: only honor the server-supplied trip. Never fall back to the
   // static seed catalog — the server gate (dbGetTrip publicOnly) is the sole
   // source of truth for whether this trip is publishable.
@@ -525,8 +539,11 @@ export default function TripDetailClient({
                 <div id="booking" className="space-y-3">
                   {selectedDate && selectedTime && (
                     <div className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">
-                        Your selected slot
+                      <p
+                        className="text-[11px] font-semibold uppercase tracking-wider text-primary"
+                        data-testid="selected-slot-eyebrow"
+                      >
+                        {slotEyebrow}
                       </p>
                       <p className="mt-1 text-base font-bold text-foreground">
                         {formatSelectedDate(selectedDate)} · {selectedTime}

@@ -71,7 +71,7 @@ function SkeletonCard() {
 // ─── DYNAMIC deal card — TripCard layout + urgency indicators ─────────────────
 
 function DynamicDealCard({ item }: { item: DealItem }) {
-  const href = `/trip/${item.tripId}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}#booking`
+  const href = `/trip/${item.tripId}?date=${encodeURIComponent(item.date)}&time=${encodeURIComponent(item.time)}&from=deals#booking`
   const slotLabel   = formatSlotBadge(item.date, item.time)
   const isVeryUrgent = item.hoursUntilDeparture <= 6
   const urgencyBg   = isVeryUrgent ? "bg-destructive text-white" : "bg-amber-500 text-white"
