@@ -156,7 +156,19 @@ export default function ItineraryAiPage() {
             <code className="font-mono">{"{{maxStopsPerDay}}"}</code>,{" "}
             <code className="font-mono">{"{{tripMenuLines}}"}</code>,{" "}
             <code className="font-mono">{"{{unavailableLines}}"}</code>,{" "}
-            <code className="font-mono">{"{{mealBreaksBlock}}"}</code>.
+            <code className="font-mono">{"{{mealBreaksBlock}}"}</code>,{" "}
+            <code className="font-mono">{"{{cityTravelMatrix}}"}</code>.
+          </p>
+          <p className="mb-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+            <strong>New planning rules baked into the default prompt:</strong> the model now reads each
+            trip&apos;s short description + tags to enforce time-of-day suitability (nightlife → 18:00+,
+            sunrise → before 10:00, outdoor → daylight), uses{" "}
+            <code className="font-mono">{"{{cityTravelMatrix}}"}</code> for realistic inter-city
+            travel gaps, and sequences trips along a one-direction geographic arc (no zig-zags).
+            If your saved prompt was edited before these rules existed, consider clicking <em>Reset to default</em>
+            in the revision history above — or paste the new rules into your custom prompt.
+            Overpacked carts (e.g. 5 trips with &quot;half-day&quot;) are now caught BEFORE the prompt
+            ever runs and returned to the visitor as a structured choice (full-day / multi-day / drop trips).
           </p>
           <textarea
             rows={18}

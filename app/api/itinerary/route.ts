@@ -376,7 +376,49 @@ export async function POST(req: Request) {
       }, { status: 409 })
     }
 
-    /* 3) Build a strict prompt with the REAL timeslot menus. */
+    /* 2c) Enrich bookable trips with description + tags + lat/lng-less city
+       hints from our DB. The sidebar only forwards id/title/city/duration/
+       category — but the AI plans much better when it can also see what
+       the trip IS (a nightlife crawl shouldn't be at 09:00, a sunrise
+       hike shouldn't be at 17:00). One round-trip for all ids. */
+    type TripEnrichment = {
+      shortDescription: string | null
+      tags: string[]
+      description: string | null
+    }
+    const enrichmentById = new Map<string, TripEnrichment>()
+    try {
+      const ids = bookable.map((b) => b.trip.id)
+      if (ids.length > 0) {
+        const enrichRes = await query<{
+          id: string
+          short_description: string | null
+          tags: string[] | null
+          description: string | null
+        }>(
+          `SELECT id, short_description, tags, description
+             FROM trips
+            WHERE id = ANY($1::text[])`,
+          [ids],
+        )
+        for (const row of enrichRes) {
+          enrichmentById.set(row.id, {
+            shortDescription: row.short_description,
+            tags: Array.isArray(row.tags) ? row.tags : [],
+            description: row.description,
+          })
+        }
+      }
+    } catch {
+      // Enrichment is purely additive — fall back to id/title/category if
+      // the trips table is unavailable for any reason.
+    }
+
+    /* 2d) Plan-conflict detection: do the cart trips even FIT in the
+       visitor's chosen duration window?  When they obviously don't (e.g.
+       5 trips with half-day selected), we refuse to silently drop trips
+       — instead we return a structured 422 the planner page can turn into
+       a chat prompt asking the visitor to extend / multi-day / drop. */
     const allSettings = await dbGetSettings()
     const settings = allSettings.plannerBehavior as Record<string, unknown>
     const itinerarySettings = (allSettings.itineraryBehavior ?? {}) as Record<string, unknown>
@@ -431,7 +473,10 @@ export async function POST(req: Request) {
     const visitDayName = DAYS[new Date(Date.UTC(vy, vm - 1, vd)).getUTCDay()]
     const visitPretty = `${visitDayName}, ${vd} ${MONTHS[vm - 1]} ${vy}`
 
-    // Strict per-trip menus. The model MUST pick `time` from these exact values.
+    // Strict per-trip menus. The model MUST pick `time` from these exact
+    // values. We also expose the short description + tags so the AI can
+    // detect time-of-day suitability (nightlife, sunrise, indoor wet-
+    // weather, kids-friendly, etc.) and proximity hints.
     const tripMenuLines = bookable.map((a, i) => {
       const slotLines = a.slots.map((s) =>
         `      • ${s.startTime}${s.endTime ? ` → ${s.endTime}` : ""}` +
@@ -439,10 +484,51 @@ export async function POST(req: Request) {
         `${s.spacesRemaining ? `  (${s.spacesRemaining} spaces)` : ""}`,
       ).join("\n")
       const dur = parseDurationMinutes(a.trip.duration, defaultActivityDuration)
+      const enrich = enrichmentById.get(a.trip.id)
+      // Short, AI-readable blurb. Trim long descriptions to keep prompt
+      // tokens lean — the AI only needs enough to classify type-of-day
+      // and rough vibe (e.g. "wine tasting", "nightlife", "river cruise").
+      const blurb = (enrich?.shortDescription ?? enrich?.description ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 240)
+      const tagLine = enrich?.tags?.length ? `   Tags: ${enrich.tags.slice(0, 8).join(", ")}\n` : ""
+      const blurbLine = blurb ? `   What it is: ${blurb}${blurb.length === 240 ? "…" : ""}\n` : ""
       return `${i + 1}. "${a.trip.title}" [${a.trip.id}] — ${a.trip.city || "Luxembourg"} — duration ${dur} min — category ${a.trip.category || "n/a"}
-    Available timeslots on ${visitDate}:
+${blurbLine}${tagLine}    Available timeslots on ${visitDate}:
 ${slotLines}`
     }).join("\n\n")
+
+    /* Geographic + time-of-day planning hints — derived from the cart so
+       the prompt has CONCRETE numbers, not just abstract "prefer nearby"
+       advice. Luxembourg distances are short; the matrix below covers the
+       common destinations our catalog actually ships to. */
+    const CITY_TRAVEL_MIN: Record<string, Record<string, number>> = {
+      "luxembourg city": { "luxembourg city": 10, esch: 25, vianden: 40, echternach: 30, mullerthal: 35, clervaux: 55, mondorf: 20, remich: 25, larochette: 25 },
+      esch: { esch: 10, "luxembourg city": 25, mondorf: 25, remich: 30 },
+      vianden: { vianden: 10, "luxembourg city": 40, clervaux: 30, echternach: 30 },
+      echternach: { echternach: 10, "luxembourg city": 30, mullerthal: 10, vianden: 30 },
+      mullerthal: { mullerthal: 10, "luxembourg city": 35, echternach: 10 },
+      clervaux: { clervaux: 10, "luxembourg city": 55, vianden: 30 },
+      mondorf: { mondorf: 10, "luxembourg city": 20, esch: 25, remich: 15 },
+      remich: { remich: 10, "luxembourg city": 25, mondorf: 15 },
+      larochette: { larochette: 10, "luxembourg city": 25 },
+    }
+    const normCity = (c?: string): string => (c || "luxembourg city").toLowerCase().replace(/\s+/g, " ").replace(/[^a-z\s-]/g, "").trim() || "luxembourg city"
+    const tripCities = Array.from(new Set(bookable.map((b) => normCity(b.trip.city))))
+    const travelMatrixLines: string[] = []
+    for (const a of tripCities) {
+      for (const b of tripCities) {
+        if (a >= b) continue // upper triangle only
+        const mins = CITY_TRAVEL_MIN[a]?.[b] ?? CITY_TRAVEL_MIN[b]?.[a]
+        if (typeof mins === "number") {
+          travelMatrixLines.push(`  • ${a} ↔ ${b}: ~${mins} min by ${travelMethodLabel}`)
+        }
+      }
+    }
+    const cityTravelMatrix = travelMatrixLines.length
+      ? `INTER-CITY TRAVEL TIMES (use these to compute realistic gaps between stops):\n${travelMatrixLines.join("\n")}\n  • Same city / same neighbourhood: ~10–15 min on foot or public transport`
+      : `All cart trips are in the same city — keep travel between stops to ~10–15 min on foot or public transport.`
 
     const unavailableLines = unavailableTrips.length
       ? `\n\nTRIPS WITHOUT AVAILABILITY ON ${visitDate} (DO NOT include in the itinerary):\n` +
@@ -480,6 +566,112 @@ ${coffeeRule}
 - CRITICAL: never pack two stops back-to-back through a lunch/dinner window without inserting a break — that is the #1 visitor complaint. If you cannot fit BOTH the meal and every cart trip on this date, prefer to drop one trip and KEEP THE MEAL, then explain the choice in the summary so the visitor can decide whether to accept it or pick a different date.`
       : '- Meal breaks disabled by admin — only insert if absolutely necessary.'
 
+    /* Plan-conflict detection (runs AFTER we know which trips are
+       bookable on the chosen date — no point flagging an overpack on
+       trips that already got filtered out). We estimate the total time
+       the visitor's cart needs vs the time their `duration` preference
+       allows. If it clearly doesn't fit AND they aren't in multi-day,
+       we surface a 422 with the structured options the planner page
+       turns into a chat question instead of silently dropping trips. */
+    const totalActivityMinutes = bookable.reduce(
+      (sum, b) => sum + parseDurationMinutes(b.trip.duration, defaultActivityDuration),
+      0,
+    )
+    const bufferMinutes = Math.max(0, bookable.length - 1) * bufferTimeBetweenStops
+    const expectedMealMinutes = (userMealBreaks.size > 0
+      ? Array.from(userMealBreaks.values()).reduce((s, m) => s + m.durationMinutes, 0)
+      : (autoInsertMealBreaks ? mealBreakDuration : 0))
+    // Average inter-city travel minutes for the trips actually in the cart.
+    let interCityTravelEst = 0
+    if (tripCities.length > 1) {
+      const pairCount = (tripCities.length * (tripCities.length - 1)) / 2
+      const totalPair = travelMatrixLines.reduce((s, line) => {
+        const m = line.match(/~(\d+) min/)
+        return s + (m ? Number(m[1]) : 30)
+      }, 0)
+      interCityTravelEst = pairCount > 0 ? Math.round(totalPair / pairCount) * Math.max(0, bookable.length - 1) : 0
+    } else {
+      interCityTravelEst = Math.max(0, bookable.length - 1) * 15
+    }
+    const estimatedTotalMinutes = totalActivityMinutes + bufferMinutes + expectedMealMinutes + interCityTravelEst
+
+    const parseHHMM = (s: string): number => {
+      const [h, m] = s.split(":").map(Number)
+      return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
+    }
+    const dayWindowMinutes = Math.max(60, parseHHMM(dayEndTime) - parseHHMM(dayStartTime))
+    let availableMinutes: number
+    if (isMultiDay) {
+      availableMinutes = dayWindowMinutes * prefs.dayCount
+    } else if (prefs.duration === "1-2h") {
+      availableMinutes = 120
+    } else if (prefs.duration === "half-day") {
+      availableMinutes = 300
+    } else {
+      // "full-day" or unset → full configured day window
+      availableMinutes = dayWindowMinutes
+    }
+
+    // Overshoot threshold: 15% slack to avoid annoying conflict prompts on
+    // borderline cases. The AI can usually squeeze borderline plans by
+    // picking tighter timeslots.
+    const overshootRatio = estimatedTotalMinutes / Math.max(1, availableMinutes)
+    const hasPlanConflict = !isMultiDay && bookable.length >= 2 && overshootRatio > 1.15
+
+    if (hasPlanConflict) {
+      const overshootMin = Math.max(15, estimatedTotalMinutes - availableMinutes)
+      const minDayCount = Math.max(2, Math.ceil(estimatedTotalMinutes / Math.max(1, dayWindowMinutes)))
+      const tripsSortedShortest = bookable
+        .map((b) => ({
+          id: b.trip.id,
+          title: b.trip.title,
+          minutes: parseDurationMinutes(b.trip.duration, defaultActivityDuration),
+        }))
+        .sort((a, b) => b.minutes - a.minutes)
+      // The 1–2 longest trips are the most likely "drop these to fit" suggestions.
+      const dropCandidates = tripsSortedShortest.slice(0, Math.min(2, bookable.length - 1))
+
+      return Response.json({
+        error: "PLAN_CONFLICT",
+        message:
+          `You've saved ${bookable.length} trips — roughly ${Math.round(estimatedTotalMinutes / 60 * 10) / 10}h of activity ` +
+          `with travel, buffers and meal breaks. That's about ${Math.round(overshootMin / 60 * 10) / 10}h more than a ` +
+          `${prefs.duration || "single-day"} plan can hold. Pick one of the options below and I'll rebuild for you.`,
+        visitDate,
+        conflict: {
+          reason: "TOO_MANY_TRIPS_FOR_DURATION",
+          tripCount: bookable.length,
+          estimatedMinutes: estimatedTotalMinutes,
+          availableMinutes,
+          currentDuration: prefs.duration || "full-day",
+          options: [
+            ...(prefs.duration !== "full-day" ? [{
+              id: "switch-fullday",
+              label: "Make it a full-day trip",
+              description: `Use the full ${dayStartTime}–${dayEndTime} window so all ${bookable.length} trips can fit.`,
+              action: "updateDuration" as const,
+              duration: "full-day",
+            }] : []),
+            {
+              id: "switch-multiday",
+              label: `Spread across ${minDayCount} days`,
+              description: `Plan ${bookable.length} trips over ${minDayCount} consecutive days starting ${visitDate}.`,
+              action: "updateDuration" as const,
+              duration: "multi-day",
+              dayCount: minDayCount,
+            },
+            {
+              id: "drop-trips",
+              label: "Drop the longest trips",
+              description: `Remove ${dropCandidates.map((d) => `"${d.title}"`).join(" and ")} from your cart to fit the ${prefs.duration || "single-day"} window.`,
+              action: "promptDrop" as const,
+              candidateTripIds: dropCandidates.map((d) => d.id),
+            },
+          ],
+        },
+      }, { status: 422 })
+    }
+
     const placeholders: Record<string, string> = {
       visitDate,
       visitPretty,
@@ -491,6 +683,7 @@ ${coffeeRule}
       tripMenuLines,
       unavailableLines,
       mealBreaksBlock,
+      cityTravelMatrix,
       visitorProfile: (() => {
         // Compact visitor profile that the prompt can read via {{visitorProfile}}.
         // Empty preference fields are omitted so the AI doesn't anchor on "unknown".
@@ -532,14 +725,26 @@ CART TRIPS WITH LIVE TIMESLOTS (from Palisis datesndeals/search.xml):
 DAY-PLAN RULE:
 {{tripDayPlanRule}}
 
+{{cityTravelMatrix}}
+
 HARD RULES — you MUST obey:
 1. For every step, the "time" field MUST be one of the listed timeslot start times for that trip — verbatim, HH:MM. Never invent a time.
 2. Copy the matching slot's end time into "endTime", its price (e.g. "€25.00") into "priceFrom", and "spacesRemaining" verbatim (may be "UNLIMITED").
-3. Sequence chosen slots so they DON'T overlap and the next start time is at least (previous activity duration + {{bufferTimeBetweenStops}} min buffer + realistic {{travelMethodLabel}} travel) after the previous start.
-4. Prefer geographic proximity when sequencing — same-city trips first, then adjacent areas.
-5. INCLUDE EVERY CART TRIP. Do not silently drop a trip just because slots are tight — push it into a later time of day, swap to a different available slot, or (in multi-day mode) move it to a different day. Only drop a trip as an absolute last resort, and if you do drop one you MUST name it in the summary together with the reason.
-6. NEVER include any trip from "TRIPS WITHOUT AVAILABILITY" — those have no real slots on this date.
-7. Set tripId exactly as given in brackets.
+3. Sequence chosen slots so they DON'T overlap and the next start time is at least (previous activity duration + {{bufferTimeBetweenStops}} min buffer + the inter-city travel from the matrix above) after the previous start. Use the matrix MINUTES, not guesses.
+4. GEOGRAPHIC SEQUENCING — minimise back-and-forth:
+   • Group same-city stops together. Never zig-zag (City → Vianden → City → Vianden).
+   • When the cart spans multiple cities, plan a one-direction arc: e.g. start in Luxembourg City → continue to Mullerthal → finish in Echternach (geographically adjacent).
+   • A round-trip out to Vianden / Clervaux / Mullerthal should anchor either the morning OR the afternoon — never split it across the day.
+5. TIME-OF-DAY SUITABILITY — read each trip's "What it is" blurb + Tags + Category and schedule accordingly:
+   • NIGHTLIFE / bar crawl / late-night tours → only schedule with a start time at or after 18:00.
+   • SUNRISE / early-morning hikes / breakfast tours → only before 10:00.
+   • DINNER cruises / evening cruises / sunset tours → start between 17:00 and 20:00.
+   • OUTDOOR hikes, walking tours, castle visits → daylight only — start no later than 16:00 in winter, 18:00 in summer.
+   • INDOOR museums, wine tastings, spa, escape rooms → flexible, good rain-day filler.
+   • If a trip's only available slot violates these rules, KEEP IT but flag the mismatch in the "summary" so the visitor can swap dates.
+6. INCLUDE EVERY CART TRIP that's bookable on this date. Do not silently drop a trip just because slots are tight — push it into a later time of day, swap to a different available slot, or (in multi-day mode) move it to a different day. Only drop a trip as an absolute last resort, and if you do drop one you MUST name it in the summary together with the reason.
+7. NEVER include any trip from "TRIPS WITHOUT AVAILABILITY" — those have no real slots on this date.
+8. Set tripId exactly as given in brackets.
 
 MEAL BREAKS:
 {{mealBreaksBlock}}

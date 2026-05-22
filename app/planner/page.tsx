@@ -9,7 +9,7 @@ import { TripCart } from "@/components/planner/trip-cart"
 import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
 import { SightseeingAlbum } from "@/components/chatgpt-widgets/sightseeing-album"
 import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
-import { SidebarItinerary, ItineraryPanel, type Itinerary } from "@/components/sidebar-itinerary"
+import { SidebarItinerary, ItineraryPanel, type Itinerary, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { weatherData, type Trip } from "@/lib/data"
 
@@ -978,6 +978,12 @@ export default function PlannerPage() {
   // Forward-declared so it can be referenced by callbacks above the
   // useChat declaration. Re-assigned right after useChat resolves.
   const lastAutoBuiltToolCallIdRef = useRef<string | null>(null)
+  /* Forward reference to useChat's `setMessages` so earlier handlers
+     (handleOpenOrRebuildFromChat, handleRegenerateItinerary) can push
+     truthful failure messages into the chat without forcing useChat —
+     and all its tool callbacks — to be declared above them. Assigned in
+     an effect just after useChat below. */
+  const setMessagesRef = useRef<((updater: (prev: PlannerMessage[]) => PlannerMessage[]) => void) | null>(null)
 
   /* Called from the "View Itinerary on Trip Canvas" button on the inline
      chat itinerary card. If we already have a real itinerary loaded for
@@ -1008,28 +1014,99 @@ export default function PlannerPage() {
     }))
     if (tripsForApi.length === 0) return
     setItineraryRegenerating(true)
+    const visitDate = prefsRef.current?.startDate || todayYMD()
+    /* T001: honesty-on-failure shared inline pusher. We don't reach for
+       the centralized handlePlanConflict/handleItineraryFailure handlers
+       here because they're declared later in the file and pulling them
+       up would force a wider refactor. The message shape is identical
+       to handleItineraryFailure / handlePlanConflict so the chat reads
+       consistently across all four build paths. */
+    const pushFailure = (msg: string, alternativeDates: AlternativeDate[] = []) => {
+      const lines: string[] = [msg]
+      if (alternativeDates.length > 0) {
+        const top = alternativeDates.slice(0, 3)
+          .map((a) => `${formatYMDPretty(a.date)} (${a.tripCount} of your trips open)`)
+          .join(", ")
+        lines.push(`Best alternative dates: ${top}. Want me to rebuild for one of these?`)
+      }
+      setMessagesRef.current?.((prev) => ([
+        ...prev,
+        { id: `itinerary-failed-${Date.now()}`, role: "assistant", parts: [{ type: "text", text: lines.join("\n\n") }] } as PlannerMessage,
+      ]))
+    }
+    const pushConflict = (msg: string, conflict: PlanConflictPayload["conflict"]) => {
+      const optionLines = conflict.options
+        .map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)
+        .join("\n")
+      const text = `${msg}\n\nOptions:\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
+      setMessagesRef.current?.((prev) => ([
+        ...prev,
+        { id: `plan-conflict-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
+      ]))
+    }
     try {
       const res = await fetch("/api/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           trips: tripsForApi,
-          startDate: prefsRef.current?.startDate || todayYMD(),
+          startDate: visitDate,
           preferences: prefsRef.current,
         }),
       })
-      if (!res.ok) return
-      const data = (await res.json()) as Itinerary
-      if (!data?.steps?.length) return
+      const data = await res.json().catch(() => null) as
+        | (Itinerary & { error?: string; message?: string; alternativeDates?: AlternativeDate[]; conflict?: PlanConflictPayload["conflict"] })
+        | null
+      if (!res.ok || !data) {
+        if (data?.error === "PLAN_CONFLICT" && data.conflict) {
+          pushConflict(data.message || "These trips don't fit your chosen duration.", data.conflict)
+        } else {
+          pushFailure(
+            data?.message || "Couldn't open the live itinerary — please try again.",
+            data?.alternativeDates || [],
+          )
+        }
+        return
+      }
+      if (!data?.steps?.length) {
+        pushFailure(data.message || "The plan came back empty for this date — try a different day.", data.alternativeDates || [])
+        return
+      }
       setCenterItinerary(data)
       handleOpenItinerary(data)
-    } catch { /* silent */ } finally {
+    } catch {
+      pushFailure("Network hiccup while opening your itinerary — please try again in a moment.")
+    } finally {
       setItineraryRegenerating(false)
     }
   }, [centerItinerary, items, handleOpenItinerary])
 
   const handleRegenerateItinerary = useCallback(async () => {
     setItineraryRegenerating(true)
+    const visitDate = prefs?.startDate || todayYMD()
+    const pushFailure = (msg: string, alternativeDates: AlternativeDate[] = []) => {
+      const lines: string[] = [msg]
+      if (alternativeDates.length > 0) {
+        const top = alternativeDates.slice(0, 3)
+          .map((a) => `${formatYMDPretty(a.date)} (${a.tripCount} of your trips open)`)
+          .join(", ")
+        lines.push(`Best alternative dates: ${top}. Want me to rebuild for one of these?`)
+      }
+      setMessagesRef.current?.((prev) => ([
+        ...prev,
+        { id: `itinerary-failed-${Date.now()}`, role: "assistant", parts: [{ type: "text", text: lines.join("\n\n") }] } as PlannerMessage,
+      ]))
+    }
+    const pushConflict = (msg: string, conflict: PlanConflictPayload["conflict"]) => {
+      const optionLines = conflict.options
+        .map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)
+        .join("\n")
+      const text = `${msg}\n\nOptions:\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
+      setMessagesRef.current?.((prev) => ([
+        ...prev,
+        { id: `plan-conflict-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
+      ]))
+    }
     try {
       const trips = items.map(i => ({
         id: i.trip.id,
@@ -1041,16 +1118,33 @@ export default function PlannerPage() {
       // Always re-read the latest prefs at call time — the dependency array
       // intentionally tracks `prefs` so onboarding changes flow through, but
       // this guards against any stale-closure edge case as well.
-      const visitDate = prefs?.startDate || todayYMD()
       const res = await fetch("/api/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trips, startDate: visitDate }),
+        body: JSON.stringify({ trips, startDate: visitDate, preferences: prefs ?? undefined }),
       })
-      if (!res.ok) throw new Error("Failed")
-      const data: Itinerary = await res.json()
+      const data = await res.json().catch(() => null) as
+        | (Itinerary & { error?: string; message?: string; alternativeDates?: AlternativeDate[]; conflict?: PlanConflictPayload["conflict"] })
+        | null
+      if (!res.ok || !data) {
+        if (data?.error === "PLAN_CONFLICT" && data.conflict) {
+          pushConflict(data.message || "These trips don't fit your chosen duration.", data.conflict)
+        } else {
+          pushFailure(
+            data?.message || "Couldn't rebuild the itinerary — please try again.",
+            data?.alternativeDates || [],
+          )
+        }
+        return
+      }
+      if (!data?.steps?.length) {
+        pushFailure(data.message || "The rebuild came back empty for this date — try a different day.", data.alternativeDates || [])
+        return
+      }
       setCenterItinerary(data)
-    } catch { /* silent */ } finally {
+    } catch {
+      pushFailure("Network hiccup while rebuilding your itinerary — please try again in a moment.")
+    } finally {
       setItineraryRegenerating(false)
     }
   }, [items, prefs])
@@ -1374,6 +1468,61 @@ export default function PlannerPage() {
     },
   })
 
+  // Keep the forward-ref in sync with useChat's setMessages so earlier
+  // handlers (handleOpenOrRebuildFromChat, handleRegenerateItinerary)
+  // can push truthful failure messages without ordering gymnastics.
+  useEffect(() => { setMessagesRef.current = (updater) => setMessages(updater) }, [setMessages])
+
+  /* Apply a prefs patch coming from the sidebar's plan-conflict buttons
+     ("Make it a full-day trip" / "Spread across N days"). We mirror the
+     same persist+propagate flow used by onboarding so the next /api/
+     itinerary request picks the new prefs up. */
+  const handleSidebarPrefsUpdate = useCallback((patch: Partial<SidebarPrefsView>) => {
+    setPrefs((prev) => {
+      if (!prev) return prev
+      const next: Preferences = { ...prev, ...patch } as Preferences
+      try { setCookie(PREFS_COOKIE, JSON.stringify(next)) } catch { /* cookie quota — ignore */ }
+      return next
+    })
+  }, [])
+
+  /* Echo a plan-conflict (overpacked cart) into chat so the conversation
+     mirrors what the visitor sees in the sidebar. We do NOT auto-apply
+     an option here — the user can click an option button in the sidebar
+     OR tell the AI which one they prefer. Declared above the auto-build
+     useEffect so the effect can reference it without a TDZ error. */
+  const handlePlanConflict = useCallback((payload: PlanConflictPayload) => {
+    const optionLines = payload.conflict.options
+      .map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)
+      .join("\n")
+    const text = `${payload.message}\n\nOptions:\n${optionLines}\n\nTap one in the sidebar, or tell me which you'd like.`
+    setMessages((prev) => ([
+      ...prev,
+      { id: `plan-conflict-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
+    ]))
+  }, [setMessages])
+
+  /* Echo a build failure (NO_AVAILABILITY etc.) into chat so the
+     assistant doesn't appear to ignore the error. Includes the top
+     suggested alternative dates so the visitor can act without
+     hunting in the sidebar. */
+  const handleItineraryFailure = useCallback((payload: ItineraryFailurePayload) => {
+    const lines: string[] = [payload.message]
+    if (payload.alternativeDates && payload.alternativeDates.length > 0) {
+      const top = payload.alternativeDates.slice(0, 3)
+        .map((a) => `${formatYMDPretty(a.date)} (${a.tripCount} of your trips open)`)
+        .join(", ")
+      lines.push(`Best alternative dates: ${top}. Want me to rebuild for one of these?`)
+    } else if (payload.unavailableTrips && payload.unavailableTrips.length > 0) {
+      const names = payload.unavailableTrips.slice(0, 2).map((u) => `"${u.title}"`).join(" and ")
+      lines.push(`Trips without slots on ${formatYMDPretty(payload.visitDate)}: ${names}.`)
+    }
+    setMessages((prev) => ([
+      ...prev,
+      { id: `itinerary-failed-${Date.now()}`, role: "assistant", parts: [{ type: "text", text: lines.join("\n\n") }] } as PlannerMessage,
+    ]))
+  }, [setMessages])
+
   /* ─── Auto-build the REAL itinerary when the AI calls buildItinerary ───
      The AI's buildItinerary tool only returns a lightweight sketch
      (titles + suggested times). The Trip Canvas needs the full plan
@@ -1419,22 +1568,55 @@ export default function PlannerPage() {
 
     const visitDate = prefsRef.current?.startDate || todayYMD()
     setItineraryRegenerating(true)
-    void fetch("/api/itinerary", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ trips: tripsForApi, startDate: visitDate, preferences: prefsRef.current }),
-    })
-      .then((r) => (r.ok ? (r.json() as Promise<Itinerary>) : null))
-      .then((data) => {
+    void (async () => {
+      try {
+        const r = await fetch("/api/itinerary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trips: tripsForApi, startDate: visitDate, preferences: prefsRef.current }),
+        })
+        const data = await r.json().catch(() => null) as
+          | (Itinerary & { error?: string; message?: string; conflict?: PlanConflictPayload["conflict"]; unavailableTrips?: ItineraryFailurePayload["unavailableTrips"]; alternativeDates?: ItineraryFailurePayload["alternativeDates"]; visitDate?: string })
+          | null
+        if (!r.ok || !data) {
+          // Auto-build failure: route through the same chat-failure path as
+          // the manual sidebar build so the assistant never appears to
+          // silently swallow a failed live build. (Architect review T001.)
+          if (data?.error === "PLAN_CONFLICT" && data.conflict) {
+            handlePlanConflict({
+              message: data.message || "These trips don't fit your chosen duration.",
+              visitDate: data.visitDate || visitDate,
+              conflict: data.conflict,
+            })
+          } else {
+            handleItineraryFailure({
+              message: data?.message || "Could not build the live itinerary for these trips on this date.",
+              error: data?.error || "ITINERARY_FAILED",
+              visitDate: data?.visitDate || visitDate,
+              unavailableTrips: data?.unavailableTrips || [],
+              alternativeDates: data?.alternativeDates || [],
+            })
+          }
+          return
+        }
         if (!data?.steps?.length) return
         setCenterItinerary(data)
         setCenterItineraryOpen(true)
         setCartOpen(true)
         setMapExpanded(true)
-      })
-      .catch(() => { /* silent — chat card still shows the sketch */ })
-      .finally(() => setItineraryRegenerating(false))
-  }, [messages, items, hydrated])
+      } catch {
+        handleItineraryFailure({
+          message: "Network hiccup while building your itinerary — please try again in a moment.",
+          error: "NETWORK_ERROR",
+          visitDate,
+          unavailableTrips: [],
+          alternativeDates: [],
+        })
+      } finally {
+        setItineraryRegenerating(false)
+      }
+    })()
+  }, [messages, items, hydrated, handlePlanConflict, handleItineraryFailure])
 
   /* Called by SidebarItinerary after a manual build succeeds. We push a
      synthetic assistant message into the chat so the conversation log
@@ -2375,6 +2557,9 @@ export default function PlannerPage() {
               existingItinerary={centerItinerary}
               cartFingerprint={cartFingerprint}
               prefs={prefs}
+              onUpdatePrefs={handleSidebarPrefsUpdate}
+              onPlanConflict={handlePlanConflict}
+              onItineraryFailure={handleItineraryFailure}
             />
           </div>
         </div>
@@ -2403,6 +2588,9 @@ export default function PlannerPage() {
                   existingItinerary={centerItinerary}
                   cartFingerprint={cartFingerprint}
                   prefs={prefs}
+                  onUpdatePrefs={handleSidebarPrefsUpdate}
+                  onPlanConflict={handlePlanConflict}
+                  onItineraryFailure={handleItineraryFailure}
                 />
               </div>
             </div>

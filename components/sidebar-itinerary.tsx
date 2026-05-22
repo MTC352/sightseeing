@@ -156,7 +156,7 @@ interface UnavailableTrip {
   suggestedDates?: string[]
 }
 
-interface AlternativeDate {
+export interface AlternativeDate {
   date: string       // YYYY-MM-DD
   tripCount: number  // how many cart trips have slots on this date
   totalTrips: number // total trips in the cart
@@ -273,6 +273,51 @@ interface SidebarItineraryProps {
    *  Rebuild affordance, and (c) render a "what changed" diff above
    *  the Rebuild button explaining WHY a rebuild is recommended. */
   prefs?: SidebarPrefsView | null
+  /** Apply a prefs patch (e.g. switch to full-day or multi-day) when the
+   *  user clicks one of the plan-conflict resolution buttons. The parent
+   *  is responsible for persisting (cookie) + propagating the change so
+   *  the next runGenerate picks the new prefs up. Trip removals are
+   *  handled directly via the cart context. */
+  onUpdatePrefs?: (patch: Partial<SidebarPrefsView>) => void
+  /** Surfaces a plan conflict (overpacked cart) to the parent so it can
+   *  push an assistant chat message echoing the question + options. */
+  onPlanConflict?: (payload: PlanConflictPayload) => void
+  /** Fired when the build fails (e.g. NO_AVAILABILITY) so the chat can
+   *  echo the failure honestly instead of cheerfully claiming "stops
+   *  now live". PLAN_CONFLICT failures are intentionally excluded —
+   *  they have their own onPlanConflict path. */
+  onItineraryFailure?: (payload: ItineraryFailurePayload) => void
+}
+
+/** Sidebar→parent payload for failed builds. The parent uses this to
+ *  push a truthful assistant chat message ("Couldn't build — try one
+ *  of these dates") instead of letting the failure die in the sidebar
+ *  banner where the chat history would still claim success. */
+export interface ItineraryFailurePayload {
+  message: string
+  error: string
+  visitDate: string
+  unavailableTrips: UnavailableTrip[]
+  alternativeDates: AlternativeDate[]
+}
+
+/** Server-side conflict payload (mirrors the shape in app/api/itinerary
+ *  /route.ts). When the cart cannot fit the visitor's chosen duration
+ *  we surface a structured question rather than silently dropping trips. */
+export interface PlanConflictPayload {
+  message: string
+  visitDate: string
+  conflict: {
+    reason: string
+    tripCount: number
+    estimatedMinutes: number
+    availableMinutes: number
+    currentDuration: string
+    options: Array<
+      | { id: string; label: string; description: string; action: "updateDuration"; duration: string; dayCount?: number }
+      | { id: string; label: string; description: string; action: "promptDrop"; candidateTripIds: string[] }
+    >
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -495,8 +540,8 @@ function diffPrefs(prev: SidebarPrefsView | undefined | null, next: SidebarPrefs
   return out
 }
 
-export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint, prefs }: SidebarItineraryProps) {
-  const { items } = useCart()
+export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint, prefs, onUpdatePrefs, onPlanConflict, onItineraryFailure }: SidebarItineraryProps) {
+  const { items, removeItem } = useCart()
   // Local itinerary takes precedence (just-generated), then fall back to the
   // parent's persisted copy so the View/Build button stays in sync even
   // after the component remounts (route change, hard refresh, etc.).
@@ -514,6 +559,10 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
     alternativeDates?: AlternativeDate[]
     visitDate?: string
     scanDays?: number
+    /** Set when the server returns 422 PLAN_CONFLICT — overpacked cart
+     *  vs the visitor's chosen duration. Renders the action buttons in
+     *  the error panel so the user can pick a resolution without typing. */
+    planConflict?: PlanConflictPayload["conflict"]
   } | null>(null)
 
   /* ─── Visit-date gating ─────────────────────────────────────────────────
@@ -585,14 +634,38 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
               ? "Live booking is not yet configured for this site."
               : "Could not generate itinerary. Please try again.")
         setError(msg)
-        // Capture structured suggestions so the user can pick a new date
-        // without having to retype it.
+        // PLAN_CONFLICT (422): the cart is overpacked for the visitor's
+        // chosen duration. Capture the structured options so we can render
+        // resolution buttons inline AND echo the question into the chat.
+        const conflictData = (data as unknown as { conflict?: PlanConflictPayload["conflict"] })?.conflict
+        const hasConflict = (data as unknown as { error?: string })?.error === "PLAN_CONFLICT" && !!conflictData
         setErrorPayload({
           unavailableTrips: data?.unavailableTrips,
           alternativeDates: data?.alternativeDates,
           visitDate: data?.visitDate,
           scanDays: data?.scanDays,
+          planConflict: hasConflict ? conflictData : undefined,
         })
+        if (hasConflict && conflictData) {
+          onPlanConflict?.({
+            message: msg,
+            visitDate: data?.visitDate ?? dateForRun,
+            conflict: conflictData,
+          })
+        } else {
+          // Non-conflict failure (NO_AVAILABILITY, TOURCMS error, etc.).
+          // Surface it to the chat so the assistant message reflects the
+          // truth instead of a stale "stops now live" claim — and so the
+          // user can act on the suggested alternative dates without
+          // hunting in the sidebar.
+          onItineraryFailure?.({
+            message: msg,
+            error: (data as unknown as { error?: string })?.error ?? "ITINERARY_FAILED",
+            visitDate: data?.visitDate ?? dateForRun,
+            unavailableTrips: data?.unavailableTrips ?? [],
+            alternativeDates: data?.alternativeDates ?? [],
+          })
+        }
         return
       }
       // Honour the minimum loader duration so the magical stages can play.
@@ -622,7 +695,19 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       // canvas state the user is now seeing.
       onItineraryBuilt?.(enriched)
     } catch {
-      setError("Could not generate itinerary. Please try again.")
+      const msg = "Could not generate itinerary. Please try again."
+      setError(msg)
+      // Network/parse exception path — still notify chat so the assistant
+      // doesn't appear to silently swallow a failed build. (Architect
+      // review: T001 must hold for thrown failures too, not just non-OK
+      // server responses.)
+      onItineraryFailure?.({
+        message: msg,
+        error: "NETWORK_ERROR",
+        visitDate: dateForRun,
+        unavailableTrips: [],
+        alternativeDates: [],
+      })
     } finally {
       setLoading(false)
       setLoadingDate("")
@@ -633,7 +718,7 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
     // rebuilding with the old prefs object and a stale fingerprint, which
     // makes the "Rebuild & View" affordance never converge after a meal-
     // window edit. (Caught in architect review.)
-  }, [items, onOpenItinerary, onItineraryBuilt, prefs])
+  }, [items, onOpenItinerary, onItineraryBuilt, onPlanConflict, onItineraryFailure, prefs])
 
   const handleBuildClick = useCallback(() => {
     const existing = readVisitDate()
@@ -741,6 +826,55 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
         <div className="mb-2 flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
           <p className="text-[10px] leading-snug text-destructive">{error}</p>
+        </div>
+      )}
+
+      {/* ── PLAN-CONFLICT RESOLUTION OPTIONS ─────────────────────────────
+          When the server returns 422 PLAN_CONFLICT (overpacked cart), we
+          surface its structured options here as click-to-apply buttons so
+          the visitor doesn't have to retype or open the onboarding modal.
+          Each click updates prefs (or removes a trip) — the user then
+          re-clicks Build to regenerate. */}
+      {errorPayload?.planConflict && (
+        <div className="mb-2 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-2">
+          <div className="mb-1.5 flex items-start gap-1.5">
+            <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
+            <span className="text-[10px] font-semibold text-primary">How would you like to fit them?</span>
+          </div>
+          <div className="space-y-1.5">
+            {errorPayload.planConflict.options.map((opt) => {
+              const handleClick = () => {
+                if (opt.action === "updateDuration") {
+                  onUpdatePrefs?.({
+                    duration: opt.duration,
+                    ...(typeof opt.dayCount === "number" ? { dayCount: opt.dayCount } : {}),
+                  })
+                  // Clear the conflict banner — user will see Build CTA again.
+                  setError("")
+                  setErrorPayload(null)
+                } else if (opt.action === "promptDrop") {
+                  // Remove the candidate trips from the cart. Cart drift +
+                  // conflict-clear means Build CTA reappears for a fresh run.
+                  for (const id of opt.candidateTripIds) {
+                    removeItem(id)
+                  }
+                  setError("")
+                  setErrorPayload(null)
+                }
+              }
+              return (
+                <button
+                  type="button"
+                  key={opt.id}
+                  onClick={handleClick}
+                  className="block w-full rounded-md border border-primary/30 bg-card px-2 py-1.5 text-left transition-colors hover:border-primary/60 hover:bg-primary/5"
+                >
+                  <div className="text-[11px] font-semibold text-foreground">{opt.label}</div>
+                  <div className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{opt.description}</div>
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
 
