@@ -253,55 +253,12 @@ export default function TripPlannerChatAdminPage() {
             </p>
           </div>
 
-          {/* Per-step enable/disable toggles. Disabling a step hides it
-              from the visitor wizard; the planner uses sensible defaults
-              for any skipped step so the AI still gets a complete
-              Preferences object. */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-3">
-              <h3 className="text-sm font-semibold text-foreground">Enable / disable steps</h3>
-              <p className="mt-0.5 text-[11px] text-muted-foreground/70">
-                Toggle which questions appear in the onboarding wizard. Disabled steps are skipped and fall back to a default
-                (solo group · no interests · any duration · any budget · today's date).
-              </p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {([
-                { key: "groups",    label: "Group type",  help: "First step — who's joining" },
-                { key: "interests", label: "Interests",   help: "Up to N tag tiles" },
-                { key: "durations", label: "Duration",    help: "Time available / multi-day" },
-                { key: "budgets",   label: "Budget",      help: "Casual / mid / premium" },
-                { key: "dates",     label: "Visit date",  help: "Today / tomorrow / pick date" },
-              ] as const).map((s) => {
-                const enabled = plannerForm.enabledSteps[s.key]
-                return (
-                  <label
-                    key={s.key}
-                    data-testid={`step-toggle-${s.key}`}
-                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
-                      enabled ? "border-primary/40 bg-primary/5" : "border-border bg-background opacity-70"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      data-testid={`step-toggle-${s.key}-input`}
-                      onChange={(e) => setPlannerForm((f) => ({
-                        ...f,
-                        enabledSteps: { ...f.enabledSteps, [s.key]: e.target.checked },
-                      }))}
-                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
-                    />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-foreground">{s.label}</div>
-                      <div className="text-[10px] text-muted-foreground/70">{s.help}</div>
-                    </div>
-                  </label>
-                )
-              })}
-            </div>
-          </div>
-
+          {/* Per-step enable/disable lives inline on each step's editor
+              card (toggle pill sits right before the Reset button).
+              Disabled steps are hidden from the visitor wizard; the
+              planner uses sensible defaults (solo group · no interests
+              · any duration · any budget · today's date) so the AI
+              still receives a complete Preferences object. */}
           <OptionListEditor
             title="Group types"
             help="Asked first. Family / Friends also trigger a party-size sub-step."
@@ -309,6 +266,9 @@ export default function TripPlannerChatAdminPage() {
             defaultOption={{ value: "new-group", label: "New group" }}
             onChange={(v) => setPlannerForm((f) => ({ ...f, groups: v }))}
             onReset={() => setPlannerForm((f) => ({ ...f, groups: DEFAULT_PLANNER_FORM.groups }))}
+            enabled={plannerForm.enabledSteps.groups}
+            onToggleEnabled={(on) => setPlannerForm((f) => ({ ...f, enabledSteps: { ...f.enabledSteps, groups: on } }))}
+            toggleTestId="step-toggle-groups"
           />
           <OptionListEditor
             title="Interests"
@@ -329,6 +289,9 @@ export default function TripPlannerChatAdminPage() {
             }}
             resetLabel="Load from trip tags"
             resetTestId="load-trip-tags"
+            enabled={plannerForm.enabledSteps.interests}
+            onToggleEnabled={(on) => setPlannerForm((f) => ({ ...f, enabledSteps: { ...f.enabledSteps, interests: on } }))}
+            toggleTestId="step-toggle-interests"
           />
 
           <div className="rounded-xl border border-border bg-card p-5">
@@ -357,6 +320,9 @@ export default function TripPlannerChatAdminPage() {
             defaultOption={{ value: "new-duration", label: "New duration" }}
             onChange={(v) => setPlannerForm((f) => ({ ...f, durations: v }))}
             onReset={() => setPlannerForm((f) => ({ ...f, durations: DEFAULT_PLANNER_FORM.durations }))}
+            enabled={plannerForm.enabledSteps.durations}
+            onToggleEnabled={(on) => setPlannerForm((f) => ({ ...f, enabledSteps: { ...f.enabledSteps, durations: on } }))}
+            toggleTestId="step-toggle-durations"
           />
           <OptionListEditor
             title="Budgets"
@@ -365,6 +331,9 @@ export default function TripPlannerChatAdminPage() {
             defaultOption={{ value: "new-budget", label: "New budget" }}
             onChange={(v) => setPlannerForm((f) => ({ ...f, budgets: v }))}
             onReset={() => setPlannerForm((f) => ({ ...f, budgets: DEFAULT_PLANNER_FORM.budgets }))}
+            enabled={plannerForm.enabledSteps.budgets}
+            onToggleEnabled={(on) => setPlannerForm((f) => ({ ...f, enabledSteps: { ...f.enabledSteps, budgets: on } }))}
+            toggleTestId="step-toggle-budgets"
           />
 
           <div className="rounded-xl border border-border bg-card p-5">
@@ -384,6 +353,26 @@ export default function TripPlannerChatAdminPage() {
             <p className="mt-1.5 text-[11px] text-muted-foreground/60">
               Caps the stepper shown after picking "Multi-day trip". Also enforced server-side when building itineraries.
             </p>
+          </div>
+
+          {/* Visit-date step has no editable option list (the 3 quick
+              choices + free date picker are hardcoded), so we expose
+              just an enable/disable pill in its own compact card. */}
+          <div className={`rounded-xl border bg-card p-5 transition-colors ${plannerForm.enabledSteps.dates ? "border-border" : "border-border opacity-60"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Visit date</h3>
+                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                  Final step — Today / Tomorrow / This weekend + free date picker. Skipping defaults to today.
+                </p>
+              </div>
+              <StepEnabledToggle
+                enabled={plannerForm.enabledSteps.dates}
+                onChange={(on) => setPlannerForm((f) => ({ ...f, enabledSteps: { ...f.enabledSteps, dates: on } }))}
+                testId="step-toggle-dates"
+                stepName="Visit date"
+              />
+            </div>
           </div>
         </section>
 
@@ -447,12 +436,47 @@ export default function TripPlannerChatAdminPage() {
   )
 }
 
+/* ─── Inline enable/disable pill used on each step's editor card.
+ *  Rendered as a small switch-style button; clicking flips the bool.
+ *  Carries both a wrapping testid (`{testId}`) and an inner input
+ *  testid (`{testId}-input`) so existing e2e tests that target
+ *  `step-toggle-{step}-input` keep working. */
+function StepEnabledToggle({
+  enabled, onChange, testId, stepName,
+}: { enabled: boolean; onChange: (next: boolean) => void; testId?: string; stepName?: string }) {
+  const a11yLabel = stepName
+    ? `${enabled ? "Disable" : "Enable"} the ${stepName} step in the onboarding wizard`
+    : enabled ? "Disable step" : "Enable step"
+  return (
+    <label
+      data-testid={testId}
+      title={enabled ? "Step is enabled — visitors will see this question" : "Step is disabled — visitors will skip this question"}
+      className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+        enabled
+          ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+          : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={enabled}
+        aria-label={a11yLabel}
+        data-testid={testId ? `${testId}-input` : undefined}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3 w-3 cursor-pointer accent-primary"
+      />
+      {enabled ? "Enabled" : "Disabled"}
+    </label>
+  )
+}
+
 /* ─── Option list editor (same as the version that used to live inside
  *  the Trip Chat page). Slugs are auto-normalised on blur so admins
  *  don't accidentally save spaces or upper-case that would break the
  *  server-side allow-list. */
 function OptionListEditor({
   title, help, options, defaultOption, onChange, onReset, resetLabel, resetTestId,
+  enabled, onToggleEnabled, toggleTestId, toggleStepName,
 }: {
   title: string
   help: string
@@ -462,6 +486,10 @@ function OptionListEditor({
   onReset: () => void
   resetLabel?: string
   resetTestId?: string
+  enabled?: boolean
+  onToggleEnabled?: (next: boolean) => void
+  toggleTestId?: string
+  toggleStepName?: string
 }) {
   function update(i: number, patch: Partial<Option>) {
     onChange(options.map((o, idx) => idx === i ? { ...o, ...patch } : o))
@@ -476,21 +504,32 @@ function OptionListEditor({
     return s.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
   }
 
+  const showToggle = typeof enabled === "boolean" && typeof onToggleEnabled === "function"
   return (
-    <div className="rounded-xl border border-border bg-card p-5">
+    <div className={`rounded-xl border bg-card p-5 transition-colors ${showToggle && !enabled ? "border-border opacity-60" : "border-border"}`}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground/70">{help}</p>
         </div>
-        <button
-          type="button"
-          onClick={onReset}
-          data-testid={resetTestId}
-          className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-        >
-          <RotateCcw className="h-3 w-3" /> {resetLabel ?? "Reset"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {showToggle && (
+            <StepEnabledToggle
+              enabled={enabled!}
+              onChange={onToggleEnabled!}
+              testId={toggleTestId}
+              stepName={toggleStepName ?? title}
+            />
+          )}
+          <button
+            type="button"
+            onClick={onReset}
+            data-testid={resetTestId}
+            className="flex items-center gap-1 rounded-md border border-border bg-secondary/40 px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <RotateCcw className="h-3 w-3" /> {resetLabel ?? "Reset"}
+          </button>
+        </div>
       </div>
       <div className="space-y-2">
         {options.map((opt, i) => (
