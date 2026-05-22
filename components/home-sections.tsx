@@ -4,28 +4,67 @@ import React from "react"
 
 import Link from "next/link"
 import { TripCard } from "./trip-card"
-import { tripSummaries as staticTrips, categories, reviews } from "@/lib/data"
+import { tripSummaries as staticTrips, categories, reviews, type Trip } from "@/lib/data"
 import { useGetPublicTripsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
 import { useRecentlyViewed } from "@/lib/use-recently-viewed"
 
+/** Shape of one trip in the /api/trips response. */
+interface ApiTrip {
+  id: string | number
+  title: string
+  price: number
+  originalPrice?: number
+  duration?: string | null
+  rating?: number
+  reviewCount?: number
+  category?: string
+  city?: string | null
+  description?: string | null
+  tags?: string[] | null
+  badge?: string | null
+  image?: string | null
+  featured?: boolean
+}
+
+/** Pull the trips array out of /api/trips' `{ meta, trips }` wrapper. */
+function extractApiTrips(data: unknown): ApiTrip[] {
+  if (!data) return []
+  if (Array.isArray(data)) return data as ApiTrip[]
+  const obj = data as { trips?: ApiTrip[] }
+  return Array.isArray(obj.trips) ? obj.trips : []
+}
+
+/** Convert one /api/trips row into the Trip shape TripCard expects. */
+function apiToTrip(t: ApiTrip): Trip {
+  return {
+    id: String(t.id),
+    title: t.title,
+    image: t.image || "/placeholder.svg",
+    price: Number(t.price ?? 0),
+    originalPrice: t.originalPrice != null ? Number(t.originalPrice) : undefined,
+    rating: Number(t.rating ?? 0),
+    reviewCount: Number(t.reviewCount ?? 0),
+    duration: t.duration ?? "",
+    category: t.category ?? "Tours",
+    tags: Array.isArray(t.tags) ? t.tags : [],
+    badge: t.badge ?? undefined,
+    city: t.city ?? undefined,
+  }
+}
+
 /**
- * Hook: returns ONLY trip summaries whose IDs are currently published in the
- * DB. Fail-closed: while the query is loading or errors, returns [] so we
- * never render archived/draft trips from the static seed.
+ * Hook: returns every published trip from the DB, already shaped for
+ * <TripCard />. Previously this intersected the API list with the
+ * static `tripSummaries` seed — but that seed is empty (lib/data.ts:83),
+ * so the intersection was always empty and homepage sections that used
+ * it rendered nothing. Now we build Trip objects directly from the API
+ * payload, which contains every field TripCard needs.
  */
-function usePublishedTrips(): typeof staticTrips {
+function usePublishedTrips(): Trip[] {
   const { data, isLoading, isError } = useGetPublicTripsQuery()
-  if (isLoading || isError || !data) return []
-  // /api/trips returns { trips: [{id, ...}] } — RTK fetchBaseQuery unwraps JSON,
-  // but the response shape is the full object, so look for either array or .trips.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const arr: Array<{ id: string | number }> = Array.isArray(data as any)
-    ? (data as any)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    : ((data as any)?.trips ?? [])
-  const publishedIds = new Set(arr.map((t) => String(t.id)))
-  return staticTrips.filter((t) => publishedIds.has(String(t.id)))
+  if (isLoading || isError) return []
+  return extractApiTrips(data).map(apiToTrip)
 }
 
 /**
@@ -37,14 +76,12 @@ function usePublishedTrips(): typeof staticTrips {
  */
 function useFeaturedTripIds(): Set<string> {
   const { data, isLoading, isError } = useGetPublicTripsQuery()
-  if (isLoading || isError || !data) return new Set()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const arr: Array<{ id: string | number; featured?: boolean }> = Array.isArray(data as any)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ? (data as any)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    : ((data as any)?.trips ?? [])
-  return new Set(arr.filter((t) => t.featured === true).map((t) => String(t.id)))
+  if (isLoading || isError) return new Set()
+  return new Set(
+    extractApiTrips(data)
+      .filter((t) => t.featured === true)
+      .map((t) => String(t.id))
+  )
 }
 import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
