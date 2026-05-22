@@ -13,10 +13,18 @@ export default async function AdminTripsPage() {
   const trips = await dbListTrips() as {
     id: string; palisis_id: string | null; title: string; city: string; category: string; price: number;
     originalPrice: number | null; image: string; featured: boolean;
-    featuredDeparture: boolean; status: string;
+    featuredDeparture: boolean; status: string; syncSource?: string | null;
   }[]
 
-  const palisisCount = trips.filter(t => t.id.startsWith("tcms_")).length
+  // A trip is "Palisis" if it came in via the TourCMS importer — either
+  // the row was tagged with `sync_source = 'palisis'`, or it has a
+  // populated `palisis_id` (older imports predated the marker column),
+  // or its id uses the modern `tcms_` prefix. Anything else is truly
+  // ad-hoc and counts as "Manual". We block manual creation server-side
+  // in app/api/admin/trips POST, so the manual count should be 0.
+  const isPalisis = (t: { id: string; palisis_id?: string | null; syncSource?: string | null }) =>
+    t.syncSource === "palisis" || !!t.palisis_id || t.id.startsWith("tcms_")
+  const palisisCount = trips.filter(isPalisis).length
   const manualCount  = trips.length - palisisCount
 
   return (
@@ -82,7 +90,7 @@ export default async function AdminTripsPage() {
                         <p className="truncate font-medium text-foreground max-w-[220px]">{trip.title}</p>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <p className="text-xs text-muted-foreground">{trip.city}</p>
-                          {trip.id.startsWith("tcms_") ? (
+                          {isPalisis(trip) ? (
                             <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-blue-500/12 text-blue-600 ring-1 ring-inset ring-blue-500/20">
                               Palisis
                             </span>
