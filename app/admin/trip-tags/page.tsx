@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Plus, Trash2, Save, Tag as TagIcon, Home } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Plus, Trash2, Save, Tag as TagIcon, Home, X } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
 
 interface TripTag {
@@ -14,17 +14,30 @@ interface TripTag {
   trip_count?: number
 }
 
+/** Mirror of the server-side slugify in `app/api/admin/trip-tags/route.ts`
+ *  so we can client-validate for duplicates before opening a roundtrip. */
+function slugify(s: string): string {
+  return s.toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
 export default function TripTagsPage() {
   const [tags, setTags] = useState<TripTag[]>([])
   const [loading, setLoading] = useState(true)
   const [savingSlug, setSavingSlug] = useState<string | null>(null)
-  const [newLabel, setNewLabel] = useState("")
-  const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Listing filter — when ON, hides every tag whose `show_on_homepage`
   // flag is false. Lives client-side; we already load the full catalog
   // from the API so toggling is instant and reset-safe.
   const [onlyHomepage, setOnlyHomepage] = useState(false)
+
+  // Create-tag modal state.
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newLabel, setNewLabel] = useState("")
+  const [newHomepage, setNewHomepage] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -67,29 +80,56 @@ export default function TripTagsPage() {
     setTags((prev) => prev.filter((t) => t.slug !== slug))
   }
 
+  function openCreate() {
+    setNewLabel("")
+    setNewHomepage(false)
+    setCreateError(null)
+    setCreateOpen(true)
+  }
+  function closeCreate() {
+    if (creating) return
+    setCreateOpen(false)
+    setCreateError(null)
+  }
+
+  // Live duplicate / validity preview tied to the modal's input.
+  const previewSlug = useMemo(() => slugify(newLabel), [newLabel])
+  const existingSlugs = useMemo(() => new Set(tags.map((t) => t.slug.toLowerCase())), [tags])
+  const existingLabels = useMemo(
+    () => new Set(tags.map((t) => t.label.trim().toLowerCase())),
+    [tags],
+  )
+  const trimmedLabel = newLabel.trim()
+  const isDuplicate =
+    Boolean(previewSlug) && (existingSlugs.has(previewSlug) || existingLabels.has(trimmedLabel.toLowerCase()))
+  const isInvalidSlug = Boolean(trimmedLabel) && !previewSlug // label entered but slugifies to empty
+  const canSubmit = Boolean(trimmedLabel) && !isDuplicate && !isInvalidSlug && !creating
+
   async function createTag(e: React.FormEvent) {
     e.preventDefault()
-    if (!newLabel.trim()) return
+    if (!canSubmit) return
     setCreating(true)
-    setError(null)
+    setCreateError(null)
     try {
-      // New tags are created with show_on_homepage = false; admins
-      // flip the flag from the per-row "Homepage" toggle in the table
-      // (and can then filter the listing via the "Show only homepage
-      // tags" pill above the table).
       const r = await fetch("/api/admin/trip-tags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: newLabel.trim(), show_on_homepage: false }),
+        body: JSON.stringify({ label: trimmedLabel, show_on_homepage: newHomepage }),
       })
       if (!r.ok) {
         const j = await r.json().catch(() => ({}))
+        // Server returns 409 when the slug already exists; surface it
+        // inline in the modal rather than as a toast so the admin can
+        // tweak the label without losing their input.
+        if (r.status === 409) {
+          throw new Error(`A tag with the slug "${previewSlug}" already exists.`)
+        }
         throw new Error(j?.error || "Create failed")
       }
-      setNewLabel("")
       await load()
+      setCreateOpen(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Create failed")
+      setCreateError(e instanceof Error ? e.message : "Create failed")
     } finally {
       setCreating(false)
     }
@@ -115,6 +155,14 @@ export default function TripTagsPage() {
             {tags.length} tags · {homepageCount} shown on homepage · {tags.filter((t) => (t.trip_count ?? 0) > 0).length} linked to at least one trip
           </p>
         </div>
+        <button
+          type="button"
+          onClick={openCreate}
+          data-testid="open-create-tag"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+        >
+          <Plus className="h-4 w-4" /> Add tag
+        </button>
       </div>
 
       {error && (
@@ -122,30 +170,6 @@ export default function TripTagsPage() {
           {error}
         </div>
       )}
-
-      {/* Create form */}
-      <form
-        onSubmit={createTag}
-        className="mb-6 flex flex-wrap items-end gap-2 rounded-xl border border-border bg-card p-4"
-      >
-        <div className="flex-1 min-w-[200px]">
-          <label className="mb-1 block text-xs font-semibold text-muted-foreground">New tag label</label>
-          <input
-            type="text"
-            value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)}
-            placeholder="e.g. Wine tasting"
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={creating || !newLabel.trim()}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" /> Add
-        </button>
-      </form>
 
       {/* Listing filters */}
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -267,6 +291,123 @@ export default function TripTagsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Create-tag modal */}
+      {createOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-tag-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={closeCreate}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="create-tag-modal"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 id="create-tag-title" className="text-lg font-semibold text-foreground">Add a new tag</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  The slug is derived automatically from the label. Duplicates aren't allowed.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCreate}
+                aria-label="Close"
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={createTag} className="space-y-4">
+              <div>
+                <label htmlFor="new-tag-label" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                  Tag label
+                </label>
+                <input
+                  id="new-tag-label"
+                  type="text"
+                  autoFocus
+                  value={newLabel}
+                  onChange={(e) => { setNewLabel(e.target.value); setCreateError(null) }}
+                  placeholder="e.g. Wine tasting"
+                  data-testid="new-tag-label"
+                  className={`w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none ${
+                    isDuplicate || isInvalidSlug
+                      ? "border-destructive focus:border-destructive"
+                      : "border-border focus:border-primary"
+                  }`}
+                />
+                <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                  <span className="text-muted-foreground">
+                    Slug preview:{" "}
+                    <code className="font-mono text-foreground">{previewSlug || "—"}</code>
+                  </span>
+                  {isDuplicate && (
+                    <span data-testid="new-tag-duplicate" className="font-medium text-destructive">
+                      Already exists
+                    </span>
+                  )}
+                  {!isDuplicate && isInvalidSlug && (
+                    <span className="font-medium text-destructive">
+                      Label must contain letters or digits
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-background/60 p-3 text-sm hover:bg-secondary/30">
+                <input
+                  type="checkbox"
+                  checked={newHomepage}
+                  onChange={(e) => setNewHomepage(e.target.checked)}
+                  data-testid="new-tag-homepage"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                />
+                <span>
+                  <span className="font-medium text-foreground">Show on homepage</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    Adds the tag to the "Currently Trending Categories" grid on the homepage.
+                  </span>
+                </span>
+              </label>
+
+              {createError && (
+                <div
+                  data-testid="new-tag-error"
+                  className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                >
+                  {createError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeCreate}
+                  disabled={creating}
+                  className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!canSubmit}
+                  data-testid="submit-new-tag"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  {creating ? "Creating…" : "Add tag"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
