@@ -886,19 +886,6 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.featured ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
               </div>
-              <div>
-                <label className={labelClass}>Show in Departures {!can("featuredDeparture") && <ReadOnlyBadge />}</label>
-                <button
-                  type="button"
-                  disabled={!can("featuredDeparture")}
-                  onClick={() => can("featuredDeparture") && set("featuredDeparture", !form.featuredDeparture)}
-                  className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${form.featuredDeparture ? "bg-primary" : "bg-border"}`}
-                  role="switch"
-                  aria-checked={form.featuredDeparture}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.featuredDeparture ? "translate-x-6" : "translate-x-1"}`} />
-                </button>
-              </div>
             </div>
           </div>
         </section>

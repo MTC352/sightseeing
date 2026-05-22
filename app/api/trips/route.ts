@@ -22,6 +22,10 @@ type TripRow = {
   tags?: string[] | null
   badge?: string | null
   image?: string | null
+  /** Admin-controlled flag that drives the homepage "Trending this month"
+   *  section. Forwarded in the public payload so the client can filter
+   *  without making a second admin API call. */
+  featured?: boolean | null
 }
 
 /**
@@ -50,6 +54,7 @@ export async function GET(request: NextRequest) {
     tags: Array.isArray(r.tags) ? r.tags : [],
     badge: r.badge ?? null,
     image: r.image ?? "/placeholder.svg",
+    featured: Boolean(r.featured),
   }))
 
   /* Filters */
@@ -114,6 +119,7 @@ export async function GET(request: NextRequest) {
       tags: t.tags,
       badge: t.badge,
       image: t.image.startsWith("/") ? `${BASE}${t.image}` : t.image,
+      featured: t.featured,
     })),
   }
 

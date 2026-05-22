@@ -27,6 +27,25 @@ function usePublishedTrips(): typeof staticTrips {
   const publishedIds = new Set(arr.map((t) => String(t.id)))
   return staticTrips.filter((t) => publishedIds.has(String(t.id)))
 }
+
+/**
+ * Hook: returns the set of trip IDs flagged `featured` in the DB. The
+ * homepage "Trending this month" section uses this so the admin's
+ * Featured toggle on /admin/trips actually drives what shows up there
+ * (previously it filtered by the static "popular" tag, which the admin
+ * couldn't control, so toggling Featured had no visible effect).
+ */
+function useFeaturedTripIds(): Set<string> {
+  const { data, isLoading, isError } = useGetPublicTripsQuery()
+  if (isLoading || isError || !data) return new Set()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const arr: Array<{ id: string | number; featured?: boolean }> = Array.isArray(data as any)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? (data as any)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    : ((data as any)?.trips ?? [])
+  return new Set(arr.filter((t) => t.featured === true).map((t) => String(t.id)))
+}
 import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
@@ -40,7 +59,16 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
 /* Trending Section */
 export function TrendingSection() {
   const trips = usePublishedTrips()
-  const trending = trips.filter((t) => t.tags.includes("popular")).slice(0, 3)
+  const featuredIds = useFeaturedTripIds()
+  // Trending now reflects the admin's Featured toggle on /admin/trips
+  // (DB `trips.featured`) instead of the static "popular" tag, which
+  // wasn't user-editable. Fallback to the legacy "popular" tag only
+  // when nothing is featured yet, so the section is never empty on a
+  // fresh install.
+  const trending = (featuredIds.size > 0
+    ? trips.filter((t) => featuredIds.has(String(t.id)))
+    : trips.filter((t) => t.tags.includes("popular"))
+  ).slice(0, 3)
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="flex items-center justify-between">
