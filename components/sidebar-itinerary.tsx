@@ -575,12 +575,21 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
   const [showDatePrompt, setShowDatePrompt] = useState(false)
   const [pendingDate, setPendingDate] = useState<string>("")
 
-  // Read date from cookie on mount AND whenever the cart contents change
-  // (the user may have completed onboarding in the chat panel after opening
-  // the cart, and we want the date to flow through without a full refresh).
+  // Refresh `visitDate` whenever:
+  //  • the cart contents change (the visitor may have completed onboarding
+  //    in the chat after opening the cart),
+  //  • the parent's `prefs.startDate` changes (the chat AI may have called
+  //    `updatePreferences({startDate: …})` mid-conversation — in that case
+  //    the cookie is rewritten but the cart hasn't moved, so without this
+  //    dependency the "Planned for {date}" copy would stay stale).
+  // Prefer the parent-supplied prop value when present so we don't briefly
+  // flash the old cookie value during the cookie-rewrite round trip.
   useEffect(() => {
-    setVisitDate(readVisitDate())
-  }, [items.length])
+    const fromProp = prefs?.startDate && /^\d{4}-\d{2}-\d{2}$/.test(prefs.startDate)
+      ? prefs.startDate
+      : null
+    setVisitDate(fromProp ?? readVisitDate())
+  }, [items.length, prefs?.startDate])
 
   const runGenerate = useCallback(async (dateForRun: string) => {
     setLoading(true)
@@ -761,8 +770,14 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
     writeVisitDate(dateValue)
     setVisitDate(dateValue)
     setShowDatePrompt(false)
+    // Propagate the user's explicit sidebar date choice up to parent
+    // prefs. Without this, the visitDate effect (which now prefers
+    // `prefs?.startDate` over the cookie) would overwrite this chosen
+    // date back to the stale parent prefs value on the next render
+    // — regressing the "user picks date in sidebar" flow.
+    onUpdatePrefs?.({ startDate: dateValue })
     void runGenerate(dateValue)
-  }, [runGenerate])
+  }, [runGenerate, onUpdatePrefs])
 
   if (items.length < 2) return null
 

@@ -978,6 +978,20 @@ export default function PlannerPage() {
   // Forward-declared so it can be referenced by callbacks above the
   // useChat declaration. Re-assigned right after useChat resolves.
   const lastAutoBuiltToolCallIdRef = useRef<string | null>(null)
+  /* Synchronous lock — set the instant a tool-buildItinerary effect run
+     begins its async work, cleared in the finally. Without this lock,
+     every intermediate state change inside the async chain (addItem
+     calls updating `items`, setItineraryRegenerating, etc.) re-triggers
+     the effect, which then passes the `lastAutoBuiltToolCallIdRef`
+     guard (still null until success) and spawns ANOTHER concurrent
+     async flight for the same toolCallId. With ~10 trips and ~7
+     state-change retriggers, a single chat plan can end up calling
+     addItem 70+ times, multiplying cart quantities to absurd values
+     (visitor reported "21 counts on multiple trips"). The completed-
+     build ref is the long-lived "we already finished this plan" lock;
+     this ref is the short-lived "an async run is currently in flight
+     for this toolCallId" lock. */
+  const inFlightAutoBuildToolCallIdRef = useRef<string | null>(null)
   /* Composite-key marker for preflight NEEDS_DECISION outcomes. The
      simple toolCallId-only marker above can't distinguish "already
      built successfully" from "already preflighted and waiting for the
@@ -1632,6 +1646,13 @@ export default function PlannerPage() {
     }
     if (!latest) return
     if (lastAutoBuiltToolCallIdRef.current === latest.toolCallId) return
+    /* Concurrency guard — if a previous render already started the
+       async chain for this exact toolCallId, do nothing. The async run
+       will flip lastAutoBuiltToolCallIdRef on success or clear the
+       in-flight ref on failure, and the resulting render will hit the
+       correct branch above. Without this guard, addItem calls inside
+       the chain re-fire the effect mid-flight and we'd double-build. */
+    if (inFlightAutoBuildToolCallIdRef.current === latest.toolCallId) return
     /* Compute a composite fingerprint so a preflight NEEDS_DECISION
        outcome doesn't permanently block rebuilds for this toolCallId.
        When the visitor resolves the conflict (changes prefs, drops a
@@ -1674,6 +1695,10 @@ export default function PlannerPage() {
 
     // Use the live `prefs` state (in deps) — see prefsFp comment above.
     const visitDate = prefs?.startDate || todayYMD()
+    // Claim the in-flight slot synchronously, BEFORE any state change
+    // (setItineraryRegenerating triggers a render → effect re-run).
+    // Cleared in the finally block below.
+    inFlightAutoBuildToolCallIdRef.current = latest.toolCallId
     setItineraryRegenerating(true)
     void (async () => {
       try {
@@ -1773,11 +1798,27 @@ export default function PlannerPage() {
         // close itself. Adding them also makes the linkage explicit:
         // chat-planned trips show up in My Trip just like cart-built ones,
         // and removing them from the cart cleanly clears the itinerary.
-        const cartIds = new Set(items.map((i) => i.trip.id))
+        // Dedupe across this single loop run AND against the current
+        // cart. (`isInCart` uses the cart-context's live `items`, so it
+        // also catches trips the user manually added between effect
+        // start and this point.) The in-flight ref guarantees this loop
+        // doesn't run twice for the same toolCallId, so quantities can
+        // no longer multiply per chat plan.
+        const addedThisRun = new Set<string>()
         for (const step of data.steps) {
-          if (!step.tripId || cartIds.has(step.tripId)) continue
+          if (!step.tripId) continue
+          if (addedThisRun.has(step.tripId)) continue
+          // Read LIVE cart state from the ref — not the closure-captured
+          // `items` or `isInCart` — so manual cart additions made during
+          // the preflight + real-build awaits aren't re-added (which
+          // would bump quantity to 2).
+          const inCartLive = cartItemsRef.current.some((i) => i.trip.id === step.tripId)
+          if (inCartLive) continue
           const trip = allTripsRef.current.find((t) => t.id === step.tripId)
-          if (trip) addItem(trip)
+          if (trip) {
+            addItem(trip)
+            addedThisRun.add(step.tripId)
+          }
         }
         setCenterItinerary(data)
         setCenterItineraryOpen(true)
@@ -1861,6 +1902,14 @@ export default function PlannerPage() {
         })
       } finally {
         setItineraryRegenerating(false)
+        /* Release the in-flight slot. If we set lastAutoBuiltToolCallIdRef
+           on success, the longer-lived guard above takes over and the
+           effect still won't re-build. If we hit a failure/preflight-
+           needs-decision path, releasing the slot lets a later prefs/
+           cart change re-enter and try again. */
+        if (inFlightAutoBuildToolCallIdRef.current === latest!.toolCallId) {
+          inFlightAutoBuildToolCallIdRef.current = null
+        }
       }
     })()
     // `prefs` is in deps so that when the visitor resolves a preflight
@@ -2101,6 +2150,12 @@ export default function PlannerPage() {
   // Same staleness issue for the DB-hydrated catalog — mirror it into a ref.
   const allTripsRef = useRef<Trip[]>(staticTripsFallback)
   useEffect(() => { allTripsRef.current = allTrips }, [allTrips])
+  /* Live cart-items ref. Read inside async chains (auto-build loop) so
+     we see manual cart additions that happened DURING the awaits —
+     `isInCart` and `items` captured at effect-render time would miss
+     those and re-add via `addItem`, which would bump quantity to 2. */
+  const cartItemsRef = useRef(items)
+  useEffect(() => { cartItemsRef.current = items }, [items])
   // Latest prefs snapshot — read synchronously by the updatePreferences
   // tool handler so the merged value it returns to the model is never
   // stale (React state updates are async, but the tool-loop fires the
