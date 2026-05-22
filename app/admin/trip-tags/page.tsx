@@ -19,7 +19,6 @@ export default function TripTagsPage() {
   const [loading, setLoading] = useState(true)
   const [savingSlug, setSavingSlug] = useState<string | null>(null)
   const [newLabel, setNewLabel] = useState("")
-  const [newHomepage, setNewHomepage] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Listing filter — when ON, hides every tag whose `show_on_homepage`
@@ -74,17 +73,20 @@ export default function TripTagsPage() {
     setCreating(true)
     setError(null)
     try {
+      // New tags are created with show_on_homepage = false; admins
+      // flip the flag from the per-row "Homepage" toggle in the table
+      // (and can then filter the listing via the "Show only homepage
+      // tags" pill above the table).
       const r = await fetch("/api/admin/trip-tags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: newLabel.trim(), show_on_homepage: newHomepage }),
+        body: JSON.stringify({ label: newLabel.trim(), show_on_homepage: false }),
       })
       if (!r.ok) {
         const j = await r.json().catch(() => ({}))
         throw new Error(j?.error || "Create failed")
       }
       setNewLabel("")
-      setNewHomepage(false)
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Create failed")
@@ -136,15 +138,6 @@ export default function TripTagsPage() {
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm text-foreground">
-          <input
-            type="checkbox"
-            checked={newHomepage}
-            onChange={(e) => setNewHomepage(e.target.checked)}
-            className="h-4 w-4 rounded border-border"
-          />
-          Show on homepage
-        </label>
         <button
           type="submit"
           disabled={creating || !newLabel.trim()}
