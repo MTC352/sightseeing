@@ -1543,8 +1543,30 @@ export default function PlannerPage() {
                     msg.parts.forEach((part, idx) => {
                       switch (part.type) {
                         case "text": {
-                          const clean = part.text.replace(/^#{1,3}\s+/gm, "").replace(/\*\*(.*?)\*\*/g, "$1").replace(/!\[.*?\]\(.*?\)/g, "").replace(/^[-*]\s+/gm, "").trim()
-                          if (clean) textParts.push(<p key={idx} className="whitespace-pre-wrap">{clean}</p>)
+                          // Strip headings, images, and bullet markers but
+                          // KEEP `**bold**` — we render it as <strong> so
+                          // the AI can highlight trip names, dates, and
+                          // prices (per system-prompt rule 5).
+                          const clean = part.text
+                            .replace(/^#{1,3}\s+/gm, "")
+                            .replace(/!\[.*?\]\(.*?\)/g, "")
+                            .replace(/^[-*]\s+/gm, "")
+                            .trim()
+                          if (clean) {
+                            // Split on `**…**` and wrap matches in <strong>.
+                            // Odd-indexed pieces are the bold captures
+                            // produced by the alternating split below.
+                            const segments = clean.split(/\*\*([^*]+)\*\*/g)
+                            textParts.push(
+                              <p key={idx} className="whitespace-pre-wrap">
+                                {segments.map((seg, si) =>
+                                  si % 2 === 1
+                                    ? <strong key={si} className="font-semibold text-foreground">{seg}</strong>
+                                    : <React.Fragment key={si}>{seg}</React.Fragment>
+                                )}
+                              </p>
+                            )
+                          }
                           break
                         }
                         case "tool-searchTrips": {
