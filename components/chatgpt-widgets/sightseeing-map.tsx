@@ -4,7 +4,6 @@ import { useRef, useEffect, useState, useCallback } from "react"
 import Image from "next/image"
 import { Star, Clock, X, Maximize2 } from "lucide-react"
 import type { Trip } from "@/lib/data"
-import { photoSpots, type PhotoSpot } from "@/lib/data"
 
 const CITY_COORDS: Record<string, [number, number]> = {
   "Luxembourg":        [6.1319, 49.6117],
@@ -40,15 +39,6 @@ function tripToCoords(trip: Trip, index: number): [number, number] {
 
 const LUX_CENTER: [number, number] = [6.13, 49.61]
 
-const CAMERA_SVG = [
-  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"',
-  ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"',
-  ' stroke-linejoin="round">',
-  '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>',
-  '<circle cx="12" cy="13" r="3"/>',
-  "</svg>",
-].join("")
-
 interface SightseeingMapProps {
   trips: Trip[]
   onSelect?: (trip: Trip) => void
@@ -70,14 +60,11 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
   const mapRef = useRef<any>(null)
   const mapboxRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
-  const photoMarkersRef = useRef<any[]>([])
   const itineraryMarkersRef = useRef<any[]>([])
   const tokenRef = useRef<string>("")
   const itineraryMode = !!(itineraryTrips && itineraryTrips.length > 0)
 
   const [selected, setSelected] = useState<Trip | null>(null)
-  const [selectedSpot, setSelectedSpot] = useState<PhotoSpot | null>(null)
-  const [showPhotoSpots, setShowPhotoSpots] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [mapReady, setMapReady] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
@@ -133,8 +120,6 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
       cancelled = true
       markersRef.current.forEach((m) => m.remove())
       markersRef.current = []
-      photoMarkersRef.current.forEach((m) => m.remove())
-      photoMarkersRef.current = []
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
       setMapReady(false)
     }
@@ -170,7 +155,6 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
       el.innerHTML = `<span class="sightseeing-map-pin-label">${trip.price > 0 ? trip.price.toFixed(0) + "\u20AC" : "Free"}</span>`
       el.addEventListener("click", () => {
         setSelected((prev) => (prev?.id === trip.id ? null : trip))
-        setSelectedSpot(null)
       })
       newMarkers.push(new mapboxgl.Marker({ element: el, anchor: "bottom" }).setLngLat([lng, lat]).addTo(map))
     })
@@ -219,7 +203,6 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
       el.innerHTML = `<span>${i + 1}</span>`
       el.addEventListener("click", () => {
         setSelected((prev) => (prev?.id === trip.id ? null : trip))
-        setSelectedSpot(null)
       })
       const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
         .setLngLat([lng, lat])
@@ -292,36 +275,6 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     }
   }, [itineraryTrips, mapReady])
 
-  // Sync photo spot markers
-  useEffect(() => {
-    const map = mapRef.current
-    const mapboxgl = mapboxRef.current
-    if (!map || !mapboxgl || !mapReady) return
-
-    photoMarkersRef.current.forEach((m) => m.remove())
-    photoMarkersRef.current = []
-
-    if (!showPhotoSpots || trips.length === 0) return
-
-    photoSpots.forEach((spot) => {
-      const el = document.createElement("button")
-      el.className = "sightseeing-photo-pin"
-      el.setAttribute("aria-label", spot.name)
-      el.innerHTML = CAMERA_SVG
-      el.addEventListener("click", () => {
-        setSelectedSpot((prev) => (prev?.id === spot.id ? null : spot))
-        setSelected(null)
-      })
-      const marker = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(spot.coords).addTo(map)
-      photoMarkersRef.current.push(marker)
-    })
-
-    return () => {
-      photoMarkersRef.current.forEach((m) => m.remove())
-      photoMarkersRef.current = []
-    }
-  }, [trips, mapReady, showPhotoSpots])
-
   // Resize whenever the panel becomes visible or goes fullscreen. We
   // deliberately do NOT re-fit camera here — that's owned by the marker
   // effect above and re-running it on every visibility flip caused the
@@ -343,19 +296,7 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
 
       {/* Controls header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setShowPhotoSpots(!showPhotoSpots)}
-            className={`flex h-7 items-center gap-1 rounded-full border px-2 text-[10px] font-medium transition-colors ${
-              showPhotoSpots
-                ? "border-amber-400/50 bg-amber-50 text-amber-700"
-                : "border-border text-muted-foreground hover:bg-secondary"
-            }`}
-          >
-            <span dangerouslySetInnerHTML={{ __html: CAMERA_SVG }} />
-            Photo spots
-          </button>
+        <div className="ml-auto flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => setIsFullscreen(!isFullscreen)}
@@ -391,28 +332,6 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
           </div>
         )}
       </div>
-
-      {/* Photo spot popup */}
-      {selectedSpot && (
-        <div className="border-t border-border p-3">
-          <div className="flex items-start gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-              <span dangerouslySetInnerHTML={{ __html: CAMERA_SVG }} />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-foreground">{selectedSpot.name}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{selectedSpot.description}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedSpot(null)}
-              className="rounded p-1 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Trip popup */}
       {selected && (
