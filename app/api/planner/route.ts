@@ -171,11 +171,14 @@ const searchTripsTool = tool({
       .array(z.string())
       .optional()
       .describe("Tags to filter: food, outdoor, indoor, culture, sport, night, family, popular, romantic"),
-    maxResults: z.number().optional().describe("Max results, default 6"),
+    maxResults: z.number().optional().describe("Max results. Omit (or pass a large number like 50) to return ALL matching trips — the planner UI scrolls and we want every relevant match shown, not a fixed top-N slice."),
   }),
   execute: async ({ query, tags, maxResults }) => {
     const wx = _liveWeather.wx
-    const limit = maxResults ?? 6
+    // No artificial cap — the catalog is only ~60 published trips and the
+    // /planner "Recommended for you" panel scrolls. Returning every match
+    // lets the visitor see all trips that genuinely fit their tags.
+    const limit = maxResults ?? 100
     const lower = query.toLowerCase()
     const catalog = await loadTripCatalog()
     let results: RichTrip[] = [...catalog]
@@ -831,7 +834,7 @@ export async function POST(req: Request) {
       "   - If rainy: alertType \"rainy\", suggest indoor/culture activities",
       "   - If sunny: alertType \"sunny\", encourage outdoor adventures",
       "   - If cloudy: alertType \"cloudy\", suggest a mix",
-      "   Then call searchTrips with tags [" + defaultTags + "] and maxResults 8.",
+      "   Then call searchTrips with tags [" + defaultTags + "] — do NOT pass maxResults so EVERY matching trip is returned. The Trip Canvas panel scrolls.",
       "3. After calling searchTrips, reply with ONE short line (≤ 20 words) referencing the Trip Canvas + one nudge or question. Never recap the list.",
       "4. NEVER list trip names, prices, descriptions, or travel times in chat. The Trip Canvas (Map + Recommended / Day Itinerary) handles that.",
       "5. No markdown formatting. No bullet points or numbered lists in chat replies.",

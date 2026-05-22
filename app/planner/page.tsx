@@ -1185,14 +1185,23 @@ export default function PlannerPage() {
     return found
   }, [messages, allTrips])
 
-  /* Client-side fallback trips */
+  /* Client-side fallback trips — score every trip against the visitor's
+     interests/budget/weather and return ALL trips that match at least
+     one interest (i.e. their tag list intersects with the picked
+     interests). The previous hard `slice(0, 8)` was capping the grid
+     regardless of how many real matches existed, which made the panel
+     look static. When the visitor has no interests yet, callers render
+     the empty-state instead so the no-match fallback only kicks in if
+     they DID pick interests but nothing in the catalog matched. */
   const fallbackTrips = useMemo(() => {
     if (!prefs) return []
     const wxCond = deriveWx()
+    const hasInterests = prefs.interests.length > 0
     const scored = allTrips.map((t) => {
       let score = 0
+      let interestHits = 0
       for (const interest of prefs.interests) {
-        if (t.tags.includes(interest)) score += 10
+        if (t.tags.includes(interest)) { score += 10; interestHits++ }
         if (t.category.toLowerCase().includes(interest)) score += 5
       }
       if (wxCond === "rainy" && t.tags.includes("indoor")) score += 5
@@ -1203,9 +1212,16 @@ export default function PlannerPage() {
         if (prefs.budget === "premium" && t.price >= 60) score += 4
         if (prefs.budget === "mid-range" && t.price > 20 && t.price < 80) score += 4
       }
-      return { trip: t, score }
+      return { trip: t, score, interestHits }
     })
     scored.sort((a, b) => b.score - a.score)
+    // Prefer trips that actually match at least one picked interest tag.
+    const matched = hasInterests
+      ? scored.filter((s) => s.interestHits > 0)
+      : scored.filter((s) => s.score > 0)
+    if (matched.length > 0) return matched.map((s) => s.trip)
+    // Nothing matched the interests — show top-scored trips so the
+    // panel is never empty after a visitor finishes onboarding.
     return scored.slice(0, 8).map((s) => s.trip)
   }, [prefs, allTrips])
 
