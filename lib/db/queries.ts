@@ -792,7 +792,11 @@ export async function dbListTripTags(): Promise<TripTagRow[]> {
  *  Used by the admin Trip Tags listing page so editors can see how many
  *  trips are tagged with each entry at a glance, and by the public/admin
  *  trip-tags endpoints so the search filter / planner onboarding can
- *  decide whether a tag is worth showing at all. */
+ *  decide whether a tag is worth showing at all.
+ *
+ *  Ordered by `trip_count DESC` so the most-used tags surface at the top
+ *  of the admin listing — `sort_order` and `label` are the tie-breakers
+ *  for stability inside a same-count bucket. */
 export async function dbListTripTagsWithCounts(): Promise<TripTagWithCount[]> {
   return await query<TripTagWithCount>(
     `SELECT tt.slug, tt.label, tt.show_on_homepage, tt.sort_order,
@@ -803,7 +807,7 @@ export async function dbListTripTagsWithCounts(): Promise<TripTagWithCount[]> {
                 FROM (SELECT unnest(trip_tags) AS tag FROM trips WHERE status='published') s
                GROUP BY tag
             ) c ON c.tag = tt.slug
-      ORDER BY tt.sort_order ASC, tt.label ASC`
+      ORDER BY COALESCE(c.trip_count, 0) DESC, tt.sort_order ASC, tt.label ASC`
   )
 }
 
