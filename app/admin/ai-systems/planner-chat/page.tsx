@@ -451,21 +451,39 @@ function StepEnabledToggle({
     <label
       data-testid={testId}
       title={enabled ? "Step is enabled — visitors will see this question" : "Step is disabled — visitors will skip this question"}
-      className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-        enabled
-          ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-          : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
-      }`}
+      className="flex cursor-pointer select-none items-center gap-2"
     >
-      <input
-        type="checkbox"
-        checked={enabled}
-        aria-label={a11yLabel}
-        data-testid={testId ? `${testId}-input` : undefined}
-        onChange={(e) => onChange(e.target.checked)}
-        className="h-3 w-3 cursor-pointer accent-primary"
-      />
-      {enabled ? "Enabled" : "Disabled"}
+      <span className={`text-[11px] font-medium transition-colors ${enabled ? "text-primary" : "text-muted-foreground"}`}>
+        {enabled ? "Enabled" : "Disabled"}
+      </span>
+      {/* Visually-hidden native input keeps the control accessible
+       *  (keyboard + screen reader + form-control semantics) and
+       *  preserves the existing `*-input` data-testid for e2e tests.
+       *  The neighboring <span> renders the actual switch track + thumb. */}
+      <span className="relative inline-flex">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={enabled}
+          aria-checked={enabled}
+          aria-label={a11yLabel}
+          data-testid={testId ? `${testId}-input` : undefined}
+          onChange={(e) => onChange(e.target.checked)}
+          className="peer absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0"
+        />
+        <span
+          aria-hidden="true"
+          className={`flex h-5 w-9 items-center rounded-full px-0.5 transition-colors ${
+            enabled ? "bg-primary" : "bg-muted-foreground/30"
+          } peer-focus-visible:ring-2 peer-focus-visible:ring-primary/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-card`}
+        >
+          <span
+            className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+              enabled ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
+        </span>
+      </span>
     </label>
   )
 }
