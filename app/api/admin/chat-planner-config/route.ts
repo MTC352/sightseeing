@@ -79,6 +79,19 @@ export async function PUT(req: Request) {
       if (formPatch.durations && !formPatch.durations.some((d) => d.value === "multi-day")) {
         formPatch.durations.push({ value: "multi-day", label: "Multi-day trip" })
       }
+      // Per-step enable/disable toggles — admin-managed on the planner-chat
+      // page. Only persist explicitly-boolean values; unknown keys fall back
+      // to the catalog default at read time.
+      if (formIn.enabledSteps && typeof formIn.enabledSteps === "object") {
+        const esIn = formIn.enabledSteps as Record<string, unknown>
+        const esOut: Partial<typeof DEFAULT_PLANNER_FORM.enabledSteps> = {}
+        for (const k of ["groups", "interests", "durations", "budgets", "dates"] as const) {
+          if (typeof esIn[k] === "boolean") esOut[k] = esIn[k] as boolean
+        }
+        if (Object.keys(esOut).length > 0) {
+          formPatch.enabledSteps = { ...DEFAULT_PLANNER_FORM.enabledSteps, ...esOut }
+        }
+      }
       if (Object.keys(formPatch).length > 0) patch.plannerForm = formPatch
     }
 

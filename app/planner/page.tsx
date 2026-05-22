@@ -143,6 +143,13 @@ const DEFAULT_BUDGET_OPTIONS = [
   { value: "mid-range", label: "Mid-range" },
   { value: "premium", label: "Treat ourselves" },
 ]
+type EnabledSteps = {
+  groups: boolean
+  interests: boolean
+  durations: boolean
+  budgets: boolean
+  dates: boolean
+}
 type FormOptions = {
   groups: { value: string; label: string }[]
   interests: { value: string; label: string }[]
@@ -150,6 +157,10 @@ type FormOptions = {
   budgets: { value: string; label: string }[]
   maxMultiDayDays: number
   maxInterests: number
+  enabledSteps: EnabledSteps
+}
+const DEFAULT_ENABLED_STEPS: EnabledSteps = {
+  groups: true, interests: true, durations: true, budgets: true, dates: true,
 }
 const DEFAULT_FORM_OPTIONS: FormOptions = {
   groups: DEFAULT_GROUP_OPTIONS,
@@ -158,6 +169,7 @@ const DEFAULT_FORM_OPTIONS: FormOptions = {
   budgets: DEFAULT_BUDGET_OPTIONS,
   maxMultiDayDays: 2,
   maxInterests: 3,
+  enabledSteps: DEFAULT_ENABLED_STEPS,
 }
 
 /* ─── Weather ─── */
@@ -226,26 +238,79 @@ function PartyStepper({
 /* ONBOARDING                              */
 /* ────────────────────────────────────── */
 function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferences) => void; formOptions: FormOptions }) {
-  const { groups: GROUP_OPTIONS, interests: INTEREST_OPTIONS, durations: DURATION_OPTIONS, budgets: BUDGET_OPTIONS, maxMultiDayDays, maxInterests } = formOptions
-  const [step, setStep] = useState(0)
-  const [prefs, setPrefs] = useState<Preferences>(EMPTY_PREFS)
-  // Sub-step inside step 2: when "Multi-day trip" is picked we ask for
-  // the number of days (1..maxMultiDayDays, admin-managed) before
-  // advancing to budget.
+  const { groups: GROUP_OPTIONS, interests: INTEREST_OPTIONS, durations: DURATION_OPTIONS, budgets: BUDGET_OPTIONS, maxMultiDayDays, maxInterests, enabledSteps } = formOptions
+
+  // Step indices: 0=groups 1=interests 2=durations 3=budgets 4=dates.
+  // Admin can disable any of them from /admin/ai-systems/planner-chat;
+  // disabled steps are skipped and their fields fall back to sensible
+  // defaults so the AI still receives a complete Preferences object.
+  const STEP_KEYS = ["groups", "interests", "durations", "budgets", "dates"] as const
+  const stepEnabled = (i: number) => enabledSteps[STEP_KEYS[i]]
+  const enabledIdxs = [0, 1, 2, 3, 4].filter(stepEnabled)
+
+  function defaultsForSkippedStep(i: number, p: Preferences): Preferences {
+    switch (STEP_KEYS[i]) {
+      case "groups":    { const dp = defaultPartyFor("solo"); return { ...p, group: "solo", adults: dp.adults, children: dp.children } }
+      case "interests": return { ...p, interests: [] }
+      case "durations": return { ...p, duration: "any", dayCount: 1 }
+      case "budgets":   return { ...p, budget: "any" }
+      case "dates":     return { ...p, startDate: todayYMD() }
+    }
+  }
+
+  // First enabled step (or -1 if every step is disabled — in which case
+  // we complete immediately with a fully-defaulted Preferences object).
+  const initialStep = enabledIdxs[0] ?? -1
+
+  // Pre-fill defaults for every step that's disabled *before* the first
+  // enabled one — otherwise those fields would stay empty (e.g. an empty
+  // `group` slug breaks the AI's group-aware tooling) since `goNext`
+  // only fills steps it walks past.
+  const initialPrefs: Preferences = (() => {
+    let merged = EMPTY_PREFS
+    const upTo = initialStep === -1 ? 5 : initialStep
+    for (let i = 0; i < upTo; i++) merged = defaultsForSkippedStep(i, merged)
+    return merged
+  })()
+
+  const [step, setStep] = useState(initialStep)
+  const [prefs, setPrefs] = useState<Preferences>(initialPrefs)
   const [askDays, setAskDays] = useState(false)
-  // Sub-step inside step 0: when Family/Friends is picked we ask for an
-  // Adults + Children count before advancing to interests. Solo/Couple
-  // skip this entirely (party-size is implied).
   const [askParty, setAskParty] = useState(false)
+
+  // Edge case: every step disabled → bypass wizard with defaults.
+  useEffect(() => {
+    if (initialStep !== -1) return
+    onComplete(initialPrefs)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** Move past step `from`. Skipped steps are filled with defaults so
+   *  the AI still has a complete Preferences object even when the
+   *  admin hides a question. */
+  function goNext(from: number, basePrefs: Preferences) {
+    let merged = basePrefs
+    for (let i = from + 1; i < 5; i++) {
+      if (stepEnabled(i)) {
+        setPrefs(merged)
+        setStep(i)
+        return
+      }
+      merged = defaultsForSkippedStep(i, merged)
+    }
+    setPrefs(merged)
+    onComplete(merged)
+  }
 
   function selectGroup(value: string) {
     const party = defaultPartyFor(value)
-    setPrefs((p) => ({ ...p, group: value, adults: party.adults, children: party.children }))
+    const next = { ...prefs, group: value, adults: party.adults, children: party.children }
+    setPrefs(next)
     if (value === "family" || value === "friends") {
       setAskParty(true)
     } else {
       setAskParty(false)
-      setTimeout(() => setStep(1), 200)
+      setTimeout(() => goNext(0, next), 200)
     }
   }
   function bumpAdults(delta: number) {
@@ -256,7 +321,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
   }
   function confirmParty() {
     setAskParty(false)
-    setStep(1)
+    goNext(0, prefs)
   }
   function toggleInterest(value: string) {
     setPrefs((p) => {
@@ -265,12 +330,13 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
     })
   }
   function selectDuration(value: string) {
-    setPrefs((p) => ({ ...p, duration: value, dayCount: value === "multi-day" ? Math.max(2, p.dayCount || 2) : 1 }))
+    const next = { ...prefs, duration: value, dayCount: value === "multi-day" ? Math.max(2, prefs.dayCount || 2) : 1 }
+    setPrefs(next)
     if (value === "multi-day") {
       setAskDays(true)
     } else {
       setAskDays(false)
-      setTimeout(() => setStep(3), 200)
+      setTimeout(() => goNext(2, next), 200)
     }
   }
   function bumpDays(delta: number) {
@@ -278,17 +344,17 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
   }
   function confirmDays() {
     setAskDays(false)
-    setStep(3)
+    goNext(2, prefs)
   }
   function selectBudget(value: string) {
     const updated = { ...prefs, budget: value }
     setPrefs(updated)
-    setTimeout(() => setStep(4), 200)
+    setTimeout(() => goNext(3, updated), 200)
   }
   function selectStartDate(value: string) {
     const updated = { ...prefs, startDate: value }
     setPrefs(updated)
-    setTimeout(() => onComplete(updated), 300)
+    setTimeout(() => goNext(4, updated), 300)
   }
 
   const questions = [
@@ -305,7 +371,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex gap-1 px-4 pt-4">
-        {[0, 1, 2, 3, 4].map((i) => (
+        {enabledIdxs.map((i) => (
           <div key={i} className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i <= step ? "bg-primary" : "bg-border"}`} />
         ))}
       </div>
@@ -379,7 +445,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
               })}
             </div>
             <p className="text-center text-[10px] text-muted-foreground" data-testid="interest-count">{prefs.interests.length}/{maxInterests} selected</p>
-            <button type="button" disabled={prefs.interests.length === 0} onClick={() => setStep(2)}
+            <button type="button" disabled={prefs.interests.length === 0} onClick={() => goNext(1, prefs)}
               className="mx-auto flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
               Continue <ChevronRight className="h-4 w-4" />
             </button>
@@ -617,6 +683,13 @@ export default function PlannerPage() {
           budgets: sane(data.budgets, DEFAULT_BUDGET_OPTIONS),
           maxMultiDayDays: Number.isFinite(days) && days >= 2 && days <= 14 ? days : 2,
           maxInterests: Number.isFinite(maxI) && maxI >= 1 && maxI <= 10 ? Math.floor(maxI) : 3,
+          enabledSteps: (() => {
+            const raw = (data as { enabledSteps?: Partial<EnabledSteps> }).enabledSteps
+            if (!raw || typeof raw !== "object") return DEFAULT_ENABLED_STEPS
+            const pick = (k: keyof EnabledSteps) =>
+              typeof raw[k] === "boolean" ? (raw[k] as boolean) : DEFAULT_ENABLED_STEPS[k]
+            return { groups: pick("groups"), interests: pick("interests"), durations: pick("durations"), budgets: pick("budgets"), dates: pick("dates") }
+          })(),
         })
       })
       .catch(() => { /* keep defaults */ })
@@ -1238,7 +1311,16 @@ export default function PlannerPage() {
           </div>
 
           {!prefs ? (
-            <Onboarding onComplete={handleOnboardingComplete} formOptions={formOptions} />
+            // Key on enabledSteps so the wizard fully remounts (and
+            // re-derives its initial step) once the async form-config
+            // fetch resolves. Without this, the component would stick
+            // with the all-enabled DEFAULT_FORM_OPTIONS that were used
+            // on the first render and ignore admin-disabled steps.
+            <Onboarding
+              key={`onb-${formOptions.enabledSteps.groups ? "1" : "0"}${formOptions.enabledSteps.interests ? "1" : "0"}${formOptions.enabledSteps.durations ? "1" : "0"}${formOptions.enabledSteps.budgets ? "1" : "0"}${formOptions.enabledSteps.dates ? "1" : "0"}`}
+              onComplete={handleOnboardingComplete}
+              formOptions={formOptions}
+            />
           ) : (
             <>
               {/* Preference pills */}

@@ -743,6 +743,18 @@ export const DEFAULT_PLANNER_FORM = {
   // Maximum number of interest tiles a visitor may select during the
   // /planner onboarding. Admin-configurable from "Trip Planner Chat".
   maxInterests: 3,
+  // Per-step enable/disable toggles for the /planner onboarding wizard.
+  // When a step is disabled the planner skips it and uses a sensible
+  // default ("solo" group / empty interests / "any" duration / "any"
+  // budget / today's date) so the AI still has a complete Preferences
+  // object to work with.
+  enabledSteps: {
+    groups: true,
+    interests: true,
+    durations: true,
+    budgets: true,
+    dates: true,
+  },
 }
 
 /**
@@ -915,6 +927,20 @@ export async function dbGetChatPlannerConfig(): Promise<{
       maxInterests: Number.isFinite(maxInterestsRaw) && maxInterestsRaw >= 1 && maxInterestsRaw <= 10
         ? Math.floor(maxInterestsRaw)
         : DEFAULT_PLANNER_FORM.maxInterests,
+      enabledSteps: (() => {
+        const raw = (formRaw.enabledSteps && typeof formRaw.enabledSteps === 'object')
+          ? formRaw.enabledSteps as Record<string, unknown>
+          : {}
+        const pick = (k: keyof typeof DEFAULT_PLANNER_FORM.enabledSteps) =>
+          typeof raw[k] === 'boolean' ? (raw[k] as boolean) : DEFAULT_PLANNER_FORM.enabledSteps[k]
+        return {
+          groups: pick('groups'),
+          interests: pick('interests'),
+          durations: pick('durations'),
+          budgets: pick('budgets'),
+          dates: pick('dates'),
+        }
+      })(),
     },
   }
 }

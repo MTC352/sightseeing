@@ -26,6 +26,13 @@ import { PromptRevisions } from "@/components/admin/prompt-revisions"
 const PLANNER_PROMPT_SUGGESTION = `You are the dedicated trip-planning assistant for sightseeing.lu. Keep replies short, warm, and conversational (1–2 sentences). Surface real, bookable trips from the catalog. Never invent prices, durations, or availability — call the right tool instead. When the user is ready, propose an itinerary; otherwise keep narrowing options with one focused follow-up question.`
 
 type Option = { value: string; label: string }
+type EnabledSteps = {
+  groups: boolean
+  interests: boolean
+  durations: boolean
+  budgets: boolean
+  dates: boolean
+}
 type PlannerForm = {
   groups: Option[]
   interests: Option[]
@@ -33,6 +40,10 @@ type PlannerForm = {
   budgets: Option[]
   maxMultiDayDays: number
   maxInterests: number
+  enabledSteps: EnabledSteps
+}
+const DEFAULT_ENABLED_STEPS: EnabledSteps = {
+  groups: true, interests: true, durations: true, budgets: true, dates: true,
 }
 const DEFAULT_PLANNER_FORM: PlannerForm = {
   groups: [
@@ -58,6 +69,7 @@ const DEFAULT_PLANNER_FORM: PlannerForm = {
   ],
   maxMultiDayDays: 2,
   maxInterests: 3,
+  enabledSteps: DEFAULT_ENABLED_STEPS,
 }
 
 export default function TripPlannerChatAdminPage() {
@@ -87,7 +99,14 @@ export default function TripPlannerChatAdminPage() {
           if (typeof planner.plannerSystemPrompt === "string" && planner.plannerSystemPrompt.trim().length > 0) {
             nextPrompt = planner.plannerSystemPrompt
           }
-          if (planner.plannerForm) setPlannerForm({ ...DEFAULT_PLANNER_FORM, ...planner.plannerForm })
+          if (planner.plannerForm) setPlannerForm({
+            ...DEFAULT_PLANNER_FORM,
+            ...planner.plannerForm,
+            enabledSteps: {
+              ...DEFAULT_ENABLED_STEPS,
+              ...(planner.plannerForm.enabledSteps ?? {}),
+            },
+          })
         }
         setPlannerPrompt(nextPrompt)
         setInitialPrompt(nextPrompt)
@@ -232,6 +251,55 @@ export default function TripPlannerChatAdminPage() {
             <p className="mt-1 text-xs text-muted-foreground">
               Options visitors see in the first-time wizard on /planner. You can rename labels and add/remove options. <strong>Values are stable slugs</strong> (lowercase, a–z 0–9 and dashes only) — changing a value resets visitors who had it saved. Icons stay code-mapped by value; new values get a generic icon.
             </p>
+          </div>
+
+          {/* Per-step enable/disable toggles. Disabling a step hides it
+              from the visitor wizard; the planner uses sensible defaults
+              for any skipped step so the AI still gets a complete
+              Preferences object. */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-foreground">Enable / disable steps</h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                Toggle which questions appear in the onboarding wizard. Disabled steps are skipped and fall back to a default
+                (solo group · no interests · any duration · any budget · today's date).
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {([
+                { key: "groups",    label: "Group type",  help: "First step — who's joining" },
+                { key: "interests", label: "Interests",   help: "Up to N tag tiles" },
+                { key: "durations", label: "Duration",    help: "Time available / multi-day" },
+                { key: "budgets",   label: "Budget",      help: "Casual / mid / premium" },
+                { key: "dates",     label: "Visit date",  help: "Today / tomorrow / pick date" },
+              ] as const).map((s) => {
+                const enabled = plannerForm.enabledSteps[s.key]
+                return (
+                  <label
+                    key={s.key}
+                    data-testid={`step-toggle-${s.key}`}
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      enabled ? "border-primary/40 bg-primary/5" : "border-border bg-background opacity-70"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      data-testid={`step-toggle-${s.key}-input`}
+                      onChange={(e) => setPlannerForm((f) => ({
+                        ...f,
+                        enabledSteps: { ...f.enabledSteps, [s.key]: e.target.checked },
+                      }))}
+                      className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-foreground">{s.label}</div>
+                      <div className="text-[10px] text-muted-foreground/70">{s.help}</div>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
           </div>
 
           <OptionListEditor
