@@ -57,6 +57,19 @@ function getCookie(name: string): string | null {
 }
 
 /* ─── Preferences ─── */
+/** A single user-supplied meal/break preference. The planner enforces ONE
+ *  entry per `type`, so that a chat update like "actually push lunch to
+ *  13:00" UPDATES the existing lunch entry instead of stacking a second,
+ *  conflicting one (real-planner semantics). */
+export interface MealBreakPref {
+  type: "lunch" | "dinner" | "coffee"
+  /** Earliest acceptable start time, HH:MM (24h). */
+  earliest: string
+  /** Latest acceptable start time, HH:MM (24h). */
+  latest: string
+  /** Desired break length in minutes. */
+  durationMinutes: number
+}
 interface Preferences {
   group: string
   interests: string[]
@@ -70,8 +83,64 @@ interface Preferences {
   children: number
   /** Number of days when duration === "multi-day" (1..maxMultiDayDays, admin-managed). */
   dayCount: number
+  /** Chat-supplied meal/break windows. Keyed by `type` — at most one
+   *  entry per type so updates merge rather than duplicate. */
+  mealBreaks?: MealBreakPref[]
 }
 const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "", adults: 1, children: 0, dayCount: 1 }
+
+/** Normalize/clamp a meal-break pref coming from the AI tool input. Returns
+ *  null if the entry is malformed. */
+function sanitizeMealBreak(raw: unknown): MealBreakPref | null {
+  if (!raw || typeof raw !== "object") return null
+  const r = raw as Record<string, unknown>
+  const type = r.type === "lunch" || r.type === "dinner" || r.type === "coffee" ? r.type : null
+  if (!type) return null
+  const hhmm = (v: unknown, fallback: string): string => {
+    if (typeof v !== "string") return fallback
+    const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim())
+    if (!m) return fallback
+    const h = Math.max(0, Math.min(23, parseInt(m[1], 10)))
+    const mm = Math.max(0, Math.min(59, parseInt(m[2], 10)))
+    return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`
+  }
+  const defaults: Record<MealBreakPref["type"], { earliest: string; latest: string; duration: number }> = {
+    lunch: { earliest: "12:00", latest: "14:00", duration: 60 },
+    dinner: { earliest: "18:30", latest: "20:30", duration: 75 },
+    coffee: { earliest: "15:00", latest: "16:30", duration: 20 },
+  }
+  const d = defaults[type]
+  const dur = typeof r.durationMinutes === "number" && r.durationMinutes > 0
+    ? Math.min(180, Math.floor(r.durationMinutes))
+    : d.duration
+  return {
+    type,
+    earliest: hhmm(r.earliest, d.earliest),
+    latest: hhmm(r.latest, d.latest),
+    durationMinutes: dur,
+  }
+}
+
+/** Merge a chat-supplied list of meal-break patches into the existing
+ *  prefs.mealBreaks list, REPLACING any entry with the same `type` (so
+ *  "move lunch to 13:00" updates the existing lunch row instead of
+ *  creating a second one). Unknown/malformed entries are silently
+ *  dropped. */
+function mergeMealBreaks(existing: MealBreakPref[] | undefined, incoming: unknown): MealBreakPref[] {
+  const base = Array.isArray(existing) ? [...existing] : []
+  if (!Array.isArray(incoming)) return base
+  for (const raw of incoming) {
+    const sanitized = sanitizeMealBreak(raw)
+    if (!sanitized) continue
+    const idx = base.findIndex((m) => m.type === sanitized.type)
+    if (idx >= 0) base[idx] = sanitized
+    else base.push(sanitized)
+  }
+  // Stable order: lunch → dinner → coffee, for predictable UI rendering.
+  const order: Record<MealBreakPref["type"], number> = { lunch: 0, dinner: 1, coffee: 2 }
+  base.sort((a, b) => order[a.type] - order[b.type])
+  return base
+}
 /** Returns sensible defaults for adults/children when the user picks a group. */
 function defaultPartyFor(group: string): { adults: number; children: number } {
   if (group === "solo") return { adults: 1, children: 0 }
@@ -1236,6 +1305,13 @@ export default function PlannerPage() {
             : (patch.duration === "multi-day"
                 ? Math.max(2, base.dayCount || 2)
                 : (patch.duration && patch.duration !== "multi-day" ? 1 : base.dayCount)),
+          // Meal/break prefs: merge-by-type so an update to lunch never
+          // duplicates the lunch row or wipes out dinner. If the AI did
+          // NOT include `mealBreaks` in this patch, preserve the
+          // existing list verbatim — partial patches are the norm.
+          mealBreaks: "mealBreaks" in patch
+            ? mergeMealBreaks(base.mealBreaks, (patch as { mealBreaks?: unknown }).mealBreaks)
+            : base.mealBreaks,
         }
         // When the group changes, snap any OMITTED party-size field to
         // the sensible default for the new group — independently for
@@ -1249,6 +1325,8 @@ export default function PlannerPage() {
         }
 
         // No-op short-circuit: skip churn if nothing actually changed.
+        const mealBreaksKey = (mb: MealBreakPref[] | undefined) =>
+          (mb ?? []).map((m) => `${m.type}:${m.earliest}-${m.latest}@${m.durationMinutes}`).join("|")
         const unchanged =
           next.group === base.group &&
           next.duration === base.duration &&
@@ -1257,7 +1335,8 @@ export default function PlannerPage() {
           next.adults === base.adults &&
           next.children === base.children &&
           next.interests.length === base.interests.length &&
-          next.interests.every((v, i) => v === base.interests[i])
+          next.interests.every((v, i) => v === base.interests[i]) &&
+          mealBreaksKey(next.mealBreaks) === mealBreaksKey(base.mealBreaks)
 
         if (!unchanged) {
           prefsRef.current = next
@@ -1366,7 +1445,24 @@ export default function PlannerPage() {
     const stops = built.steps?.length ?? 0
     if (stops === 0) return
     const dateLabel = built.visitDate ? formatYMDPretty(built.visitDate) : "your visit date"
-    const text = `Itinerary built for ${dateLabel} — ${stops} stop${stops === 1 ? "" : "s"} now live on the Trip Canvas. Ask me to swap, reorder, or add a break anywhere.`
+    // Partial-success awareness: when some cart trips couldn't fit on the
+    // chosen date the chat must reflect that truth instead of cheerfully
+    // claiming "N stops now live" while the sidebar shows an availability
+    // warning. (User-reported bug: chat said "3 stops live" when the build
+    // had actually flagged one trip as unbookable and prompted for a new
+    // date.)
+    const unavail = built.unavailableTrips ?? []
+    const skippedCount = unavail.length
+    const totalRequested = stops + skippedCount
+    let text: string
+    if (skippedCount > 0) {
+      const names = unavail.slice(0, 2).map((u) => `"${u.title}"`).join(" and ")
+      const extra = skippedCount > 2 ? ` (+${skippedCount - 2} more)` : ""
+      text = `Itinerary built for ${dateLabel} — ${stops} of ${totalRequested} stops on the Trip Canvas. ` +
+        `Couldn't fit ${names}${extra} on this date — tap one of the suggested dates in the cart, or ask me to find a day when all your trips are open.`
+    } else {
+      text = `Itinerary built for ${dateLabel} — ${stops} stop${stops === 1 ? "" : "s"} now live on the Trip Canvas. Ask me to swap, reorder, or add a break anywhere.`
+    }
     setMessages((prev) => ([
       ...prev,
       {
@@ -2278,6 +2374,7 @@ export default function PlannerPage() {
               onItineraryBuilt={handleItineraryBuilt}
               existingItinerary={centerItinerary}
               cartFingerprint={cartFingerprint}
+              prefs={prefs}
             />
           </div>
         </div>
@@ -2305,6 +2402,7 @@ export default function PlannerPage() {
                   onItineraryBuilt={handleItineraryBuilt}
                   existingItinerary={centerItinerary}
                   cartFingerprint={cartFingerprint}
+                  prefs={prefs}
                 />
               </div>
             </div>

@@ -583,7 +583,10 @@ const addToCartTool = tool({
 
 const updatePreferencesTool = tool({
   description:
-    "Update the user's stored trip-planning preferences whenever they ask to change any of: group (solo/couple/family/friends), adults count, children count, interests, duration, budget, or visit date. Only call when the user explicitly changes one of these. Only include the field(s) the user actually changed — omit the rest. The new values persist for the rest of the conversation and future visits.",
+    "Update the user's stored trip-planning preferences whenever they ask to change any of: group (solo/couple/family/friends), adults count, children count, interests, duration, budget, visit date, OR a meal/break window (lunch, dinner, coffee). " +
+    "Only call when the user explicitly changes one of these. Only include the field(s) the user actually changed — omit the rest. " +
+    "MEAL BREAKS are merged BY TYPE: if the user already has a lunch window set and asks to tweak the lunch time (e.g. 'actually push lunch to 13:00' or 'cut lunch to 30 min'), include ONLY the lunch entry in `mealBreaks` — the system will REPLACE the existing lunch entry rather than stack a duplicate. Do not re-send dinner/coffee unless the user changed those. Never send conflicting entries of the same type. " +
+    "The new values persist for the rest of the conversation and future visits.",
   inputSchema: z.object({
     group: z.enum(["solo", "couple", "family", "friends"]).optional().describe("Travel party type."),
     adults: z.number().int().min(1).max(20).optional().describe("Number of adults (ages 13+)."),
@@ -592,6 +595,15 @@ const updatePreferencesTool = tool({
     duration: z.enum(["1-2h", "half-day", "full-day"]).optional().describe("Trip duration preference."),
     budget: z.enum(["casual", "mid-range", "premium", "any"]).optional().describe("Budget preference."),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Visit date in YYYY-MM-DD format."),
+    mealBreaks: z.array(z.object({
+      type: z.enum(["lunch", "dinner", "coffee"]).describe("Which meal/break this entry describes."),
+      earliest: z.string().regex(/^\d{2}:\d{2}$/).describe("Earliest acceptable start, HH:MM 24h."),
+      latest: z.string().regex(/^\d{2}:\d{2}$/).describe("Latest acceptable start, HH:MM 24h."),
+      durationMinutes: z.number().int().min(15).max(180).describe("Desired break length in minutes."),
+    })).max(3).optional().describe(
+      "Meal/break windows the visitor wants the itinerary to respect. At most ONE entry per `type`. Send ONLY the entry the user changed — existing entries of other types are preserved. " +
+      "Examples: user says 'lunch between 12 and 13:30 for 45 min' → [{type:'lunch',earliest:'12:00',latest:'13:30',durationMinutes:45}]. User says 'shorten lunch to 30 min' → [{type:'lunch',earliest:<keep prior>,latest:<keep prior>,durationMinutes:30}]. User says 'no need for lunch, just dinner at 19:30' → [{type:'dinner',earliest:'19:00',latest:'20:00',durationMinutes:75}] (the existing lunch entry is replaced ONLY if you include lunch here)."
+    ),
   }),
   // No execute -- this is a client-side tool (handled in onToolCall)
 })

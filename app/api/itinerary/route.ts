@@ -221,6 +221,14 @@ interface IncomingPreferences {
   adults?: number
   children?: number
   dayCount?: number
+  /** Chat-supplied meal/break windows. At most one entry per type
+   *  (enforced by the planner client before we ever see them). */
+  mealBreaks?: Array<{
+    type: "lunch" | "dinner" | "coffee"
+    earliest: string
+    latest: string
+    durationMinutes: number
+  }>
 }
 
 export async function POST(req: Request) {
@@ -242,6 +250,7 @@ export async function POST(req: Request) {
       adults: typeof preferences?.adults === "number" && preferences.adults >= 1 ? Math.min(20, preferences.adults) : 1,
       children: typeof preferences?.children === "number" && preferences.children >= 0 ? Math.min(20, preferences.children) : 0,
       dayCount: typeof preferences?.dayCount === "number" && preferences.dayCount >= 1 ? Math.min(14, Math.floor(preferences.dayCount)) : 1,
+      mealBreaks: Array.isArray(preferences?.mealBreaks) ? preferences!.mealBreaks! : [],
     }
     const isMultiDay = prefs.duration === "multi-day" && prefs.dayCount >= 2
 
@@ -394,6 +403,24 @@ export async function POST(req: Request) {
     const mealBreakDuration = Number(settings.mealBreakDuration ?? 60)
     const lunchBreakTime = String(settings.lunchBreakTime ?? "12:30")
     const dinnerBreakTime = String(settings.dinnerBreakTime ?? "19:00")
+
+    // User-supplied meal/break windows from chat — REPLACE the admin
+    // defaults entry-for-entry. Validated by the planner client; we just
+    // index by type here. Missing types fall back to the admin defaults.
+    const userMealBreaks = new Map<"lunch" | "dinner" | "coffee", {
+      earliest: string; latest: string; durationMinutes: number
+    }>()
+    if (Array.isArray(preferences?.mealBreaks)) {
+      for (const mb of preferences!.mealBreaks!) {
+        if (mb && (mb.type === "lunch" || mb.type === "dinner" || mb.type === "coffee")) {
+          userMealBreaks.set(mb.type, {
+            earliest: mb.earliest,
+            latest: mb.latest,
+            durationMinutes: mb.durationMinutes,
+          })
+        }
+      }
+    }
     const travelMethodLabel = settings.travelTimeMethod === "walking" ? "walking"
       : settings.travelTimeMethod === "driving" ? "car/driving"
       : "bus/tram (free public transport)"
@@ -427,12 +454,30 @@ ${slotLines}`
        The base prompt is admin-editable in /admin/ai-systems/itinerary.
        It uses {{placeholders}} that we substitute with live data here.
        If no admin prompt is set we fall back to the built-in template. */
-    const mealBreaksBlock = autoInsertMealBreaks
-      ? `- Insert a lunch break (type "food", ~${mealBreakDuration} min) around ${lunchBreakTime} after the morning stop.
-- Insert a dinner break (type "food", ~${mealBreakDuration + 15} min) around ${dinnerBreakTime} if the last stop ends before 20:00.
-- Insert a coffee break (type "coffee", ~20 min) if there is a >60 min gap between two stops.
+    // Build per-meal rule lines. User-supplied windows take precedence
+    // over admin defaults — and when the visitor SET a meal window in
+    // chat, the rule is MUST-HAVE: dropping a trip to make room is the
+    // expected tradeoff, and that tradeoff MUST be named in the summary.
+    const lunchUser = userMealBreaks.get("lunch")
+    const dinnerUser = userMealBreaks.get("dinner")
+    const coffeeUser = userMealBreaks.get("coffee")
+    const lunchRule = lunchUser
+      ? `- LUNCH (visitor requirement, must-have): insert a "food" breakAfter the morning stop so the lunch starts between ${lunchUser.earliest} and ${lunchUser.latest}, lasting ~${lunchUser.durationMinutes} min. If respecting this lunch window forces you to drop a trip, drop the lowest-priority trip and NAME IT EXPLICITLY in the summary like "Skipped X to fit the visitor's lunch window".`
+      : `- LUNCH: insert a "food" break (~${mealBreakDuration} min) so it starts between 12:00 and 14:00 (target ${lunchBreakTime}) after the morning stop. If trip slots force lunch outside 12:00–14:00 you MUST mention this tradeoff in the summary (e.g. "No 12–14 lunch break possible — the only fit is at 14:30").`
+    const dinnerRule = dinnerUser
+      ? `- DINNER (visitor requirement, must-have): insert a "food" breakAfter a late-afternoon stop so dinner starts between ${dinnerUser.earliest} and ${dinnerUser.latest}, lasting ~${dinnerUser.durationMinutes} min. Same tradeoff rule as lunch — if you must drop a trip to fit dinner, name it in the summary.`
+      : `- DINNER: insert a "food" break (~${mealBreakDuration + 15} min) so it starts between 18:30 and 20:30 (target ${dinnerBreakTime}) ONLY if the last stop ends after 18:30 or the day extends past 19:00.`
+    const coffeeRule = coffeeUser
+      ? `- COFFEE (visitor requirement): insert a "coffee" breakAfter a stop so the coffee starts between ${coffeeUser.earliest} and ${coffeeUser.latest}, lasting ~${coffeeUser.durationMinutes} min.`
+      : `- COFFEE: insert a "coffee" break (~20 min) if there is a >60 min gap between two stops.`
+
+    const mealBreaksBlock = autoInsertMealBreaks || userMealBreaks.size > 0
+      ? `${lunchRule}
+${dinnerRule}
+${coffeeRule}
 - "location" must be the city of the preceding step.
-- Set type "none" with empty label/location and durationMinutes 0 if no break fits.`
+- Set type "none" with empty label/location and durationMinutes 0 if no break fits.
+- CRITICAL: never pack two stops back-to-back through a lunch/dinner window without inserting a break — that is the #1 visitor complaint. If you cannot fit BOTH the meal and every cart trip on this date, prefer to drop one trip and KEEP THE MEAL, then explain the choice in the summary so the visitor can decide whether to accept it or pick a different date.`
       : '- Meal breaks disabled by admin — only insert if absolutely necessary.'
 
     const placeholders: Record<string, string> = {

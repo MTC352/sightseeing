@@ -187,6 +187,31 @@ interface CrossSell {
   listings?: Listing[]
 }
 
+/** A single meal/break window supplied by the visitor via chat.
+ *  Mirrored from app/planner/page.tsx (kept local so this component
+ *  doesn't take a runtime dep on the planner page module). */
+export interface SidebarMealBreakPref {
+  type: "lunch" | "dinner" | "coffee"
+  earliest: string
+  latest: string
+  durationMinutes: number
+}
+
+/** Lightweight prefs view the sidebar needs for drift detection +
+ *  forwarding to /api/itinerary. Mirrors the page-level Preferences
+ *  type's fields-of-interest. */
+export interface SidebarPrefsView {
+  group?: string
+  interests?: string[]
+  duration?: string
+  budget?: string
+  startDate?: string
+  adults?: number
+  children?: number
+  dayCount?: number
+  mealBreaks?: SidebarMealBreakPref[]
+}
+
 export interface Itinerary {
   steps: ItineraryStep[]
   summary: string
@@ -204,6 +229,13 @@ export interface Itinerary {
    *  build — independent of which trips the AI ended up scheduling (it
    *  may legitimately drop trips with no slots on the chosen date). */
   builtFromCartFp?: string
+  /** Fingerprint of the planning prefs at build time. Drift-checked so a
+   *  chat update like "lunch 12–14" raises the Rebuild affordance even
+   *  when the cart itself hasn't changed. */
+  builtFromPrefsFp?: string
+  /** Snapshot of the prefs at build time — used to render a human-
+   *  readable "what changed" diff above the Rebuild button. */
+  builtFromPrefs?: SidebarPrefsView
 }
 
 /** Decode any HTML entities the API may have passed through unsanitized
@@ -235,6 +267,12 @@ interface SidebarItineraryProps {
    *  When this changes vs. the loaded itinerary's signature, the "View
    *  Itinerary" button regenerates instead of opening the stale plan. */
   cartFingerprint?: string
+  /** Current planning preferences. The sidebar uses this to (a) forward
+   *  meal/break windows to /api/itinerary, (b) snapshot the prefs
+   *  fingerprint at build time so a later chat update raises the
+   *  Rebuild affordance, and (c) render a "what changed" diff above
+   *  the Rebuild button explaining WHY a rebuild is recommended. */
+  prefs?: SidebarPrefsView | null
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -399,7 +437,65 @@ function fingerprintFromItinerary(it: Itinerary | null | undefined): string {
   return fingerprintFromIds(it.steps.map((s) => s.tripId))
 }
 
-export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint }: SidebarItineraryProps) {
+/** Stable, order-independent signature for the prefs fields that affect
+ *  itinerary scheduling. Anything that changes here SHOULD trigger a
+ *  rebuild — visit date, party size, duration, multi-day count, and the
+ *  user's meal/break windows. We deliberately EXCLUDE interests + budget
+ *  here because those don't materially change scheduling on a fixed
+ *  cart; they only affect the upstream trip-search that built the cart. */
+function fingerprintFromPrefs(p: SidebarPrefsView | null | undefined): string {
+  if (!p) return ""
+  const mb = (p.mealBreaks ?? [])
+    .slice()
+    .sort((a, b) => a.type.localeCompare(b.type))
+    .map((m) => `${m.type}:${m.earliest}-${m.latest}@${m.durationMinutes}`)
+    .join(",")
+  return [
+    p.startDate ?? "",
+    p.duration ?? "",
+    p.dayCount ?? "",
+    p.adults ?? "",
+    p.children ?? "",
+    mb,
+  ].join("|")
+}
+
+/** Compute a human-readable diff between two prefs snapshots. Returns the
+ *  list of changed-field labels for the "Changes since last build" UI. */
+function diffPrefs(prev: SidebarPrefsView | undefined | null, next: SidebarPrefsView | undefined | null): string[] {
+  if (!prev || !next) return []
+  const out: string[] = []
+  if ((prev.startDate ?? "") !== (next.startDate ?? "")) {
+    out.push(`Visit date → ${formatYMDPretty(next.startDate || "") || "—"}`)
+  }
+  if ((prev.duration ?? "") !== (next.duration ?? "")) {
+    out.push(`Trip length → ${next.duration || "—"}`)
+  }
+  if ((prev.dayCount ?? 1) !== (next.dayCount ?? 1)) {
+    out.push(`Day count → ${next.dayCount ?? 1}`)
+  }
+  const prevParty = (prev.adults ?? 0) + (prev.children ?? 0)
+  const nextParty = (next.adults ?? 0) + (next.children ?? 0)
+  if (prevParty !== nextParty) {
+    out.push(`Party size → ${next.adults ?? 0}A${(next.children ?? 0) > 0 ? ` + ${next.children}C` : ""}`)
+  }
+  // Meal breaks: list per-type changes (added / updated / removed).
+  const prevMb = new Map((prev.mealBreaks ?? []).map((m) => [m.type, m]))
+  const nextMb = new Map((next.mealBreaks ?? []).map((m) => [m.type, m]))
+  const types: Array<"lunch" | "dinner" | "coffee"> = ["lunch", "dinner", "coffee"]
+  for (const t of types) {
+    const a = prevMb.get(t)
+    const b = nextMb.get(t)
+    if (!a && b) out.push(`+ ${t} ${b.earliest}–${b.latest} (${b.durationMinutes} min)`)
+    else if (a && !b) out.push(`− ${t} removed`)
+    else if (a && b && (a.earliest !== b.earliest || a.latest !== b.latest || a.durationMinutes !== b.durationMinutes)) {
+      out.push(`${t} window → ${b.earliest}–${b.latest} (${b.durationMinutes} min)`)
+    }
+  }
+  return out
+}
+
+export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint, prefs }: SidebarItineraryProps) {
   const { items } = useCart()
   // Local itinerary takes precedence (just-generated), then fall back to the
   // parent's persisted copy so the View/Build button stays in sync even
@@ -456,13 +552,21 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       // checks compare the *input* not the (possibly trimmed) AI output.
       const inputCartFp = fingerprintFromIds(trips.map((t) => t.id))
       // Forward the visitor's saved preferences (group, party size, interests,
-      // budget, duration, multi-day count) so the AI can tailor the day plan
-      // — without these the itinerary builder was scheduling generically.
-      let preferences: Record<string, unknown> | null = null
-      try {
-        const raw = document.cookie.split("; ").find((c) => c.startsWith("sightseeing_prefs="))
-        if (raw) preferences = JSON.parse(decodeURIComponent(raw.split("=").slice(1).join("=")))
-      } catch { /* ignore — preferences are optional */ }
+      // budget, duration, multi-day count, meal/break windows) so the AI can
+      // tailor the day plan — without these the itinerary builder was
+      // scheduling generically. The PARENT-supplied `prefs` prop wins over
+      // the cookie because the parent already merged chat-tool updates that
+      // may not have round-tripped to the cookie yet.
+      let preferences: SidebarPrefsView | null = null
+      if (prefs && (prefs.group || prefs.startDate || (prefs.mealBreaks?.length ?? 0) > 0)) {
+        preferences = prefs
+      } else {
+        try {
+          const raw = document.cookie.split("; ").find((c) => c.startsWith("sightseeing_prefs="))
+          if (raw) preferences = JSON.parse(decodeURIComponent(raw.split("=").slice(1).join("="))) as SidebarPrefsView
+        } catch { /* ignore — preferences are optional */ }
+      }
+      const inputPrefsFp = fingerprintFromPrefs(preferences)
       const res = await fetch("/api/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -496,7 +600,21 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       if (elapsed < minLoaderMs) {
         await new Promise((r) => setTimeout(r, minLoaderMs - elapsed))
       }
-      const enriched: Itinerary = { ...data, builtFromCartFp: inputCartFp }
+      const enriched: Itinerary = {
+        ...data,
+        builtFromCartFp: inputCartFp,
+        builtFromPrefsFp: inputPrefsFp,
+        // Snapshot ONLY the fields used by drift detection + diff UI —
+        // avoids leaking unrelated prefs into persisted itinerary.
+        builtFromPrefs: preferences ? {
+          startDate: preferences.startDate,
+          duration: preferences.duration,
+          dayCount: preferences.dayCount,
+          adults: preferences.adults,
+          children: preferences.children,
+          mealBreaks: preferences.mealBreaks,
+        } : undefined,
+      }
       setItinerary(enriched)
       onOpenItinerary(enriched)
       // Notify the planner page so it can echo this build into the chat
@@ -509,7 +627,13 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       setLoading(false)
       setLoadingDate("")
     }
-  }, [items, onOpenItinerary])
+    // `prefs` and `onItineraryBuilt` are captured in the closure (forwarded
+    // to the API and used to snapshot `builtFromPrefsFp`). They MUST be in
+    // the deps list — otherwise a chat-driven prefs update would leave us
+    // rebuilding with the old prefs object and a stale fingerprint, which
+    // makes the "Rebuild & View" affordance never converge after a meal-
+    // window edit. (Caught in architect review.)
+  }, [items, onOpenItinerary, onItineraryBuilt, prefs])
 
   const handleBuildClick = useCallback(() => {
     const existing = readVisitDate()
@@ -746,12 +870,39 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
               // weather, and day-of-week logic all hinge on the date.
               const currentDate = readVisitDate()
               const dateDrifted = !!itinerary.visitDate && !!currentDate && currentDate !== itinerary.visitDate
-              const drifted = cartDrifted || dateDrifted
+              // Prefs-level drift: a chat update like "lunch 12–14" or a
+              // party-size tweak should also raise the Rebuild affordance
+              // even when the cart hasn't moved. We compare the current
+              // prefs against the snapshot taken at build time.
+              const currentPrefsFp = fingerprintFromPrefs(prefs)
+              const prefsDrifted = !!itinerary.builtFromPrefsFp
+                && currentPrefsFp !== ""
+                && currentPrefsFp !== itinerary.builtFromPrefsFp
+              const drifted = cartDrifted || dateDrifted || prefsDrifted
+              // Compute the human-readable diff for the "what changed" line
+              // — only when prefs actually drifted, to keep the UI quiet.
+              const prefsDiff = prefsDrifted ? diffPrefs(itinerary.builtFromPrefs, prefs) : []
+              // Cart-level diff: cheap names from the difference of the
+              // two fingerprints. We don't have current trip titles here
+              // (only ids in cartFingerprint), so we report counts +/-.
+              const cartDiff: string[] = []
+              if (cartDrifted && cartFingerprint && itineraryFp) {
+                const before = new Set(itineraryFp.split("|").filter(Boolean))
+                const after = new Set(cartFingerprint.split("|").filter(Boolean))
+                const added = [...after].filter((id) => !before.has(id)).length
+                const removed = [...before].filter((id) => !after.has(id)).length
+                if (added > 0) cartDiff.push(`+ ${added} trip${added === 1 ? "" : "s"}`)
+                if (removed > 0) cartDiff.push(`− ${removed} trip${removed === 1 ? "" : "s"}`)
+              }
+              if (dateDrifted && currentDate) {
+                cartDiff.unshift(`Visit date → ${formatYMDPretty(currentDate)}`)
+              }
+              const allChanges = [...cartDiff, ...prefsDiff]
               const handleClick = () => {
                 if (drifted) {
-                  // Cart changed since this itinerary was built — rebuild
-                  // before opening so the Canvas reflects the user's
-                  // actual saved trips, not a stale list.
+                  // Cart / date / prefs changed since this itinerary was
+                  // built — rebuild before opening so the Canvas reflects
+                  // the user's actual saved trips and preferences.
                   const date = readVisitDate() || itinerary.visitDate || todayYMD()
                   void runGenerate(date)
                 } else {
@@ -759,23 +910,44 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
                 }
               }
               return (
-                <button
-                  type="button"
-                  onClick={handleClick}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  {drifted ? (
-                    <>
-                      <Sparkles className="h-3 w-3" />
-                      Rebuild &amp; View
-                    </>
-                  ) : (
-                    <>
-                      <Maximize2 className="h-3 w-3" />
-                      View Itinerary
-                    </>
+                <div className="flex w-full flex-col gap-1.5">
+                  {drifted && allChanges.length > 0 && (
+                    <div className="rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5">
+                      <div className="text-[9px] font-semibold uppercase tracking-wide text-primary/80">
+                        Changes since last build
+                      </div>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {allChanges.slice(0, 4).map((c, i) => (
+                          <li key={`${c}-${i}`} className="text-[10px] leading-snug text-foreground/80">
+                            • {c}
+                          </li>
+                        ))}
+                        {allChanges.length > 4 && (
+                          <li className="text-[9px] italic text-muted-foreground">
+                            +{allChanges.length - 4} more
+                          </li>
+                        )}
+                      </ul>
+                    </div>
                   )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleClick}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    {drifted ? (
+                      <>
+                        <Sparkles className="h-3 w-3" />
+                        Rebuild &amp; View
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 className="h-3 w-3" />
+                        View Itinerary
+                      </>
+                    )}
+                  </button>
+                </div>
               )
             })()}
           </>
