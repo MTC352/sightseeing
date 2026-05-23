@@ -62,7 +62,12 @@ function apiToTrip(t: ApiTrip): Trip {
  * payload, which contains every field TripCard needs.
  */
 function usePublishedTrips(): Trip[] {
-  const { data, isLoading, isError } = useGetPublicTripsQuery()
+  // refetchOnMountOrArgChange forces a fresh /api/trips call every time the
+  // homepage mounts, so admin Featured toggles show up immediately on the
+  // next navigation rather than waiting for the RTK Query cache to expire.
+  const { data, isLoading, isError } = useGetPublicTripsQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  })
   if (isLoading || isError) return []
   return extractApiTrips(data).map(apiToTrip)
 }

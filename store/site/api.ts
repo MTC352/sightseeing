@@ -91,7 +91,9 @@ export const siteApi = createApi({
 
     getPublicTrips: builder.query<PublicTrip[], void>({
       query: () => "/trips",
-      keepUnusedDataFor: 300,
+      // Short cache + always-refetch-on-mount so admin Featured toggles
+      // show up on the homepage on the next navigation, not 5 minutes later.
+      keepUnusedDataFor: 30,
     }),
 
     getPublicPosts: builder.query<PublicPost[], void>({

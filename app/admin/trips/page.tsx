@@ -81,12 +81,22 @@ export default async function AdminTripsPage() {
                 <tr key={trip.id} className="group transition-colors hover:bg-secondary/40">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
+                      <Link
+                        href={`/admin/trips/${trip.id}`}
+                        className="flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted"
+                        title="Edit trip"
+                      >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={trip.image} alt="" className="h-full w-full object-cover" />
-                      </div>
+                      </Link>
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-foreground max-w-[220px]">{trip.title}</p>
+                        <Link
+                          href={`/admin/trips/${trip.id}`}
+                          className="block truncate font-medium text-foreground max-w-[220px] hover:text-primary hover:underline underline-offset-2"
+                          title="Edit trip"
+                        >
+                          {trip.title}
+                        </Link>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <p className="text-xs text-muted-foreground">{trip.city}</p>
                           {isPalisis(trip) ? (
