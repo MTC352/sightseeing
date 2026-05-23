@@ -2384,7 +2384,27 @@ export default function PlannerPage() {
                           // KEEP `**bold**` — we render it as <strong> so
                           // the AI can highlight trip names, dates, and
                           // prices (per system-prompt rule 5).
-                          const clean = part.text
+                          //
+                          // BELT-AND-SUSPENDERS sanitiser for rule 5a: even
+                          // with an explicit "NEVER expose ids" instruction,
+                          // the LLM occasionally leaks `tcms_14`, `tcms_lunch`,
+                          // bare Palisis numerics in parens, or meal-break
+                          // placeholders. Strip them defensively so the user
+                          // never sees an internal token.
+                          const sanitized = part.text
+                            // " (tcms_14)" / "(tcms_lunch)" → drop the paren group
+                            .replace(/\s*\(\s*(?:tcms_|meal_)[a-z0-9_]+\s*\)/gi, "")
+                            // ", tcms_14" / " — tcms_14" / "tcms_14 " → drop the token + adjacent separators
+                            .replace(/[\s,;—–-]*\b(?:tcms_|meal_)[a-z0-9_]+\b/gi, "")
+                            // standalone "lunch_break" / "dinner_break" / "coffee_break"
+                            .replace(/\b(?:lunch|dinner|coffee)_break\b/gi, "")
+                            // collapse "Trip Name (— 4 hours" style stray punctuation left behind
+                            .replace(/\(\s*([—–-])/g, "($1")
+                            .replace(/\(\s*\)/g, "")
+                            // collapse runs of whitespace introduced by deletions
+                            .replace(/[ \t]{2,}/g, " ")
+                            .replace(/\n{3,}/g, "\n\n")
+                          const clean = sanitized
                             .replace(/^#{1,3}\s+/gm, "")
                             .replace(/!\[.*?\]\(.*?\)/g, "")
                             .replace(/^[-*]\s+/gm, "")
