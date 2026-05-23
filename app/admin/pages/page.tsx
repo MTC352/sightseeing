@@ -14,6 +14,7 @@ const MANAGED_PAGES = [
   { slug: "careers",    label: "Careers",         url: "/careers",     description: "Job listings and apply CTAs" },
   { slug: "help",       label: "Help & FAQ",      url: "/help",        description: "FAQ accordion and help AI chat" },
   { slug: "checkout",   label: "Checkout",        url: "/checkout",    description: "Cart and Palisis booking iframe" },
+  { slug: "cfl-sightseeing", label: "CFL Sightseeing", url: "/cfl-sightseeing", description: "CFL self-guided walking tours — hero + audio-guide iframe" },
 ]
 
 export default function AdminPagesPage() {
