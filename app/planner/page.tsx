@@ -2236,8 +2236,6 @@ export default function PlannerPage() {
     return scored.slice(0, 8).map((s) => s.trip)
   }, [prefs, allTrips])
 
-  const resultTrips = aiTrips.length > 0 ? aiTrips : fallbackTrips
-
   // Mirror aiTrips into a ref so onToolCall (addToCart) can resolve DB-only
   // trips (tcms_*) that aren't in the static catalog. useChat's onToolCall
   // closure captures stale values, so we read latest via this ref.
@@ -2259,6 +2257,43 @@ export default function PlannerPage() {
   const prefsRef = useRef<Preferences | null>(null)
   useEffect(() => { prefsRef.current = prefs }, [prefs])
   const isStreaming = status === "streaming" || status === "submitted"
+
+  /* Gate canvas updates on streaming completion so the visitor doesn't
+     see the "Recommended for you" panel flash between intermediate
+     shortlists during a single AI turn (the prior 4 → 7 flash). The AI
+     may call `searchTrips` more than once per turn — first a broad scan,
+     then a narrowed final pick — and we only want to commit the final
+     result. While the AI is mid-turn we keep showing the LAST committed
+     set (or nothing if this is the visitor's first turn). */
+  const [committedAiTrips, setCommittedAiTrips] = useState<Trip[]>([])
+  const prevStreamingRef = useRef(isStreaming)
+  useEffect(() => {
+    // Stream just ended → commit whatever aiTrips ended up as the final.
+    if (prevStreamingRef.current && !isStreaming) {
+      setCommittedAiTrips(aiTrips)
+    } else if (!isStreaming) {
+      // Non-stream `aiTrips` change (e.g. visitor pinned via a sidebar
+      // action, or the messages array was rebuilt outside a chat turn).
+      // Keep `committedAiTrips` in sync so the next stream starts from
+      // the real current canvas, not a stale snapshot.
+      const sameLen = committedAiTrips.length === aiTrips.length
+      const sameIds = sameLen && committedAiTrips.every((t, i) => t.id === aiTrips[i]?.id)
+      if (!sameIds) setCommittedAiTrips(aiTrips)
+    }
+    prevStreamingRef.current = isStreaming
+  }, [isStreaming, aiTrips, committedAiTrips])
+  // While streaming, show the last committed set (or empty if none yet).
+  // Once streaming ends we use the live aiTrips so the useEffect above
+  // and the render stay in sync within the same render pass.
+  const displayedAiTrips = isStreaming ? committedAiTrips : aiTrips
+  const resultTrips: Trip[] = displayedAiTrips.length > 0
+    ? displayedAiTrips
+    // First-turn streaming with no committed trips yet → show NOTHING
+    // (the canvas renders the loading state below). Outside streaming
+    // we still fall back to the client-side scored picks so the panel
+    // is never empty after onboarding.
+    : (isStreaming ? [] : fallbackTrips)
+  const canvasIsDiscovering = isStreaming && displayedAiTrips.length === 0
   const showResults = resultTrips.length > 0
 
   /* Auto-expand map and center it when AI returns a new set of results */
@@ -3102,6 +3137,25 @@ export default function PlannerPage() {
                     <p className="text-sm font-medium text-foreground">Tell the AI what you like</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Pick one or more interests in the chat (Food, Culture, Outdoor, Nightlife…) and we'll analyse the catalog to suggest trips that genuinely match.
+                    </p>
+                  </div>
+                ) : canvasIsDiscovering ? (
+                  /* While the AI is mid-turn AND we have no committed picks
+                     yet, show a clear "discovering" state instead of the
+                     interim 4-trip fallback grid. This is what removed the
+                     "4 then suddenly 7" flash the visitor reported. */
+                  <div
+                    className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-secondary/30 p-8 text-center"
+                    data-testid="planner-recs-loading"
+                  >
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:0.15s]" />
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:0.3s]" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground">Discovering the best trips for you…</p>
+                    <p className="max-w-xs text-xs text-muted-foreground">
+                      We're checking the live catalog, weather, and your interests. The Trip Canvas will fill in once we have your final picks.
                     </p>
                   </div>
                 ) : (

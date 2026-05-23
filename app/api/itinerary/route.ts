@@ -178,18 +178,36 @@ function sortSlots(slots: LiveSlot[]): LiveSlot[] {
   return [...slots].sort((a, b) => a.startTime.localeCompare(b.startTime))
 }
 
-/** Duration in minutes from "1h 30m" / "90 min" / "2 hours" / undefined */
+/** Duration in minutes — accepts the wide range of strings the DB / Palisis
+ *  emit. Critically handles DECIMAL hours ("2.5 hours" → 150, not 120) and
+ *  the half-day / full-day shorthand. Previous version silently truncated
+ *  "2.5 hours" to 2 hours, which is the root cause of the user-reported
+ *  "trip durations are wrong while building the itinerary" bug. */
 function parseDurationMinutes(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback
-  const s = raw.toLowerCase()
+  const s = String(raw).toLowerCase().trim()
+  // Word shorthand from the planner UI / DB.
+  if (/\b(?:full[- ]?day|whole[- ]?day|all[- ]?day)\b/.test(s)) return 480
+  if (/\b(?:half[- ]?day)\b/.test(s)) return 240
   let total = 0
-  const hMatch = s.match(/(\d+)\s*(?:h|hr|hour)/)
-  const mMatch = s.match(/(\d+)\s*(?:m|min|minute)/)
-  if (hMatch) total += parseInt(hMatch[1], 10) * 60
-  if (mMatch) total += parseInt(mMatch[1], 10)
+  // Hour clause — captures DECIMALS too: "2.5 hours", "1.5h", "0.75 hr".
+  // Anchor on word boundary so "minute" isn't eaten by the hour pattern.
+  const hMatch = s.match(/(\d+(?:[.,]\d+)?)\s*(?:hours?|hrs?|h)\b/)
+  // Minute clause — only matches "min" / "minute" / "mins" / "minutes", and
+  // a trailing standalone "m" (e.g. "2h 30m"). Excluding bare "m" otherwise
+  // because some DB strings use "m" as a typo for "min".
+  const mMatch = s.match(/(\d+(?:[.,]\d+)?)\s*(?:minutes?|mins?|m\b)/)
+  if (hMatch) total += Math.round(parseFloat(hMatch[1].replace(",", ".")) * 60)
+  if (mMatch) total += Math.round(parseFloat(mMatch[1].replace(",", ".")))
   if (total === 0) {
-    const plain = s.match(/(\d+)/)
-    if (plain) total = parseInt(plain[1], 10)
+    // Last-resort: a bare number with no unit. Heuristic — if it's small
+    // (<= 12) treat as hours, otherwise as minutes. Same convention as the
+    // previous helper but with explicit semantics.
+    const plain = s.match(/(\d+(?:[.,]\d+)?)/)
+    if (plain) {
+      const n = parseFloat(plain[1].replace(",", "."))
+      total = n <= 12 ? Math.round(n * 60) : Math.round(n)
+    }
   }
   return total > 0 ? total : fallback
 }

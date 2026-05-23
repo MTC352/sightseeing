@@ -1,0 +1,299 @@
+Perfect — then add this section into the same Replit prompt so the AI understands that travel-time infrastructure already exists and should be used properly instead of reimplemented.
+
+---
+
+# EXISTING MAPBOX INTEGRATION (IMPORTANT)
+
+Travel time infrastructure already exists using Mapbox APIs.
+
+DO NOT replace Mapbox.
+
+Use existing Mapbox token and integrations.
+
+The planner MUST use Mapbox travel calculations as a first-class constraint in itinerary generation.
+
+---
+
+# MAPBOX REQUIREMENTS
+
+Use Mapbox for:
+
+* driving time
+* walking time
+* cycling time
+* transit estimation (if available)
+* distance matrix calculations
+* route optimization
+* realistic ETA calculations
+
+---
+
+# TRAVEL ENGINE RULES
+
+For every transition between trips:
+
+```ts id="3it9j5"
+transitionTime =
+travelTime
++ parkingBuffer
++ walkingToVenue
++ safetyBuffer
+```
+
+Example:
+
+```ts id="nb89cm"
+20 mins driving
++ 10 mins parking
++ 5 mins walking
++ 10 mins safety buffer
+= 45 mins required transition
+```
+
+The planner MUST use REAL usable transition times.
+
+NOT raw driving duration only.
+
+---
+
+# BUFFER RULES
+
+Add dynamic buffers based on trip type.
+
+Examples:
+
+## Museum
+
+* +10 mins entry buffer
+
+## Large attractions
+
+* +15 mins navigation buffer
+
+## Food tours
+
+* +15 mins seating/check-in
+
+## Airport/train activities
+
+* +30 mins safety buffer
+
+## City center parking
+
+* +15 mins parking buffer
+
+---
+
+# SMART TRANSIT DECISION
+
+Planner should compare:
+
+* walking
+* driving
+* cycling
+* transit
+
+Then choose best mode based on:
+
+* user preferences
+* weather
+* distance
+* fatigue
+* cost
+* total effective duration
+
+Example:
+
+```ts id="c5k71w"
+if distance < 1km:
+  prefer walking
+
+if city center traffic high:
+  avoid driving
+
+if walking fatigue high:
+  prefer transit
+```
+
+---
+
+# DISTANCE MATRIX OPTIMIZATION
+
+DO NOT repeatedly call Mapbox unnecessarily.
+
+Implement:
+
+* caching
+* memoization
+* batched matrix requests
+
+Store:
+
+```ts id="f0u3z5"
+travelCache[from][to][mode]
+```
+
+Use TTL cache.
+
+---
+
+# MAPBOX FAILURE HANDLING
+
+If Mapbox fails:
+
+* retry with exponential backoff
+* fallback to cached values
+* mark confidence level lower
+* NEVER hallucinate travel time
+
+---
+
+# REALISTIC HUMAN MOVEMENT
+
+Planner should avoid unrealistic movement.
+
+Examples to reject:
+
+* 5 mins between attractions 8km apart
+* 1 min venue transfers
+* back-and-forth city zigzagging
+* crossing city multiple times unnecessarily
+
+---
+
+# LOCATION CLUSTERING
+
+Improve itinerary quality using geographic clustering.
+
+Prefer:
+
+* nearby attractions together
+* area-based sequencing
+* neighborhood grouping
+
+Avoid:
+
+* unnecessary city crossing
+* repeated same routes
+
+---
+
+# ITINERARY FLOW QUALITY
+
+The planner should feel HUMAN.
+
+Good flow:
+
+* breakfast area
+* nearby attractions
+* lunch nearby
+* relaxed afternoon
+* evening activity
+
+Bad flow:
+
+* museum
+* opposite side of city
+* back downtown
+* another distant attraction
+
+---
+
+# MAPBOX TESTING REQUIREMENTS
+
+Create automated tests for:
+
+## Travel Accuracy
+
+* route duration consistency
+* realistic ETA calculations
+
+## Buffer Inclusion
+
+* parking buffers added
+* walking buffers added
+
+## Impossible Route Detection
+
+* insufficient transition time
+* traffic-heavy areas
+
+## Caching
+
+* duplicate API calls prevented
+
+## Performance
+
+* planning still under target runtime
+
+---
+
+# DEBUGGING FEATURES
+
+Add developer tools:
+
+```ts id="j28vba"
+logTravelDecision()
+logRejectedTransition()
+logBufferCalculation()
+```
+
+Also generate:
+
+* travel timeline visualization
+* route efficiency score
+* total walking distance
+* fatigue score
+
+---
+
+# FINAL PLANNER BEHAVIOR
+
+The planner should behave like:
+
+* Google Trips
+* TripIt
+* Expedia itinerary engine
+* professional guided tour planner
+
+NOT like:
+
+* a simple chronological AI list generator
+
+The system must optimize:
+
+* realism
+* comfort
+* pacing
+* travel efficiency
+* meal spacing
+* user enjoyment
+* feasibility
+
+while respecting:
+
+* API timeslots
+* travel durations
+* opening hours
+* human limitations
+* user preferences
+* day constraints
+
+---
+
+# IMPORTANT
+
+DO NOT:
+
+* assume travel times
+* skip buffers
+* ignore parking/walking
+* greedily choose nearest next slot
+
+DO:
+
+* globally optimize the entire day
+* evaluate multiple candidate itineraries
+* validate every transition
+* score route efficiency
+* prioritize realistic smooth travel flow

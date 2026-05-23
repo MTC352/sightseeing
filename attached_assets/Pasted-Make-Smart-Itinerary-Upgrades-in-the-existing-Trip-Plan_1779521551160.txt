@@ -1,0 +1,247 @@
+Make Smart Itinerary Upgrades in the existing Trip Planner and Planner Chat system.
+
+Upgrade the itinerary generation logic to behave like a professional travel planning engine with realistic scheduling, intelligent trip optimization, and human-friendly pacing.
+
+Implement the following improvements:
+
+1. Global Itinerary Optimization
+
+* Fetch ALL available timeslots for ALL selected trips before planning
+* Generate multiple candidate itineraries instead of greedily picking the next available slot
+* Evaluate the entire day globally
+* Select the best itinerary based on scoring and feasibility
+
+2. Smart Multi-Plan Generation
+   Generate multiple itinerary styles:
+
+* Relaxed itinerary
+* Fast-paced itinerary
+* Experience-maximized itinerary
+* Least walking itinerary
+* Family-friendly itinerary
+
+Rank all plans and choose the best one.
+
+3. Hard Constraint Validation
+   Reject invalid itineraries automatically if:
+
+* trips overlap
+* travel time is insufficient
+* transition buffer is missing
+* trip duration exceeds available slot
+* opening hours are violated
+* meal time cannot fit
+* user end time is exceeded
+* impossible walking/travel exists
+
+Create strict validation engine:
+validateItinerary(plan)
+
+4. Accurate Duration Parsing
+   Fix all duration calculation bugs permanently.
+
+Examples:
+
+* 2 hours = 120 mins
+* 2h 30m = 150 mins
+* 1.5 hours = 90 mins
+
+Create:
+
+* parseHumanDuration()
+* normalizeDuration()
+* durationToMinutes()
+
+Add regression tests so duration bugs never happen again.
+
+5. Meal & Break Planning
+   Automatically insert:
+
+* lunch
+* dinner
+* coffee/snack breaks
+* rest buffers
+
+Rules:
+
+* Lunch preferred between 12:00–14:00
+* Dinner preferred between 18:00–21:00
+* Minimum meal duration 45–90 mins
+* Avoid more than 5 hours continuous activity
+* Avoid tight schedules without breaks
+
+6. Smart Transition Handling
+   Use realistic transition calculations:
+
+transitionTime =
+travelTime
+
+* parkingBuffer
+* walkingBuffer
+* venueEntryBuffer
+* safetyBuffer
+
+Examples:
+
+* museums need entry buffer
+* city center locations need parking buffer
+* large attractions need navigation buffer
+* food tours need seating/check-in buffer
+
+7. Mapbox Travel Optimization
+   Use existing Mapbox integration for:
+
+* driving ETA
+* walking ETA
+* cycling ETA
+* route optimization
+* distance matrix
+* geographic clustering
+
+Do not use raw driving time only.
+Use realistic total transition duration.
+
+8. Smart Transport Selection
+   Compare:
+
+* walking
+* driving
+* cycling
+* transit
+
+Choose best option based on:
+
+* distance
+* traffic
+* fatigue
+* user preferences
+* total effective duration
+
+9. Geographic Clustering
+   Group nearby attractions together.
+   Avoid unnecessary city zig-zagging and backtracking.
+
+Prefer:
+
+* neighborhood-based sequencing
+* nearby lunch locations
+* area-wise planning
+
+10. Itinerary Scoring Engine
+    Implement weighted scoring system based on:
+
+* preference match
+* route efficiency
+* pacing quality
+* meal spacing
+* attraction quality
+* walking comfort
+* fatigue score
+* scenic flow
+
+Add penalties for:
+
+* excessive walking
+* tight transitions
+* backtracking
+* no breaks
+* idle dead time
+
+11. Explainability
+    If trips are excluded, return reasons.
+
+Example:
+{
+"trip": "Museum Tour",
+"reason": "No feasible slot after lunch and before evening cruise"
+}
+
+12. Planner Chat Intelligence
+    Upgrade planner chat to:
+
+* explain itinerary decisions clearly
+* suggest better alternatives
+* recommend removing low-priority trips if schedule is impossible
+* auto-select best feasible trips when user says “optimize automatically”
+* provide smarter recommendations based on pacing and travel flow
+
+13. Human-Friendly Itinerary Flow
+    The itinerary should feel natural and comfortable.
+
+Good flow:
+
+* breakfast area
+* nearby attractions
+* lunch nearby
+* relaxed afternoon
+* evening activity
+
+Avoid:
+
+* unnecessary cross-city travel
+* repeated area switching
+* unrealistic movement timing
+
+14. Automated Testing Suite
+    Create full testing for:
+
+* duration parsing
+* overlap detection
+* impossible transitions
+* meal insertion
+* route optimization
+* travel calculations
+* opening hours validation
+* buffer calculations
+* itinerary scoring
+* regression scenarios
+
+Add at least 20 realistic itinerary test cases.
+
+15. Performance Optimization
+    Avoid combinatorial explosion.
+    Use:
+
+* pruning
+* memoization
+* cached Mapbox responses
+* batched travel calculations
+
+Target itinerary generation under 3 seconds.
+
+16. Developer Debugging Tools
+    Add:
+
+* itinerary conflict logs
+* transition failure logs
+* score breakdown viewer
+* route efficiency inspector
+* travel decision logs
+
+17. Final Goal
+    The planner should behave like:
+
+* Google Trips
+* TripIt
+* Expedia itinerary engine
+* professional guided tour planner
+
+The final output should prioritize:
+
+* realism
+* comfort
+* smooth pacing
+* travel efficiency
+* user enjoyment
+* feasibility
+* intelligent scheduling
+
+while respecting:
+
+* real API timeslots
+* Mapbox travel times
+* opening hours
+* meals and breaks
+* realistic human movement
+* user preferences
+* selected day limits
