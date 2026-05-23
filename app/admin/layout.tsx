@@ -102,12 +102,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {collapsed && <LayoutDashboard className="h-4 w-4 text-muted-foreground" />}
         </div>
 
-        {/* Visit Site — opens public homepage in a new tab */}
+        {/* Visit Site — opens public homepage in the same tab */}
         <div className="border-b border-border p-2">
           <Link
             href="/"
-            target="_blank"
-            rel="noopener noreferrer"
             title={collapsed ? "Visit Site" : undefined}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 ${
               collapsed ? "justify-center" : ""
