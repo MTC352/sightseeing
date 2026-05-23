@@ -105,6 +105,21 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
   )
 }
 
+/** Compact skeleton matching the "small" TripCard variant — used by the
+ *  homepage "Recently Viewed" rail. */
+export function TripCardSmallSkeleton() {
+  return (
+    <div className="flex gap-3 rounded-lg border border-border bg-card p-2">
+      <div className="h-16 w-20 shrink-0 animate-pulse rounded-md bg-muted" />
+      <div className="flex flex-1 flex-col justify-center gap-1.5">
+        <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
+        <div className="h-2.5 w-3/5 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+      </div>
+    </div>
+  )
+}
+
 /**
  * Skeleton placeholder matching the default <TripCard /> layout exactly,
  * so loading the homepage Trending section (and other grids that use this)

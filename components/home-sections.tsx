@@ -3,7 +3,7 @@
 import React from "react"
 
 import Link from "next/link"
-import { TripCard, TripCardSkeleton } from "./trip-card"
+import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
 import { tripSummaries as staticTrips, categories, reviews, type Trip } from "@/lib/data"
 import { useGetPublicTripsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
@@ -294,17 +294,32 @@ export function WeatherSection() {
  *  page can pre-select the filter. */
 interface HomepageTag { slug: string; label: string; trip_count: number }
 
+function CategoryTileSkeleton() {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4">
+      <div className="h-12 w-12 animate-pulse rounded-xl bg-muted" />
+      <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+      <div className="h-2.5 w-16 animate-pulse rounded bg-muted" />
+    </div>
+  )
+}
+
 export function CategoriesSection() {
   const [tags, setTags] = React.useState<HomepageTag[]>([])
+  const [loading, setLoading] = React.useState(true)
   React.useEffect(() => {
     let cancelled = false
     fetch("/api/trip-tags?homepage=1", { cache: "no-store" })
       .then((r) => r.ok ? r.json() : { tags: [] })
       .then((j) => { if (!cancelled) setTags(Array.isArray(j?.tags) ? j.tags : []) })
       .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [])
-  if (tags.length === 0) return null
+  // Hide entirely once we know there are no trending tags. While the first
+  // fetch is in flight we render skeletons so the section reserves its space
+  // and avoids the layout shift the user reported.
+  if (!loading && tags.length === 0) return null
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <h2 className="text-xl font-bold text-foreground">
@@ -314,16 +329,18 @@ export function CategoriesSection() {
         <EditableText id="home:categories:subheading" defaultValue="From cultural tours to adventurous activities." />
       </p>
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
-        {tags.map((t) => {
-          const Icon = iconForSlug(t.slug)
-          return (
-            <Link key={t.slug} href={`/search?tag=${encodeURIComponent(t.slug)}`} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-primary/5">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
-              <span className="text-xs font-semibold text-foreground">{t.label}</span>
-              <span className="text-[10px] text-muted-foreground">{t.trip_count} experience{t.trip_count === 1 ? "" : "s"}</span>
-            </Link>
-          )
-        })}
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => <CategoryTileSkeleton key={`sk-${i}`} />)
+          : tags.map((t) => {
+              const Icon = iconForSlug(t.slug)
+              return (
+                <Link key={t.slug} href={`/search?tag=${encodeURIComponent(t.slug)}`} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-primary/5">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
+                  <span className="text-xs font-semibold text-foreground">{t.label}</span>
+                  <span className="text-[10px] text-muted-foreground">{t.trip_count} experience{t.trip_count === 1 ? "" : "s"}</span>
+                </Link>
+              )
+            })}
       </div>
     </section>
   )
@@ -386,14 +403,16 @@ export function ReviewsSection() {
 }
 
 function BestsellerSidebar() {
-  const { trips } = usePublishedTrips()
-  if (!trips[0]) return null
+  const { trips, isLoading } = usePublishedTrips()
+  if (!isLoading && !trips[0]) return null
   return (
     <div className="shrink-0 lg:w-80">
       <h3 className="text-lg font-bold text-foreground">
         <EditableText id="home:bestseller:heading" defaultValue="This week's bestseller" />
       </h3>
-      <div className="mt-4"><TripCard trip={trips[0]} priority /></div>
+      <div className="mt-4">
+        {isLoading ? <TripCardSkeleton /> : <TripCard trip={trips[0]} priority />}
+      </div>
     </div>
   )
 }
@@ -408,8 +427,9 @@ export function RecentlyViewed() {
   // Source DB trips directly (not the static-seed intersection) — DB IDs are
   // shaped "tcms_25" and don't collide with the legacy numeric ids in
   // lib/data.ts, so usePublishedTrips() would never find them.
-  const { data, isLoading, isError } = useGetPublicTripsQuery()
+  const { data, isLoading, isFetching, isError } = useGetPublicTripsQuery()
   const recentIds = useRecentlyViewed()
+  const loading = (isLoading || isFetching) && !data
 
   // Normalise the API response into the minimal Trip shape TripCard expects.
   const apiTrips = React.useMemo(() => {
@@ -455,10 +475,18 @@ export function RecentlyViewed() {
     return out
   }, [recentIds, byId])
 
-  // Section hidden entirely when the visitor has no recent views yet —
-  // matches the screenshot the user shared (heading without empty grid only
-  // appears once they've actually viewed trips).
-  if (recent.length === 0) return null
+  // Section hidden entirely when the visitor has no recent views — there's
+  // nothing to fetch in that case, so we never render a stray skeleton row.
+  if (recentIds.length === 0) return null
+
+  // Once data is loaded but none of the recent ids resolve to a still-
+  // published trip, hide the section too.
+  if (!loading && recent.length === 0) return null
+
+  // While the trips API is still loading we render compact skeletons sized
+  // to match the recent ids the visitor has, so the rail reserves its space
+  // and doesn't push the layout when cards arrive.
+  const skeletonCount = Math.min(recentIds.length, 4)
 
   return (
     <section data-testid="recently-viewed" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
@@ -470,9 +498,11 @@ export function RecentlyViewed() {
         <EditableText id="home:recent:subheading" defaultValue="Pick up where you left off." />
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {recent.map((t, i) => (
-          <TripCard key={t.id} trip={t} variant="small" priority={i === 0} />
-        ))}
+        {loading
+          ? Array.from({ length: skeletonCount }).map((_, i) => <TripCardSmallSkeleton key={`sk-${i}`} />)
+          : recent.map((t, i) => (
+              <TripCard key={t.id} trip={t} variant="small" priority={i === 0} />
+            ))}
       </div>
     </section>
   )

@@ -1001,6 +1001,15 @@ export default function PlannerPage() {
      fresh preflight is warranted. Key = `${toolCallId}|${prefsFp}|
      ${cartFp}` so any change to prefs or cart invalidates it. */
   const preflightFailedKeyRef = useRef<string | null>(null)
+  /* Per-toolCallId UI state for the inline chat card that renders the AI's
+     buildItinerary sketch. While the preflight is running we replace the
+     card's "Your Day Itinerary" + View button with a "Checking availability"
+     stub so the visitor never sees a confident-looking plan card next to a
+     "this can't be built" question. Once preflight settles:
+       • READY        → entry deleted, card renders the live steps + View button.
+       • NEEDS_DECISION → entry set to "decision", card shows a one-liner
+                          pointing the visitor at the chat question above it. */
+  const [preflightCardState, setPreflightCardState] = useState<Record<string, "checking" | "decision" | "ready">>({})
   /* Forward reference to useChat's `setMessages` so earlier handlers
      (handleOpenOrRebuildFromChat, handleRegenerateItinerary) can push
      truthful failure messages into the chat without forcing useChat —
@@ -1700,6 +1709,10 @@ export default function PlannerPage() {
     // Cleared in the finally block below.
     inFlightAutoBuildToolCallIdRef.current = latest.toolCallId
     setItineraryRegenerating(true)
+    // Switch the inline chat card into "checking" mode IMMEDIATELY so the
+    // visitor never sees a confident plan card while preflight is still
+    // verifying availability. Cleared in finally / on NEEDS_DECISION below.
+    setPreflightCardState((prev) => ({ ...prev, [latest.toolCallId]: "checking" }))
     void (async () => {
       try {
         /* ─── Preflight gate ───────────────────────────────────────────
@@ -1728,6 +1741,10 @@ export default function PlannerPage() {
           visitDate?: string
         } | null
         if (pre.ok && preData?.kind === "preflight" && preData.status === "NEEDS_DECISION") {
+          // Flip the card into the "decision" stub state so it stops
+          // showing the AI's confident sketch + View button while the
+          // visitor is being asked to resolve the conflict.
+          setPreflightCardState((prev) => ({ ...prev, [latest.toolCallId]: "decision" }))
           if (preData.conflict) {
             handlePlanConflict({
               message:
@@ -1910,6 +1927,19 @@ export default function PlannerPage() {
         if (inFlightAutoBuildToolCallIdRef.current === latest!.toolCallId) {
           inFlightAutoBuildToolCallIdRef.current = null
         }
+        /* Promote the per-toolCallId card from "checking" to "ready" so
+           the renderer flips from the stub to the full "Your Day Itinerary"
+           + View button. We KEEP a "decision" marker — that was set
+           explicitly above on NEEDS_DECISION and stays until prefs/cart
+           change triggers a fresh preflight (which sets it back to
+           "checking" first). The renderer defaults to a stub for any
+           toolCallId without an explicit "ready" status, so even failure
+           paths surface as "checking" → "ready" once the failure message
+           lands in chat. */
+        setPreflightCardState((prev) => {
+          if (prev[latest!.toolCallId] === "decision") return prev
+          return { ...prev, [latest!.toolCallId]: "ready" }
+        })
       }
     })()
     // `prefs` is in deps so that when the visitor resolves a preflight
@@ -1967,6 +1997,11 @@ export default function PlannerPage() {
     // prefix also makes the intent obvious in logs.
     const syntheticToolCallId = `manual-${Date.now()}`
     lastAutoBuiltToolCallIdRef.current = syntheticToolCallId
+    // Pre-mark this synthetic message as "ready" BEFORE pushing it so the
+    // renderer's default-deny gate doesn't flash a "Checking availability"
+    // stub for a build that already completed. Both setState calls are
+    // batched, so the next render sees both updates atomically.
+    setPreflightCardState((prev) => ({ ...prev, [syntheticToolCallId]: "ready" }))
     setMessages((prev) => ([
       ...prev,
       {
@@ -2475,6 +2510,44 @@ export default function PlannerPage() {
                         case "tool-buildItinerary": {
                           if (part.state === "output-available") {
                             const itinerary = part.output as { steps: { time: string; tripTitle: string; tripId: string; durationMinutes: number; travelToNext?: string }[]; summary: string; visitDate?: string }
+                            // Preflight gate (DEFAULT-DENY): the full card
+                            // + "View Itinerary" button only renders once
+                            // we've explicitly marked this toolCallId as
+                            // "ready". Any other state — undefined (initial
+                            // render before the auto-build effect commits),
+                            // "checking", or "decision" — renders the stub
+                            // so the chat never flashes a confident plan
+                            // card before preflight clears.
+                            const cardState = preflightCardState[(part as { toolCallId?: string }).toolCallId ?? ""]
+                            if (cardState !== "ready") {
+                              const dateLabel = itinerary.visitDate ? formatYMDPretty(itinerary.visitDate) : null
+                              textParts.push(
+                                <div key={idx} className="mt-2.5 overflow-hidden rounded-xl border border-border bg-card">
+                                  <div className="flex items-center gap-2 bg-primary/5 px-3 py-2">
+                                    <Route className="h-3.5 w-3.5 text-primary" />
+                                    <span className="text-xs font-bold text-foreground">
+                                      {cardState === "decision" ? "Decision needed" : "Checking availability"}
+                                    </span>
+                                    {dateLabel && (
+                                      <span className="text-[10px] font-semibold text-muted-foreground">· {dateLabel}</span>
+                                    )}
+                                    {cardState !== "decision" && (
+                                      <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="px-3 py-2.5">
+                                    <p className="text-xs text-muted-foreground">
+                                      {cardState === "decision"
+                                        ? "Pick how to handle the conflict above before I load your Trip Canvas."
+                                        : `Checking live availability${dateLabel ? ` for ${dateLabel}` : ""}…`}
+                                    </p>
+                                  </div>
+                                </div>
+                              )
+                              break
+                            }
                             // Trip ids from this AI plan — drives the View
                             // Itinerary button: if a real itinerary is
                             // already loaded for the same set of trips,
