@@ -3,7 +3,7 @@
 import React from "react"
 
 import Link from "next/link"
-import { TripCard } from "./trip-card"
+import { TripCard, TripCardSkeleton } from "./trip-card"
 import { tripSummaries as staticTrips, categories, reviews, type Trip } from "@/lib/data"
 import { useGetPublicTripsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
@@ -61,15 +61,19 @@ function apiToTrip(t: ApiTrip): Trip {
  * it rendered nothing. Now we build Trip objects directly from the API
  * payload, which contains every field TripCard needs.
  */
-function usePublishedTrips(): Trip[] {
+function usePublishedTrips(): { trips: Trip[]; isLoading: boolean } {
   // refetchOnMountOrArgChange forces a fresh /api/trips call every time the
   // homepage mounts, so admin Featured toggles show up immediately on the
   // next navigation rather than waiting for the RTK Query cache to expire.
-  const { data, isLoading, isError } = useGetPublicTripsQuery(undefined, {
+  const { data, isLoading, isFetching, isError } = useGetPublicTripsQuery(undefined, {
     refetchOnMountOrArgChange: true,
   })
-  if (isLoading || isError) return []
-  return extractApiTrips(data).map(apiToTrip)
+  // Treat the first fetch (no cached data yet) as "loading" so consumers
+  // can render skeletons. Once we have ANY data, subsequent background
+  // refetches (isFetching) shouldn't flash skeletons over real content.
+  const loading = (isLoading || isFetching) && !data
+  if (loading || isError) return { trips: [], isLoading: loading }
+  return { trips: extractApiTrips(data).map(apiToTrip), isLoading: false }
 }
 
 /**
@@ -100,7 +104,7 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
 
 /* Trending Section */
 export function TrendingSection() {
-  const trips = usePublishedTrips()
+  const { trips, isLoading } = usePublishedTrips()
   const featuredIds = useFeaturedTripIds()
   // Trending now reflects the admin's Featured toggle on /admin/trips
   // (DB `trips.featured`) instead of the static "popular" tag, which
@@ -125,7 +129,11 @@ export function TrendingSection() {
         </div>
         <Link href="/explore" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">See all <ChevronRight className="h-4 w-4" /></Link>
       </div>
-      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">{trending.map((t, i) => <TripCard key={t.id} trip={t} priority={i === 0} />)}</div>
+      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {isLoading
+          ? Array.from({ length: 3 }).map((_, i) => <TripCardSkeleton key={`sk-${i}`} />)
+          : trending.map((t, i) => <TripCard key={t.id} trip={t} priority={i === 0} />)}
+      </div>
     </section>
   )
 }
@@ -133,7 +141,7 @@ export function TrendingSection() {
 /* Weather Widget Section */
 export function WeatherSection() {
   const { weather, isLoading } = useWeather()
-  const trips = usePublishedTrips()
+  const { trips } = usePublishedTrips()
 
   // Fallback skeleton icon while loading
   const icon = weather?.current.icon ?? "cloud-sun"
@@ -323,7 +331,7 @@ export function CategoriesSection() {
 
 /* Deals Section */
 export function DealsSection() {
-  const trips = usePublishedTrips()
+  const { trips } = usePublishedTrips()
   const deals = trips.filter((t) => t.originalPrice).slice(0, 3)
   if (deals.length === 0) return null
   return (
@@ -378,7 +386,7 @@ export function ReviewsSection() {
 }
 
 function BestsellerSidebar() {
-  const trips = usePublishedTrips()
+  const { trips } = usePublishedTrips()
   if (!trips[0]) return null
   return (
     <div className="shrink-0 lg:w-80">

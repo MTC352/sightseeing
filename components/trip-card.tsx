@@ -104,3 +104,29 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
     </div>
   )
 }
+
+/**
+ * Skeleton placeholder matching the default <TripCard /> layout exactly,
+ * so loading the homepage Trending section (and other grids that use this)
+ * doesn't cause layout shift when the real cards swap in.
+ */
+export function TripCardSkeleton() {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="relative aspect-[4/3] animate-pulse bg-muted" />
+      <div className="flex flex-1 flex-col p-[10px]">
+        <div className="h-2.5 w-16 animate-pulse rounded bg-muted" />
+        <div className="mt-2 h-4 w-5/6 animate-pulse rounded bg-muted" />
+        <div className="mt-1.5 h-4 w-3/5 animate-pulse rounded bg-muted" />
+        <div className="mt-2 flex items-center gap-3">
+          <div className="h-3 w-12 animate-pulse rounded bg-muted" />
+          <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+          <div className="h-5 w-24 animate-pulse rounded bg-muted" />
+          <div className="h-9 w-24 animate-pulse rounded-xl bg-muted" />
+        </div>
+      </div>
+    </div>
+  )
+}
