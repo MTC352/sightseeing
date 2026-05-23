@@ -2404,28 +2404,62 @@ export default function PlannerPage() {
                             // collapse runs of whitespace introduced by deletions
                             .replace(/[ \t]{2,}/g, " ")
                             .replace(/\n{3,}/g, "\n\n")
-                          // BOLD ALLOW-LIST ENFORCEMENT: even with an explicit
-                          // allow-list in the system prompt, the LLM still
-                          // sometimes bolds descriptor phrases that happen to
-                          // contain an allowed token (e.g. "**7 best picks for
-                          // Saturday, 30 May**" or "**Not available:**"). For
-                          // each `**…**` span, if the inner text contains any
-                          // forbidden descriptor word, unbold the whole span
-                          // — the user will still see the words, just not in
-                          // bold. Allowed tokens (clean dates/times/durations/
-                          // prices/stop-counts/titles) are unaffected.
-                          // Tight list of descriptor words that NEVER appear
-                          // in a trip title, time, duration, date, or price.
-                          // (Avoid words like "tour"/"trip"/"experience" —
-                          // those legitimately appear in titles such as
-                          // "E-Bike Tour" and stripping them would unbold
-                          // the title itself.)
-                          const FORBIDDEN_BOLD_WORDS = /\b(?:best|picks?|matches?|available|unavailable|selections?|recommended|recommendations?|suitable|unsuitable|nostalgic|comfortable|efficient|scenic|romantic|flexible|friendly|highlights?|perfect|wonderful|amazing|popular|combo|cultural|categor(?:y|ies)|tags?)\b/i
+                          // BOLD ALLOW-LIST ENFORCEMENT: the LLM keeps
+                          // inventing new descriptor phrases to bold
+                          // ("outdoor", "walking + food", "guided history",
+                          // "self-paced exploration", "picturesque ruin",
+                          // "compact & informative", …). A blocklist of
+                          // forbidden words is whack-a-mole, so instead we
+                          // ONLY keep `**…**` if the inner text matches a
+                          // recognised data shape (time / duration / price /
+                          // date / stop-count) OR looks like a proper-noun
+                          // trip title (every token starts with an uppercase
+                          // letter or digit, ignoring small connector words).
+                          // Anything else is unbolded — the words still
+                          // render, just without emphasis.
+                          const TIME_PAT       = /^\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?(?:\s*[–\-]\s*\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)?$/i
+                          const DURATION_PAT   = /^\d+(?:[.,]\d+)?\s*(?:hours?|hrs?|h|min(?:ute)?s?|mins?|days?|nights?)(?:\s+each)?$/i
+                          const SIMPLE_DUR_PAT = /^(?:half|full)[-\s]?day$|^all[-\s]day$/i
+                          const PRICE_PAT      = /^€\s*\d+(?:[.,]\d+)?(?:\s*[–\-]\s*\d+(?:[.,]\d+)?)?$/
+                          const STOPS_PAT      = /^\d+\s*stops?$/i
+                          const REL_DATE_PAT   = /^(?:today|tomorrow|tonight|this (?:morning|afternoon|evening|weekend)|next (?:week|weekend))$/i
+                          const MONTH_DOW_PAT  = /\b(?:Mon|Tue|Tues|Wed|Wedn|Thu|Thur|Thurs|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)\b/
+                          const CONNECTOR_PAT  = /^(?:the|of|and|in|at|on|for|to|by|with|de|du|des|la|le|les|von|y|e|&|\+|-|–|—|–|\/|,|\.)$/i
+                          const isAllowedBold = (raw: string): boolean => {
+                            const inner = raw.trim()
+                            if (!inner) return false
+                            if (TIME_PAT.test(inner)) return true
+                            if (DURATION_PAT.test(inner)) return true
+                            if (SIMPLE_DUR_PAT.test(inner)) return true
+                            if (PRICE_PAT.test(inner)) return true
+                            if (STOPS_PAT.test(inner)) return true
+                            if (REL_DATE_PAT.test(inner)) return true
+                            // Date phrases: must contain a month/day-of-week
+                            // AND only consist of capitalised words, digits,
+                            // or connectors (e.g. "Sat 30 May", "Saturday 30 May",
+                            // "Sat 30 May at 19:15"). Strict: any word like
+                            // "best", "available", "picks", "matches",
+                            // "outdoor", "guided" disqualifies.
+                            const tokens = inner.split(/[\s,]+/).filter(t => t.length > 0)
+                            if (tokens.length === 0) return false
+                            if (tokens.length > 6) return false
+                            const allTokensClean = tokens.every(t =>
+                              /^[A-Z0-9]/.test(t) ||           // capitalised or digit
+                              /^[€$£¥]/.test(t) ||             // currency
+                              /^\d{1,2}[:.]\d{2}/.test(t) ||   // time
+                              CONNECTOR_PAT.test(t) ||         // small connector
+                              /^[–\-—&+/().]+$/.test(t)        // pure punctuation
+                            )
+                            if (!allTokensClean) return false
+                            // Either it contains a month/dow (=date phrase)
+                            // or it is a short proper-noun phrase (=trip title).
+                            return MONTH_DOW_PAT.test(inner) || tokens.length <= 6
+                          }
                           const desuperBolded = sanitized.replace(
                             /\*\*([^*]+)\*\*/g,
                             (match, inner: string) => {
-                              if (FORBIDDEN_BOLD_WORDS.test(inner)) return inner
-                              return match
+                              if (isAllowedBold(inner)) return match
+                              return inner
                             },
                           )
                           const clean = desuperBolded
