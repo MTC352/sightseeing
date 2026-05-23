@@ -2072,6 +2072,15 @@ export default function PlannerPage() {
   function resetPrefs() {
     setPrefs(null)
     didSendInitial.current = false
+    // CRITICAL: also clear the initial-messages ref. Line above re-arms
+    // `didSendInitial`, but the render-time guard `if (initialMessagesRef
+    // .current.length > 0) didSendInitial.current = true` runs on EVERY
+    // render and would immediately flip it back to true (because the ref
+    // was populated from localStorage at mount). That permanently blocked
+    // the post-reset auto-send, so the AI never re-ran "Find the best
+    // trips for me…" with the new prefs and the "Recommended for you"
+    // panel stayed on stale aiTrips from before the reset.
+    initialMessagesRef.current = []
     document.cookie = `${PREFS_COOKIE}=;path=/;max-age=0`
     // Clear persisted chat history too — a fresh onboarding shouldn't show
     // the previous visitor's conversation in the background.
@@ -2080,6 +2089,22 @@ export default function PlannerPage() {
       window.localStorage.removeItem(CHAT_STORAGE_KEY)
       setMessages([])
     } catch { /* ignore */ }
+    // Wipe the per-toolCallId preflight card state so any stale "ready"
+    // markers from the prior chat don't leak into the next session.
+    setPreflightCardState({})
+    // Reset the auto-build guards so the next AI buildItinerary in the
+    // new chat isn't blocked by the previous toolCallId markers.
+    lastAutoBuiltToolCallIdRef.current = null
+    inFlightAutoBuildToolCallIdRef.current = null
+    preflightFailedKeyRef.current = null
+    // Close and clear the Trip Canvas itinerary. Critical for "chat context
+    // has all the updated details" — prepareSendMessagesRequest forwards
+    // `itinerarySummary` from centerItinerary on every send, so a stale
+    // plan from the prior prefs session would otherwise still steer the
+    // new AI conversation. Also wipes its localStorage persistence.
+    setCenterItinerary(null)
+    setCenterItineraryOpen(false)
+    try { window.localStorage.removeItem("sightseeing_itinerary_v2") } catch { /* ignore */ }
   }
 
   /* ── Extract trips from AI Gen UI tool results ── */
