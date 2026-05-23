@@ -2476,7 +2476,7 @@ export default function PlannerPage() {
                               <p key={idx} className="whitespace-pre-wrap">
                                 {segments.map((seg, si) =>
                                   si % 2 === 1
-                                    ? <strong key={si} className="font-semibold text-foreground">{seg}</strong>
+                                    ? <strong key={si} className="font-bold text-foreground">{seg}</strong>
                                     : <React.Fragment key={si}>{seg}</React.Fragment>
                                 )}
                               </p>
@@ -2762,7 +2762,7 @@ export default function PlannerPage() {
                           {isAssistant ? <Bot className="h-3.5 w-3.5 text-primary" /> : <User className="h-3.5 w-3.5 text-muted-foreground" />}
                         </div>
                         <div className="flex max-w-[85%] flex-col gap-1">
-                          <div className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${isAssistant ? "rounded-tl-md bg-secondary text-foreground" : "rounded-tr-md bg-primary text-primary-foreground"}`}>
+                          <div className={`rounded-2xl px-3.5 py-2.5 text-sm font-normal leading-relaxed ${isAssistant ? "rounded-tl-md bg-secondary text-foreground" : "rounded-tr-md bg-primary text-primary-foreground"}`}>
                             {textParts}
                           </div>
                           {isAssistant && isDone && msgIdx !== 0 && (
