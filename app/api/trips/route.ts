@@ -128,7 +128,11 @@ export async function GET(request: NextRequest) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
-      "Cache-Control": "public, max-age=300, s-maxage=300",
+      // No browser/proxy caching: this endpoint drives the homepage
+      // "Trending this month" section, which must reflect admin Featured
+      // toggles immediately. A previous public max-age=300 caused stale
+      // data to persist for up to 5 minutes after each toggle.
+      "Cache-Control": "no-store, max-age=0, must-revalidate",
     },
   })
 }
