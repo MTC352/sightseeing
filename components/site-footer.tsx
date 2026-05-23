@@ -19,6 +19,7 @@ const LINKS = {
     { label: "Sports & Nature", href: "/experiences/sports-nature" },
     { label: "Culture", href: "/experiences/culture" },
     { label: "Private Tours", href: "/experiences/private-tours" },
+    { label: "CFL Sightseeing", href: "/cfl-sightseeing" },
   ],
   "Plan Your Trip": [
     { label: "AI Trip Planner", href: "/planner" },
