@@ -6,7 +6,7 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink,
 } from "lucide-react"
 
 type NavItem = {
@@ -100,6 +100,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </>
           )}
           {collapsed && <LayoutDashboard className="h-4 w-4 text-muted-foreground" />}
+        </div>
+
+        {/* Visit Site — opens public homepage in a new tab */}
+        <div className="border-b border-border p-2">
+          <Link
+            href="/"
+            target="_blank"
+            rel="noopener noreferrer"
+            title={collapsed ? "Visit Site" : undefined}
+            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 ${
+              collapsed ? "justify-center" : ""
+            }`}
+          >
+            <ExternalLink className="h-4 w-4 shrink-0" />
+            {!collapsed && <span className="flex-1">Visit Site</span>}
+          </Link>
         </div>
 
         {/* Nav links */}
