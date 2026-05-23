@@ -1740,29 +1740,59 @@ export default function PlannerPage() {
           alternativeDates?: ItineraryFailurePayload["alternativeDates"]
           visitDate?: string
         } | null
-        if (pre.ok && preData?.kind === "preflight" && preData.status === "NEEDS_DECISION") {
-          // Flip the card into the "decision" stub state so it stops
-          // showing the AI's confident sketch + View button while the
-          // visitor is being asked to resolve the conflict.
-          setPreflightCardState((prev) => ({ ...prev, [latest.toolCallId]: "decision" }))
-          if (preData.conflict) {
-            handlePlanConflict({
-              message:
-                `Your saved trips need more time than your **${preData.conflict.currentDuration}** plan allows ` +
-                `(${Math.round(preData.conflict.estimatedMinutes / 60 * 10) / 10}h needed vs ` +
-                `${Math.round(preData.conflict.availableMinutes / 60 * 10) / 10}h available). ` +
-                `Pick how to resolve this before I load the Trip Canvas:`,
-              visitDate: preData.visitDate || visitDate,
-              conflict: preData.conflict,
-            })
+        // Freshness check (architect race-fix): a newer tool-buildItinerary
+        // may have arrived while preflight was awaited. If so, this run is
+        // stale — bail without mutating any state. The newer run owns the
+        // in-flight slot now and will run its own preflight.
+        if (inFlightAutoBuildToolCallIdRef.current !== latest.toolCallId) return
+        const preIsReady =
+          pre.ok && preData?.kind === "preflight" && preData.status === "READY"
+        const preIsDecision =
+          pre.ok && preData?.kind === "preflight" && preData.status === "NEEDS_DECISION"
+        // STRICT GATE (architect T004 fix): only continue to the real AI
+        // build when preflight explicitly returned READY. Any other shape
+        // — NEEDS_DECISION, non-OK HTTP, malformed body — must NOT touch
+        // the canvas. On NEEDS_DECISION we ask the user; on malformed we
+        // surface a generic failure rather than silently proceeding.
+        if (!preIsReady) {
+          // Always clear any stale canvas so the visitor cannot perceive
+          // a "built" plan while we're asking them to resolve a conflict
+          // (architect T004 fix: canvas-must-be-empty on decision).
+          setCenterItinerary(null)
+          setCenterItineraryOpen(false)
+          if (preIsDecision) {
+            // Flip the card into the "decision" stub state so it stops
+            // showing the AI's confident sketch + View button while the
+            // visitor is being asked to resolve the conflict.
+            setPreflightCardState((prev) => ({ ...prev, [latest.toolCallId]: "decision" }))
+            if (preData!.conflict) {
+              handlePlanConflict({
+                message:
+                  `Your saved trips need more time than your **${preData!.conflict!.currentDuration}** plan allows ` +
+                  `(${Math.round(preData!.conflict!.estimatedMinutes / 60 * 10) / 10}h needed vs ` +
+                  `${Math.round(preData!.conflict!.availableMinutes / 60 * 10) / 10}h available). ` +
+                  `Pick how to resolve this before I load the Trip Canvas:`,
+                visitDate: preData!.visitDate || visitDate,
+                conflict: preData!.conflict!,
+              })
+            } else {
+              const dropped = preData!.unavailableTrips ?? []
+              handleItineraryFailure({
+                message: `Before I load the Trip Canvas — ${dropped.length} of your ${dropped.length === 1 ? "trip isn't" : "trips aren't"} bookable on **${formatYMDPretty(preData!.visitDate || visitDate)}**. Want to pick a different date, drop those trips, or carry on with just the bookable ones?`,
+                error: "PREFLIGHT_AVAILABILITY",
+                visitDate: preData!.visitDate || visitDate,
+                unavailableTrips: dropped,
+                alternativeDates: preData!.alternativeDates ?? [],
+              })
+            }
           } else {
-            const dropped = preData.unavailableTrips ?? []
+            // Malformed / non-OK preflight — surface honestly, don't build.
             handleItineraryFailure({
-              message: `Before I load the Trip Canvas — ${dropped.length} of your ${dropped.length === 1 ? "trip isn't" : "trips aren't"} bookable on **${formatYMDPretty(preData.visitDate || visitDate)}**. Want to pick a different date, drop those trips, or carry on with just the bookable ones?`,
-              error: "PREFLIGHT_AVAILABILITY",
-              visitDate: preData.visitDate || visitDate,
-              unavailableTrips: dropped,
-              alternativeDates: preData.alternativeDates ?? [],
+              message: "Could not verify availability for these trips — please try again in a moment.",
+              error: "PREFLIGHT_FAILED",
+              visitDate,
+              unavailableTrips: [],
+              alternativeDates: [],
             })
           }
           // Record this preflight outcome against the composite key so
@@ -1807,6 +1837,12 @@ export default function PlannerPage() {
           return
         }
         if (!data?.steps?.length) return
+        // Freshness check #2 (architect race-fix): a newer tool-buildItinerary
+        // may have arrived during the real-build fetch. If the in-flight
+        // owner has shifted, this run is stale — abort BEFORE mutating
+        // centerItinerary / cart / canvas, otherwise we'd overwrite the
+        // newer run's preflight-decision state with stale steps.
+        if (inFlightAutoBuildToolCallIdRef.current !== latest.toolCallId) return
         // ─── Auto-add chat-built trips to the cart ───────────────────────
         // The drift guard (~line 942) nukes centerItinerary the instant a
         // step's trip isn't in the cart. For chat-built itineraries the
