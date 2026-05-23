@@ -2404,7 +2404,31 @@ export default function PlannerPage() {
                             // collapse runs of whitespace introduced by deletions
                             .replace(/[ \t]{2,}/g, " ")
                             .replace(/\n{3,}/g, "\n\n")
-                          const clean = sanitized
+                          // BOLD ALLOW-LIST ENFORCEMENT: even with an explicit
+                          // allow-list in the system prompt, the LLM still
+                          // sometimes bolds descriptor phrases that happen to
+                          // contain an allowed token (e.g. "**7 best picks for
+                          // Saturday, 30 May**" or "**Not available:**"). For
+                          // each `**…**` span, if the inner text contains any
+                          // forbidden descriptor word, unbold the whole span
+                          // — the user will still see the words, just not in
+                          // bold. Allowed tokens (clean dates/times/durations/
+                          // prices/stop-counts/titles) are unaffected.
+                          // Tight list of descriptor words that NEVER appear
+                          // in a trip title, time, duration, date, or price.
+                          // (Avoid words like "tour"/"trip"/"experience" —
+                          // those legitimately appear in titles such as
+                          // "E-Bike Tour" and stripping them would unbold
+                          // the title itself.)
+                          const FORBIDDEN_BOLD_WORDS = /\b(?:best|picks?|matches?|available|unavailable|selections?|recommended|recommendations?|suitable|unsuitable|nostalgic|comfortable|efficient|scenic|romantic|flexible|friendly|highlights?|perfect|wonderful|amazing|popular|combo|cultural|categor(?:y|ies)|tags?)\b/i
+                          const desuperBolded = sanitized.replace(
+                            /\*\*([^*]+)\*\*/g,
+                            (match, inner: string) => {
+                              if (FORBIDDEN_BOLD_WORDS.test(inner)) return inner
+                              return match
+                            },
+                          )
+                          const clean = desuperBolded
                             .replace(/^#{1,3}\s+/gm, "")
                             .replace(/!\[.*?\]\(.*?\)/g, "")
                             .replace(/^[-*]\s+/gm, "")
