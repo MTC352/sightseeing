@@ -842,8 +842,14 @@ export default function PlannerPage() {
     setCenterItineraryOpen(true)
     // On mobile/tablet the right-side cart drawer is the only surface
     // that can host the itinerary panel — make sure it's open so the
-    // panel is actually visible after build / view.
-    setCartOpen(true)
+    // panel is actually visible after build / view. On desktop the
+    // canvas lives in the center column and the cart drawer is a
+    // separate slide-over, so opening it on every "View Itinerary"
+    // click is unwanted UI noise (user complaint, May 2026). Gate the
+    // auto-open behind a viewport check so mobile still works.
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setCartOpen(true)
+    }
     // Auto-expand the map so the route + numbered pins are visible
     // immediately when the plan lands.
     setMapExpanded(true)
@@ -1897,7 +1903,13 @@ export default function PlannerPage() {
         }
         setCenterItinerary(data)
         setCenterItineraryOpen(true)
-        setCartOpen(true)
+        // Mobile-only auto-open of the cart drawer (same rationale as
+        // handleOpenItinerary). On desktop the canvas lives in the
+        // center column, so popping the right-side cart drawer on every
+        // chat build is noisy.
+        if (typeof window !== "undefined" && window.innerWidth < 768) {
+          setCartOpen(true)
+        }
         setMapExpanded(true)
         /* Mark this toolCallId as fully built so subsequent renders
            (e.g. cart adds via the loop above) don't re-trigger the
@@ -2943,23 +2955,52 @@ export default function PlannerPage() {
                 </div>
               </div>
 
-              {/* Context-aware quick replies */}
-              <div className="flex gap-2 overflow-x-auto border-t border-border px-4 py-2 scrollbar-none">
-                {suggestions.map((s) => (
-                  <button key={s.label} type="button" onClick={() => handleSend(s.action)} disabled={isStreaming}
-                    className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-40">
-                    {s.label}
-                  </button>
-                ))}
-              </div>
+              {/* Context-aware quick replies — hidden while the AI is
+                  generating OR the post-stream itinerary build is still
+                  running. Showing chips at that moment is misleading
+                  because the response on screen isn't final yet (user
+                  complaint: "user thinks reply is done and types another
+                  message while itinerary card is still loading"). */}
+              {!isStreaming && !itineraryRegenerating && suggestions.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto border-t border-border px-4 py-2 scrollbar-none">
+                  {suggestions.map((s) => (
+                    <button key={s.label} type="button" onClick={() => handleSend(s.action)}
+                      className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary">
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {/* Input */}
+              {/* Input — disabled while streaming OR while the post-
+                  stream itinerary build is still in flight. The
+                  placeholder switches to a "still building" message so
+                  the visitor never wonders whether the response is
+                  done. (Same user complaint as above.) */}
               <div className="border-t border-border px-4 py-3">
-                <form onSubmit={(e) => { e.preventDefault(); handleSend(input) }}
+                {(isStreaming || itineraryRegenerating) && (
+                  <div className="mb-2 flex items-center justify-center gap-2 rounded-lg bg-primary/5 px-3 py-1.5 text-[11px] font-medium text-primary">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>
+                      {itineraryRegenerating && !isStreaming
+                        ? "Still finalizing your itinerary…"
+                        : "Generating response…"}
+                    </span>
+                  </div>
+                )}
+                <form onSubmit={(e) => { e.preventDefault(); if (!isStreaming && !itineraryRegenerating) handleSend(input) }}
                   className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 focus-within:border-primary/40">
-                  <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask anything..."
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none" disabled={isStreaming} />
-                  <button type="submit" disabled={!input.trim() || isStreaming}
+                  <input value={input} onChange={(e) => setInput(e.target.value)}
+                    placeholder={
+                      isStreaming
+                        ? "Wait for the response to finish…"
+                        : itineraryRegenerating
+                          ? "Finalizing your itinerary…"
+                          : "Ask anything..."
+                    }
+                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed"
+                    disabled={isStreaming || itineraryRegenerating} />
+                  <button type="submit" disabled={!input.trim() || isStreaming || itineraryRegenerating}
                     className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
                     <Send className="h-4 w-4" />
                   </button>
