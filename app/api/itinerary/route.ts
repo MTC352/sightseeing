@@ -713,6 +713,9 @@ ${coffeeRule}
         candidateTripIds?: string[]
       }>
     } | null = null
+    // Captured when full-day intent triggers the auto-drop branch (below)
+    // so the preflight response can surface a friendly chat note.
+    let autoDroppedForFullDay: Array<{ tripId: string; title: string; reason: string }> = []
 
     if (hasPlanConflict) {
       const overshootMin = Math.max(15, estimatedTotalMinutes - availableMinutes)
@@ -764,6 +767,23 @@ ${coffeeRule}
           reason: `Would not fit your ${prefs.duration || "single-day"} window — change duration or visit date to include it.`,
         }))
 
+      /* AUTO-RESOLVE FOR COMMITTED FULL-DAY INTENT
+         When the visitor has already explicitly chosen a full-day, single-
+         date plan (prefs.duration === "full-day"), the only two sensible
+         remaining options in this conflict are:
+           a) "Spread across N days"   — directly violates their stated intent.
+           b) "Drop the longest trips" — preserves their stated intent.
+         Bouncing a multiple-choice card back at them in chat is friction:
+         we already know the answer. Instead, skip the conflict entirely
+         and let the pipeline proceed with the trimmed `bookable` (which
+         the loop below already sliced down to the fitting subset). The
+         client surfaces a friendly chat note about which trips were
+         auto-dropped so the visitor knows what happened and can object. */
+      const autoDropForFullDay = prefs.duration === "full-day" && droppedForFit.length > 0
+      if (autoDropForFullDay) {
+        autoDroppedForFullDay = droppedForFit
+      }
+      if (!autoDropForFullDay) {
       conflictPayload = {
         reason: "TOO_MANY_TRIPS_FOR_DURATION",
         tripCount: bookable.length,
@@ -796,6 +816,7 @@ ${coffeeRule}
           },
         ],
       }
+      } // end if (!autoDropForFullDay)
 
       // Trim `bookable` to the fitting subset for the rest of the
       // pipeline AND rebuild every prompt-facing block derived from it,
@@ -849,6 +870,9 @@ ${slotLines}`
         unavailableTrips,
         alternativeDates,
         bookableTripIds: bookable.map((b) => b.trip.id),
+        // Populated only when the full-day auto-drop branch fired above;
+        // empty array otherwise. Client renders a chat note from this.
+        autoDroppedForFullDay,
       })
     }
 

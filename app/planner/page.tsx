@@ -1739,6 +1739,7 @@ export default function PlannerPage() {
           unavailableTrips?: ItineraryFailurePayload["unavailableTrips"]
           alternativeDates?: ItineraryFailurePayload["alternativeDates"]
           visitDate?: string
+          autoDroppedForFullDay?: Array<{ tripId: string; title: string; reason: string }>
         } | null
         // Freshness check (architect race-fix): a newer tool-buildItinerary
         // may have arrived while preflight was awaited. If so, this run is
@@ -1806,7 +1807,28 @@ export default function PlannerPage() {
           // mutate prefs/cart and the drift-rebuild path will re-fire.
           return
         }
-        /* Preflight passed (READY) — proceed to the real AI build. */
+        /* Preflight passed (READY) — proceed to the real AI build.
+           If the visitor's full-day intent triggered the server-side
+           auto-drop branch, surface a chat note about what was dropped
+           so they aren't surprised when the canvas has fewer trips than
+           their cart. They can object in chat and the AI can rebuild. */
+        const autoDropped = preData?.autoDroppedForFullDay ?? []
+        if (autoDropped.length > 0) {
+          const names = autoDropped.map((d) => `**"${d.title}"**`).join(" and ")
+          setMessages((prev) => ([
+            ...prev,
+            {
+              id: `auto-drop-${latest.toolCallId}`,
+              role: "assistant",
+              parts: [{
+                type: "text",
+                text:
+                  `Your saved trips needed more time than a single full-day window allows, so I dropped ${names} to fit. ` +
+                  `Tell me if you'd rather keep them and spread across days instead — I'll rebuild.`,
+              }],
+            } as PlannerMessage,
+          ]))
+        }
         const r = await fetch("/api/itinerary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2448,7 +2470,35 @@ export default function PlannerPage() {
                   {messages.map((msg, msgIdx) => {
                     if (msgIdx === 0 && msg.role === "user") return null
                     const textParts: React.ReactNode[] = []
+                    /* CONTRADICTION GUARD: if this assistant message contains
+                       a buildItinerary tool call whose preflight came back as
+                       "decision" (conflict needs resolution), suppress any
+                       text parts that appear AFTER that tool call in the same
+                       message. The LLM sometimes streams a confident
+                       "Your full-day itinerary is ready on the Trip Canvas…"
+                       line directly after the tool call — that text is
+                       written BEFORE the preflight result is known, and would
+                       directly contradict the "Decision needed" card the
+                       preflight just rendered. Stripping it keeps the chat
+                       internally consistent. The text BEFORE the tool call
+                       (e.g. "Let me build a multi-trip full-day plan…")
+                       stays — that framing is still accurate. */
+                    let decisionBuildIdx = -1
+                    msg.parts.forEach((p, i) => {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const pp = p as any
+                      if (decisionBuildIdx === -1
+                        && pp?.type === "tool-buildItinerary"
+                        && pp?.state === "output-available"
+                        && preflightCardState[pp?.toolCallId ?? ""] === "decision") {
+                        decisionBuildIdx = i
+                      }
+                    })
                     msg.parts.forEach((part, idx) => {
+                      // Suppress contradictory post-decision text (see guard above).
+                      if (decisionBuildIdx >= 0 && idx > decisionBuildIdx && part.type === "text") {
+                        return
+                      }
                       switch (part.type) {
                         case "text": {
                           // Strip headings, images, and bullet markers but
@@ -2858,7 +2908,25 @@ export default function PlannerPage() {
                       </div>
                     )
                   })}
-                  {isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === "user" && (
+                  {isStreaming && messages.length > 0 && (() => {
+                    // Show the "AI is thinking" dots whenever the visitor would
+                    // otherwise be staring at a blank chat after sending a
+                    // message. Two scenarios:
+                    //   1) Last message is the user's — AI hasn't started.
+                    //   2) Last message is the assistant's BUT it has no
+                    //      visible text yet (only an in-flight tool call,
+                    //      e.g. preflight is running). Previously dots only
+                    //      covered (1), so the chat looked frozen during
+                    //      slow tool-only turns.
+                    const last = messages[messages.length - 1]
+                    if (last?.role === "user") return true
+                    if (last?.role !== "assistant") return false
+                    const hasVisibleText = last.parts.some(
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      (p: any) => p?.type === "text" && typeof p.text === "string" && p.text.trim().length > 0,
+                    )
+                    return !hasVisibleText
+                  })() && (
                     <div className="flex gap-2.5">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
                         <Bot className="h-3.5 w-3.5 text-primary" />
