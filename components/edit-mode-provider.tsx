@@ -26,14 +26,63 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
-  const isEditMode = searchParams.get("admin_edit") === "1"
+
+  // Raw URL intent — true only if the query param is present.
+  const paramRequested = searchParams.get("admin_edit") === "1"
+
+  // Verified state — starts as false and becomes true only after the
+  // /api/admin/auth/me check confirms a valid admin session. If the
+  // param is absent, this stays false without making any network call.
+  const [adminVerified, setAdminVerified] = useState(false)
 
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({})
-  // savedChanges holds values already persisted to the server (loaded on mount)
   const [savedChanges, setSavedChanges] = useState<Record<string, string>>({})
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle")
 
-  // Load all saved content from server when entering edit mode
+  // Whenever the param appears (or the page mounts with it), check the
+  // admin session. If the check fails (not logged in, session expired,
+  // or admin logged out), strip the param from the URL silently so it
+  // cannot be bookmarked / shared.
+  useEffect(() => {
+    if (!paramRequested) {
+      setAdminVerified(false)
+      return
+    }
+    let cancelled = false
+    fetch("/api/admin/auth/me", { credentials: "include" })
+      .then((res) => {
+        if (cancelled) return
+        if (res.ok) {
+          setAdminVerified(true)
+        } else {
+          // Session invalid or not logged in — strip param and deny.
+          setAdminVerified(false)
+          const params = new URLSearchParams(searchParams.toString())
+          params.delete("admin_edit")
+          const qs = params.toString()
+          router.replace(pathname + (qs ? `?${qs}` : ""))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAdminVerified(false)
+          const params = new URLSearchParams(searchParams.toString())
+          params.delete("admin_edit")
+          const qs = params.toString()
+          router.replace(pathname + (qs ? `?${qs}` : ""))
+        }
+      })
+    return () => { cancelled = true }
+  // Re-run whenever the param changes OR the pathname changes (catches
+  // navigations that might reload the component tree).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramRequested, pathname])
+
+  // The actual gate: both the URL param AND the server-verified session
+  // must be true.
+  const isEditMode = paramRequested && adminVerified
+
+  // Load all saved content from server when entering edit mode.
   useEffect(() => {
     if (!isEditMode) return
     fetch("/api/page-content")
@@ -46,7 +95,7 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
     setPendingChanges((prev) => ({ ...prev, [key]: value }))
   }, [])
 
-  // Reset pending changes when edit mode is toggled off
+  // Reset pending changes when edit mode is toggled off.
   useEffect(() => {
     if (!isEditMode) {
       setPendingChanges({})
@@ -73,7 +122,6 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
           })
         )
       )
-      // Merge pending into saved so values persist visually after save
       setSavedChanges((prev) => ({ ...prev, ...pendingChanges }))
       setPendingChanges({})
       setSaveState("saved")
@@ -90,7 +138,7 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
     <EditModeContext.Provider value={{ isEditMode, pendingChanges, savedChanges, addChange }}>
       {isEditMode && (
         <>
-          {/* Amber top banner — rendered BEFORE children so it doesn't overlap */}
+          {/* Amber top banner */}
           <div
             role="banner"
             className="fixed inset-x-0 top-0 z-[9999] flex h-10 items-center justify-between gap-3 bg-amber-400 px-4 text-amber-950 shadow-sm"
