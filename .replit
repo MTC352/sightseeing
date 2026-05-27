@@ -42,3 +42,7 @@ CRON_SECRET = "v861etrbr5t6yb318sy8se9rb9t8zv6s51rb91btnu7j8"
 deploymentTarget = "autoscale"
 run = ["pnpm", "start"]
 build = ["pnpm", "build"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 120000

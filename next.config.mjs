@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 // hero uses plain <img> tag — no next/image restriction applies
 const nextConfig = {
+  allowedDevOrigins: ["*.picard.replit.dev", "*.replit.dev"],
   typescript: {
     ignoreBuildErrors: true,
   },
