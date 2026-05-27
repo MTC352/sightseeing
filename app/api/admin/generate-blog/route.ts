@@ -1,6 +1,7 @@
 import { streamText } from "ai"
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const maxDuration = 120
 
@@ -73,6 +74,7 @@ function buildTripCatalogPrompt(trips: any[]): string {
 }
 
 export async function POST(req: Request) {
+  try { await requireAdminSession() } catch { return Response.json({ error: "Unauthorized" }, { status: 401 }) }
   const { topic, category } = await req.json()
 
   if (!topic?.trim()) {

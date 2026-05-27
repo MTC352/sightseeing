@@ -14,6 +14,7 @@
  */
 
 import { generateText } from "ai"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
@@ -61,6 +62,7 @@ const PROMPTS: Record<string, (p: { currentValue: string; focusKeyword: string; 
 
 export async function POST(request: Request) {
   try {
+    await requireAdminSession()
     const body = await request.json()
     const { fixType, currentValue, focusKeyword = "", tripData = {} } = body
 
@@ -84,6 +86,9 @@ export async function POST(request: Request) {
 
     return Response.json({ result: text.trim() })
   } catch (err) {
+    if (err instanceof Error && (err as { status?: number }).status === 401) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 })
+    }
     console.error("[seo-fix] error:", err)
     return Response.json(
       { error: err instanceof Error ? err.message : "AI request failed" },

@@ -3,11 +3,13 @@ import { getTourCMSClient } from "@/lib/tourcms"
 import type { TourSummary } from "@/lib/tourcms"
 import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper"
 import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog } from "@/lib/db/queries"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
 // ── POST /api/admin/palisis-import ────────────────────────────────────────────
 export async function POST(req: Request) {
+  try { await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   const startedAt = Date.now()
   const body = await req.json().catch(() => ({})) as { override?: boolean }
   const overrideAll = body.override === true

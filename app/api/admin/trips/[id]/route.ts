@@ -2,6 +2,11 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbGetTrip, dbUpdateTrip, dbDeleteTrip, dbGetIntegration } from "@/lib/db/queries"
 import { resolvePolicy, isFieldEditable, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
+import { requireAdminSession } from "@/lib/auth-server"
+
+function isUnauthorized(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 401
+}
 
 /**
  * Defense-in-depth: strip any field the current policy marks "readonly"
@@ -22,8 +27,6 @@ async function filterByPolicy<T extends Record<string, unknown>>(data: T): Promi
   const filtered: Record<string, unknown> = {}
   const stripped: string[] = []
   for (const [k, v] of Object.entries(data)) {
-    // Only enforce policy on known trip-policy fields; pass through everything
-    // else (e.g. internal flags, ids) untouched.
     if (known.has(k) && !isFieldEditable(policy, k)) {
       stripped.push(k)
       continue
@@ -35,11 +38,13 @@ async function filterByPolicy<T extends Record<string, unknown>>(data: T): Promi
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireAdminSession()
     const { id } = await params
     const trip = await dbGetTrip(id)
     if (!trip) return NextResponse.json({ error: "Not found" }, { status: 404 })
     return NextResponse.json(trip)
   } catch (err) {
+    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trips/:id] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
@@ -47,6 +52,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireAdminSession()
     const { id } = await params
     const data = await req.json()
     const { filtered, stripped } = await filterByPolicy(data as Record<string, unknown>)
@@ -59,6 +65,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     revalidatePath("/")
     return NextResponse.json({ ...updated, _strippedReadOnly: stripped.length ? stripped : undefined })
   } catch (err) {
+    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trips/:id] PATCH error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
@@ -66,12 +73,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireAdminSession()
     const { id } = await params
     await dbDeleteTrip(id)
     revalidatePath("/admin/trips")
     revalidatePath("/")
     return NextResponse.json({ ok: true })
   } catch (err) {
+    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trips/:id] DELETE error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

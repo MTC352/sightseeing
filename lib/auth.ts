@@ -9,7 +9,13 @@ const COOKIE_NAME = "admin_session"
 const MAX_AGE = 60 * 60 * 8 // 8 hours
 
 function getSecret(): Uint8Array {
-  const secret = process.env.ADMIN_JWT_SECRET ?? "sightseeing-lu-dev-secret-change-in-production"
+  const secret = process.env.ADMIN_JWT_SECRET
+  if (!secret) {
+    throw new Error(
+      "ADMIN_JWT_SECRET environment variable is not set. " +
+      "Set a long, random secret before starting the application."
+    )
+  }
   return new TextEncoder().encode(secret)
 }
 

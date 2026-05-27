@@ -12,10 +12,12 @@
 
 import { NextResponse } from "next/server"
 import { refreshDiscovery, discoveryCache } from "@/lib/departing-soon-cache"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
 export async function POST() {
+  try { await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   const result = await refreshDiscovery(true)
   if (!("ok" in result) || !result.ok) {
     return NextResponse.json(result, { status: 500 })

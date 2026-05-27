@@ -18,18 +18,68 @@ async function query(sql, params = []) {
 }
 
 // ── Admin user ─────────────────────────────────────────────────────────────
+//
+// The bootstrap admin account is created with a randomly-generated password
+// that is printed once to stdout and never stored in this file.
+// Change the password via the admin panel after first login.
+
+import bcrypt from 'bcryptjs'
+import { randomBytes } from 'crypto'
+
+// The original bcrypt hash for the well-known default password "Admin1234!"
+// that was shipped in the initial seed. Any account still using this hash
+// must be force-reset to a new random password.
+const LEGACY_KNOWN_HASH = '$2b$12$PO05akiDVS5qAVrdcDWOR.lk0XwmaoNgYO4/bPm7Qi2yQ6XTT8zrC'
 
 async function seedAdminUser() {
-  // Hash is for "Admin1234!" — bcrypt 12 rounds
-  const hash = '$2b$12$PO05akiDVS5qAVrdcDWOR.lk0XwmaoNgYO4/bPm7Qi2yQ6XTT8zrC'
+  const existing = await query(`SELECT id, password_hash FROM admin_users WHERE email = $1`, ['admin@sightseeing.lu'])
+
+  if (existing.rows.length > 0) {
+    const row = existing.rows[0]
+    // If the account still carries the publicly-known default password hash,
+    // force-reset it to a fresh random password.
+    if (row.password_hash === LEGACY_KNOWN_HASH) {
+      const password = randomBytes(12).toString('base64url')
+      const hash = await bcrypt.hash(password, 12)
+      await query(`UPDATE admin_users SET password_hash = $1 WHERE id = $2`, [hash, row.id])
+      console.log('✓ admin_users: legacy default password force-reset for id =', row.id)
+      console.log('')
+      console.log('╔══════════════════════════════════════════════════════╗')
+      console.log('║  SECURITY: DEFAULT PASSWORD REPLACED — SAVE THIS    ║')
+      console.log('║                                                      ║')
+      console.log('║  Email:    admin@sightseeing.lu                      ║')
+      console.log(`║  Password: ${password.padEnd(42)}║`)
+      console.log('║                                                      ║')
+      console.log('║  Change this password via the admin panel.           ║')
+      console.log('╚══════════════════════════════════════════════════════╝')
+      console.log('')
+    } else {
+      console.log('✓ admin_users: account already exists with non-default password, skipping (id =', row.id, ')')
+    }
+    return row.id
+  }
+
+  const password = randomBytes(12).toString('base64url')
+  const hash = await bcrypt.hash(password, 12)
+
   await query(
     `INSERT INTO admin_users (email, name, password_hash, role) 
-     VALUES ($1, $2, $3, 'superadmin') 
-     ON CONFLICT (email) DO NOTHING`,
+     VALUES ($1, $2, $3, 'superadmin')`,
     ['admin@sightseeing.lu', 'Admin', hash]
   )
+
   const { rows } = await query(`SELECT id FROM admin_users WHERE email = $1`, ['admin@sightseeing.lu'])
   console.log('✓ admin_users seeded, id =', rows[0].id)
+  console.log('')
+  console.log('╔══════════════════════════════════════════════════════╗')
+  console.log('║  BOOTSTRAP ADMIN CREDENTIALS — SAVE AND THEN DELETE ║')
+  console.log('║                                                      ║')
+  console.log('║  Email:    admin@sightseeing.lu                      ║')
+  console.log(`║  Password: ${password.padEnd(42)}║`)
+  console.log('║                                                      ║')
+  console.log('║  Change this password immediately after first login. ║')
+  console.log('╚══════════════════════════════════════════════════════╝')
+  console.log('')
   return rows[0].id
 }
 

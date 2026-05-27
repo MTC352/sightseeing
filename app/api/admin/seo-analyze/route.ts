@@ -1,4 +1,5 @@
 import { generateText } from "ai"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -45,6 +46,7 @@ Be specific and actionable. Provide actual optimized text that can be applied wi
 
 export async function POST(request: Request) {
   try {
+    await requireAdminSession()
     const { tripData } = await request.json()
 
     // Build the SEO input from BOTH the basic fields and the Palisis-imported
@@ -117,6 +119,9 @@ Provide SEO analysis and optimization suggestions. Return ONLY the JSON object, 
     
     return Response.json(analysis)
   } catch (error) {
+    if (error instanceof Error && (error as { status?: number }).status === 401) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 })
+    }
     console.error("[seo-analyze] POST error:", error)
     return Response.json({ error: "Analysis failed. Please try again." }, { status: 500 })
   }

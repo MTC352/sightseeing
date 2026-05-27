@@ -1,5 +1,6 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
 import { dbGetSettings, dbListTrips, dbListPosts } from "@/lib/db/queries"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -86,6 +87,7 @@ Always tie recommendations back to measurable outcomes (conversions, bookings, e
 
 export async function POST(request: Request) {
   try {
+    await requireAdminSession()
     const body = await request.json()
     
     let messages: UIMessage[]
@@ -108,6 +110,12 @@ export async function POST(request: Request) {
 
     return result.toUIMessageStreamResponse()
   } catch (error) {
+    if (error instanceof Error && (error as { status?: number }).status === 401) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
     console.error("[ai-advisor] POST error:", error)
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
@@ -118,6 +126,7 @@ export async function POST(request: Request) {
 
 // GET endpoint to fetch current app state for widgets
 export async function GET() {
+  try { await requireAdminSession() } catch { return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } }) }
   const appState = await getAppState()
   
   // Calculate roadmap items based on current state

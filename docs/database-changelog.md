@@ -120,7 +120,7 @@ Database provisioned and live in Replit PostgreSQL. All tables from the v1.0.0 d
 - **NEW TABLE** `ai_prompt_revisions` — append-only log of AI system prompt edits for rollback support; created automatically on first use via `ensureRevisionsTable()` in `lib/db/queries.ts`
 
 **Seed data loaded via `scripts/seed-db.mjs`** (seeds 5 tables only)
-- **SEED DATA** `admin_users` — 1 superadmin row (`admin@sightseeing.lu`, bcrypt 12-round hash for `Admin1234!`, role `superadmin`)
+- **SEED DATA** `admin_users` — 1 superadmin row (`admin@sightseeing.lu`, bcrypt 12-round hash of a randomly-generated password printed once at seed time, role `superadmin`)
 - **SEED DATA** `trips` — trip rows seeded from inline data in the script (Palisis catalog)
 - **SEED DATA** `blog_posts` — 2 initial blog posts seeded
 - **SEED DATA** `jobs` — 3 initial job listings seeded

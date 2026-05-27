@@ -265,11 +265,8 @@ public/               Static assets (images, robots.txt, widgets)
 
 ## Admin Credentials
 
-```
-URL:      /admin/login
-Email:    admin@sightseeing.lu
-Password: Admin1234!
-```
+The default seed account (`admin@sightseeing.lu`) is created for initial setup only.
+**Change the password immediately after first login.** Do not commit or document the active admin password.
 
 ---
 

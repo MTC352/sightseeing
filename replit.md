@@ -66,7 +66,7 @@ Implemented with `@reduxjs/toolkit` + `react-redux`. Two isolated stores to keep
   - Logout: `POST /api/admin/auth/logout` — clears cookie
   - Session: `GET /api/admin/auth/me` — validates token, returns user
   - Login page: `/admin/login`
-- **Credentials:** `admin@sightseeing.lu` / `Admin1234!`
+- **Credentials:** `admin@sightseeing.lu` — password set during seeding; change after first login
 - **Admin UUID:** `4102ea5d-fd01-4182-b08b-c751d663cd21`
 
 ## Database (PostgreSQL)

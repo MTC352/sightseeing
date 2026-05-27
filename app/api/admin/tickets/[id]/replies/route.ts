@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 import { dbGetTicket, dbAddTicketReply } from "@/lib/db/queries"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireAdminSession()
     const { id } = await params
     const ticket = await dbGetTicket(id)
     if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
@@ -17,7 +19,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     })
 
     return NextResponse.json(reply, { status: 201 })
-  } catch (err) {
+  } catch (err: unknown) {
+    if (err instanceof Error && (err as { status?: number }).status === 401) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     console.error("[admin/tickets/:id/replies] POST error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

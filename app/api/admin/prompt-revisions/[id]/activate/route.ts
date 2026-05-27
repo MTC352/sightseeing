@@ -5,6 +5,7 @@ import {
   dbUpdateChatPlannerConfig,
   dbUpdateItineraryConfig,
 } from "@/lib/db/queries"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
@@ -14,9 +15,6 @@ export const dynamic = "force-dynamic"
  * Restores a previous prompt revision by routing it back through the
  * appropriate update path. The update path re-records a revision (the
  * dedupe check ensures we don't create a duplicate row).
- *
- * Admin confirms in the UI before this is called — there's no extra
- * server-side guard beyond auth (handled by the /api/admin proxy gate).
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: idRaw } = await params
@@ -25,6 +23,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid revision id" }, { status: 400 })
   }
   try {
+    await requireAdminSession()
     const revision = await dbGetPromptRevision(id)
     if (!revision) {
       return NextResponse.json({ error: "Revision not found" }, { status: 404 })
@@ -47,7 +46,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       )
     }
     return NextResponse.json({ ok: true, activated: { id, systemKey, promptKind } })
-  } catch (err) {
+  } catch (err: unknown) {
+    if (err instanceof Error && (err as { status?: number }).status === 401) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     console.error("[prompt-revisions] activate error:", err)
     return NextResponse.json({ error: "Failed to activate revision" }, { status: 500 })
   }

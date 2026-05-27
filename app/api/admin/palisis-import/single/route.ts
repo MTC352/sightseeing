@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { syncSingleTripFromPalisis } from "@/lib/palisis-sync"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic"
 // Never pushes data back to Palisis.
 export async function POST(req: Request) {
   try {
+    await requireAdminSession()
     const body = await req.json().catch(() => ({})) as {
       palisisId?: string
       channelId?: number
@@ -25,6 +27,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result, { status: result.ok ? 200 : 502 })
   } catch (err) {
+    if (err instanceof Error && (err as { status?: number }).status === 401) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     const msg = err instanceof Error ? err.message : String(err)
     console.error("[palisis-import/single] error:", err)
     return NextResponse.json({ ok: false, error: msg }, { status: 500 })

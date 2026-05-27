@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
 import { dbGetChatPlannerConfig, dbUpdateChatPlannerConfig, DEFAULT_PLANNER_FORM } from "@/lib/db/queries"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
+
+function isUnauthorized(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 401
+}
 
 /**
  * Admin GET/PUT for the planner overrides that live under the
@@ -14,9 +19,11 @@ export const dynamic = "force-dynamic"
  */
 export async function GET() {
   try {
+    await requireAdminSession()
     const cfg = await dbGetChatPlannerConfig()
     return NextResponse.json(cfg)
   } catch (err) {
+    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[chat-planner-config] GET error:", err)
     return NextResponse.json({
       plannerSystemPrompt: "",
@@ -48,6 +55,7 @@ function sanitiseList(input: unknown): { value: string; label: string }[] | unde
 
 export async function PUT(req: Request) {
   try {
+    await requireAdminSession()
     const raw = await req.json()
     const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {}
 
@@ -102,6 +110,7 @@ export async function PUT(req: Request) {
     const fresh = await dbGetChatPlannerConfig()
     return NextResponse.json(fresh)
   } catch (err) {
+    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[chat-planner-config] PUT error:", err)
     return NextResponse.json({ error: "Failed to update planner overrides" }, { status: 500 })
   }

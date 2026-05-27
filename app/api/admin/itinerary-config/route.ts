@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
 import { dbGetSettings, dbUpdateItineraryConfig } from "@/lib/db/queries"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
+
+function isUnauthorized(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 401
+}
 
 // Itinerary generation uses the Anthropic SDK directly — keep the allowlist
 // in sync with the admin UI dropdown to prevent a misconfiguration from
@@ -14,9 +19,11 @@ const ALLOWED_MODELS = new Set<string>([
 
 export async function GET() {
   try {
+    await requireAdminSession()
     const s = await dbGetSettings()
     return NextResponse.json(s.itineraryBehavior ?? {})
   } catch (err) {
+    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[itinerary-config] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
@@ -24,6 +31,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   try {
+    await requireAdminSession()
     const raw = await req.json()
     const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {}
 
@@ -56,6 +64,7 @@ export async function PUT(req: Request) {
     const s = await dbGetSettings()
     return NextResponse.json(s.itineraryBehavior ?? {})
   } catch (err) {
+    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[itinerary-config] PUT error:", err)
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 })
   }

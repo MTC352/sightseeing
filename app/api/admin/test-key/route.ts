@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server"
 import { pingTourCMS } from "@/lib/tourcms"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
+  try {
+    await requireAdminSession()
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const { searchParams } = new URL(req.url)
   const service = searchParams.get("service") ?? ""
   const key = searchParams.get("key") ?? ""

@@ -1,8 +1,10 @@
 import { put } from "@vercel/blob"
 import { type NextRequest, NextResponse } from "next/server"
+import { requireAdminSession } from "@/lib/auth-server"
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAdminSession()
     const formData = await request.formData()
     const file = formData.get("file") as File
 
@@ -26,7 +28,10 @@ export async function POST(request: NextRequest) {
     const blob = await put(filename, file, { access: "public" })
 
     return NextResponse.json({ url: blob.url })
-  } catch (error) {
+  } catch (error: unknown) {
+    if (error instanceof Error && (error as { status?: number }).status === 401) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     console.error("Trip upload error:", error)
     return NextResponse.json({ error: "Upload failed" }, { status: 500 })
   }
