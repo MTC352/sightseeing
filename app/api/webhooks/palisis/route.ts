@@ -8,8 +8,9 @@
 // Configure in TourCMS to POST trip-update events to:
 //   {YOUR_DOMAIN}/api/webhooks/palisis
 //
-// Optional auth: set env var PALISIS_WEBHOOK_SECRET — Palisis must send the
-// same value in the `x-palisis-secret` header.
+// Required auth: PALISIS_WEBHOOK_SECRET env var MUST be set. Palisis must send
+// the same value in the `x-palisis-secret` header. All requests are rejected
+// when the secret is absent or mismatched.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { NextResponse } from "next/server"
@@ -39,9 +40,13 @@ function extractPalisisId(p: PalisisWebhookPayload): string {
 
 export async function POST(req: Request) {
   try {
-    const secret = req.headers.get("x-palisis-secret")
     const configuredSecret = process.env.PALISIS_WEBHOOK_SECRET
-    if (configuredSecret && secret !== configuredSecret) {
+    if (!configuredSecret) {
+      console.error("[webhooks/palisis] PALISIS_WEBHOOK_SECRET is not configured — rejecting all requests")
+      return NextResponse.json({ ok: false, error: "Webhook authentication is not configured" }, { status: 503 })
+    }
+    const secret = req.headers.get("x-palisis-secret")
+    if (secret !== configuredSecret) {
       console.warn("[webhooks/palisis] Unauthorized webhook attempt")
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
     }
@@ -112,6 +117,6 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: "palisis-webhook",
-    note: "POST trip-update events here. Optional auth via x-palisis-secret header.",
+    note: "POST trip-update events here. x-palisis-secret header required.",
   })
 }
