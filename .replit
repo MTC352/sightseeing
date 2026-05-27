@@ -37,3 +37,8 @@ externalPort = 80
 
 [userenv.shared]
 CRON_SECRET = "v861etrbr5t6yb318sy8se9rb9t8zv6s51rb91btnu7j8"
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["pnpm", "start", "--", "-p", "5000"]
+build = ["pnpm", "build"]
