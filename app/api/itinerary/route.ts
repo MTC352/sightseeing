@@ -8,6 +8,7 @@ import {
   showTourDatesAndDeals,
   type DepartureDate,
 } from "@/lib/tourcms"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 /* ─────────────────────────────────────────────────────────────────────────
    Itinerary API — LIVE DATA ONLY.
@@ -250,6 +251,10 @@ interface IncomingPreferences {
 }
 
 export async function POST(req: Request) {
+  schedulePrune()
+  const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
+  if (!limit.allowed) return limit.response
+
   try {
     // eslint-disable-next-line prefer-const
     let { trips: rawTrips, startDate, preferences, mode } = await req.json() as {

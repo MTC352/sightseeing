@@ -1,6 +1,7 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { dbGetSettings, dbListHelpArticles } from "@/lib/db/queries"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 // Never cache — every request must see the latest published help articles
 // (newly added articles in /admin/help must be immediately usable by the chat).
@@ -67,6 +68,10 @@ async function buildKnowledgeBase(): Promise<{ text: string; count: number }> {
 }
 
 export async function POST(req: Request) {
+  schedulePrune()
+  const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  if (!limit.allowed) return limit.response
+
   try {
     const body = await req.json()
 

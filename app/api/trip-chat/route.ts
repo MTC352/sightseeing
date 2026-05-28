@@ -2,11 +2,16 @@ import { convertToModelMessages, streamText, UIMessage, validateUIMessages } fro
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { dbGetTrip, dbGetSettings, dbListTrips, dbListPosts, dbListJobs, dbTripStatus } from "@/lib/db/queries"
 import { getTripById, getTripDetail } from "@/lib/data"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
+  schedulePrune()
+  const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  if (!limit.allowed) return limit.response
+
   try {
     const body = await req.json()
     const { tripId } = body as { tripId: string }

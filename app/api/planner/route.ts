@@ -12,6 +12,7 @@ import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -726,6 +727,10 @@ function getUpcomingLuxembourgHolidays(luxDate: Date, days: number): { name: str
 }
 
 export async function POST(req: Request) {
+  schedulePrune()
+  const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
+  if (!limit.allowed) return limit.response
+
   try {
     const body = await req.json()
     const { preferences, cartItems, groupMembers, itinerarySummary } = body as {
