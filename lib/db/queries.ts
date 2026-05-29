@@ -412,17 +412,32 @@ export async function dbCreateApplication(data: Record<string, unknown>) {
 
 // ── Help Articles ──────────────────────────────────────────────────────────
 
-export async function dbListHelpArticles() {
+export async function dbListHelpArticles(audience?: 'public' | 'admin' | 'all') {
+  if (audience === 'admin') {
+    return query(`
+      SELECT id, question, answer, category, status, audience,
+             sort_order as "order", created_at as "createdAt", updated_at
+      FROM help_articles WHERE audience = 'admin' ORDER BY category, sort_order
+    `)
+  }
+  if (audience === 'all') {
+    return query(`
+      SELECT id, question, answer, category, status, audience,
+             sort_order as "order", created_at as "createdAt", updated_at
+      FROM help_articles ORDER BY audience, category, sort_order
+    `)
+  }
+  // Default: public only
   return query(`
-    SELECT id, question, answer, category, status,
+    SELECT id, question, answer, category, status, audience,
            sort_order as "order", created_at as "createdAt", updated_at
-    FROM help_articles ORDER BY category, sort_order
+    FROM help_articles WHERE audience = 'public' OR audience IS NULL ORDER BY category, sort_order
   `)
 }
 
 export async function dbGetHelpArticle(id: string) {
   return queryOne(`
-    SELECT id, question, answer, category, status,
+    SELECT id, question, answer, category, status, audience,
            sort_order as "order", created_at as "createdAt", updated_at
     FROM help_articles WHERE id = $1
   `, [id])
@@ -430,9 +445,9 @@ export async function dbGetHelpArticle(id: string) {
 
 export async function dbCreateHelpArticle(data: Record<string, unknown>) {
   const rows = await query(`
-    INSERT INTO help_articles (question, answer, category, status, sort_order)
-    VALUES ($1,$2,$3,$4,$5) RETURNING *
-  `, [data.question, data.answer, data.category, data.status ?? 'published', data.order ?? 0])
+    INSERT INTO help_articles (question, answer, category, status, sort_order, audience)
+    VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
+  `, [data.question, data.answer, data.category, data.status ?? 'published', data.order ?? 0, data.audience ?? 'public'])
   return rows[0]
 }
 
@@ -442,7 +457,7 @@ export async function dbUpdateHelpArticle(id: string, data: Record<string, unkno
   let i = 1
   const fieldMap: Record<string, string> = {
     question: 'question', answer: 'answer', category: 'category',
-    status: 'status', order: 'sort_order',
+    status: 'status', order: 'sort_order', audience: 'audience',
   }
   for (const [key, col] of Object.entries(fieldMap)) {
     if (key in data) { sets.push(`${col} = $${i++}`); vals.push(data[key]) }

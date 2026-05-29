@@ -32,7 +32,7 @@ type HelpRow = {
  * by category in the same shape the previous hardcoded prompt used.
  */
 async function buildKnowledgeBase(): Promise<{ text: string; count: number }> {
-  const rows = (await dbListHelpArticles()) as HelpRow[]
+  const rows = (await dbListHelpArticles("public")) as HelpRow[]
   // Strict published filter — a NULL/empty status is NOT treated as published.
   const published = rows.filter(
     (r) => typeof r.status === "string" && r.status.toLowerCase() === "published",

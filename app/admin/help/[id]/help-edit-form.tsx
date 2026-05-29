@@ -6,7 +6,8 @@ import type { HelpArticle } from "@/lib/admin-store"
 import { Save, ArrowLeft, Check, AlertCircle, X } from "lucide-react"
 import Link from "next/link"
 
-const CATEGORIES = ["Booking", "Payments", "Cancellation", "Accessibility", "General"]
+const PUBLIC_CATEGORIES = ["Booking", "Payments", "Cancellation", "Accessibility", "General", "Getting Here", "Tickets", "Groups", "App", "City Tours", "Meeting Points", "Languages"]
+const ADMIN_CATEGORIES = ["Getting Started", "Dashboard", "Trips", "Blog", "Jobs", "Help & FAQ", "Support Tickets", "Pages (CMS)", "AI Systems", "Integrations", "Header / Footer", "Palisis Import", "DB Tracker"]
 
 export function HelpEditForm({ article }: { article: HelpArticle | null }) {
   const router = useRouter()
@@ -21,8 +22,12 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
       category: "General",
       status: "draft",
       order: 99,
+      audience: "public",
     }
   )
+
+  const audience = form.audience ?? "public"
+  const CATEGORIES = audience === "admin" ? ADMIN_CATEGORIES : PUBLIC_CATEGORIES
 
   function set<K extends keyof HelpArticle>(key: K, value: HelpArticle[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -100,12 +105,23 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
           {article ? "Edit Article" : "New Help Article"}
         </h2>
 
-        {/* Category + Status + Order row */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* Audience + Category row */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>Audience</label>
+            <select
+              value={audience}
+              onChange={(e) => setForm((f) => ({ ...f, audience: e.target.value as HelpArticle["audience"], category: e.target.value === "admin" ? "Getting Started" : "General" }))}
+              className={inputClass}
+            >
+              <option value="public">Public — shown on /help to all visitors</option>
+              <option value="admin">Admin only — shown in /admin/docs, hidden from public</option>
+            </select>
+          </div>
           <div>
             <label className={labelClass}>Category</label>
             <select
-              value={form.category ?? "General"}
+              value={form.category ?? (audience === "admin" ? "Getting Started" : "General")}
               onChange={(e) => set("category", e.target.value)}
               className={inputClass}
             >
@@ -114,6 +130,10 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
               ))}
             </select>
           </div>
+        </div>
+
+        {/* Status + Order row */}
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>Status</label>
             <select

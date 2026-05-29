@@ -33,7 +33,7 @@ function plainText(s: string): string {
 }
 
 export default async function HelpPage() {
-  const rows = (await dbListHelpArticles().catch(() => [])) as HelpArticle[]
+  const rows = (await dbListHelpArticles("public").catch(() => [])) as HelpArticle[]
   const articles = rows.filter((a) => a.status === "published" || a.status == null)
 
   // FAQPage JSON-LD over every published article — server-rendered so bots

@@ -134,6 +134,7 @@ export interface HelpArticle {
   category: string
   status: "published" | "draft"
   order: number
+  audience: "public" | "admin"
   createdAt: string
   updatedAt: string
 }

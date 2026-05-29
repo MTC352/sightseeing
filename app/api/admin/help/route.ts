@@ -12,7 +12,7 @@ function isUnauthorized(err: unknown): boolean {
 export async function GET() {
   try {
     await requireAdminSession()
-    return NextResponse.json(await dbListHelpArticles())
+    return NextResponse.json(await dbListHelpArticles("all"))
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/help] GET error:", err)
@@ -33,6 +33,7 @@ export async function POST(req: Request) {
       category: data.category ?? "General",
       status: data.status ?? "draft",
       order: data.order ?? 99,
+      audience: data.audience ?? "public",
     })
     revalidatePath("/admin/help")
     return NextResponse.json(article, { status: 201 })
