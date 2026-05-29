@@ -3,6 +3,7 @@
 import { useState, useRef } from "react"
 import { ImageIcon, Upload, Link2, Loader2, X, Check } from "lucide-react"
 import { useEditMode } from "@/components/edit-mode-provider"
+import { cn } from "@/lib/utils"
 
 interface EditableImageProps {
   /** Unique key for this content element, e.g. "home:hero:background-image" */
@@ -16,6 +17,12 @@ interface EditableImageProps {
   children: (src: string) => React.ReactNode
   /** Label text on the amber Change button */
   label?: string
+  /**
+   * CSS classes forwarded to the wrapper div in edit mode.
+   * Use this when the img inside uses absolute positioning so the wrapper
+   * inherits the same dimensions (e.g. className="absolute inset-0").
+   */
+  className?: string
 }
 
 export function EditableImage({
@@ -23,6 +30,7 @@ export function EditableImage({
   defaultValue,
   children,
   label = "Change image",
+  className,
 }: EditableImageProps) {
   const { isEditMode, pendingChanges, savedChanges, addChange } = useEditMode()
 
@@ -75,21 +83,19 @@ export function EditableImage({
     setUrlDraft("")
   }
 
-  // Outside edit mode — render children transparently with no wrapper
+  // Outside edit mode — render children transparently, no wrapper at all
   if (!isEditMode) {
     return <>{children(displaySrc)}</>
   }
 
   return (
-    <div className="group/imgctx relative">
+    // className is forwarded so callers can pass "absolute inset-0" etc.
+    // "relative" is always added so the button overlay positions correctly.
+    <div className={cn("relative", className)}>
       {children(displaySrc)}
 
-      {/* Amber "Change image" badge — visible on hover or when panel is open */}
-      <div
-        className={`absolute bottom-3 left-3 z-30 transition-opacity duration-150 ${
-          open ? "opacity-100" : "opacity-0 group-hover/imgctx:opacity-100"
-        }`}
-      >
+      {/* "Change image" button — always visible in edit mode */}
+      <div className="absolute bottom-3 left-3 z-30">
         {!open ? (
           <button
             type="button"
@@ -123,11 +129,12 @@ export function EditableImage({
                 <button
                   type="button"
                   onClick={() => setMode("upload")}
-                  className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
                     mode === "upload"
                       ? "bg-white text-zinc-800 shadow-sm"
-                      : "text-zinc-500 hover:text-zinc-700"
-                  }`}
+                      : "text-zinc-500 hover:text-zinc-700",
+                  )}
                 >
                   <Upload className="h-3 w-3" />
                   Upload file
@@ -135,11 +142,12 @@ export function EditableImage({
                 <button
                   type="button"
                   onClick={() => setMode("url")}
-                  className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
                     mode === "url"
                       ? "bg-white text-zinc-800 shadow-sm"
-                      : "text-zinc-500 hover:text-zinc-700"
-                  }`}
+                      : "text-zinc-500 hover:text-zinc-700",
+                  )}
                 >
                   <Link2 className="h-3 w-3" />
                   Paste URL

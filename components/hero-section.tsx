@@ -63,6 +63,7 @@ export function HeroSection() {
           id="home:hero:background-image"
           defaultValue="https://media.tacdn.com/media/attractions-splice-spp-674x446/0b/0f/41/0d.jpg"
           label="Change hero image"
+          className="absolute inset-0"
         >
           {(src) => (
             /* eslint-disable-next-line @next/next/no-img-element */

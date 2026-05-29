@@ -2165,6 +2165,9 @@ export default function PlannerPage() {
     // Reset the first-turn gate so the canvas shows the loading state
     // (not the fallback grid) while the AI runs its first recommendation.
     setHasCompletedFirstAiTurn(false)
+    // Synchronously wipe any committed trips from the prior session so
+    // the canvas can't flash the old results before the useEffect syncs.
+    setCommittedAiTrips([])
     // Reset the auto-build guards so the next AI buildItinerary in the
     // new chat isn't blocked by the previous toolCallId markers.
     lastAutoBuiltToolCallIdRef.current = null
@@ -2314,17 +2317,22 @@ export default function PlannerPage() {
     if (prevStreamingRef.current && !isStreaming) {
       setCommittedAiTrips(aiTrips)
       setHasCompletedFirstAiTurn(true)
-    } else if (!isStreaming) {
+    } else if (!isStreaming && hasCompletedFirstAiTurn) {
       // Non-stream `aiTrips` change (e.g. visitor pinned via a sidebar
       // action, or the messages array was rebuilt outside a chat turn).
       // Keep `committedAiTrips` in sync so the next stream starts from
       // the real current canvas, not a stale snapshot.
+      // Guard: only sync AFTER the first AI turn has fully landed so
+      // that a brief status flip to idle mid-multi-step-tool-chain
+      // (between tool invocations within a single turn) cannot
+      // prematurely commit an intermediate 4-trip result and cause the
+      // 4 → 7 flash we specifically want to prevent.
       const sameLen = committedAiTrips.length === aiTrips.length
       const sameIds = sameLen && committedAiTrips.every((t, i) => t.id === aiTrips[i]?.id)
       if (!sameIds) setCommittedAiTrips(aiTrips)
     }
     prevStreamingRef.current = isStreaming
-  }, [isStreaming, aiTrips, committedAiTrips])
+  }, [isStreaming, aiTrips, committedAiTrips, hasCompletedFirstAiTurn])
   // While streaming, show the last committed set (or empty if none yet).
   // Once streaming ends we use the live aiTrips so the useEffect above
   // and the render stay in sync within the same render pass.
@@ -2896,6 +2904,39 @@ export default function PlannerPage() {
                             )
                           } else if (part.state === "input-available") {
                             textParts.push(<p key={idx} className="text-xs italic text-muted-foreground">Adding to your trip...</p>)
+                          }
+                          break
+                        }
+                        case "tool-getTripDetails": {
+                          if (part.state !== "output-available") {
+                            textParts.push(
+                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
+                                <span>Looking up trip details...</span>
+                              </div>
+                            )
+                          }
+                          break
+                        }
+                        case "tool-getTripTimeslots": {
+                          if (part.state !== "output-available") {
+                            textParts.push(
+                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
+                                <span>Checking live availability...</span>
+                              </div>
+                            )
+                          }
+                          break
+                        }
+                        case "tool-getTripDatesAndDeals": {
+                          if (part.state !== "output-available") {
+                            textParts.push(
+                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
+                                <span>Fetching dates and offers...</span>
+                              </div>
+                            )
                           }
                           break
                         }
