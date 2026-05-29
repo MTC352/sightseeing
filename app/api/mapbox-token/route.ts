@@ -3,6 +3,10 @@ import { dbGetSettings } from "@/lib/db/queries"
 
 export const dynamic = "force-dynamic"
 
+function isSafePublicToken(token: string): boolean {
+  return typeof token === "string" && token.startsWith("pk.")
+}
+
 export async function GET() {
   const envToken =
     process.env.mapbox ??
@@ -15,11 +19,19 @@ export async function GET() {
     process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ??
     ""
 
-  if (envToken) return NextResponse.json({ token: envToken })
+  if (envToken) {
+    if (!isSafePublicToken(envToken)) {
+      return NextResponse.json({ token: "" })
+    }
+    return NextResponse.json({ token: envToken })
+  }
 
   try {
     const settings = await dbGetSettings()
     const dbToken = settings?.apiKeys?.mapbox ?? ""
+    if (!isSafePublicToken(dbToken)) {
+      return NextResponse.json({ token: "" })
+    }
     return NextResponse.json({ token: dbToken })
   } catch {
     return NextResponse.json({ token: "" })
