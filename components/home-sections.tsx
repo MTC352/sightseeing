@@ -127,7 +127,7 @@ export function TrendingSection() {
             <EditableText id="home:trending:subheading" defaultValue="Do not miss out on these trips." />
           </p>
         </div>
-        <Link href="/explore" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">See all <ChevronRight className="h-4 w-4" /></Link>
+        <Link href="/search" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">See all <ChevronRight className="h-4 w-4" /></Link>
       </div>
       <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading
@@ -272,7 +272,7 @@ export function WeatherSection() {
               <h3 className="text-lg font-bold text-foreground">
                 {isLoading ? "Trips for today's weather" : isRainy ? "Best indoor experiences today" : "Best outdoor experiences today"}
               </h3>
-              <Link href="/explore" className="text-sm font-medium text-primary hover:underline">View all</Link>
+              <Link href="/search" className="text-sm font-medium text-primary hover:underline">View all</Link>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {isLoading
