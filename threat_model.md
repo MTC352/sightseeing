@@ -4,7 +4,7 @@
 
 sightseeing.lu is a Next.js 16 tourism discovery and booking platform for Luxembourg with a public storefront, AI-assisted planning features, and a full admin panel under `/admin/*`. It stores operational content and integration settings in PostgreSQL, uses a JWT cookie for admin sessions, integrates with TourCMS/Palisis for catalog and availability data, and relies on several third-party APIs for maps, weather, reviews, translation, and AI features.
 
-The current deployment is password-protected at the Replit edge. That reduces public-internet reachability, but the application still must protect authenticated admin functions, deployment-accessible public APIs, and any external integration endpoints that are meant to receive traffic.
+The current deployment is publicly reachable on the internet. The client-side site PIN gate is not a production security boundary, so public pages, public API handlers, admin login, and any webhook or cron endpoints must be treated as internet-accessible unless a server-side control proves otherwise.
 
 ## Assets
 
@@ -57,7 +57,7 @@ Stored-but-unrendered HTML configuration is lower priority than active render si
 
 The platform exposes public and semi-public endpoints that can consume blob storage, third-party API quota, database work, and AI tokens. Unauthenticated endpoints that upload files, proxy external calls, or invoke expensive processing must enforce strong limits so an attacker cannot create cost spikes or degrade service.
 
-In this codebase, special attention belongs on public upload handlers, job-application attachment flows, and AI/planner endpoints that can fan out into TourCMS and model-provider requests from a single caller action.
+In this codebase, special attention belongs on public upload handlers, job-application attachment flows, AI/planner endpoints that can fan out into TourCMS and model-provider requests from a single caller action, and public provider-backed utility routes such as weather, reviews, map configuration, availability, and discovery refresh paths.
 
 ### Elevation of Privilege
 
