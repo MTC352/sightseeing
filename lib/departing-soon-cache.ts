@@ -205,12 +205,12 @@ function lxToUtcSeconds(date: string, time: string): number {
 }
 
 // ── computeDisplayedSlots ──────────────────────────────────────────────────
-// The top-N earliest upcoming slots, one per trip, drawn from discoveryCache.allSlots.
-// Used by the Departing Soon read endpoint to determine which cards to show.
+// The earliest upcoming slot for every trip, drawn from discoveryCache.allSlots,
+// sorted by departure time. NO count cap applied here — the API route applies
+// the availability filter first and then slices to the configured slot count.
 
-export async function computeDisplayedSlots(): Promise<DiscoverySlot[]> {
+export function computeDisplayedSlots(): DiscoverySlot[] {
   if (!discoveryCache) return []
-  const slotCount = await getSlotCount()
   const nowUtc = Math.floor(Date.now() / 1000)
 
   const earliestPerTrip = new Map<string, DiscoverySlot>()
@@ -223,7 +223,6 @@ export async function computeDisplayedSlots(): Promise<DiscoverySlot[]> {
   }
   return [...earliestPerTrip.values()]
     .sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
-    .slice(0, slotCount)
 }
 
 // ── computeAllFirstSlots ───────────────────────────────────────────────────

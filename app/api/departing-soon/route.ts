@@ -21,6 +21,7 @@ import {
   getWidgetEnabled,
   getShowAvailability,
   getAvailabilityThreshold,
+  getSlotCount,
 } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
@@ -92,7 +93,10 @@ export async function GET() {
     }
 
     const showAvailability = await getShowAvailability()
-    const displayed = await computeDisplayedSlots()
+    const slotCount = await getSlotCount()
+    // All trips' earliest upcoming slots — NO count cap yet.
+    // The availability filter runs below; we slice to slotCount AFTER it.
+    const displayed = computeDisplayedSlots()
 
     // Re-validate publication status against the live DB so that trips
     // archived AFTER the discovery cache was built drop out immediately
@@ -115,8 +119,10 @@ export async function GET() {
       await refreshAvailability()
     }
 
-    // 4. Build response — drop sold-out only when we are tracking availability
-    const departures: DepartingSoonItem[] = []
+    // 4. Build response — check ALL trips through the filters, then cap at slotCount.
+    //    This ensures availability filtering happens before the count limit so that
+    //    sold-out / non-bookable trips don't consume one of the N display slots.
+    const allPassing: DepartingSoonItem[] = []
     for (const slot of displayed) {
       // Hard gate: drop any slot whose trip is no longer in the published set.
       if (publishedIds === null || !publishedIds.has(String(slot.tripId))) continue
@@ -132,7 +138,7 @@ export async function GET() {
         spacesRemaining = effective.spacesRemaining
       }
 
-      departures.push({
+      allPassing.push({
         tripId: slot.tripId,
         palisisId: slot.palisisId,
         tripTitle: slot.tripTitle,
@@ -147,6 +153,9 @@ export async function GET() {
         ...(spacesRemaining !== undefined ? { spacesRemaining } : {}),
       })
     }
+
+    // Slice AFTER filtering — so we always show up to slotCount bookable trips.
+    const departures = allPassing.slice(0, slotCount)
 
     const autoUpdate = await getAutoUpdateEnabled()
     const intervalSecs = await getAutoUpdateIntervalSeconds()

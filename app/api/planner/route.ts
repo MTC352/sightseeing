@@ -573,6 +573,110 @@ const getTripTimeslotsTool = tool({
   },
 })
 
+const getTripDetailsTool = tool({
+  description:
+    "Get complete details for a specific trip: full description, what's included/excluded, languages, departure location, restrictions, cancellation policy, and live timeslots for the user's visit date. " +
+    "Use when the user asks about a trip's inclusions, features, language, restrictions, or timeslots by name (e.g. 'what's included in the Walking Tour?', 'what timeslots does the Casemates tour have?'). " +
+    "Pass `tripId` when you have the exact ID from a prior searchTrips result. Pass `query` (partial title) when you only have the name. Both can be passed — ID takes priority.",
+  inputSchema: z.object({
+    tripId: z.string().optional().describe("Exact internal trip id from a prior searchTrips result (e.g. 'tcms_22')."),
+    query: z.string().optional().describe("Partial trip title for fuzzy lookup when you don't have the exact ID."),
+    date: z.string().optional().describe("YYYY-MM-DD date for live timeslot lookup. Defaults to the user's visit date."),
+  }),
+  execute: async ({ tripId, query, date }) => {
+    const catalog = await loadTripCatalog()
+    let trip: RichTrip | undefined
+
+    if (tripId) {
+      trip = catalog.find((t) => t.id === tripId)
+    }
+    if (!trip && query) {
+      const lower = query.toLowerCase()
+      trip =
+        catalog.find((t) => t.title.toLowerCase().includes(lower)) ??
+        catalog.find((t) => (t.shortDescription ?? "").toLowerCase().includes(lower))
+    }
+    if (!trip) {
+      return {
+        ok: false,
+        error: "TRIP_NOT_FOUND",
+        hint: "Try calling searchTrips with the trip name to get a valid ID, then retry with that ID.",
+        tripId: tripId ?? null,
+        query: query ?? null,
+      }
+    }
+
+    // Fetch live timeslots for the visit date (best-effort — fails silently).
+    const effectiveDate = date || _defaultVisitDate || todayYMD()
+    const config = await getTourCMSConfig().catch(() => null)
+    let timeslots: Array<{
+      startTime: string | undefined
+      endTime: string | undefined
+      spacesRemaining: number | "UNLIMITED"
+      priceDisplay: string | undefined
+    }> | null = null
+    if (config) {
+      const { palisisId } = await resolvePalisisId(trip.id)
+      if (palisisId) {
+        const res = await checkAvailability(config, palisisId, {
+          date: effectiveDate,
+          show_pickups: "0",
+        }).catch(() => null)
+        if (res?.ok) {
+          timeslots = res.components
+            .slice()
+            .sort((a, b) => {
+              const aT = a.start_time_utcseconds ? parseInt(a.start_time_utcseconds, 10) : 0
+              const bT = b.start_time_utcseconds ? parseInt(b.start_time_utcseconds, 10) : 0
+              return aT - bT
+            })
+            .map((c) => {
+              const raw = c.spaces_remaining
+              const unlimited = raw === "UNLIMITED"
+              return {
+                startTime: c.start_time,
+                endTime: c.end_time,
+                spacesRemaining: unlimited
+                  ? ("UNLIMITED" as const)
+                  : (Math.max(0, parseInt(raw ?? "0", 10)) as number),
+                priceDisplay: c.total_price_display ?? undefined,
+              }
+            })
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      id: trip.id,
+      title: trip.title,
+      category: trip.category,
+      duration: trip.duration,
+      price: trip.price,
+      tags: trip.tags,
+      tripTags: trip.tripTags ?? [],
+      languages: trip.languages ?? [],
+      departureLocation: trip.departureLocation ?? null,
+      endLocation: trip.endLocation ?? null,
+      shortDescription: trip.shortDescription ?? null,
+      longDescription: trip.longDescription ?? null,
+      experienceHighlights: trip.experienceHighlights ?? null,
+      highlights: trip.highlights ?? [],
+      included: trip.included ?? [],
+      excluded: trip.excluded ?? [],
+      itinerary: trip.itinerary ?? null,
+      essentialInformation: trip.essentialInformation ?? null,
+      restrictions: trip.restrictions ?? null,
+      cancellationPolicy: trip.cancellationPolicy ?? null,
+      minBookingSize: trip.minBookingSize ?? null,
+      maxBookingSize: trip.maxBookingSize ?? null,
+      nonRefundable: trip.nonRefundable ?? false,
+      timeslotsDate: effectiveDate,
+      timeslots: timeslots ?? "TOURCMS_UNAVAILABLE",
+    }
+  },
+})
+
 const addToCartTool = tool({
   description: "Add a trip to the user's cart. Only call when user explicitly says add, book, or save.",
   inputSchema: z.object({
@@ -618,6 +722,7 @@ const tools = {
   buildItinerary: buildItineraryTool,
   getTripDatesAndDeals: getTripDatesAndDealsTool,
   getTripTimeslots: getTripTimeslotsTool,
+  getTripDetails: getTripDetailsTool,
   addToCart: addToCartTool,
   updatePreferences: updatePreferencesTool,
 } as const
@@ -934,6 +1039,7 @@ export async function POST(req: Request) {
       "8. For follow-up requests that ask for DIFFERENT options or NEW filtering (e.g. \"show me cheaper ones\", \"any outdoor instead\", \"what about tomorrow\"), call searchTrips again with adjusted query/tags. Do NOT re-search for factual questions about trips already shown — answer those from the rich fields in the previous tool output (see rule 9a).",
       "9. Be proactive: suggest categories, ask follow-up questions, help narrow down choices.",
       "9a. RICH TRIP KNOWLEDGE: searchTrips returns rich Palisis fields for each trip — tourType, tourLeader, grade, accommodationRating, languages, departureLocation, endLocation, country, shortDescription, longDescription, experienceHighlights, itinerary, essentialInformation, hotelPickupInstructions, voucherRedemptionInstructions, restrictions, extras, included, excluded, cancellationPolicy, minBookingSize, maxBookingSize, nonRefundable, nextBookableDate, lastBookableDate, tripTags. Use these to answer follow-up questions accurately (e.g. \"what's included\", \"what languages\", \"can I cancel\", \"is there hotel pickup\", \"any age restrictions\", \"how long\", \"where does it start\") WITHOUT re-searching. Reference these facts in plain conversational language; never dump raw field names.",
+      "9a-DETAILS. FULL TRIP DETAILS + LIVE TIMESLOTS IN ONE CALL: call `getTripDetails` when the user asks about a specific trip by name and you need its complete inclusions, exclusions, languages, restrictions, cancellation policy, OR live timeslots for the visit date — and you either lack the full data from a prior searchTrips result or the user is asking specifically about timeslots by trip name. Pass `tripId` when you have it (from a previous searchTrips call); pass `query` (partial title) when you only know the name. The tool returns all DB fields plus live timeslots for the visit date in one call. Prefer this over calling getTripTimeslots separately when you already need other trip details too.",
       "9b-PRE. NEVER INVENT AVAILABILITY. Any statement of the form \"X has no tours on <date>\", \"Y only runs from <date> onwards\", \"<date> is fully booked\", \"the cheapest day is <date>\", or any concrete date/time/price for a specific trip MUST come from a tool call you made earlier in THIS conversation (getTripDatesAndDeals or getTripTimeslots). If you do not have that data, call the tool first — do not guess from the trip's description, day-of-week patterns, or prior conversational context. If the tool returned ok:false, say availability data is temporarily unavailable instead of fabricating a date.",
       "9b. LIVE AVAILABILITY (DATES, DEALS, TIMESLOTS):",
       "    - For questions about WHEN a specific trip runs, which dates have deals, the cheapest day, or general availability over a date range, call getTripDatesAndDeals with the tripId (and optionally startDate / endDate, YYYY-MM-DD). Default range is today + 14 days. The response contains date, startTime/endTime, priceDisplay, priceNumeric, spacesRemaining (or 'UNLIMITED'), hasOffer, offerType, originalPriceDisplay, offerPriceDisplay, plus the trip's duration string.",

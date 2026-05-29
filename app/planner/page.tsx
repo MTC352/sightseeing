@@ -2162,6 +2162,9 @@ export default function PlannerPage() {
     // Wipe the per-toolCallId preflight card state so any stale "ready"
     // markers from the prior chat don't leak into the next session.
     setPreflightCardState({})
+    // Reset the first-turn gate so the canvas shows the loading state
+    // (not the fallback grid) while the AI runs its first recommendation.
+    setHasCompletedFirstAiTurn(false)
     // Reset the auto-build guards so the next AI buildItinerary in the
     // new chat isn't blocked by the previous toolCallId markers.
     lastAutoBuiltToolCallIdRef.current = null
@@ -2300,11 +2303,17 @@ export default function PlannerPage() {
      result. While the AI is mid-turn we keep showing the LAST committed
      set (or nothing if this is the visitor's first turn). */
   const [committedAiTrips, setCommittedAiTrips] = useState<Trip[]>([])
+  // Becomes true once the AI completes its first streaming turn. Until then
+  // (including the brief 300ms gap between prefs being stored and the chat
+  // auto-submission firing), we show the loading state rather than the
+  // client-scored fallback grid so there's no premature 4-trip flash.
+  const [hasCompletedFirstAiTurn, setHasCompletedFirstAiTurn] = useState(false)
   const prevStreamingRef = useRef(isStreaming)
   useEffect(() => {
     // Stream just ended → commit whatever aiTrips ended up as the final.
     if (prevStreamingRef.current && !isStreaming) {
       setCommittedAiTrips(aiTrips)
+      setHasCompletedFirstAiTurn(true)
     } else if (!isStreaming) {
       // Non-stream `aiTrips` change (e.g. visitor pinned via a sidebar
       // action, or the messages array was rebuilt outside a chat turn).
@@ -2327,7 +2336,14 @@ export default function PlannerPage() {
     // we still fall back to the client-side scored picks so the panel
     // is never empty after onboarding.
     : (isStreaming ? [] : fallbackTrips)
-  const canvasIsDiscovering = isStreaming && displayedAiTrips.length === 0
+  // Show the "discovering" skeleton when:
+  //   a) AI is mid-turn and hasn't committed picks yet (original guard), OR
+  //   b) Prefs are set with interests but the AI hasn't finished its first
+  //      turn yet — this suppresses the 300ms flash of the fallback grid
+  //      between handleOnboardingComplete() and the auto-submit timer firing.
+  const canvasIsDiscovering =
+    (isStreaming && displayedAiTrips.length === 0) ||
+    (prefs !== null && prefs.interests.length > 0 && !hasCompletedFirstAiTurn)
   const showResults = resultTrips.length > 0
 
   /* Auto-expand map and center it when AI returns a new set of results */
