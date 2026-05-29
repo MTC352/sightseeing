@@ -6,7 +6,7 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen,
 } from "lucide-react"
 
 type NavItem = {
@@ -39,6 +39,7 @@ const NAV: NavItem[] = [
   { href: "/admin/header-footer", label: "Header / Footer", icon: Code2 },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw },
   { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare },
+  { href: "/admin/docs", label: "Documentation", icon: BookOpen },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
