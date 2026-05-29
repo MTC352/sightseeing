@@ -8,6 +8,7 @@ import {
   Settings, Sparkles, Shield, type LucideIcon,
 } from "lucide-react"
 import { useChat } from "@ai-sdk/react"
+import { DefaultChatTransport, type UIMessage } from "ai"
 
 type HelpArticle = {
   id: string
@@ -59,12 +60,12 @@ const SUGGESTIONS = [
   "What does the DB Tracker show?",
 ]
 
-function getMessageText(msg: { role: string; parts?: Array<{ type: string; text?: string }>; content?: string }) {
-  if (typeof msg.content === "string" && msg.content) return msg.content
-  if (Array.isArray(msg.parts)) {
-    return msg.parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("") || null
-  }
-  return null
+function getMessageText(msg: UIMessage): string {
+  if (!msg.parts || !Array.isArray(msg.parts)) return ""
+  return msg.parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("")
 }
 
 function ArticleList({
@@ -112,10 +113,10 @@ export default function AdminDocsPage() {
   const [chatActive, setChatActive] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { messages, input, setInput, append, status } = useChat({
-    api: "/api/admin/admin-help-chat",
-  })
+  const transport = useMemo(() => new DefaultChatTransport({ api: "/api/admin/admin-help-chat" }), [])
+  const { messages, sendMessage, status } = useChat({ transport })
   const isStreaming = status === "streaming" || status === "submitted"
+  const [input, setInput] = useState("")
 
   useEffect(() => {
     fetch("/api/admin/help")
@@ -177,16 +178,16 @@ export default function AdminDocsPage() {
     })
   }
 
-  const sendMessage = (text: string) => {
+  const handleSendMessage = (text: string) => {
     if (!text.trim() || isStreaming) return
-    append({ role: "user", content: text })
+    sendMessage({ text })
     setChatActive(true)
   }
 
   const handleSend = () => {
     const text = input.trim()
     if (!text || isStreaming) return
-    sendMessage(text)
+    handleSendMessage(text)
     setInput("")
   }
 
@@ -363,7 +364,7 @@ export default function AdminDocsPage() {
                 <button
                   key={s}
                   type="button"
-                  onClick={() => sendMessage(s)}
+                  onClick={() => handleSendMessage(s)}
                   className="rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground transition-colors hover:border-violet-200 hover:bg-violet-50 dark:hover:border-violet-500/30 dark:hover:bg-violet-500/10"
                 >
                   {s}
@@ -377,7 +378,7 @@ export default function AdminDocsPage() {
           <div ref={scrollRef} className="max-h-80 overflow-y-auto px-5 py-4">
             <div className="space-y-3">
               {messages.map((msg) => {
-                const text = getMessageText(msg as Parameters<typeof getMessageText>[0])
+                const text = getMessageText(msg)
                 if (!text) return null
                 return (
                   <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>

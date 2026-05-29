@@ -3178,16 +3178,45 @@ export default function PlannerPage() {
                 </div>
               </div>
               <div className="mt-6 max-w-3xl sm:mt-8">
-                <h1 className="text-balance text-2xl font-bold text-foreground sm:text-3xl lg:text-4xl">
-                  {prefs ? "Finding your perfect trips..." : "Plan your perfect day"}<br />
-                  <span className="text-primary">in Luxembourg</span>
-                </h1>
+                <div className="flex items-center gap-3">
+                  {(discoveringPrefs || (isStreaming && displayedAiTrips.length === 0)) && (
+                    <Loader2 className="h-6 w-6 shrink-0 animate-spin text-primary" />
+                  )}
+                  <h1 className="text-balance text-2xl font-bold text-foreground sm:text-3xl lg:text-4xl">
+                    {prefs ? "Finding your perfect trips…" : "Plan your perfect day"}<br />
+                    <span className="text-primary">in Luxembourg</span>
+                  </h1>
+                </div>
                 <p className="mt-3 max-w-lg text-pretty text-sm leading-relaxed text-muted-foreground">
                   {prefs
-                    ? "Our AI is matching experiences to your preferences and today's weather. Results will appear here momentarily."
+                    ? "Our AI is scanning the live catalog, checking today's weather, and matching your interests. Results will appear here momentarily."
                     : "Answer a few quick questions in the chat panel, and our AI will curate the perfect itinerary based on your interests and today's weather."}
                 </p>
               </div>
+              {prefs && (discoveringPrefs || (isStreaming && displayedAiTrips.length === 0)) && (
+                /* Skeleton trip cards — fill the canvas while the first AI turn is in-flight
+                   so visitors see structure instead of blank space during the ~2–4 s wait. */
+                <div className="mt-6 flex flex-col gap-3" aria-hidden="true">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className="flex animate-pulse items-start gap-3 rounded-2xl border border-border bg-card p-3"
+                      style={{ animationDelay: `${i * 0.12}s` }}
+                    >
+                      <div className="h-20 w-24 shrink-0 rounded-xl bg-secondary/70" />
+                      <div className="flex-1 space-y-2 pt-1">
+                        <div className="h-3.5 w-3/4 rounded-full bg-secondary/70" />
+                        <div className="h-3 w-1/2 rounded-full bg-secondary/50" />
+                        <div className="h-3 w-2/3 rounded-full bg-secondary/50" />
+                        <div className="mt-2 flex gap-2">
+                          <div className="h-5 w-14 rounded-full bg-secondary/60" />
+                          <div className="h-5 w-16 rounded-full bg-secondary/60" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!prefs && (
                 <div className="mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:gap-4 lg:grid-cols-3">
                   {[

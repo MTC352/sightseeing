@@ -28,12 +28,29 @@ export function parseHumanDuration(
 
   let total = 0
 
+  // Combined h+m — try this FIRST so "2h30m" (no space) is caught before
+  // the individual hour/minute passes. The hour clause uses no \b here so
+  // "2h30m" doesn't silently drop the hours part (see bug: `h\b` fails when
+  // immediately followed by a digit, turning "2h30m" into just 30 min).
+  // Examples: "2h30m", "2h 30m", "1h 45 minutes", "2h30mins".
+  const hmMatch = s.match(
+    /(\d+(?:[.,]\d+)?)\s*(?:hours?|hrs?|h)\s*(\d+(?:[.,]\d+)?)\s*(?:minutes?|mins?|m\b)/,
+  )
+  if (hmMatch) {
+    const h = parseFloat(hmMatch[1].replace(",", "."))
+    const m = parseFloat(hmMatch[2].replace(",", "."))
+    const combined = Math.round(h * 60 + m)
+    if (Number.isFinite(combined) && combined > 0) return combined
+  }
+
   // Hour clause — captures decimals: "2.5 hours", "1.5h", "0.75 hr".
   // Word boundary prevents "minute" from being eaten by the hour pattern.
+  // At this point the string has NO combined h+m (handled above), so \b
+  // is safe: standalone "2h" has a non-word char (or EOS) after the h.
   const hMatch = s.match(/(\d+(?:[.,]\d+)?)\s*(?:hours?|hrs?|h)\b/)
 
   // Minute clause — matches "min"/"mins"/"minute"/"minutes" and trailing "m"
-  // (e.g. "2h 30m"). Bare "m" elsewhere is ignored (sometimes a typo).
+  // (e.g. standalone "75 minutes" or "45m"). Bare "m" elsewhere is ignored.
   const mMatch = s.match(/(\d+(?:[.,]\d+)?)\s*(?:minutes?|mins?|m\b)/)
 
   if (hMatch) total += Math.round(parseFloat(hMatch[1].replace(",", ".")) * 60)
