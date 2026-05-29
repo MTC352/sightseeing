@@ -1,7 +1,10 @@
+"use client"
+
 import Link from "next/link"
 import Image from "next/image"
 import { MapPin, Mail, Phone } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
+import { CookieSettingsButton } from "@/components/cookie-banner"
 
 const LINKS = {
   "About sightseeing.lu": [
@@ -35,7 +38,8 @@ const LINKS = {
     { label: "Emergency & 24/7 Support", href: "/emergency" },
     { label: "Sitemap", href: "/sitemap.xml" },
     { label: "Terms & Conditions", href: "#" },
-    { label: "Privacy Policy", href: "#" },
+    { label: "Privacy Policy", href: "/privacy" },
+    { label: "Legal Notice", href: "/impressum" },
   ],
 }
 
@@ -68,8 +72,18 @@ export function SiteFooter() {
             </nav>
           ))}
         </div>
-        <div className="mt-10 border-t border-border pt-6 text-center text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} sightseeing.lu - All rights reserved.
+
+        <div className="mt-10 border-t border-border pt-6">
+          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              &copy; {new Date().getFullYear()} sightseeing.lu S.à r.l. — All rights reserved.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+              <Link href="/privacy" className="text-xs text-muted-foreground transition-colors hover:text-primary">Privacy Policy</Link>
+              <Link href="/impressum" className="text-xs text-muted-foreground transition-colors hover:text-primary">Legal Notice</Link>
+              <CookieSettingsButton />
+            </div>
+          </div>
         </div>
       </div>
     </footer>

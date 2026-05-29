@@ -7,6 +7,8 @@ import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
 import { SitePasswordGate } from "@/components/site-password-gate"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
+import { CookieBanner } from "@/components/cookie-banner"
+import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -89,7 +91,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               "@type": ["TravelAgency", "LocalBusiness"],
               "@id": `${BASE}/#organization`,
               name: "sightseeing.lu",
-              legalName: "sightseeing.lu",
+              legalName: "sightseeing.lu S.à r.l.",
               url: BASE,
               logo: `${BASE}/icon.png`,
               image: `${BASE}/images/hero-luxembourg.jpg`,
@@ -117,13 +119,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 {
                   "@type": "OpeningHoursSpecification",
                   dayOfWeek: [
-                    "Monday",
-                    "Tuesday",
-                    "Wednesday",
-                    "Thursday",
-                    "Friday",
-                    "Saturday",
-                    "Sunday",
+                    "Monday", "Tuesday", "Wednesday", "Thursday",
+                    "Friday", "Saturday", "Sunday",
                   ],
                   opens: "00:00",
                   closes: "23:59",
@@ -141,49 +138,30 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body className="font-sans antialiased">
         <SiteStoreProvider>
-        <SitePasswordGate>
-          <CartProvider>
-            <WeatherProvider>
-              <Suspense>
-                <EditModeProvider>{children}</EditModeProvider>
-              </Suspense>
-            </WeatherProvider>
-          </CartProvider>
-        </SitePasswordGate>
+          <SitePasswordGate>
+            <CartProvider>
+              <WeatherProvider>
+                <Suspense>
+                  <EditModeProvider>{children}</EditModeProvider>
+                </Suspense>
+              </WeatherProvider>
+            </CartProvider>
+          </SitePasswordGate>
         </SiteStoreProvider>
-        {/* Weglot Translation - FR, DE, EN */}
-        <Script
-          id="weglot-init"
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                var s = document.createElement('script');
-                s.src = 'https://cdn.weglot.com/weglot.min.js';
-                s.onload = function() {
-                  Weglot.initialize({
-                    api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7',
-                    // Hide Weglot's default floating bottom-right switcher;
-                    // the navbar provides its own EN / FR / DE buttons.
-                    hide_switcher: true
-                  });
-                  // Belt-and-braces: if Weglot still injects the widget for any
-                  // reason (older cached script, race), strip it from the DOM.
-                  try {
-                    var kill = function() {
-                      var nodes = document.querySelectorAll('.weglot-container, .country-selector, aside.country-selector');
-                      for (var i = 0; i < nodes.length; i++) nodes[i].remove();
-                    };
-                    kill();
-                    setTimeout(kill, 500);
-                    setTimeout(kill, 2000);
-                  } catch (e) {}
-                };
-                document.head.appendChild(s);
-              })();
-            `,
-          }}
-        />
+
+        {/* ── Cookie consent banner ────────────────────────────────────────
+            Client component. Also conditionally loads Weglot only after
+            the user accepts functional cookies. */}
+        <CookieBanner />
+
+        {/* ── Accessibility toolbar ────────────────────────────────────────
+            Built-in WCAG 2.1 AA / EAA 2025 accessibility panel.
+            Provides: text size, high contrast, dyslexia font, focus outlines.
+            Preferences stored in localStorage; no third-party dependency.
+            To replace with UserWay: sign up free at https://userway.org,
+            remove <AccessibilityToolbar /> below, and add:
+            <Script src="https://cdn.userway.org/widget.js" data-account="YOUR_ID" strategy="lazyOnload" /> */}
+        <AccessibilityToolbar />
       </body>
     </html>
   )
