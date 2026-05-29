@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation"
 import type { AdminPost } from "@/lib/admin-store"
 import {
   Save, ArrowLeft, Loader2, Wand2, Upload, X, AlertCircle,
-  CheckCircle2, Circle, Eye, Check, Plus, ImageIcon, Sparkles,
+  CheckCircle2, Circle, Eye, Check, Plus, ImageIcon, Sparkles, Pencil,
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { ImageEditorModal } from "@/components/admin/image-editor-modal"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -205,6 +206,7 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
   const [saved,     setSaved]     = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [editingCover, setEditingCover] = useState(false)
 
   const [form, setForm] = useState<Partial<AdminPost>>(
     post ?? {
@@ -672,17 +674,28 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
               <div>
                 <label className={labelClass}>Cover Image</label>
                 {form.image ? (
-                  <div className="relative mt-2">
+                  <div className="group relative mt-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={form.image} alt="Cover preview" className="h-40 w-full rounded-lg object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => set("image", "")}
-                      className="absolute right-2 top-2 rounded-full bg-background/80 p-1.5 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-background hover:text-foreground"
-                      aria-label="Remove image"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                    <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() => setEditingCover(true)}
+                        className="flex items-center gap-1.5 rounded-lg bg-white/90 px-3 py-2 text-xs font-medium text-foreground hover:bg-white"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => set("image", "")}
+                        className="flex items-center gap-1.5 rounded-lg bg-red-500/90 px-3 py-2 text-xs font-medium text-white hover:bg-red-500"
+                        aria-label="Remove image"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <label className="mt-2 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/30 px-6 py-8 transition-colors hover:border-primary/40 hover:bg-secondary/50">
@@ -731,6 +744,19 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
           </button>
         </div>
       </div>
+
+      {/* Image Editor Modal */}
+      {editingCover && form.image && (
+        <ImageEditorModal
+          imageUrl={form.image}
+          uploadEndpoint="/api/upload"
+          onDone={(newUrl) => {
+            set("image", newUrl ?? "")
+            setEditingCover(false)
+          }}
+          onClose={() => setEditingCover(false)}
+        />
+      )}
     </>
   )
 }
