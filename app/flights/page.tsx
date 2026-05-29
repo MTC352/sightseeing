@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
@@ -208,13 +209,12 @@ export default function FlightsPage() {
       <main>
         {/* ── Hero ── */}
         <section className="relative overflow-hidden bg-foreground">
-          <Image
-            src="/images/flights-hero.jpg"
+          <EditableHero
+            id="flights:hero:image"
+            defaultSrc="/images/flights-hero.jpg"
             alt="Flights to Luxembourg Airport"
-            fill
-            className="object-cover opacity-25"
+            imageClassName="object-cover opacity-25"
             priority
-            sizes="100vw"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-foreground/70 to-foreground/80" />
 

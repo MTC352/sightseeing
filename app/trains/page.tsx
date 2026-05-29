@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
@@ -137,13 +138,12 @@ export default function TrainsPage() {
 
       {/* Hero */}
       <section className="relative flex min-h-[520px] items-end justify-center overflow-hidden bg-foreground pb-12 pt-28 text-center md:min-h-[560px] md:pb-16">
-        <Image
-          src="/images/trains-hero.jpg"
+        <EditableHero
+          id="trains:hero:image"
+          defaultSrc="/images/trains-hero.jpg"
           alt="High-speed train at Luxembourg Central Station"
-          fill
+          imageClassName="object-cover opacity-40"
           priority
-          className="object-cover opacity-40"
-          sizes="100vw"
         />
         <div className="relative z-10 mx-auto w-full max-w-4xl px-4">
           <span className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary backdrop-blur-sm">

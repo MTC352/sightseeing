@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
@@ -119,13 +120,11 @@ export default function CarsPage() {
         <section className="relative overflow-hidden">
           {/* Background image */}
           <div className="absolute inset-0 z-0">
-            <Image
-              src="/images/cars-hero.jpg"
+            <EditableHero
+              id="cars:hero:image"
+              defaultSrc="/images/cars-hero.jpg"
               alt="Car driving through Luxembourg countryside"
-              fill
-              className="object-cover"
               priority
-              sizes="100vw"
             />
             <div className="absolute inset-0 bg-foreground/55" />
           </div>

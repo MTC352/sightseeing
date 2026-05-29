@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 
 import Link from "next/link"
 import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
@@ -92,9 +92,10 @@ function useFeaturedTripIds(): Set<string> {
       .map((t) => String(t.id))
   )
 }
-import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink } from "lucide-react"
+import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink, Settings2, Loader2, Check, X as XIcon } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
+import { useEditMode } from "@/components/edit-mode-provider"
 import { DeparturesSoonSection } from "@/components/departing-soon-section"
 
 export { DeparturesSoonSection }
@@ -411,14 +412,122 @@ type LiveReviewsPayload = { name?: string; rating?: number; totalReviews?: numbe
 export function ReviewsSection() {
   const { data: rawData, isLoading, isError } = useGetGoogleReviewsQuery(GOOGLE_PROFILE_URL)
   const data = rawData as unknown as LiveReviewsPayload
+  const { isEditMode, savedChanges, pendingChanges, addChange } = useEditMode()
+
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [placeId, setPlaceId] = useState("")
+  const [businessUrl, setBusinessUrl] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "ok" | "err">("idle")
+
+  const activeProfileUrl =
+    (pendingChanges["home:reviews:businessUrl"] as string | undefined) ??
+    (savedChanges["home:reviews:businessUrl"] as string | undefined) ??
+    GOOGLE_PROFILE_URL
 
   const liveReviews: LiveReview[] = data?.reviews ?? []
   const overallRating = typeof data?.rating === "number" ? data.rating : null
   const totalReviews = typeof data?.totalReviews === "number" ? data.totalReviews : null
   const hasData = liveReviews.length > 0
 
+  async function openPanel() {
+    setPanelOpen(true)
+    setSaveStatus("idle")
+    try {
+      const res = await fetch("/api/admin/integrations")
+      if (res.ok) {
+        const rows = (await res.json()) as Array<{ key: string; value: string }>
+        setPlaceId(rows.find((r) => r.key === "googlePlaceId")?.value ?? "")
+      }
+    } catch {}
+    setBusinessUrl(activeProfileUrl === GOOGLE_PROFILE_URL ? "" : activeProfileUrl)
+  }
+
+  async function saveConfig() {
+    setSaving(true)
+    setSaveStatus("idle")
+    try {
+      if (placeId.trim()) {
+        await fetch("/api/admin/integrations", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: "googlePlaceId", label: "Google Place ID", value: placeId.trim() }),
+        })
+      }
+      if (businessUrl.trim()) {
+        addChange("home:reviews:businessUrl", businessUrl.trim())
+      }
+      setSaveStatus("ok")
+      setTimeout(() => { setSaveStatus("idle"); setPanelOpen(false) }, 1200)
+    } catch {
+      setSaveStatus("err")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+
+      {/* ── Google Reviews Settings Panel (edit mode only) ── */}
+      {isEditMode && panelOpen && (
+        <div className="mb-6 rounded-2xl border border-amber-400/40 bg-amber-50 p-5 dark:bg-amber-950/20">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Settings2 className="h-4 w-4 text-amber-500" />
+              Google Reviews Settings
+            </h3>
+            <button
+              onClick={() => setPanelOpen(false)}
+              className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Google Place ID</label>
+              <input
+                type="text"
+                value={placeId}
+                onChange={(e) => setPlaceId(e.target.value)}
+                placeholder="ChIJ…"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">Saved to Admin → Integrations immediately.</p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Google Business URL</label>
+              <input
+                type="url"
+                value={businessUrl}
+                onChange={(e) => setBusinessUrl(e.target.value)}
+                placeholder="https://share.google/…"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">Used for the "View All Reviews" button.</p>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={saveConfig}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-600 disabled:opacity-60"
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : saveStatus === "ok" ? (
+                <Check className="h-4 w-4" />
+              ) : null}
+              {saveStatus === "ok" ? "Saved!" : "Apply"}
+            </button>
+            {saveStatus === "err" && (
+              <span className="text-xs font-medium text-destructive">Save failed — check console.</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-8 lg:flex-row">
         <div className="min-w-0 flex-1">
 
@@ -451,17 +560,28 @@ export function ReviewsSection() {
               </div>
             </div>
 
-            {/* "View All Reviews on Google" CTA */}
-            <a
-              href={GOOGLE_PROFILE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-secondary"
-            >
-              <GoogleBrandIcon className="h-4 w-4" />
-              View All Reviews on Google
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-            </a>
+            {/* "View All Reviews on Google" CTA + edit mode configure button */}
+            <div className="flex shrink-0 items-center gap-2">
+              {isEditMode && (
+                <button
+                  onClick={openPanel}
+                  title="Configure Google Reviews"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/60 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 shadow-sm transition-colors hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-400"
+                >
+                  <Settings2 className="h-3.5 w-3.5" /> Configure
+                </button>
+              )}
+              <a
+                href={activeProfileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-secondary"
+              >
+                <GoogleBrandIcon className="h-4 w-4" />
+                View All Reviews on Google
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+              </a>
+            </div>
           </div>
 
           {/* ── Review cards: carousel on mobile, grid on desktop ── */}
@@ -485,7 +605,7 @@ export function ReviewsSection() {
               ))}
             </div>
           ) : !hasData ? (
-            /* Graceful fallback — API key not configured or no reviews returned */
+            /* Graceful fallback */
             <div className="mt-6 flex flex-col items-center rounded-2xl border border-dashed border-border bg-secondary/30 p-10 text-center">
               <GoogleBrandIcon className="h-10 w-10 opacity-50" />
               <p className="mt-4 text-sm font-semibold text-foreground">Read what travelers are saying</p>
@@ -495,7 +615,7 @@ export function ReviewsSection() {
                   : "Authentic reviews from guests who have experienced our tours."}
               </p>
               <a
-                href={GOOGLE_PROFILE_URL}
+                href={activeProfileUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"

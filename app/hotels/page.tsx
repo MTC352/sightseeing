@@ -1,5 +1,6 @@
 import Link from "next/link"
 import Image from "next/image"
+import { EditableHero } from "@/components/editable-hero"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { HotelBookingWidget } from "@/components/hotel-booking-widget"
@@ -156,13 +157,11 @@ export default function HotelsPage() {
 
         {/* ── Hero ── */}
         <section className="relative min-h-[520px] overflow-hidden">
-          <Image
-            src="/images/hotels-hero.jpg"
+          <EditableHero
+            id="hotels:hero:image"
+            defaultSrc="/images/hotels-hero.jpg"
             alt="Boutique hotel in Luxembourg City old town"
-            fill
-            className="object-cover"
             priority
-            sizes="100vw"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-foreground/55 via-foreground/30 to-foreground/70" />
 

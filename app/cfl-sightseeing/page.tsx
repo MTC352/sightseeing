@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
-import Image from "next/image"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
+import { CflLogoImage, CflHeroImage } from "./cfl-images"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -29,14 +29,7 @@ export default function CflSightseeingPage() {
           <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
             <div className="flex-1">
               <div className="mb-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full">
-                <Image
-                  src="/cfl-sightseeing/cfl-logo.jpg"
-                  alt="CFL logo"
-                  width={56}
-                  height={56}
-                  className="h-full w-full object-cover"
-                  priority
-                />
+                <CflLogoImage />
               </div>
               <h1 className="text-3xl font-bold text-foreground lg:text-4xl">
                 Self-guided Walking Tours
@@ -50,14 +43,7 @@ export default function CflSightseeingPage() {
               </p>
             </div>
             <div className="relative h-64 w-full overflow-hidden rounded-2xl shadow-sm lg:h-80 lg:w-[560px]">
-              <Image
-                src="/cfl-sightseeing/hero.jpg"
-                alt="Luxembourg City corniche and Grund — sightseeing.lu"
-                fill
-                priority
-                sizes="(min-width: 1024px) 560px, 100vw"
-                className="object-cover"
-              />
+              <CflHeroImage />
             </div>
           </div>
         </section>

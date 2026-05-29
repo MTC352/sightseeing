@@ -1,6 +1,8 @@
 "use client"
 
+import Image from "next/image"
 import { EditableText } from "@/components/editable-text"
+import { EditableImage } from "@/components/editable-image"
 
 export function AboutHeroText() {
   return (
@@ -81,5 +83,48 @@ export function AboutReviewsHeading() {
     <h2 className="text-2xl font-bold text-foreground">
       <EditableText id="about:reviews:heading" defaultValue="What Our Travellers Say" />
     </h2>
+  )
+}
+
+export function AboutHeroImage() {
+  return (
+    <EditableImage
+      id="about:hero:image"
+      defaultValue="/images/about-hero.jpg"
+      className="absolute inset-0"
+      label="Change hero image"
+    >
+      {(src) => (
+        <Image
+          src={src}
+          alt="Panoramic view of Luxembourg City"
+          fill
+          priority
+          className="object-cover"
+          sizes="100vw"
+        />
+      )}
+    </EditableImage>
+  )
+}
+
+export function AboutTeamImage() {
+  return (
+    <EditableImage
+      id="about:team:image"
+      defaultValue="/images/about-team.jpg"
+      className="absolute inset-0"
+      label="Change team image"
+    >
+      {(src) => (
+        <Image
+          src={src}
+          alt="The sightseeing.lu team"
+          fill
+          className="object-cover"
+          sizes="(max-width:1024px) 100vw, 384px"
+        />
+      )}
+    </EditableImage>
   )
 }

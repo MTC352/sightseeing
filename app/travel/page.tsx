@@ -1,4 +1,5 @@
 import Image from "next/image"
+import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
@@ -177,13 +178,12 @@ export default function TravelPage() {
         {/* ── Hero ── */}
         <section className="relative overflow-hidden bg-foreground">
           {/* Background image */}
-          <Image
-            src="/images/travel-hero.jpg"
+          <EditableHero
+            id="travel:hero:image"
+            defaultSrc="/images/travel-hero.jpg"
             alt="Luxembourg aerial view"
-            fill
-            className="object-cover opacity-30"
+            imageClassName="object-cover opacity-30"
             priority
-            sizes="100vw"
           />
           {/* Overlay gradient */}
           <div className="absolute inset-0 bg-foreground/60" />

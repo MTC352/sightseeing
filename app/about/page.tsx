@@ -1,12 +1,11 @@
 import type { Metadata } from "next"
-import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { categories, reviews } from "@/lib/data"
 import { dbListTrips } from "@/lib/db/queries"
 import { MapPin, Users, Star, Award, Globe, Shield, Heart, ArrowRight } from "lucide-react"
-import { AboutHeroText, AboutStoryText, AboutValuesHeading, AboutOfferHeading, AboutReviewsHeading } from "./about-content"
+import { AboutHeroText, AboutStoryText, AboutValuesHeading, AboutOfferHeading, AboutReviewsHeading, AboutHeroImage, AboutTeamImage } from "./about-content"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -95,7 +94,7 @@ export default async function AboutPage() {
         {/* Hero */}
         <section className="relative">
           <div className="relative h-[340px] lg:h-[420px]">
-            <Image src="/images/about-hero.jpg" alt="Panoramic view of Luxembourg City" fill priority className="object-cover" sizes="100vw" />
+            <AboutHeroImage />
             <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
           </div>
           <div className="absolute inset-0 flex items-end">
@@ -124,7 +123,7 @@ export default async function AboutPage() {
               <AboutStoryText />
             </div>
             <div className="relative h-64 w-full overflow-hidden rounded-2xl lg:h-80 lg:w-96">
-              <Image src="/images/about-team.jpg" alt="The sightseeing.lu team" fill className="object-cover" sizes="(max-width:1024px) 100vw, 384px" />
+              <AboutTeamImage />
             </div>
           </div>
         </section>
