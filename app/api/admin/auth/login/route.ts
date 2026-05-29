@@ -2,8 +2,13 @@ import { NextResponse } from "next/server"
 import { compare } from "bcryptjs"
 import { queryOne } from "@/lib/db"
 import { signSession, sessionCookieOptions } from "@/lib/auth"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export async function POST(req: Request) {
+  const limit = rateLimit(req, { limit: 10, windowMs: 15 * 60 * 1000 })
+  schedulePrune()
+  if (!limit.allowed) return limit.response
+
   try {
     const { email, password } = await req.json()
     if (!email || !password) {

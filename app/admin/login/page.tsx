@@ -4,10 +4,16 @@ import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { LayoutDashboard, Eye, EyeOff, Loader2 } from "lucide-react"
 
+function safeRedirect(url: string | null): string {
+  if (!url) return "/admin"
+  if (url.startsWith("/") && !url.startsWith("//")) return url
+  return "/admin"
+}
+
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirect = searchParams.get("redirect") ?? "/admin"
+  const redirect = safeRedirect(searchParams.get("redirect"))
 
   const [email, setEmail] = useState("admin@sightseeing.lu")
   const [password, setPassword] = useState("")
