@@ -5,11 +5,10 @@ import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
 import { isFieldEditable, resolvePolicy, type TripFieldPolicy } from "@/lib/trip-field-policy"
 import { Lock } from "lucide-react"
-import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle, Pencil } from "lucide-react"
+import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { SEOOptimizer } from "@/components/admin/seo-optimizer"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
-import { ImageEditorModal } from "@/components/admin/image-editor-modal"
 
 const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
 
@@ -105,8 +104,6 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
   const [uploadingGallery, setUploadingGallery] = useState(false)
   const featuredInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
-  // null = closed, "featured" = editing featured, any other string = gallery URL being edited
-  const [editingImageTarget, setEditingImageTarget] = useState<null | "featured" | string>(null)
 
   async function uploadFile(file: File): Promise<string | null> {
     const fd = new FormData()
@@ -340,17 +337,9 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-xl bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
                     type="button"
-                    onClick={() => setEditingImageTarget("featured")}
-                    className="flex items-center gap-1.5 rounded-lg bg-white/90 px-3 py-2 text-xs font-medium text-foreground hover:bg-white"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => featuredInputRef.current?.click()}
                     disabled={uploadingFeatured}
-                    className="flex items-center gap-1.5 rounded-lg bg-white/80 px-3 py-2 text-xs font-medium text-foreground hover:bg-white"
+                    className="flex items-center gap-1.5 rounded-lg bg-white/90 px-3 py-2 text-xs font-medium text-foreground hover:bg-white"
                   >
                     {uploadingFeatured ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                     Replace
@@ -405,24 +394,13 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                   <div key={url} className="group relative aspect-square">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={url} alt="Gallery" className="h-full w-full rounded-lg object-cover" />
-                    <div className="absolute inset-0 flex items-center justify-center gap-1 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() => setEditingImageTarget(url)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-foreground hover:bg-white"
-                        title="Edit image"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeGalleryImage(url)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500/90 text-white hover:bg-red-500"
-                        title="Remove image"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeGalleryImage(url)}
+                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
                   </div>
                 ))}
                 {/* Add more button inside grid */}
@@ -941,30 +919,6 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </button>
       </div>
 
-      {/* Image Editor Modal */}
-      {editingImageTarget && (() => {
-        const isFeatured = editingImageTarget === "featured"
-        const currentUrl = isFeatured ? (form.image ?? "") : editingImageTarget
-        return (
-          <ImageEditorModal
-            imageUrl={currentUrl}
-            uploadEndpoint="/api/admin/trips/upload"
-            onDone={(newUrl) => {
-              if (isFeatured) {
-                set("image", newUrl ?? "")
-              } else {
-                if (newUrl) {
-                  set("gallery", (form.gallery ?? []).map((u) => u === editingImageTarget ? newUrl : u))
-                } else {
-                  removeGalleryImage(editingImageTarget)
-                }
-              }
-              setEditingImageTarget(null)
-            }}
-            onClose={() => setEditingImageTarget(null)}
-          />
-        )
-      })()}
     </div>
   )
 }
