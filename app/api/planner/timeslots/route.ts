@@ -2,8 +2,19 @@ import { NextResponse } from "next/server"
 import { dbGetTrip } from "@/lib/db/queries"
 import { query } from "@/lib/db"
 import { getTourCMSConfig, checkAvailability, type AvailabilityComponent } from "@/lib/tourcms"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
+
+// Per-trip-per-day cache keyed by "palisisId|todayYMD" (5-min TTL)
+const _timeslotsCache = new Map<string, { data: PlannerTimeslotsResponse; expiresAt: number }>()
+
+function pruneTimeslotsCache() {
+  const now = Date.now()
+  for (const [key, entry] of _timeslotsCache) {
+    if (now >= entry.expiresAt) _timeslotsCache.delete(key)
+  }
+}
 
 export interface PlannerTimeslot {
   time: string                       // HH:MM (24h)
@@ -34,8 +45,14 @@ function addDaysYMD(ymd: string, days: number): string {
 }
 
 async function resolvePalisisId(tripId: string): Promise<string | null> {
-  // publicOnly: archived/draft trips must not be bookable / timeslot-queryable
+  // Fail-closed: only return a palisisId when the trip is confirmed published in our DB.
+  // No heuristic fallbacks — allowing unknown IDs through would let callers probe
+  // arbitrary TourCMS tour IDs and exhaust upstream quota without authorization.
+
+  // Primary lookup by our internal trip id (handles "tcms_NNN" and UUID formats)
   let row = (await dbGetTrip(tripId, { publicOnly: true }).catch(() => null)) as Record<string, unknown> | null
+
+  // Secondary lookup: caller passed the raw numeric palisis_id directly
   if (!row && /^\d+$/.test(tripId)) {
     try {
       const rows = (await query(
@@ -45,27 +62,15 @@ async function resolvePalisisId(tripId: string): Promise<string | null> {
       if (rows && rows.length > 0) row = rows[0]
     } catch { /* ignore */ }
   }
+
+  // If no published record was found, refuse — do not fall through to TourCMS
+  if (!row) return null
+
   const fromRow =
-    (row?.palisis_id as string | undefined) ??
-    (row?.palisisId as string | undefined) ??
+    (row.palisis_id as string | undefined) ??
+    (row.palisisId as string | undefined) ??
     null
-  if (fromRow) return String(fromRow)
-  if (tripId.startsWith("tcms_") || /^\d+$/.test(tripId)) {
-    // Heuristic only allowed when the trip does NOT exist in DB at all.
-    // Archived/draft trips must NOT be queryable for timeslots.
-    const candidate = tripId.startsWith("tcms_") ? tripId.slice("tcms_".length) : tripId
-    try {
-      const rows = (await query(
-        `SELECT 1 FROM trips WHERE (id = $1 OR palisis_id = $2) AND status != 'published' LIMIT 1`,
-        [tripId, candidate],
-      )) as Array<Record<string, unknown>>
-      if (rows.length === 0) return candidate
-    } catch {
-      // Fail-closed: refuse heuristic if we can't verify status.
-      return null
-    }
-  }
-  return null
+  return fromRow ? String(fromRow) : null
 }
 
 function normalizeComponents(components: AvailabilityComponent[]): PlannerTimeslot[] {
@@ -107,6 +112,11 @@ async function fetchSlotsForDate(
 }
 
 export async function GET(req: Request) {
+  schedulePrune()
+  pruneTimeslotsCache()
+  const rl = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  if (!rl.allowed) return rl.response
+
   const { searchParams } = new URL(req.url)
   const tripId = searchParams.get("tripId") ?? ""
   if (!tripId) {
@@ -132,7 +142,14 @@ export async function GET(req: Request) {
     )
   }
 
+  // Serve from cache: keyed by palisisId + current date (today/tomorrow are always the same pair)
   const today = todayYMD()
+  const cacheKey = `${palisisId}|${today}`
+  const cached = _timeslotsCache.get(cacheKey)
+  if (cached && Date.now() < cached.expiresAt) {
+    return NextResponse.json<PlannerTimeslotsResponse>({ ...cached.data, tripId })
+  }
+
   const tomorrow = addDaysYMD(today, 1)
   const [todayRes, tomorrowRes] = await Promise.all([
     fetchSlotsForDate(config, palisisId, today),
@@ -154,11 +171,13 @@ export async function GET(req: Request) {
     )
   }
 
-  return NextResponse.json<PlannerTimeslotsResponse>({
+  const payload: PlannerTimeslotsResponse = {
     ok: true,
     tripId,
     palisisId,
     today: todayRes.slots,
     tomorrow: tomorrowRes.slots,
-  })
+  }
+  _timeslotsCache.set(cacheKey, { data: payload, expiresAt: Date.now() + 5 * 60_000 })
+  return NextResponse.json<PlannerTimeslotsResponse>(payload)
 }

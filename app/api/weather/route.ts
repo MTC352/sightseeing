@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server"
 import { dbGetSettings } from "@/lib/db/queries"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
-// Luxembourg City coordinates
+// Luxembourg City coordinates — fixed, so one server-side cache entry covers all callers
 const LAT = 49.6116
 const LON = 6.1319
+
+// Server-side cache: keyed by "lu" (coordinates never change for this site)
+const _weatherCache = new Map<string, { data: unknown; expiresAt: number }>()
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -50,8 +54,19 @@ function buildFallback(reason?: string) {
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const cityOverride = searchParams.get("city")
+  schedulePrune()
+  const rl = rateLimit(request, { limit: 20, windowMs: 60_000 })
+  if (!rl.allowed) return rl.response
+
+  // cityOverride param is intentionally ignored — coordinates are fixed to Luxembourg City
+  // and accepting caller-controlled city names would poison the shared server-side cache.
+
+  // Serve from server-side cache (coordinates are fixed; one entry covers all callers)
+  const CACHE_KEY = "lu"
+  const cached = _weatherCache.get(CACHE_KEY)
+  if (cached && Date.now() < cached.expiresAt) {
+    return NextResponse.json(cached.data)
+  }
 
   let apiKey = process.env.OPENWEATHER_API_KEY
   if (!apiKey) {
@@ -108,7 +123,7 @@ export async function GET(request: Request) {
     humidity: current.main.humidity,
     wind: Math.round(current.wind.speed * 3.6),
     icon: mapIcon(current.weather[0].icon),
-    city: cityOverride ?? current.name ?? "Luxembourg City",
+    city: current.name ?? "Luxembourg City",
     sunrise: current.sys.sunrise,
     sunset: current.sys.sunset,
   }
@@ -152,5 +167,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ current: currentData, forecast: dailyForecasts })
+  const payload = { current: currentData, forecast: dailyForecasts }
+  _weatherCache.set(CACHE_KEY, { data: payload, expiresAt: Date.now() + 10 * 60_000 })
+  return NextResponse.json(payload)
 }

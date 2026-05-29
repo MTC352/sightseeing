@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { dbGetSettings } from "@/lib/db/queries"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 /* -----------------------------------------------------------------------
    Extracts a Place ID from a variety of Google Maps URL formats:
@@ -75,9 +76,30 @@ async function resolveShortlink(url: string): Promise<string> {
   }
 }
 
+// Server-side response cache — keyed by the raw URL supplied by the caller (30-min TTL)
+const _reviewsCache = new Map<string, { data: unknown; expiresAt: number }>()
+
+function pruneReviewsCache() {
+  const now = Date.now()
+  for (const [key, entry] of _reviewsCache) {
+    if (now >= entry.expiresAt) _reviewsCache.delete(key)
+  }
+}
+
 export async function GET(request: NextRequest) {
+  schedulePrune()
+  pruneReviewsCache()
+  const rl = rateLimit(request, { limit: 10, windowMs: 60_000 })
+  if (!rl.allowed) return rl.response
+
   const { searchParams } = request.nextUrl
   const rawUrl = searchParams.get("url") ?? ""
+
+  // Serve from cache if available
+  const cached = _reviewsCache.get(rawUrl)
+  if (cached && Date.now() < cached.expiresAt) {
+    return NextResponse.json(cached.data)
+  }
 
   const settings = await dbGetSettings()
   const apiKey = settings.apiKeys?.googleReviews || process.env.GOOGLE_PLACES_API_KEY
@@ -140,7 +162,7 @@ export async function GET(request: NextRequest) {
 
     const { name, rating, user_ratings_total, reviews } = json.result
 
-    return NextResponse.json({
+    const payload = {
       name,
       rating,
       totalReviews: user_ratings_total,
@@ -159,7 +181,9 @@ export async function GET(request: NextRequest) {
         text: r.text,
         url: r.author_url,
       })),
-    })
+    }
+    _reviewsCache.set(rawUrl, { data: payload, expiresAt: Date.now() + 30 * 60_000 })
+    return NextResponse.json(payload)
   } catch (err) {
     console.error("[v0] Google Reviews fetch error:", err)
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbListTrips } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -8,14 +9,26 @@ interface Timeslot { time: string; spotsLeft: number; spotsTotal: number }
 interface TripAvailability { today: Timeslot[]; tomorrow: Timeslot[] }
 type AvailabilityMap = Record<string, TripAvailability>
 
-// Multi-key cache: keyed by "startDate|endDate|timeFrom|timeTo"
+// Multi-key cache: keyed by "startDate|endDate"
 const _cache = new Map<string, { data: AvailabilityMap; expiresAt: number }>()
+
+function pruneAvailabilityCache() {
+  const now = Date.now()
+  for (const [key, entry] of _cache) {
+    if (now >= entry.expiresAt) _cache.delete(key)
+  }
+}
 
 function toYMD(d: Date) {
   return d.toISOString().split("T")[0]
 }
 
 export async function GET(req: Request) {
+  schedulePrune()
+  pruneAvailabilityCache()
+  const rl = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  if (!rl.allowed) return rl.response
+
   const { searchParams } = new URL(req.url)
   const dateParam = searchParams.get("date")    ?? ""
   const timeFrom  = searchParams.get("timeFrom") ?? ""
