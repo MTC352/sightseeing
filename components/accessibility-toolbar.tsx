@@ -83,10 +83,10 @@ export function AccessibilityToolbar() {
         aria-label="Accessibility options"
         aria-expanded={open}
         aria-controls="a11y-panel"
-        className="fixed bottom-20 right-4 z-[9998] flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:bottom-6 sm:right-6"
+        className="fixed bottom-20 right-4 z-[9998] flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-md transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:bottom-6 sm:right-6"
         style={{ bottom: open ? "auto" : undefined }}
       >
-        <Accessibility className="h-5 w-5" aria-hidden="true" />
+        <Accessibility className="h-4 w-4" aria-hidden="true" />
       </button>
 
       {/* Panel */}
