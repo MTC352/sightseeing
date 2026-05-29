@@ -4,8 +4,8 @@ import React from "react"
 
 import Link from "next/link"
 import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
-import { tripSummaries as staticTrips, categories, reviews, type Trip } from "@/lib/data"
-import { useGetPublicTripsQuery } from "@/store/site/api"
+import { tripSummaries as staticTrips, categories, type Trip } from "@/lib/data"
+import { useGetPublicTripsQuery, useGetGoogleReviewsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
 import { useRecentlyViewed } from "@/lib/use-recently-viewed"
 
@@ -92,7 +92,7 @@ function useFeaturedTripIds(): Set<string> {
       .map((t) => String(t.id))
   )
 }
-import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock } from "lucide-react"
+import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
 import { DeparturesSoonSection } from "@/components/departing-soon-section"
@@ -367,35 +367,201 @@ export function DealsSection() {
   )
 }
 
-/* Reviews Section */
+/* ─────────────────────────────────────────────────────────────────────────────
+   Google Reviews Section
+   Fetches live reviews from the main Sightseeing.lu Google Business Profile
+   via /api/google-reviews (30-min server-side cache + RTK Query 30-min cache).
+   Falls back gracefully when the Google Places API key isn't configured.
+───────────────────────────────────────────────────────────────────────────── */
+
+const GOOGLE_PROFILE_URL = "https://share.google/CMkITZRJksNDlPTRD"
+
+function GoogleBrandIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-label="Google" fill="none">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+    </svg>
+  )
+}
+
+function ReviewStars({ rating, size = "sm" }: { rating: number; size?: "sm" | "md" | "lg" }) {
+  const cls = size === "lg" ? "h-5 w-5" : size === "md" ? "h-4 w-4" : "h-3.5 w-3.5"
+  return (
+    <div className="flex gap-0.5">
+      {[1, 2, 3, 4, 5].map((i) => {
+        const filled = i <= Math.floor(rating)
+        const half = !filled && i - 0.5 <= rating
+        return (
+          <Star
+            key={i}
+            className={`${cls} ${filled ? "fill-amber-400 text-amber-400" : half ? "fill-amber-200 text-amber-300" : "text-muted-foreground/20"}`}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+type LiveReview = { author: string; avatar?: string; rating: number; date: string; text: string; url?: string }
+type LiveReviewsPayload = { name?: string; rating?: number; totalReviews?: number; reviews?: LiveReview[]; error?: string }
+
 export function ReviewsSection() {
+  const { data: rawData, isLoading, isError } = useGetGoogleReviewsQuery(GOOGLE_PROFILE_URL)
+  const data = rawData as unknown as LiveReviewsPayload
+
+  const liveReviews: LiveReview[] = data?.reviews ?? []
+  const overallRating = typeof data?.rating === "number" ? data.rating : null
+  const totalReviews = typeof data?.totalReviews === "number" ? data.totalReviews : null
+  const hasData = liveReviews.length > 0
+
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="flex flex-col gap-8 lg:flex-row">
-        <div className="flex-1">
-          <h2 className="text-xl font-bold text-foreground">
-            <EditableText id="home:reviews:heading" defaultValue="Travelers love Sightseeing.lu" />
-          </h2>
-          <div className="mt-2 flex items-center gap-3">
-            <span className="text-3xl font-bold text-foreground">4.7</span>
-            <div className="flex gap-0.5">{[...Array(5)].map((_, i) => <Star key={i} className={`h-5 w-5 ${i < 4 ? "fill-amber-400 text-amber-400" : "fill-amber-400/30 text-amber-400/30"}`} />)}</div>
-            <span className="text-sm text-muted-foreground">285 reviews</span>
-          </div>
-          <div className="mt-6 flex flex-col gap-4">
-            {reviews.map((r) => (
-              <div key={r.id} className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-foreground">{r.author}</span>
-                  <span className="text-xs text-muted-foreground">{r.date}</span>
-                </div>
-                <div className="mt-1 flex gap-0.5">{[...Array(5)].map((_, i) => <Star key={i} className={`h-3 w-3 ${i < r.rating ? "fill-amber-400 text-amber-400" : "fill-muted text-muted"}`} />)}</div>
-                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{r.text}</p>
-                <p className="mt-1 text-xs text-primary">{r.tripTitle}</p>
+        <div className="min-w-0 flex-1">
+
+          {/* ── Header row: title + overall rating + CTA button ── */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-foreground">
+                <EditableText id="home:reviews:heading" defaultValue="Travelers love Sightseeing.lu" />
+              </h2>
+
+              {/* Overall rating badge */}
+              <div className="mt-2.5 flex items-center gap-2.5">
+                {isLoading ? (
+                  <>
+                    <div className="h-9 w-14 animate-pulse rounded-lg bg-muted" />
+                    <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+                  </>
+                ) : hasData && overallRating !== null ? (
+                  <>
+                    <span className="text-3xl font-bold tracking-tight text-foreground">
+                      {overallRating.toFixed(1)}
+                    </span>
+                    <ReviewStars rating={overallRating} size="lg" />
+                    <span className="text-sm text-muted-foreground">
+                      {totalReviews ? `${totalReviews.toLocaleString()}+ reviews` : "Google Reviews"}
+                    </span>
+                    <GoogleBrandIcon className="h-5 w-5" />
+                  </>
+                ) : null}
               </div>
-            ))}
+            </div>
+
+            {/* "View All Reviews on Google" CTA */}
+            <a
+              href={GOOGLE_PROFILE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-secondary"
+            >
+              <GoogleBrandIcon className="h-4 w-4" />
+              View All Reviews on Google
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+            </a>
           </div>
+
+          {/* ── Review cards: carousel on mobile, grid on desktop ── */}
+          {isLoading ? (
+            <div className="mt-6 flex gap-4 overflow-x-auto pb-3 md:grid md:grid-cols-2 md:overflow-visible md:pb-0 xl:grid-cols-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="min-w-[260px] animate-pulse rounded-2xl border border-border bg-card p-5 md:min-w-0">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-muted" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-28 rounded bg-muted" />
+                      <div className="h-3 w-20 rounded bg-muted" />
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div className="h-3.5 rounded bg-muted" />
+                    <div className="h-3.5 w-5/6 rounded bg-muted" />
+                    <div className="h-3.5 w-4/6 rounded bg-muted" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : !hasData ? (
+            /* Graceful fallback — API key not configured or no reviews returned */
+            <div className="mt-6 flex flex-col items-center rounded-2xl border border-dashed border-border bg-secondary/30 p-10 text-center">
+              <GoogleBrandIcon className="h-10 w-10 opacity-50" />
+              <p className="mt-4 text-sm font-semibold text-foreground">Read what travelers are saying</p>
+              <p className="mt-1.5 max-w-sm text-xs leading-relaxed text-muted-foreground">
+                {isError
+                  ? "Configure a Google Places API key in Admin → Integrations to display live reviews here."
+                  : "Authentic reviews from guests who have experienced our tours."}
+              </p>
+              <a
+                href={GOOGLE_PROFILE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                View Reviews on Google
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            </div>
+          ) : (
+            /* Live review cards */
+            <div className="mt-6 flex gap-4 overflow-x-auto pb-3 md:grid md:grid-cols-2 md:overflow-visible md:pb-0 xl:grid-cols-3">
+              {liveReviews.slice(0, 5).map((review, idx) => (
+                <div
+                  key={idx}
+                  className="group min-w-[260px] flex flex-col rounded-2xl border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md md:min-w-0"
+                >
+                  {/* Reviewer header */}
+                  <div className="flex items-start gap-3">
+                    {review.avatar ? (
+                      <img
+                        src={review.avatar}
+                        alt={review.author}
+                        width={40}
+                        height={40}
+                        className="h-10 w-10 rounded-full object-cover ring-2 ring-border"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                        {review.author.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-foreground">{review.author}</p>
+                      <p className="text-xs text-muted-foreground">{review.date}</p>
+                    </div>
+                    <GoogleBrandIcon className="h-4 w-4 shrink-0 opacity-70" />
+                  </div>
+
+                  {/* Stars */}
+                  <div className="mt-2">
+                    <ReviewStars rating={review.rating} size="sm" />
+                  </div>
+
+                  {/* Review text */}
+                  <p className="mt-2.5 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-5">
+                    {review.text}
+                  </p>
+
+                  {/* View on Google — appears on hover */}
+                  {review.url && (
+                    <a
+                      href={review.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      View on Google <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        {/* Bestseller sidebar */}
+
+        {/* ── Bestseller sidebar ── */}
         <BestsellerSidebar />
       </div>
     </section>

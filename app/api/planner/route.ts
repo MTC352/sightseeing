@@ -591,10 +591,38 @@ const getTripDetailsTool = tool({
       trip = catalog.find((t) => t.id === tripId)
     }
     if (!trip && query) {
-      const lower = query.toLowerCase()
-      trip =
-        catalog.find((t) => t.title.toLowerCase().includes(lower)) ??
-        catalog.find((t) => (t.shortDescription ?? "").toLowerCase().includes(lower))
+      // Normalise: collapse whitespace, strip common punctuation/apostrophes.
+      const lower = query.toLowerCase().replace(/['']/g, "").replace(/\s+/g, " ").trim()
+      // Significant words = tokens longer than 2 chars (excludes "a", "an", "in", etc.)
+      const words = lower.split(" ").filter((w) => w.length > 2)
+
+      // Priority 1 — full normalised query is a substring of the title
+      trip = catalog.find((t) => t.title.toLowerCase().replace(/['']/g, "").includes(lower))
+
+      // Priority 2 — every significant word appears in the title
+      //   (handles "Walking City Tour" → "walking city tour" without strict order)
+      if (!trip && words.length > 1) {
+        trip = catalog.find((t) => {
+          const tl = t.title.toLowerCase()
+          return words.every((w) => tl.includes(w))
+        })
+      }
+
+      // Priority 3 — majority of words match (≥ ⌈75%⌉) for partial/mistyped names
+      if (!trip && words.length > 1) {
+        const needed = Math.ceil(words.length * 0.75)
+        trip = catalog.find((t) => {
+          const tl = t.title.toLowerCase()
+          return words.filter((w) => tl.includes(w)).length >= needed
+        })
+      }
+
+      // Priority 4 — fall back to shortDescription substring match
+      if (!trip) {
+        trip = catalog.find((t) =>
+          (t.shortDescription ?? "").toLowerCase().replace(/['']/g, "").includes(lower),
+        )
+      }
     }
     if (!trip) {
       return {

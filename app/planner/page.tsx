@@ -2168,6 +2168,10 @@ export default function PlannerPage() {
     // Synchronously wipe any committed trips from the prior session so
     // the canvas can't flash the old results before the useEffect syncs.
     setCommittedAiTrips([])
+    // Neutralise the streaming-transition ref so that if a stream was still
+    // in flight when reset was called, its eventual stream-end event cannot
+    // re-fire setHasCompletedFirstAiTurn(true) and undo the reset above.
+    prevStreamingRef.current = false
     // Reset the auto-build guards so the next AI buildItinerary in the
     // new chat isn't blocked by the previous toolCallId markers.
     lastAutoBuiltToolCallIdRef.current = null
@@ -2337,13 +2341,22 @@ export default function PlannerPage() {
   // Once streaming ends we use the live aiTrips so the useEffect above
   // and the render stay in sync within the same render pass.
   const displayedAiTrips = isStreaming ? committedAiTrips : aiTrips
+  // `discoveringPrefs` is true when the visitor has set interests but the
+  // AI hasn't completed its first recommendation turn yet. This covers the
+  // ~300 ms gap between handleOnboardingComplete() and the auto-submit timer
+  // as well as the full streaming window before the first result lands.
+  // We compute it here (before canvasIsDiscovering below) so we can also
+  // suppress the map/header fallback — otherwise the map would briefly show
+  // client-scored fallback pins while the trip-list showed the loading card.
+  const discoveringPrefs = prefs !== null && prefs.interests.length > 0 && !hasCompletedFirstAiTurn
   const resultTrips: Trip[] = displayedAiTrips.length > 0
     ? displayedAiTrips
-    // First-turn streaming with no committed trips yet → show NOTHING
-    // (the canvas renders the loading state below). Outside streaming
-    // we still fall back to the client-side scored picks so the panel
-    // is never empty after onboarding.
-    : (isStreaming ? [] : fallbackTrips)
+    // First-turn streaming with no committed trips yet, OR prefs are set
+    // but the AI hasn't finished its first turn → show NOTHING so the map
+    // and header don't flash client-scored fallback pins/counts before the
+    // AI result lands. Outside both of those windows we fall back to the
+    // client-side scored picks so the panel is never empty after onboarding.
+    : (isStreaming || discoveringPrefs ? [] : fallbackTrips)
   // Show the "discovering" skeleton when:
   //   a) AI is mid-turn and hasn't committed picks yet (original guard), OR
   //   b) Prefs are set with interests but the AI hasn't finished its first
@@ -2351,7 +2364,7 @@ export default function PlannerPage() {
   //      between handleOnboardingComplete() and the auto-submit timer firing.
   const canvasIsDiscovering =
     (isStreaming && displayedAiTrips.length === 0) ||
-    (prefs !== null && prefs.interests.length > 0 && !hasCompletedFirstAiTurn)
+    discoveringPrefs
   const showResults = resultTrips.length > 0
 
   /* Auto-expand map and center it when AI returns a new set of results */
