@@ -34,7 +34,7 @@ function decodeEntities(str: string | null | undefined): string {
 
 function SkeletonCard() {
   return (
-    <div className="flex w-64 shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+    <div className="flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:w-64">
       <div className="h-36 w-full animate-pulse bg-secondary" />
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="h-2.5 w-16 animate-pulse rounded bg-secondary" />
@@ -60,7 +60,7 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
   return (
     <Link
       href={`/trip/${trip.id}`}
-      className="group relative flex w-64 shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
+      className="group relative flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md sm:w-64"
     >
       {/* Image */}
       <div className="relative h-36 w-full shrink-0 overflow-hidden">
@@ -168,7 +168,7 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
         : "Recommended experiences for today."
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-w-0 flex-1 flex-col">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-bold text-foreground">{heading}</h3>
