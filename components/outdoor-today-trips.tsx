@@ -70,7 +70,7 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
         {nextSlot && (
           <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-foreground/70 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
             <Clock className="h-2.5 w-2.5" />
-            {nextSlot.time}
+            {nextSlot.time || "Available today"}
           </div>
         )}
       </div>

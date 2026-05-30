@@ -3,10 +3,21 @@ import { generateText, Output } from "ai"
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import { dbListTrips, dbGetSettings } from "@/lib/db/queries"
-import { getTourCMSConfig, checkAvailability } from "@/lib/tourcms"
+import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
+
+/** Current time as "HH:MM" in Europe/Luxembourg. */
+function nowLuxHHMM(): string {
+  const s = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Luxembourg",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(Date.now())
+  return s.slice(0, 5)
+}
 
 const DEFAULT_PROMPT =
   "Analyze today's weather data, current time, available timeslots, trip title, trip description, and trip details. Recommend the best outdoor experiences that are still available today and most suitable for the current weather conditions."
@@ -57,17 +68,30 @@ export interface OutdoorTodayResponse {
 // 10-minute server-side cache
 const _cache = new Map<string, { data: OutdoorTodayResponse; expiresAt: number }>()
 
-function todayHHMM(): string {
-  const now = new Date()
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-}
-
 function todayYMD(): string {
-  return new Date().toISOString().split("T")[0]
+  // Use Luxembourg date — a day starts at midnight there, not midnight UTC.
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Luxembourg" }).format(Date.now())
 }
 
-function isFutureSlot(slotTime: string): boolean {
-  return slotTime > todayHHMM()
+/**
+ * Returns true if the slot is still in the future (Luxembourg local time).
+ *
+ * Priority:
+ *  1. start_time_utcseconds — epoch seconds from TourCMS (timezone-exact)
+ *  2. start_time HH:MM string — compared to current Luxembourg time
+ *  3. No time info — keep it (checkAvailability only returns bookable components)
+ */
+function isFutureSlot(slotTime: string, utcSeconds?: string): boolean {
+  // Prefer UTC epoch seconds — accurate across DST changes
+  if (utcSeconds) {
+    return parseInt(utcSeconds, 10) > Math.floor(Date.now() / 1000)
+  }
+  // HH:MM string: compare to current Luxembourg time
+  if (slotTime.length >= 5) {
+    return slotTime > nowLuxHHMM()
+  }
+  // No time information → include (returned by checkAvailability for today, so bookable)
+  return true
 }
 
 function weatherTagMatch(
@@ -97,7 +121,8 @@ export async function GET(req: Request) {
   const rl = rateLimit(req, { limit: 10, windowMs: 60_000 })
   if (!rl.allowed) return rl.response
 
-  const cacheKey = `outdoor|${todayYMD()}|${Math.floor(Date.now() / (10 * 60_000))}`
+  // Per 10-minute window + date, so results auto-refresh without manual invalidation.
+  const cacheKey = `outdoor|v3|${todayYMD()}|${Math.floor(Date.now() / (10 * 60_000))}`
   const cached = _cache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json<OutdoorTodayResponse>(cached.data)
@@ -155,22 +180,29 @@ export async function GET(req: Request) {
       const settled = await Promise.allSettled(
         batch.map(async (trip): Promise<SlotResult> => {
           const palisisId = String(trip.palisis_id)
-          const res = await checkAvailability(tourcmsConfig, palisisId, {
-            date: today,
-            show_pickups: "0",
+          // Use showTourDatesAndDeals (calendar API) — no rate/quantity params needed,
+          // unlike checkAvailability which requires r1/r2 rate selection to return slots.
+          const res = await showTourDatesAndDeals(tourcmsConfig, palisisId, {
+            startdate_start: today,
+            startdate_end: today,
           })
-          if (!res.ok || !res.components?.length) return { tripId: String(trip.id), slots: [] }
-          const slots: OutdoorTodaySlot[] = res.components
-            .map((c) => ({
-              time: (c.start_time ?? "").slice(0, 5),
+          if (!res.ok || !res.dates?.length) return { tripId: String(trip.id), slots: [] }
+          const slots: OutdoorTodaySlot[] = res.dates
+            .filter((d) => {
+              const slotTime = (d.start_time ?? "").slice(0, 5)
+              return isFutureSlot(slotTime)
+            })
+            .sort((a, b) => (a.start_time ?? "").localeCompare(b.start_time ?? ""))
+            .map((d) => ({
+              time: (d.start_time ?? "").slice(0, 5),
               spotsLeft:
-                c.spaces_remaining === "UNLIMITED"
+                d.spaces_remaining === "UNLIMITED"
                   ? null
-                  : Math.max(0, parseInt(c.spaces_remaining ?? "0", 10) || 0),
-              priceDisplay: c.total_price_display ?? undefined,
+                  : d.spaces_remaining
+                    ? Math.max(0, parseInt(d.spaces_remaining, 10) || 0)
+                    : null,
+              priceDisplay: d.offer_price_1_display ?? d.price_1_display ?? undefined,
             }))
-            .filter((s) => s.time.length > 0 && isFutureSlot(s.time))
-            .sort((a, b) => a.time.localeCompare(b.time))
           return { tripId: String(trip.id), slots }
         }),
       )
@@ -236,7 +268,7 @@ export async function GET(req: Request) {
         }))
 
         const userMessage = JSON.stringify({
-          currentTime: todayHHMM(),
+          currentTime: nowLuxHHMM(),
           weather: { icon: weatherIcon, condition: weatherCondition, temp: weather?.temp },
           trips: tripSummaries,
         })
