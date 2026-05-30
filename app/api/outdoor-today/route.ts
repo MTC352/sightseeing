@@ -42,6 +42,7 @@ export interface OutdoorTodaySlot {
 export interface OutdoorTodayTrip {
   id: string
   title: string
+  description: string | null
   image: string | null
   price: number | null
   originalPrice: number | null
@@ -121,13 +122,14 @@ export async function GET(req: Request) {
   const rl = rateLimit(req, { limit: 10, windowMs: 60_000 })
   if (!rl.allowed) return rl.response
 
-  // Per 10-minute window + date, so results auto-refresh without manual invalidation.
-  const cacheKey = `outdoor|v3|${todayYMD()}|${Math.floor(Date.now() / (10 * 60_000))}`
-  const cached = _cache.get(cacheKey)
-  if (cached && Date.now() < cached.expiresAt) {
-    return NextResponse.json<OutdoorTodayResponse>(cached.data)
-  }
-
+  // Read settings FIRST so displayCount can be part of the cache key.
+  // This ensures changing the admin "Number of Trips" setting busts the cache immediately.
+  let displayCount = 2
+  let systemPrompt = DEFAULT_PROMPT
+  let configModel = "anthropic/claude-haiku-4-5-20251001"
+  let aiConfigMaxTokens = 1024
+  let aiConfigTemperature = 0.5
+  let anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? ""
   try {
     const settings = await dbGetSettings()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,17 +137,24 @@ export async function GET(req: Request) {
     const configExtra = aiConfig?.extra && typeof aiConfig.extra === "object"
       ? aiConfig.extra as Record<string, unknown>
       : {}
-    const displayCount =
-      typeof configExtra.display_count === "number" ? configExtra.display_count : 2
-    const systemPrompt =
-      typeof aiConfig?.systemPrompt === "string" && aiConfig.systemPrompt
-        ? aiConfig.systemPrompt
-        : DEFAULT_PROMPT
-    const configModel =
-      typeof aiConfig?.model === "string" && aiConfig.model
-        ? aiConfig.model
-        : "anthropic/claude-haiku-4-5-20251001"
+    if (typeof configExtra.display_count === "number") displayCount = configExtra.display_count
+    if (typeof aiConfig?.systemPrompt === "string" && aiConfig.systemPrompt) systemPrompt = aiConfig.systemPrompt
+    if (typeof aiConfig?.model === "string" && aiConfig.model) configModel = aiConfig.model
+    if (typeof aiConfig?.maxTokens === "number") aiConfigMaxTokens = aiConfig.maxTokens
+    if (typeof aiConfig?.temperature === "number") aiConfigTemperature = aiConfig.temperature
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
+    if (apiKeys?.anthropic) anthropicApiKey = apiKeys.anthropic
+  } catch { /* use defaults */ }
 
+  // Cache key includes displayCount so changing the admin setting busts it immediately.
+  const cacheKey = `outdoor|v4|${todayYMD()}|${displayCount}|${Math.floor(Date.now() / (10 * 60_000))}`
+  const cached = _cache.get(cacheKey)
+  if (cached && Date.now() < cached.expiresAt) {
+    return NextResponse.json<OutdoorTodayResponse>(cached.data)
+  }
+
+  try {
     // Fetch weather from internal route
     const origin = new URL(req.url).origin
     let weather: { icon: string; condition: string; temp: number } | null = null
@@ -242,13 +251,9 @@ export async function GET(req: Request) {
     let rankings: Ranking[] = []
     let aiPowered = false
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-    const anthropicKey = apiKeys?.anthropic || process.env.ANTHROPIC_API_KEY
-
-    if (anthropicKey) {
+    if (anthropicApiKey) {
       try {
-        const anthropic = createAnthropic({ apiKey: anthropicKey })
+        const anthropic = createAnthropic({ apiKey: anthropicApiKey })
         const rawModel = configModel.startsWith("anthropic/")
           ? configModel.slice("anthropic/".length)
           : configModel.startsWith("claude")
@@ -277,8 +282,8 @@ export async function GET(req: Request) {
           model,
           system: systemPrompt,
           messages: [{ role: "user", content: userMessage }],
-          maxTokens: typeof aiConfig?.maxTokens === "number" ? aiConfig.maxTokens : 1024,
-          temperature: typeof aiConfig?.temperature === "number" ? aiConfig.temperature : 0.5,
+          maxTokens: aiConfigMaxTokens,
+          temperature: aiConfigTemperature,
           experimental_output: Output.object({ schema: RankingSchema }),
         })
 
@@ -330,6 +335,7 @@ export async function GET(req: Request) {
       .map(({ trip, score, reason, weatherMatch }) => ({
         id: String(trip.id),
         title: String(trip.title ?? ""),
+        description: (trip.description as string | null) ?? null,
         image: (trip.image as string | null) ?? null,
         price: typeof trip.price === "number" ? trip.price : null,
         originalPrice: typeof trip.originalPrice === "number" ? trip.originalPrice : null,

@@ -7,10 +7,10 @@ import type { OutdoorTodayResponse, OutdoorTodayTrip } from "@/app/api/outdoor-t
 
 const WEATHER_ICONS = { sun: Sun, "cloud-sun": CloudSun, "cloud-rain": CloudRain }
 const MATCH_BADGE: Record<string, string> = {
-  excellent: "bg-emerald-500/15 text-emerald-700 border-emerald-500/20",
-  good: "bg-primary/10 text-primary border-primary/20",
-  fair: "bg-amber-500/15 text-amber-700 border-amber-500/20",
-  poor: "bg-destructive/10 text-destructive border-destructive/20",
+  excellent: "bg-white text-emerald-700 border-emerald-500/30",
+  good: "bg-white text-primary border-primary/30",
+  fair: "bg-white text-amber-700 border-amber-500/30",
+  poor: "bg-white text-destructive border-destructive/30",
 }
 const MATCH_LABEL: Record<string, string> = {
   excellent: "Perfect conditions",
@@ -92,18 +92,21 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
 
       {/* Content */}
       <div className="flex flex-1 flex-col gap-1.5 p-3">
-        {trip.category && (
-          <p className="text-[10px] font-medium text-primary">{trip.category}</p>
-        )}
+        <div className="flex items-center justify-between gap-1">
+          {trip.category && (
+            <p className="text-[10px] font-medium text-primary">{trip.category}</p>
+          )}
+          {trip.duration && (
+            <p className="text-[10px] text-muted-foreground">{trip.duration}</p>
+          )}
+        </div>
         <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
           {trip.title}
         </h3>
 
-        {trip.aiReason && (
-          <p className="line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
-            {trip.aiReason}
-          </p>
-        )}
+        <p className="line-clamp-3 text-[11px] leading-relaxed text-muted-foreground">
+          {trip.description || trip.aiReason || "A memorable experience in Luxembourg."}
+        </p>
 
         <div className="mt-auto flex items-center justify-between pt-1">
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
