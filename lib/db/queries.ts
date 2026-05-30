@@ -1262,6 +1262,15 @@ export async function dbUpdateAiSystem(systemKey: string, config: Record<string,
   }
 }
 
+export async function dbUpdateAiSystemExtra(systemKey: string, extra: Record<string, unknown>) {
+  await query(
+    `UPDATE ai_system_configs
+     SET extra_config = COALESCE(extra_config, '{}')::jsonb || $1::jsonb, updated_at = NOW()
+     WHERE system_key = $2`,
+    [JSON.stringify(extra), systemKey],
+  )
+}
+
 export async function dbUpdatePlannerBehavior(data: Record<string, unknown>) {
   await query(`
     UPDATE ai_system_configs 

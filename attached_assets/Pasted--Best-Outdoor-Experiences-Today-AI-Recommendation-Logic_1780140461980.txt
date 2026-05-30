@@ -1,0 +1,67 @@
+### Best Outdoor Experiences Today – AI Recommendation Logic
+
+Create an AI-powered recommendation system for the **"Best Outdoor Experiences Today"** section.
+
+#### Data Sources
+
+Use the following data for analysis:
+
+1. Trip Title
+2. Trip Description
+3. Trip Details
+4. Today's available timeslots from the API (Today's filter)
+5. Current date and time
+6. Today's weather data
+
+#### Recommendation Logic
+
+1. Fetch all trips with available timeslots for today.
+2. Compare available timeslots with the current time.
+3. Only consider trips that still have upcoming timeslots (timeslots later than the current time).
+4. Analyze each trip's description and details using AI.
+5. Analyze today's weather conditions using AI.
+6. Match weather conditions with suitable trip types.
+
+   * Sunny/Clear → Outdoor activities, sightseeing, walking tours, nature experiences.
+   * Light Clouds → Most outdoor activities.
+   * Rain/Storm → Avoid recommending weather-sensitive outdoor trips.
+7. Rank trips based on:
+
+   * Weather suitability
+   * Upcoming availability
+   * Trip description and details relevance
+   * Overall experience quality
+8. Return the best matching trips and display them in the **"Best Outdoor Experiences Today"** section on the frontend.
+
+#### Frontend Display
+
+* Show AI-recommended trips only.
+* Display trips in ranked order.
+* If no suitable trips are found, hide the section or show a fallback message.
+
+---
+
+### Admin Configuration
+
+Add a new setting under:
+
+**Admin → Settings → AI Systems → Best Outdoor Experiences**
+
+Fields:
+
+#### 1. AI Prompt
+
+Textarea field allowing admins to customize the recommendation prompt.
+
+Default Prompt:
+"Analyze today's weather, current time, trip descriptions, trip details, and upcoming available timeslots. Recommend the best outdoor experiences that are still available today and most suitable for the current weather conditions."
+
+#### 2. Number of Trips to Display
+
+Input field (number)
+
+Default Value:
+2
+
+Purpose:
+Controls how many AI-recommended trips are displayed in the frontend "Best Outdoor Experiences Today" section.

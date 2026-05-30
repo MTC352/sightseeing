@@ -4,6 +4,7 @@ import React, { useState } from "react"
 
 import Link from "next/link"
 import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
+import { OutdoorTodayTrips } from "./outdoor-today-trips"
 import { tripSummaries as staticTrips, categories, type Trip } from "@/lib/data"
 import { useGetPublicTripsQuery, useGetGoogleReviewsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
@@ -142,16 +143,10 @@ export function TrendingSection() {
 /* Weather Widget Section */
 export function WeatherSection() {
   const { weather, isLoading } = useWeather()
-  const { trips } = usePublishedTrips()
 
   // Fallback skeleton icon while loading
   const icon = weather?.current.icon ?? "cloud-sun"
   const WeatherIcon = WEATHER_ICONS[icon] || CloudSun
-
-  const isRainy = weather?.current.condition.toLowerCase().includes("rain") ?? false
-  const suggestedTrips = trips
-    .filter((t) => isRainy ? t.tags.includes("indoor") : t.tags.includes("outdoor"))
-    .slice(0, 3)
 
   // Minimal white background theme - no sky gradients
   const BG_STYLES: Record<string, { bg: string; orb: string; text: string; subtext: string; badge: string; forecastBg: string; iconColor: string }> = {
@@ -267,22 +262,12 @@ export function WeatherSection() {
             </div>
           </div>
 
-          {/* Suggested trips */}
-          <div className="flex-1">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">
-                {isLoading ? "Trips for today's weather" : isRainy ? "Best indoor experiences today" : "Best outdoor experiences today"}
-              </h3>
-              <Link href="/search" className="text-sm font-medium text-primary hover:underline">View all</Link>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {isLoading
-                ? "Loading recommendations based on current conditions..."
-                : `Based on ${weather?.current.condition.toLowerCase()} conditions, we recommend these experiences.`}
-            </p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {suggestedTrips.map((t) => <TripCard key={t.id} trip={t} />)}
-            </div>
+          {/* AI-powered outdoor recommendations */}
+          <div className="flex flex-1 flex-col">
+            <OutdoorTodayTrips
+              isWeatherLoading={isLoading}
+              weatherCondition={weather?.current.condition}
+            />
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
-import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route } from "lucide-react"
+import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun } from "lucide-react"
 
 // The legacy "Trip Planner" (planner) card was removed — its DB row stays
 // because /api/planner still reads behaviour-knob defaults from there, but
@@ -37,6 +37,12 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
     description: "Customer support bot on /help. Handles bookings, payments, and cancellations.",
     icon: HelpCircle,
     href: "/admin/ai-systems/help",
+  },
+  outdoor_today: {
+    label: "Best Outdoor Experiences",
+    description: "AI-powered homepage recommendation engine — selects and ranks trips based on today's weather, live timeslots, and trip descriptions.",
+    icon: Sun,
+    href: "/admin/ai-systems/outdoor_today",
   },
 }
 

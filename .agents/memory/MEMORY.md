@@ -1,0 +1,1 @@
+- [outdoor-today AI system](outdoor-today.md) — system_key='outdoor_today' in ai_system_configs; extra_config.display_count controls card count; 10-min server cache; tag fallback when no AI key.

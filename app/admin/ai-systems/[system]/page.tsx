@@ -31,6 +31,10 @@ const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
     label: "Blog Content Generator",
     hint: "Used on the blog post edit page. Generates SEO & AEO optimized articles via OpenAI GPT-4o, plus cover images via DALL-E 2. Requires an OpenAI API key in the Integrations settings.",
   },
+  outdoor_today: {
+    label: "Best Outdoor Experiences",
+    hint: "Powers the 'Best Outdoor Experiences Today' section on the homepage. Receives today's weather, current time, available timeslots, trip descriptions, and details. Ranks trips by weather suitability and upcoming availability. Results are cached for 10 minutes.",
+  },
 }
 
 const BLOG_DEFAULT_CONFIG = {
@@ -53,6 +57,7 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
   const router = useRouter()
 
   const [form, setForm] = useState({ ...DEFAULT_CONFIG })
+  const [displayCount, setDisplayCount] = useState(2)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
@@ -64,7 +69,13 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
       .then((s) => {
         if (cancelled) return
         const config = s?.ai?.[system]
-        if (config) setForm({ ...DEFAULT_CONFIG, ...config })
+        if (config) {
+          setForm({ ...DEFAULT_CONFIG, ...config })
+          if (system === "outdoor_today") {
+            const count = config?.extra?.display_count
+            if (typeof count === "number") setDisplayCount(count)
+          }
+        }
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -74,10 +85,12 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
     setSaving(true)
     setError("")
     try {
+      const payload: Record<string, unknown> = { system, ...form }
+      if (system === "outdoor_today") payload.displayCount = displayCount
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ section: "ai", data: { system, ...form } }),
+        body: JSON.stringify({ section: "ai", data: payload }),
       })
       if (!res.ok) throw new Error("Failed to save")
       setSaved(true)
@@ -209,6 +222,31 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
             </div>
           </div>
         </div>
+
+        {/* Best Outdoor Experiences — display count */}
+        {system === "outdoor_today" && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h2 className="mb-4 text-sm font-semibold text-foreground">Display Settings</h2>
+            <div>
+              <label className={labelClass}>
+                Number of Trips to Display
+                <span className="ml-1.5 font-normal text-muted-foreground/60">— shown next to the weather card</span>
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                step={1}
+                value={displayCount}
+                onChange={(e) => setDisplayCount(Math.max(1, Math.min(10, parseInt(e.target.value) || 2)))}
+                className={inputClass}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground/60">
+                Default: 2. The section fetches up to 2× this number as candidates and shows the top-ranked ones.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Planner-specific settings */}
         {system === "planner" && (

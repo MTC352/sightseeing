@@ -3,6 +3,7 @@ import {
   dbGetSettings,
   dbUpdateApiKeys,
   dbUpdateAiSystem,
+  dbUpdateAiSystemExtra,
   dbUpdateWeglot,
   dbUpdateHeaderFooter,
 } from "@/lib/db/queries"
@@ -37,8 +38,11 @@ export async function PATCH(req: Request) {
     if (section === "apiKeys") {
       await dbUpdateApiKeys(data as Record<string, string>)
     } else if (section === "ai") {
-      const { system, ...config } = data as { system: string } & Record<string, unknown>
+      const { system, displayCount, ...config } = data as { system: string; displayCount?: number } & Record<string, unknown>
       await dbUpdateAiSystem(system, config)
+      if (typeof displayCount === "number") {
+        await dbUpdateAiSystemExtra(system, { display_count: displayCount })
+      }
     } else if (section === "weglot") {
       await dbUpdateWeglot(data)
     } else if (section === "header") {
