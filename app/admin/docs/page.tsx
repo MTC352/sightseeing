@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import {
   Search, X, ChevronDown, ChevronRight, Bot, Send, MessageCircle,
-  HelpCircle, BookOpen, LayoutDashboard, Map, FileText, Briefcase,
+  HelpCircle, BookOpen, LayoutDashboard, Map as MapIcon, FileText, Briefcase,
   Ticket, Layout, Plug, Code2, RefreshCw, CheckSquare,
   Settings, Sparkles, Shield, type LucideIcon,
 } from "lucide-react"
@@ -31,7 +31,7 @@ type Category = {
 const CATEGORY_META: Record<string, { icon: LucideIcon; description: string }> = {
   "Getting Started":  { icon: BookOpen,        description: "Orientation, login, and sidebar navigation" },
   "Dashboard":        { icon: LayoutDashboard,  description: "Stats, quick actions, and recent trips overview" },
-  "Trips":            { icon: Map,              description: "Create, edit, publish, archive, and tag trips" },
+  "Trips":            { icon: MapIcon,           description: "Create, edit, publish, archive, and tag trips" },
   "Blog":             { icon: FileText,         description: "Write, edit, and publish blog posts" },
   "Jobs":             { icon: Briefcase,        description: "Job listings, applications, and statuses" },
   "Help & FAQ":       { icon: HelpCircle,       description: "Managing the public knowledge base" },
