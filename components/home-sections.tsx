@@ -545,9 +545,9 @@ export function ReviewsSection() {
               </div>
             </div>
 
-            {/* "View All Reviews on Google" CTA + edit mode configure button */}
-            <div className="flex shrink-0 items-center gap-2">
-              {isEditMode && (
+            {/* Edit mode configure button */}
+            {isEditMode && (
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   onClick={openPanel}
                   title="Configure Google Reviews"
@@ -555,18 +555,8 @@ export function ReviewsSection() {
                 >
                   <Settings2 className="h-3.5 w-3.5" /> Configure
                 </button>
-              )}
-              <a
-                href={activeProfileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-secondary"
-              >
-                <GoogleBrandIcon className="h-4 w-4" />
-                View All Reviews on Google
-                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-              </a>
-            </div>
+              </div>
+            )}
           </div>
 
           {/* ── Review cards: carousel on mobile, grid on desktop ── */}
