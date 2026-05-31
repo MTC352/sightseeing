@@ -6,17 +6,18 @@ import { Clock, MapPin, CloudSun, Sun, CloudRain, Sparkles, ArrowRight, ChevronR
 import type { OutdoorTodayResponse, OutdoorTodayTrip } from "@/app/api/outdoor-today/route"
 
 const WEATHER_ICONS = { sun: Sun, "cloud-sun": CloudSun, "cloud-rain": CloudRain }
+
 const MATCH_BADGE: Record<string, string> = {
-  excellent: "bg-white text-emerald-700 border-emerald-500/30",
-  good: "bg-white text-primary border-primary/30",
-  fair: "bg-white text-amber-700 border-amber-500/30",
-  poor: "bg-white text-destructive border-destructive/30",
+  excellent: "bg-emerald-500 text-white",
+  good: "bg-primary text-primary-foreground",
+  fair: "bg-amber-500 text-white",
+  poor: "bg-destructive text-white",
 }
 const MATCH_LABEL: Record<string, string> = {
-  excellent: "Perfect conditions",
-  good: "Good match",
-  fair: "Fair match",
-  poor: "Weather warning",
+  excellent: "Today's Best",
+  good: "Today's Best",
+  fair: "Good Pick",
+  poor: "Weather Advisory",
 }
 
 /** Decode HTML entities (e.g. &#8364; → €) from TourCMS XML fields. */
@@ -35,14 +36,13 @@ function decodeEntities(str: string | null | undefined): string {
 function SkeletonCard() {
   return (
     <div className="flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:w-64">
-      <div className="h-36 w-full animate-pulse bg-secondary" />
+      <div className="h-48 w-full animate-pulse bg-secondary" />
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="h-2.5 w-16 animate-pulse rounded bg-secondary" />
         <div className="h-4 w-full animate-pulse rounded bg-secondary" />
-        <div className="h-3 w-3/4 animate-pulse rounded bg-secondary" />
-        <div className="mt-auto flex items-center justify-between pt-2">
+        <div className="mt-auto flex items-center justify-between pt-1">
           <div className="h-3 w-20 animate-pulse rounded bg-secondary" />
-          <div className="h-3 w-14 animate-pulse rounded bg-secondary" />
+          <div className="h-3 w-10 animate-pulse rounded bg-secondary" />
         </div>
         <div className="h-3 w-16 animate-pulse rounded bg-secondary" />
       </div>
@@ -52,7 +52,7 @@ function SkeletonCard() {
 
 function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
   const matchClass = MATCH_BADGE[trip.weatherMatch] ?? MATCH_BADGE.good
-  const matchLabel = MATCH_LABEL[trip.weatherMatch] ?? "Good match"
+  const matchLabel = MATCH_LABEL[trip.weatherMatch] ?? "Today's Best"
   const nextSlot = trip.upcomingSlots[0]
   const rawPrice = nextSlot?.priceDisplay ?? (trip.price != null ? `€${trip.price}` : null)
   const priceDisplay = decodeEntities(rawPrice)
@@ -63,7 +63,7 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
       className="group relative flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md sm:w-64"
     >
       {/* Image */}
-      <div className="relative h-36 w-full shrink-0 overflow-hidden">
+      <div className="relative h-48 w-full shrink-0 overflow-hidden">
         {trip.image ? (
           <img
             src={trip.image}
@@ -74,20 +74,20 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
         ) : (
           <div className="h-full w-full bg-secondary" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-foreground/50 to-transparent" />
 
-        {/* Weather match badge */}
-        <div className={`absolute left-2 top-2 flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${matchClass}`}>
-          {matchLabel}
-        </div>
-
-        {/* Next slot badge */}
+        {/* Timeslot — top-left, like Departing Soon */}
         {nextSlot && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-foreground/70 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
-            <Clock className="h-2.5 w-2.5" />
-            {nextSlot.time || "Available today"}
+          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-foreground/70 px-2.5 py-1 text-[11px] font-semibold text-white shadow backdrop-blur-sm">
+            <Clock className="h-3 w-3" />
+            {nextSlot.time || "Today"}
           </div>
         )}
+
+        {/* Recommendation badge — bottom-left, like Trending This Month */}
+        <div className={`absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold shadow ${matchClass}`}>
+          {matchLabel}
+        </div>
       </div>
 
       {/* Content */}
@@ -103,10 +103,6 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
         <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
           {trip.title}
         </h3>
-
-        <p className="line-clamp-3 text-[11px] leading-relaxed text-muted-foreground">
-          {trip.description || trip.aiReason || "A memorable experience in Luxembourg."}
-        </p>
 
         <div className="mt-auto flex items-center justify-between pt-1">
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -190,7 +186,7 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
 
       <p className="mt-1 text-sm text-muted-foreground">{subtext}</p>
 
-      {/* Carousel — same pattern as Departing Soon */}
+      {/* Carousel */}
       {isLoading ? (
         <div className="mt-4 flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {Array.from({ length: 2 }).map((_, i) => <SkeletonCard key={i} />)}
@@ -211,17 +207,6 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
       ) : (
         <div className="mt-4 flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {trips.map((t) => <TripCard key={t.id} trip={t} />)}
-          {/* See all card */}
-          <Link
-            href="/search"
-            className="flex w-48 shrink-0 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-background p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/5"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-              <ArrowRight className="h-5 w-5 text-primary" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">Browse all trips</p>
-            <p className="text-xs text-muted-foreground">View full catalogue</p>
-          </Link>
         </div>
       )}
     </div>
