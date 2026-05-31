@@ -52,7 +52,7 @@ function SkeletonCard() {
   )
 }
 
-function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
+function TripCard({ trip, fill = false }: { trip: OutdoorTodayTrip; fill?: boolean }) {
   const matchClass = MATCH_BADGE[trip.weatherMatch] ?? MATCH_BADGE.good
   const matchLabel = MATCH_LABEL[trip.weatherMatch] ?? "Today's Best"
   const nextSlot = trip.upcomingSlots[0]
@@ -62,7 +62,9 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
   return (
     <Link
       href={`/trip/${trip.id}`}
-      className="group relative flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md sm:w-64"
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md ${
+        fill ? "w-full" : "w-[calc(100vw-5rem)] shrink-0 sm:w-64"
+      }`}
     >
       {/* Image */}
       <div className="relative h-56 w-full shrink-0 overflow-hidden">
@@ -212,7 +214,17 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
             </Link>
           </div>
         </div>
+      ) : trips.length <= 3 ? (
+        /* Few trips — distribute evenly, no empty gap */
+        <div className={`mt-4 grid gap-4 ${
+          trips.length === 1 ? "grid-cols-1" :
+          trips.length === 2 ? "grid-cols-2" :
+          "grid-cols-3"
+        }`}>
+          {trips.map((t) => <TripCard key={t.id} trip={t} fill />)}
+        </div>
       ) : (
+        /* Many trips — horizontal carousel */
         <div className="mt-4 flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {trips.map((t) => <TripCard key={t.id} trip={t} />)}
         </div>
