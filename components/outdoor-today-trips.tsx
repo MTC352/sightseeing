@@ -36,10 +36,12 @@ function decodeEntities(str: string | null | undefined): string {
 function SkeletonCard() {
   return (
     <div className="flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:w-64">
-      <div className="h-48 w-full animate-pulse bg-secondary" />
+      <div className="h-56 w-full animate-pulse bg-secondary" />
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="h-2.5 w-16 animate-pulse rounded bg-secondary" />
         <div className="h-4 w-full animate-pulse rounded bg-secondary" />
+        <div className="h-3 w-3/4 animate-pulse rounded bg-secondary" />
+        <div className="h-3 w-2/3 animate-pulse rounded bg-secondary" />
         <div className="mt-auto flex items-center justify-between pt-1">
           <div className="h-3 w-20 animate-pulse rounded bg-secondary" />
           <div className="h-3 w-10 animate-pulse rounded bg-secondary" />
@@ -63,7 +65,7 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
       className="group relative flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md sm:w-64"
     >
       {/* Image */}
-      <div className="relative h-48 w-full shrink-0 overflow-hidden">
+      <div className="relative h-56 w-full shrink-0 overflow-hidden">
         {trip.image ? (
           <img
             src={trip.image}
@@ -103,6 +105,12 @@ function TripCard({ trip }: { trip: OutdoorTodayTrip }) {
         <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
           {trip.title}
         </h3>
+
+        {(trip.description || trip.aiReason) && (
+          <p className="line-clamp-3 text-[11px] leading-relaxed text-muted-foreground">
+            {trip.description || trip.aiReason}
+          </p>
+        )}
 
         <div className="mt-auto flex items-center justify-between pt-1">
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
