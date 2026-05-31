@@ -13,6 +13,8 @@ const MATCH_BADGE: Record<string, string> = {
   fair: "bg-amber-500 text-white",
   poor: "bg-destructive text-white",
 }
+/* Exact TripCard badge style (Trending This Month reference) — applied at bottom-left */
+const BADGE_BASE = "absolute bottom-2 left-2 rounded-full px-2.5 py-1 text-xs font-bold shadow-sm"
 const MATCH_LABEL: Record<string, string> = {
   excellent: "Today's Best",
   good: "Today's Best",
@@ -80,18 +82,16 @@ function TripCard({ trip, fill = false }: { trip: OutdoorTodayTrip; fill?: boole
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-foreground/50 to-transparent" />
 
-        {/* Timeslot — top-left, like Departing Soon */}
+        {/* Timeslot — top-left, exact Departing Soon style (Today = destructive) */}
         {nextSlot && (
-          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-foreground/70 px-2.5 py-1 text-[11px] font-semibold text-white shadow backdrop-blur-sm">
+          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-destructive px-2.5 py-1 text-[11px] font-semibold text-white shadow">
             <Clock className="h-3 w-3" />
-            {nextSlot.time || "Today"}
+            Today {nextSlot.time}
           </div>
         )}
 
-        {/* Recommendation badge — bottom-left, like Trending This Month */}
-        <div className={`absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold shadow ${matchClass}`}>
-          {matchLabel}
-        </div>
+        {/* Recommendation badge — bottom-left, exact TripCard badge style */}
+        <span className={`${BADGE_BASE} ${matchClass}`}>{matchLabel}</span>
       </div>
 
       {/* Content */}
