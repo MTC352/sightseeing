@@ -29,5 +29,24 @@ synced surface or change skipping, keep everything in full-step space and transl
 at the map boundary only.
 
 Marker placement uses real per-stop geocodes (`step.lat/lng` from the scheduler's
-`departureGeo`/`endGeo`), falling back to a city approximation; exact-duplicate
-coords get a tiny golden-angle fan-out so shared locations cluster yet stay clickable.
+`departureGeo`/`endGeo`), falling back to a city approximation.
+
+**Pin shape & overlap (teardrop, not circles):** markers are a CSS teardrop —
+outer box `28x40`, a `28x28` circle at top with a `border-top:12px` `::after`
+triangle hanging below so the tail's bottom vertex lands at **y=40 = the box
+bottom**. Mapbox `anchor:"bottom"` puts that vertex on the coordinate.
+
+**Why the geometry must line up exactly:** stops that share a location keep the
+SAME coordinate (no geographic fan-out anymore) and instead each pin *leans* by a
+different angle (`computeTilts`, symmetric about vertical) so they fan out like a
+bouquet with every tip on the same spot. The lean is an inline `rotate()` on
+`.sightseeing-pin-lean` with `transform-origin: bottom center` — that pivot is the
+tip ONLY because the tip is at the box bottom. The number counter-rotates
+(`rotate(-tilt)`) to stay upright.
+
+**How to apply / gotchas:** (1) keep hover/active `scale()` on
+`.sightseeing-pin-shape`, never on `.sightseeing-pin-lean`, or it clobbers the
+per-pin inline rotate. (2) the shape's scale `transform-origin` must be the real
+tip `50% 40px` (12px below the 28px circle), not `center bottom`, or scaling lifts
+the tip ~1.4px off the coordinate. The map can't be verified in headless tests
+(no WebGL), so this geometry is reasoned, not screenshot-confirmed.

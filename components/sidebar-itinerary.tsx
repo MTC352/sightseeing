@@ -1429,21 +1429,39 @@ export function ItineraryPanel({
             // Compute the real arrival time at the next stop: end of this step
             // + parsed transit minutes. Falls back to the next slot's start
             // time only when we genuinely have no other signal.
-            const travelMins = step.travelMinutes ?? 0
             const breakMins =
               step.breakAfter && step.breakAfter.type !== "none"
                 ? step.breakAfter.durationMinutes ?? 0
                 : 0
-            const arrivalTime = (() => {
-              if (!step.endTime) return nextStep?.time ?? null
+            // Minute-of-day you actually set off for the next stop: end of this
+            // step + any break that sits between them. Per-transport ETAs are
+            // derived from this so each mode shows its own arrival clock time.
+            const baseDepartMin = (() => {
+              if (!step.endTime) return null
               const m = /^(\d{1,2}):(\d{2})/.exec(step.endTime)
-              if (!m) return nextStep?.time ?? null
-              // step end → optional break → transit → arrival
-              const total = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + breakMins + travelMins
-              const h = Math.floor(total / 60) % 24
-              const mm = total % 60
-              return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`
+              if (!m) return null
+              return parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + breakMins
             })()
+            const fmtClock = (total: number) => {
+              const h = Math.floor(total / 60) % 24
+              const mm = ((total % 60) + 60) % 60
+              return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`
+            }
+            // Taxi/car carries a real-world pickup wait (you don't leave the
+            // instant the previous stop ends), so its ETA is shown as a 2–5 min
+            // buffered range rather than a single optimistic time.
+            const TAXI_BUFFER_LO = 2
+            const TAXI_BUFFER_HI = 5
+            const etaFor = (mins: number | null, bufLo = 0, bufHi = 0) => {
+              if (mins === null) return null
+              // No usable end time for this step — we can't compute a per-mode
+              // clock, so fall back to the next stop's scheduled start (the same
+              // single-time signal the box showed before per-mode ETAs).
+              if (baseDepartMin === null) return nextStep?.time ?? null
+              const lo = baseDepartMin + mins + bufLo
+              const hi = baseDepartMin + mins + bufHi
+              return hi > lo ? `${fmtClock(lo)}–${fmtClock(hi)}` : fmtClock(lo)
+            }
             // Lunch / coffee break sits between this step and the next on the
             // timeline. Its start = end of this step (the bus leg, when
             // present, is rendered AFTER the break).
@@ -1653,33 +1671,62 @@ export function ItineraryPanel({
                           </span>
                         )}
                       </div>
-                      {arrivalTime && has && (
-                        <span className="shrink-0 text-[11px] font-medium tabular-nums text-foreground/70">
-                          ETA · <span className="font-semibold text-foreground">{arrivalTime}</span>
-                        </span>
-                      )}
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                      <span className="flex items-center gap-1.5">
-                        <Car className="h-3.5 w-3.5 text-primary/70" />
-                        <span className="font-semibold text-foreground">{fmt(leg?.driveMin ?? null, "min")}</span>
-                        <span className="text-[10px] text-muted-foreground">by car</span>
-                        {recommendDrive && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Bus className="h-3.5 w-3.5 text-foreground/40" />
-                        <span className="font-semibold text-foreground/70">{fmt(leg?.transitMin ?? null, "min")}</span>
-                        <span className="text-[10px] text-muted-foreground">by transit</span>
-                      </span>
+                    {/* Each transport mode shows its own travel time AND the
+                        arrival ETA for that mode, so the user can compare when
+                        they'd actually get there by car / transit / walking.
+                        Car/taxi includes a 2–5 min pickup buffer in its ETA. */}
+                    <div className="flex flex-col gap-1.5">
+                      {(() => {
+                        const carEta = etaFor(leg?.driveMin ?? null, TAXI_BUFFER_LO, TAXI_BUFFER_HI)
+                        return (
+                          <span className="flex items-center gap-1.5">
+                            <Car className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+                            <span className="font-semibold text-foreground">{fmt(leg?.driveMin ?? null, "min")}</span>
+                            <span className="text-[10px] text-muted-foreground">by car</span>
+                            {recommendDrive && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
+                            {carEta && has && (
+                              <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-foreground/70">
+                                ETA · <span className="font-semibold text-foreground">{carEta}</span>
+                              </span>
+                            )}
+                          </span>
+                        )
+                      })()}
+                      {(() => {
+                        const transitEta = etaFor(leg?.transitMin ?? null)
+                        return (
+                          <span className="flex items-center gap-1.5">
+                            <Bus className="h-3.5 w-3.5 shrink-0 text-foreground/40" />
+                            <span className="font-semibold text-foreground/70">{fmt(leg?.transitMin ?? null, "min")}</span>
+                            <span className="text-[10px] text-muted-foreground">by transit</span>
+                            {transitEta && has && (
+                              <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-foreground/70">
+                                ETA · <span className="font-semibold text-foreground">{transitEta}</span>
+                              </span>
+                            )}
+                          </span>
+                        )
+                      })()}
                       {/* Walking is ALWAYS shown so the user can choose
                           their mode of transport — even if it's a long
                           walk we let them see the number and decide. */}
-                      <span className="flex items-center gap-1.5">
-                        <Route className="h-3.5 w-3.5 text-primary/70" />
-                        <span className="font-semibold text-foreground">{fmt(leg?.walkMin ?? null, "min")}</span>
-                        <span className="text-[10px] text-muted-foreground">walking</span>
-                        {recommendWalk && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
-                      </span>
+                      {(() => {
+                        const walkEta = etaFor(leg?.walkMin ?? null)
+                        return (
+                          <span className="flex items-center gap-1.5">
+                            <Route className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+                            <span className="font-semibold text-foreground">{fmt(leg?.walkMin ?? null, "min")}</span>
+                            <span className="text-[10px] text-muted-foreground">walking</span>
+                            {recommendWalk && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
+                            {walkEta && has && (
+                              <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-foreground/70">
+                                ETA · <span className="font-semibold text-foreground">{walkEta}</span>
+                              </span>
+                            )}
+                          </span>
+                        )
+                      })()}
                     </div>
                     {unavailableCopy && (
                       <p className="mt-1.5 text-[10.5px] leading-snug text-muted-foreground/80">

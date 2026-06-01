@@ -139,33 +139,88 @@
 }
 /* Numbered itinerary stop pins — drawn on top of the route polyline so
    the day's sequence reads at a glance. */
+/* Teardrop map pin. The outer button is just a positioning box. Geometry is
+   tuned so the tip sits EXACTLY at the box bottom-center: the 28px circle fills
+   the top (0–28px) and the tail triangle hangs directly below it (28–40px),
+   so its point lands at y=40 = the box bottom. Mapbox anchors the box 'bottom',
+   so that tip is the true coordinate.
+   `.sightseeing-pin-lean` pivots on `transform-origin: bottom center` — i.e. on
+   that same tip — so stops sharing a location fan out like a bouquet with every
+   tip staying on the spot. Hover/active scaling lives on `.sightseeing-pin-shape`
+   so it never clobbers the per-pin inline rotate on `.sightseeing-pin-lean`. */
 .sightseeing-map-itinerary-pin {
+  display: block;
+  width: 28px;
+  height: 40px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.sightseeing-pin-lean {
+  display: block;
+  position: relative;
+  width: 28px;
+  height: 40px;
+  transform-origin: bottom center;
+}
+.sightseeing-pin-shape {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   background: #16a34a;
   color: #ffffff;
   border: 2px solid #ffffff;
   border-radius: 50%;
   font-size: 13px;
   font-weight: 800;
-  cursor: pointer;
-  padding: 0;
-  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  /* The real tip sits 12px below this 28px circle (at y=40). Scale around that
+     exact point so hover/active growth never lifts the tip off the coordinate. */
+  transform-origin: 50% 40px;
   transition: transform 0.15s ease;
 }
+/* Downward point (the tip that touches the location), sitting directly below
+   the circle so its bottom vertex is at the box bottom (y=40). */
+.sightseeing-pin-shape::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 12px solid #16a34a;
+}
+.sightseeing-pin-num {
+  display: block;
+  line-height: 1;
+}
 .sightseeing-map-itinerary-pin:hover {
-  transform: scale(1.15);
   z-index: 10;
+}
+.sightseeing-map-itinerary-pin:hover .sightseeing-pin-shape {
+  transform: scale(1.12);
 }
 /* Active stop — highlighted when its itinerary card / location is focused. */
 .sightseeing-map-itinerary-pin.is-active {
-  background: #f97316;
-  transform: scale(1.22);
   z-index: 11;
+}
+.sightseeing-map-itinerary-pin.is-active .sightseeing-pin-shape {
+  background: #f97316;
+  transform: scale(1.12);
   box-shadow: 0 0 0 4px rgba(249,115,22,.35), 0 2px 8px rgba(0,0,0,.3);
+}
+.sightseeing-map-itinerary-pin.is-active .sightseeing-pin-shape::after {
+  border-top-color: #f97316;
 }
 /* Photo spot markers */
 .sightseeing-photo-pin {

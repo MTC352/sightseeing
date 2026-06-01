@@ -37,20 +37,29 @@ function tripToCoords(trip: Trip, index: number): [number, number] {
   return [base[0] + jitterLng, base[1] + jitterLat]
 }
 
-/** Give exact-duplicate coordinates a tiny deterministic fan-out (~18 m) so two
- *  stops that genuinely share a location stay clustered together (matching the
- *  itinerary list) yet remain individually clickable on the map. */
-function dedupeCoords(coords: [number, number][]): [number, number][] {
-  const seen = new Map<string, number>()
-  return coords.map(([lng, lat]) => {
+/** Stops that genuinely share a location keep the SAME coordinate (so every pin
+ *  points to the exact same spot) but each pin in the group leans by a different
+ *  angle, fanning out like a bouquet so they sit side-by-side and all stay
+ *  individually clickable. Returns a lean angle (deg) per coordinate, symmetric
+ *  about vertical (e.g. two pins → -13°/+13°, three → -26°/0°/+26°). */
+function computeTilts(coords: [number, number][]): number[] {
+  const groups = new Map<string, number[]>()
+  coords.forEach(([lng, lat], i) => {
     const key = `${lng.toFixed(5)},${lat.toFixed(5)}`
-    const n = seen.get(key) ?? 0
-    seen.set(key, n + 1)
-    if (n === 0) return [lng, lat]
-    const angle = (n * 137.5) * Math.PI / 180
-    const r = 0.00018
-    return [lng + Math.cos(angle) * r, lat + Math.sin(angle) * r]
+    const arr = groups.get(key) ?? []
+    arr.push(i)
+    groups.set(key, arr)
   })
+  const tilts = new Array<number>(coords.length).fill(0)
+  groups.forEach((idxs) => {
+    const n = idxs.length
+    if (n <= 1) return
+    const stepDeg = Math.min(26, 70 / (n - 1))
+    idxs.forEach((markerIdx, k) => {
+      tilts[markerIdx] = (k - (n - 1) / 2) * stepDeg
+    })
+  })
+  return tilts
 }
 
 const LUX_CENTER: [number, number] = [6.13, 49.61]
@@ -268,13 +277,13 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     }
 
     // Prefer REAL per-stop coordinates; fall back to the city approximation
-    // only when a stop has no geocode. Exact duplicates get a tiny fan-out so
-    // shared locations cluster (matching the list) yet stay clickable.
-    const rawCoords: [number, number][] = itineraryTrips.map((t, i) => {
+    // only when a stop has no geocode. Stops that share a location keep the
+    // SAME coordinate and instead lean apart visually (see computeTilts).
+    const coords: [number, number][] = itineraryTrips.map((t, i) => {
       const real = itineraryCoords?.[i]
       return (real ?? tripToCoords(t, i)) as [number, number]
     })
-    const coords = dedupeCoords(rawCoords)
+    const tilts = computeTilts(coords)
     itineraryCoordsRef.current = coords
     // Full-step index per rendered marker (identity when not provided).
     const stepIndices = itineraryTrips.map((_, i) => itineraryStepIndices?.[i] ?? i)
@@ -288,7 +297,13 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
       el.className = "sightseeing-map-itinerary-pin"
       if (stepIdx === activeStopIndexRef.current) el.classList.add("is-active")
       el.setAttribute("aria-label", `Stop ${i + 1}: ${trip.title}`)
-      el.innerHTML = `<span>${i + 1}</span>`
+      const tilt = tilts[i] ?? 0
+      el.innerHTML =
+        `<span class="sightseeing-pin-lean" style="transform: rotate(${tilt}deg)">` +
+          `<span class="sightseeing-pin-shape">` +
+            `<span class="sightseeing-pin-num" style="transform: rotate(${-tilt}deg)">${i + 1}</span>` +
+          `</span>` +
+        `</span>`
       el.addEventListener("click", (ev) => {
         ev.stopPropagation()
         setSelected((prev) => (prev?.id === trip.id ? null : trip))
