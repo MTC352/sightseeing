@@ -5,6 +5,7 @@ import { z } from "zod"
 import { dbListTrips, dbGetSettings } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { logCaughtError } from "@/lib/error-log"
 
 export const dynamic = "force-dynamic"
 
@@ -293,6 +294,7 @@ export async function GET(req: Request) {
         }
       } catch (aiErr) {
         console.warn("[outdoor-today] AI ranking failed, using tag fallback:", aiErr)
+        void logCaughtError("ai:outdoor-today", aiErr, { fallback: "tag-ranking" })
       }
     }
 
@@ -361,6 +363,7 @@ export async function GET(req: Request) {
     return NextResponse.json<OutdoorTodayResponse>(payload)
   } catch (err) {
     console.error("[outdoor-today] Error:", err)
+    void logCaughtError("outdoor-today", err, { phase: "handler" })
     return NextResponse.json<OutdoorTodayResponse>(
       { ok: false, trips: [], weather: null, displayCount: 2, aiPowered: false, error: "Internal error" },
       { status: 500 },

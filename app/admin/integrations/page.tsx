@@ -6,8 +6,12 @@ import {
   Save, Check, Eye, EyeOff, ExternalLink, AlertCircle,
   Cloud, Map, Bot, Zap, Globe, Star, RefreshCw, Calendar,
   KeyRound, Settings2, ChevronDown, Info, Sliders, SlidersHorizontal,
+  CheckCircle2, XCircle, Loader2,
 } from "lucide-react"
 import TripFieldsPanel from "@/components/admin/trip-fields-panel"
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog"
 import {
   type SearchFilterKey,
   configKeyFor as searchFilterConfigKey,
@@ -53,7 +57,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         placeholder: "pk.eyJ1IjoiLi4uIn0…",
         hint: "Used for the sightseeing map widget. Set NEXT_PUBLIC_MAPBOX_TOKEN in Vercel env vars for client-side access.",
         docsUrl: "https://docs.mapbox.com/api/overview/",
-        testable: false,
+        testable: true,
         secret: true,
       },
     ],
@@ -69,6 +73,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         placeholder: "sk-ant-…",
         hint: "Optional — the Vercel AI Gateway handles Anthropic by default. Only set if using a direct connection.",
         docsUrl: "https://console.anthropic.com/",
+        testable: true,
         secret: true,
       },
       {
@@ -77,6 +82,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         placeholder: "sk-…",
         hint: "Optional — the Vercel AI Gateway handles OpenAI by default.",
         docsUrl: "https://platform.openai.com/api-keys",
+        testable: true,
         secret: true,
       },
     ],
@@ -145,6 +151,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         placeholder: "wg_…",
         hint: "Enables multi-language support. Full Weglot configuration is available on the dedicated settings page.",
         docsUrl: "https://weglot.com/documentation",
+        testable: true,
       },
     ],
   },
@@ -152,6 +159,14 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
 
 type ApiKeys = Record<string, string>
 type Tab = "keys" | "settings" | "trip-fields"
+
+interface TestKeyResponse {
+  ok: boolean
+  service: string
+  status?: number | string
+  message: string
+  details?: Record<string, unknown>
+}
 
 const inputBase =
   "w-full rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -164,6 +179,8 @@ export default function IntegrationsPage() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<Record<string, "ok" | "fail">>({})
+  const [testModal, setTestModal] = useState<{ fieldKey: string; label: string } | null>(null)
+  const [testModalData, setTestModalData] = useState<TestKeyResponse | null>(null)
   const [error, setError] = useState("")
   const [dsToggling, setDsToggling] = useState(false)
   const [dsSaving, setDsSaving] = useState<"discovery" | "availability" | null>(null)
@@ -385,25 +402,36 @@ export default function IntegrationsPage() {
     )
   }
 
-  async function testKey(fieldKey: string) {
+  async function testKey(fieldKey: string, label: string) {
     setTesting(fieldKey)
+    setTestModal({ fieldKey, label })
+    setTestModalData(null)
     try {
-      let url = `/api/admin/test-key?service=${encodeURIComponent(fieldKey)}&key=${encodeURIComponent(keys[fieldKey] ?? "")}`
-      if (fieldKey === "palisis") {
-        if (keys.palisisChannelId) url += `&channelId=${encodeURIComponent(keys.palisisChannelId)}`
-        if (keys.palisisMarketplaceId) url += `&marketplaceId=${encodeURIComponent(keys.palisisMarketplaceId)}`
+      const payload: Record<string, string> = {
+        service: fieldKey,
+        key: keys[fieldKey] ?? "",
       }
-      const res = await fetch(url)
-      const data = (await res.json()) as { ok: boolean }
+      if (fieldKey === "palisis") {
+        if (keys.palisisChannelId) payload.channelId = keys.palisisChannelId
+        if (keys.palisisMarketplaceId) payload.marketplaceId = keys.palisisMarketplaceId
+      }
+      if (fieldKey === "googleReviews" && keys.googlePlaceId) {
+        payload.placeId = keys.googlePlaceId
+      }
+      const res = await fetch("/api/admin/test-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = (await res.json()) as TestKeyResponse
+      setTestModalData(data)
       setTestResult((p) => ({ ...p, [fieldKey]: data.ok ? "ok" : "fail" }))
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Request failed"
+      setTestModalData({ ok: false, service: fieldKey, message })
       setTestResult((p) => ({ ...p, [fieldKey]: "fail" }))
     } finally {
       setTesting(null)
-      setTimeout(
-        () => setTestResult((p) => { const n = { ...p }; delete n[fieldKey]; return n }),
-        4000
-      )
     }
   }
 
@@ -593,7 +621,7 @@ export default function IntegrationsPage() {
                           {field.testable && (
                             <button
                               type="button"
-                              onClick={() => testKey(field.key)}
+                              onClick={() => testKey(field.key, field.label)}
                               disabled={testing === field.key}
                               title="Test connection"
                               className={`flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors disabled:opacity-60 ${
@@ -1185,6 +1213,59 @@ export default function IntegrationsPage() {
 
         </div>
       )}
+
+      <Dialog open={!!testModal} onOpenChange={(open) => { if (!open) { setTestModal(null); setTestModalData(null) } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {!testModalData ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : testModalData.ok ? (
+                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              ) : (
+                <XCircle className="h-5 w-5 text-destructive" />
+              )}
+              {testModal?.label} — {!testModalData ? "Testing…" : testModalData.ok ? "Connection valid" : "Connection failed"}
+            </DialogTitle>
+            <DialogDescription>
+              {!testModalData
+                ? "Contacting the provider to validate this key…"
+                : "Live result from the provider. Failed tests are also recorded in Logs."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {testModalData && (
+            <div className="space-y-3 text-sm">
+              <div
+                className={`rounded-lg border p-3 ${
+                  testModalData.ok
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                    : "border-destructive/30 bg-destructive/10 text-destructive"
+                }`}
+              >
+                {testModalData.message}
+              </div>
+
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+                <dt className="text-muted-foreground">Service</dt>
+                <dd className="font-mono text-foreground">{testModalData.service}</dd>
+                {testModalData.status !== undefined && (
+                  <>
+                    <dt className="text-muted-foreground">Status</dt>
+                    <dd className="font-mono text-foreground">{String(testModalData.status)}</dd>
+                  </>
+                )}
+              </dl>
+
+              {testModalData.details && Object.keys(testModalData.details).length > 0 && (
+                <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  {JSON.stringify(testModalData.details, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

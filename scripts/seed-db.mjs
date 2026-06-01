@@ -233,6 +233,22 @@ async function seedTripTags() {
   console.log('  ✓ trip_tags seeded')
 }
 
+async function seedErrorLogs() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS error_logs (
+      id SERIAL PRIMARY KEY,
+      source TEXT NOT NULL,
+      level TEXT NOT NULL DEFAULT 'error',
+      message TEXT NOT NULL,
+      status_code INTEGER,
+      context JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_error_logs_created ON error_logs (created_at DESC)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_error_logs_source ON error_logs (source, created_at DESC)`)
+}
+
 async function main() {
   try {
     console.log('Seeding database...')
@@ -242,6 +258,7 @@ async function main() {
     await seedJobs()
     await seedHelpArticles()
     await seedTripTags()
+    await seedErrorLogs()
 
     // Verify final counts
     const { rows } = await query(`

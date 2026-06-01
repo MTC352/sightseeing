@@ -13,6 +13,7 @@ import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { logError, logCaughtError } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -1153,6 +1154,7 @@ export async function POST(req: Request) {
         // display it inline instead of failing silently on a raw 503.
         const msg = "AI is not configured. Open Admin → Integrations and save your Anthropic API key, or set AI_GATEWAY_API_KEY in environment variables."
         console.error("[planner] No AI credentials available —", msg)
+        void logError({ source: "ai:planner", message: msg, level: "warn" })
         const sse =
           `data: ${JSON.stringify({ type: "start" })}\n\n` +
           `data: ${JSON.stringify({ type: "error", errorText: msg })}\n\n` +
@@ -1176,6 +1178,9 @@ export async function POST(req: Request) {
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       tools,
+      onError: ({ error }) => {
+        void logCaughtError("ai:planner", error, { phase: "streamText" })
+      },
       stopWhen: stepCountIs(5),
       // Hard kill-switch: if Claude starts emitting labelled-section recaps
       // (BEST MATCHES:, NOT SUITABLE:, WEATHER FIT:, DAYTIME / SUNDAY-SUITABLE,
@@ -1208,6 +1213,7 @@ export async function POST(req: Request) {
     return result.toUIMessageStreamResponse()
   } catch (error) {
     console.error("[planner] POST error:", error)
+    void logCaughtError("ai:planner", error, { phase: "POST" })
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

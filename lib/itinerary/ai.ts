@@ -13,6 +13,7 @@
    path. They NEVER throw.
    ───────────────────────────────────────────────────────────────────────── */
 import { generateText, Output } from "ai"
+import { logCaughtError } from "@/lib/error-log"
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 
@@ -88,7 +89,8 @@ export async function selectAndOrder(opts: {
     const seen = new Set<string>()
     const ordered = finalIds.filter((id) => known.has(id) && !seen.has(id) && (seen.add(id), true))
     return ordered.length > 0 ? ordered : null
-  } catch {
+  } catch (err) {
+    void logCaughtError("ai:itinerary", err, { phase: "selectAndOrder" })
     return null
   }
 }
@@ -188,7 +190,8 @@ For carSuggestion / hotelSuggestion just set recommended:false with short empty-
       prompt,
     })
     return output
-  } catch {
+  } catch (err) {
+    void logCaughtError("ai:itinerary", err, { phase: "narrate" })
     return null
   }
 }
