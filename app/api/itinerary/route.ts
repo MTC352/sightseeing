@@ -1,6 +1,3 @@
-import { generateText, Output } from "ai"
-import { createAnthropic } from "@ai-sdk/anthropic"
-import { z } from "zod"
 import { dbGetSettings, dbGetTrip } from "@/lib/db/queries"
 import { query } from "@/lib/db"
 import {
@@ -10,6 +7,14 @@ import {
 } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import { parseHumanDuration } from "@/lib/parse-duration"
+import {
+  buildSchedule,
+  deterministicOrder,
+  HARD_MAX_STOPS,
+  type CandidateTrip,
+  type ComputeLeg,
+} from "@/lib/itinerary/scheduler"
+import { selectAndOrder, narrate, type CompactCandidate } from "@/lib/itinerary/ai"
 
 /* ─────────────────────────────────────────────────────────────────────────
    Itinerary API — LIVE DATA ONLY.
@@ -36,42 +41,6 @@ import { parseHumanDuration } from "@/lib/parse-duration"
    to "around 09:00" defaults. If TourCMS is not configured we refuse
    rather than mislead.
    ───────────────────────────────────────────────────────────────────── */
-
-const itineraryStepSchema = z.object({
-  tripId: z.string(),
-  tripTitle: z.string(),
-  /** MUST match an available timeslot's startTime for this trip (HH:MM) */
-  time: z.string(),
-  /** End time copied through from the chosen Palisis timeslot (HH:MM) */
-  endTime: z.string().nullable(),
-  /** Total price for that slot, copied through from Palisis */
-  priceFrom: z.string().nullable(),
-  /** Spaces remaining ("UNLIMITED" allowed) */
-  spacesRemaining: z.string().nullable(),
-  durationMinutes: z.number(),
-  travelToNext: z.string().nullable(),
-  breakAfter: z.object({
-    type: z.enum(["food", "coffee", "none"]),
-    label: z.string(),
-    location: z.string(),
-    durationMinutes: z.number(),
-  }),
-})
-
-const itinerarySchema = z.object({
-  steps: z.array(itineraryStepSchema),
-  summary: z.string(),
-  tips: z.array(z.string()),
-  carSuggestion: z.object({
-    recommended: z.boolean(),
-    reason: z.string(),
-  }),
-  hotelSuggestion: z.object({
-    recommended: z.boolean(),
-    area: z.string(),
-    reason: z.string(),
-  }),
-})
 
 /* ── Date validation ───────────────────────────────────────────────────── */
 const APP_TZ = "Europe/Luxembourg"
@@ -213,6 +182,8 @@ interface IncomingPreferences {
   adults?: number
   children?: number
   dayCount?: number
+  /** Free-form constraints from chat/chips, e.g. "no-early-morning". */
+  exclusions?: string[]
   /** Chat-supplied meal/break windows. At most one entry per type
    *  (enforced by the planner client before we ever see them). */
   mealBreaks?: Array<{
@@ -287,8 +258,22 @@ export async function POST(req: Request) {
       children: typeof preferences?.children === "number" && preferences.children >= 0 ? Math.min(20, preferences.children) : 0,
       dayCount: typeof preferences?.dayCount === "number" && preferences.dayCount >= 1 ? Math.min(14, Math.floor(preferences.dayCount)) : 1,
       mealBreaks: Array.isArray(preferences?.mealBreaks) ? preferences!.mealBreaks! : [],
+      exclusions: Array.isArray(preferences?.exclusions)
+        ? preferences!.exclusions!.filter((e): e is string => typeof e === "string").slice(0, 10)
+        : [],
     }
     const isMultiDay = prefs.duration === "multi-day" && prefs.dayCount >= 2
+    const exclusions = prefs.exclusions
+    // Derive the early-morning constraint from explicit exclusions OR a
+    // natural-language hint in the interests list ("no early morning").
+    const excludeEarlyMorning =
+      exclusions.some((e) => /no[-\s]?early|sleep[-\s]?in|late[-\s]?start/i.test(e)) ||
+      prefs.interests.some((i) => /no[-\s]?early|sleep[-\s]?in|late[-\s]?start/i.test(i))
+    // Meals are included by default; the user can opt OUT with an explicit
+    // "no lunch / no meal breaks" exclusion (chip or chat).
+    const excludeMeals =
+      exclusions.some((e) => /no[-\s]?(lunch|meal|dinner|food[-\s]?break)|skip[-\s]?(lunch|meal|food)/i.test(e)) ||
+      prefs.interests.some((i) => /no[-\s]?(lunch|meal)[-\s]?break|skip[-\s]?(lunch|meal)/i.test(i))
 
     const today = localTodayYMD()
     const parsedDate = parseStrictYMD(startDate)
@@ -471,7 +456,7 @@ export async function POST(req: Request) {
       ? Math.min(8192, Math.floor(itinerarySettings.maxTokens))
       : null
     const anthropicKey =
-      ((allSettings.apiKeys as Record<string, string> | undefined)?.anthropic || process.env.ANTHROPIC_API_KEY || "").trim()
+      (process.env.ANTHROPIC_API_KEY || (allSettings.apiKeys as Record<string, string> | undefined)?.anthropic || "").trim()
     const dayStartTime = String(settings.dayStartTime ?? "09:00")
     const dayEndTime = String(settings.dayEndTime ?? "21:00")
     const bufferTimeBetweenStops = Number(settings.bufferTimeBetweenStops ?? 30)
@@ -949,70 +934,13 @@ Return STRICTLY the JSON object matching the schema.`
 TIPS — populate the "tips" array using these instructions:
 ${tipsInstructions}`
 
-    if (!anthropicKey) {
-      return Response.json({
-        error: "AI_NOT_CONFIGURED",
-        message: "AI provider is not configured. Add an Anthropic key in Admin → Integrations.",
-        visitDate,
-        unavailableTrips,
-      }, { status: 503 })
-    }
-
+    /* ─── HYBRID BUILD PIPELINE ───────────────────────────────────────────
+       The AI (when a valid key is present) only SELECTS and ORDERS trips.
+       All timing is locked deterministically by lib/itinerary/scheduler.ts,
+       so the planner keeps producing realistic itineraries even when the AI
+       key is invalid or absent. */
     try {
-      const anthropic = createAnthropic({ apiKey: anthropicKey })
-      // Prefer the model configured under /admin/ai-systems/itinerary; fall
-      // back to the planner setting, then a known-good default.
-      const rawModel =
-        itineraryModel ??
-        (typeof settings.model === "string" ? (settings.model as string) : null) ??
-        "claude-haiku-4-5-20251001"
-      // Vercel-AI-Gateway-style ids look like "anthropic/<model>" — strip the prefix
-      // for the direct Anthropic SDK.
-      const modelId = rawModel.startsWith("anthropic/") ? rawModel.slice("anthropic/".length) : rawModel
-      const { output } = await generateText({
-        model: anthropic(modelId),
-        output: Output.object({ schema: itinerarySchema }),
-        temperature: itineraryTemperature ?? undefined,
-        maxOutputTokens: itineraryMaxTokens ?? undefined,
-        prompt,
-      })
-
-      // Validate: each step's time MUST exist in that trip's live slots.
-      // If the model hallucinated, snap to the closest real slot.
-      const slotMapByTrip = new Map<string, LiveSlot[]>()
-      for (const a of bookable) slotMapByTrip.set(a.trip.id, a.slots)
-
-      const toMinutes = (hhmm: string): number => {
-        const m = /^(\d{1,2}):(\d{2})/.exec(hhmm)
-        if (!m) return -1
-        return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
-      }
-      const addMinutes = (hhmm: string, mins: number): string => {
-        const base = toMinutes(hhmm)
-        if (base < 0) return hhmm
-        const total = Math.max(0, Math.min(24 * 60 - 1, base + Math.round(mins)))
-        const h = Math.floor(total / 60)
-        const m = total % 60
-        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-      }
-      const parseTravelMinutes = (s: string | null | undefined): number => {
-        if (!s) return 0
-        // Accumulate both hour and minute components so "1h 30min",
-        // "1 hr 15 min", "2 hours" and "45 minutes" all parse correctly.
-        let total = 0
-        const hourMatch = /(\d+(?:\.\d+)?)\s*(?:hr|hour|hours|h\b)/i.exec(s)
-        if (hourMatch) total += Math.round(parseFloat(hourMatch[1]) * 60)
-        const minMatch = /(\d+)\s*(?:min|mins|minute|minutes|m\b)/i.exec(s)
-        if (minMatch) total += parseInt(minMatch[1], 10)
-        if (total > 0) return total
-        // Fall back to the first bare integer ("15" → 15 min).
-        const bare = /\b(\d+)\b/.exec(s)
-        return bare ? parseInt(bare[1], 10) : 0
-      }
-
-      // One small batch fetch for per-trip "things to do" + "important notes".
-      // We match on either our internal id OR the palisis id we resolved earlier
-      // so the planner cart's mixed id formats both work.
+      // 1) Per-trip geo + highlights + notes for the scheduler & UI.
       const tripIdsForDetails = Array.from(new Set([
         ...trips.map((t) => t.id),
         ...palisisIds.filter((p): p is string => Boolean(p)),
@@ -1045,8 +973,6 @@ ${tipsInstructions}`
             end_geocode: string | null
           }>
           for (const row of rows) {
-            // Keep the full essential-info text — the UI applies a collapsible
-            // "Read more" once it crosses a length threshold.
             const notes = (row.essential_information || row.short_description || "").trim()
             const entry = {
               highlights: Array.isArray(row.highlights)
@@ -1066,14 +992,9 @@ ${tipsInstructions}`
         }
       }
 
-      // ─── Mapbox-backed travel-time helper ───────────────────────────────
-      // Calls the Directions API for driving + walking profiles between two
-      // "lat,lng" strings. Returns null on any failure / missing inputs so
-      // the UI can show "—" instead of a fabricated number. Public transit
-      // is not supported by Mapbox and is reported back as null too.
-      // IMPORTANT: `settings` earlier in this handler is shadowed to
-      // `allSettings.plannerBehavior`, so the apiKeys map lives on the
-      // top-level allSettings object — that's what we must read here.
+      // 2) Mapbox-backed travel-time helper (driving + walking). Returns a
+      //    TravelLeg with null fields on any failure so the scheduler falls
+      //    back to the static city matrix and the UI shows "—".
       const mapboxToken =
         process.env.mapbox ||
         process.env.MAPBOX ||
@@ -1084,28 +1005,13 @@ ${tipsInstructions}`
         process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
         (allSettings?.apiKeys as Record<string, string> | undefined)?.mapbox ||
         ""
-
       const parseLatLng = (s: string): { lat: number; lng: number } | null => {
         if (!s) return null
         const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(s)
         if (!m) return null
-        const lat = parseFloat(m[1])
-        const lng = parseFloat(m[2])
+        const lat = parseFloat(m[1]); const lng = parseFloat(m[2])
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
         return { lat, lng }
-      }
-
-      type TravelLeg = {
-        driveMin: number | null
-        walkMin: number | null
-        transitMin: number | null
-        distanceKm: number | null
-        /** Why we couldn't compute a real value — drives the UI's helper
-         *  text ("add a Mapbox token" vs "address missing on the trip"). */
-        reason: "ok" | "no_token" | "no_geocode"
-        /** Human-readable origin / destination for the timeline. */
-        fromLabel: string | null
-        toLabel: string | null
       }
       const fetchProfile = async (
         profile: "driving" | "walking",
@@ -1133,12 +1039,7 @@ ${tipsInstructions}`
           return null
         }
       }
-      const computeLeg = async (
-        originGeo: string,
-        destGeo: string,
-        fromLabel: string | null,
-        toLabel: string | null,
-      ): Promise<TravelLeg> => {
+      const computeLeg: ComputeLeg = async (originGeo, destGeo, fromLabel, toLabel) => {
         const base = { fromLabel, toLabel }
         const from = parseLatLng(originGeo)
         const to = parseLatLng(destGeo)
@@ -1148,7 +1049,6 @@ ${tipsInstructions}`
         if (!mapboxToken) {
           return { driveMin: null, walkMin: null, transitMin: null, distanceKm: null, reason: "no_token", ...base }
         }
-        // Same point → no travel at all.
         if (Math.abs(from.lat - to.lat) < 1e-5 && Math.abs(from.lng - to.lng) < 1e-5) {
           return { driveMin: 0, walkMin: 0, transitMin: null, distanceKm: 0, reason: "ok", ...base }
         }
@@ -1159,227 +1059,199 @@ ${tipsInstructions}`
         return {
           driveMin: drive ? Math.max(1, Math.round(drive.durationSec / 60)) : null,
           walkMin: walk ? Math.max(1, Math.round(walk.durationSec / 60)) : null,
-          // Mapbox doesn't support public transit — explicitly null so the UI
-          // shows "—" instead of fabricating a number.
           transitMin: null,
           distanceKm: drive ? Math.round((drive.distanceM / 1000) * 10) / 10 : null,
           reason: "ok",
           ...base,
         }
       }
-      const nearestSlot = (slots: LiveSlot[], target: string, taken: Set<string>): LiveSlot => {
-        const targetMin = toMinutes(target)
-        const free = slots.filter((s) => !taken.has(s.componentKey))
-        const pool = free.length > 0 ? free : slots
-        if (targetMin < 0) return pool[0]
-        return [...pool].sort(
-          (a, b) => Math.abs(toMinutes(a.startTime) - targetMin) - Math.abs(toMinutes(b.startTime) - targetMin),
-        )[0]
-      }
 
-      const takenKeys = new Set<string>()
-      const reconciledSteps = output.steps
-        .filter((s) => slotMapByTrip.has(s.tripId)) // drop hallucinated trips
-        .map((s) => {
-          const slots = slotMapByTrip.get(s.tripId)!
-          const exact = slots.find((x) => x.startTime === s.time)
-          // Snap hallucinated times to the slot closest to the AI's intended time,
-          // preferring slots not already used by another step.
-          const chosen = exact ?? nearestSlot(slots, s.time, takenKeys)
-          takenKeys.add(chosen.componentKey)
-          const dur = parseDurationMinutes(
-            availability.find((a) => a.trip.id === s.tripId)?.trip.duration,
-            defaultActivityDuration,
-          )
-          const finalDuration = s.durationMinutes && s.durationMinutes > 0 ? s.durationMinutes : dur
-
-          // Palisis often returns end_time === start_time when the underlying
-          // catalogue row doesn't carry a real duration. In that case we
-          // derive the real end from `finalDuration` so the timeline math
-          // (and the "Confirmed: 10:00 - 11:30" label) is meaningful.
-          const slotStartMin = toMinutes(chosen.startTime)
-          // LiveSlot.endTime is nullable when Palisis didn't return one —
-          // treat that as "derive it" rather than passing null into toMinutes.
-          const slotEndMin = chosen.endTime ? toMinutes(chosen.endTime) : -1
-          const needsDerivedEnd =
-            !chosen.endTime || slotEndMin < 0 || slotEndMin <= slotStartMin || slotEndMin - slotStartMin < finalDuration * 0.5
-          const endTime = needsDerivedEnd ? addMinutes(chosen.startTime, finalDuration) : chosen.endTime!
-
-          const travelMinutes = parseTravelMinutes(s.travelToNext)
-          const details = tripDetailsById.get(s.tripId)
-
-          return {
-            ...s,
-            time: chosen.startTime,
-            endTime,
-            priceFrom: chosen.totalPriceDisplay ?? chosen.totalPrice ?? null,
-            spacesRemaining: chosen.spacesRemaining,
-            durationMinutes: finalDuration,
-            travelMinutes,
-            tripHighlights: details?.highlights ?? [],
-            tripNotes: details?.notes ?? "",
-            tripCity: details?.city ?? "",
-            tripLocation: details?.location ?? "",
-          }
-        })
-        // Final pass: sort chronologically so the timeline stays coherent even
-        // if the AI's ordering got tweaked by snapping.
-        .sort((a, b) => toMinutes(a.time) - toMinutes(b.time))
-
-      // ─── Attach real travel times between consecutive stops via Mapbox ───
-      // For each consecutive pair we look up the END geocode of the current
-      // stop and the DEPARTURE geocode of the next, then hit the Directions
-      // API. Results overwrite the AI's hallucinated `travelToNext` text and
-      // also drive a structured `travelLeg` object the UI renders verbatim
-      // (driving / walking / distance / transit). Missing geocodes or token
-      // → travelLeg with all null fields → UI shows "—".
-      await Promise.all(
-        reconciledSteps.map(async (step, i) => {
-          const next = reconciledSteps[i + 1]
-          if (!next) return
-          const curDetails = tripDetailsById.get(step.tripId)
-          const nextDetails = tripDetailsById.get(next.tripId)
-          const fromLabel = (curDetails?.location || curDetails?.city || "").trim() || null
-          const toLabel = (nextDetails?.location || nextDetails?.city || "").trim() || null
-          const leg = await computeLeg(
-            curDetails?.endGeo ?? "",
-            nextDetails?.departureGeo ?? "",
-            fromLabel,
-            toLabel,
-          )
-          ;(step as typeof step & { travelLeg: TravelLeg }).travelLeg = leg
-          if (leg.driveMin !== null) {
-            step.travelMinutes = leg.driveMin
-            const km = leg.distanceKm
-            step.travelToNext = km !== null
-              ? `${leg.driveMin} min by car · ${km} km`
-              : `${leg.driveMin} min by car`
-          } else {
-            // No real data — drop the AI's fabricated string entirely so the
-            // UI falls back to "—" labels instead of a fake "15 min".
-            step.travelMinutes = 0
-            step.travelToNext = null
-          }
-
-          // ─── Dynamic break-duration adjustment ──────────────────────────
-          // The AI proposes a break length up front, but until we know the
-          // real travel time we can't tell if it actually fits. Recompute
-          // it from the gap between this step's end and the next step's
-          // confirmed start, subtracting travel + a 5-minute arrival
-          // buffer. Three outcomes:
-          //   gap < travel+15        → no time for a break, drop it.
-          //   gap ≈ travel           → keep it short (15 min min).
-          //   gap > travel + break   → expand to fill so the timeline
-          //                            doesn't show awkward dead time.
-          const brk = step.breakAfter
-          if (brk && brk.type !== "none" && leg.driveMin !== null) {
-            const endMin = toMinutes(step.endTime || step.time)
-            const nextStartMin = toMinutes(next.time)
-            const gap = nextStartMin - endMin
-            const buffer = 5
-            const available = gap - leg.driveMin - buffer
-            if (available < 15) {
-              // No room for a meaningful break — silently drop it. The
-              // timeline already shows the travel block + ETA.
-              step.breakAfter = { ...brk, type: "none" }
-            } else {
-              const requested = brk.durationMinutes ?? 0
-              // Snap to the nearest 5 minutes for tidiness and clamp into
-              // [15, available] so the break + travel + buffer = gap.
-              const target = Math.max(15, Math.min(available, requested > 0 ? requested : available))
-              const snapped = Math.round(target / 5) * 5
-              step.breakAfter = { ...brk, durationMinutes: snapped }
-            }
-          }
-        }),
-      )
-
-      // ─── Enforce "include every cart trip" ───
-      // The prompt asks the model to include every cart trip, but we don't
-      // trust prose alone — if the AI silently dropped a bookable trip we
-      // append it here using its earliest non-conflicting slot. Dropped
-      // trips are also surfaced in the response so the UI can flag them
-      // even when we can't auto-recover.
-      const presentTripIds = new Set(reconciledSteps.map((s) => s.tripId))
-      const droppedByAi: { tripId: string; title: string; reason: string }[] = []
-      for (const a of bookable) {
-        if (presentTripIds.has(a.trip.id)) continue
-        // Try to find a slot whose key isn't already used by another step.
-        const fallback = a.slots.find((sl) => !takenKeys.has(sl.componentKey)) ?? a.slots[0]
-        if (!fallback) {
-          droppedByAi.push({ tripId: a.trip.id, title: a.trip.title, reason: "no live slots available" })
-          continue
+      // 3) Build candidate trips (the cart trips bookable on this date).
+      const candidates: CandidateTrip[] = bookable.map((b) => {
+        const enrich = enrichmentById.get(b.trip.id)
+        const details = tripDetailsById.get(b.trip.id)
+        const blurb = (enrich?.shortDescription ?? enrich?.description ?? "")
+          .replace(/\s+/g, " ").trim()
+        return {
+          id: b.trip.id,
+          title: b.trip.title,
+          city: (details?.city || b.trip.city || "Luxembourg").trim() || "Luxembourg",
+          category: b.trip.category || "",
+          durationMin: parseDurationMinutes(b.trip.duration, defaultActivityDuration),
+          slots: b.slots,
+          tags: enrich?.tags ?? [],
+          blurb,
+          highlights: details?.highlights ?? [],
+          notes: details?.notes ?? "",
+          location: details?.location ?? "",
+          departureGeo: details?.departureGeo ?? "",
+          endGeo: details?.endGeo ?? "",
         }
-        takenKeys.add(fallback.componentKey)
-        const dur = parseDurationMinutes(a.trip.duration, defaultActivityDuration)
-        const slotStartMin = toMinutes(fallback.startTime)
-        const slotEndMin = fallback.endTime ? toMinutes(fallback.endTime) : -1
-        const needsDerivedEnd = !fallback.endTime || slotEndMin < 0 || slotEndMin <= slotStartMin
-        const endTime = needsDerivedEnd ? addMinutes(fallback.startTime, dur) : fallback.endTime!
-        const details = tripDetailsById.get(a.trip.id)
-        // Cast to the shape that matches existing reconciledSteps entries.
-        const appended = {
-          tripId: a.trip.id,
-          title: a.trip.title,
-          time: fallback.startTime,
-          endTime,
-          priceFrom: fallback.totalPriceDisplay ?? fallback.totalPrice ?? null,
-          spacesRemaining: fallback.spacesRemaining,
-          durationMinutes: dur,
-          travelMinutes: 0,
-          travelToNext: null,
-          tripHighlights: details?.highlights ?? [],
-          tripNotes: details?.notes ?? "",
-          tripCity: details?.city ?? "",
-          tripLocation: details?.location ?? "",
-          breakAfter: null,
-        } as unknown as typeof reconciledSteps[number]
-        reconciledSteps.push(appended)
-        droppedByAi.push({ tripId: a.trip.id, title: a.trip.title, reason: "auto-added — AI omitted" })
-      }
-      // Re-sort if we appended anything so the timeline stays chronological.
-      if (droppedByAi.length > 0) {
-        reconciledSteps.sort((a, b) => toMinutes(a.time) - toMinutes(b.time))
+      })
+
+      const maxStopsEffective = Math.max(1, Math.min(HARD_MAX_STOPS, maxStopsPerDay))
+
+      // 4) Ordering. AI selects/orders WHICH trips (token-lean, stepwise);
+      //    deterministic interest/band ordering is the fallback.
+      let ordered: CandidateTrip[] = deterministicOrder(candidates, prefs.interests)
+      const aiOrder = await selectAndOrder({
+        anthropicKey,
+        model: itineraryModel,
+        candidates: candidates.map((c): CompactCandidate => ({
+          id: c.id,
+          title: c.title,
+          city: c.city,
+          category: c.category,
+          durationMin: c.durationMin,
+          tags: c.tags,
+          blurb: c.blurb,
+          slotTimes: c.slots.map((s) => s.startTime),
+        })),
+        prefs: {
+          group: prefs.group,
+          interests: prefs.interests,
+          duration: prefs.duration,
+          budget: prefs.budget,
+          dayCount: prefs.dayCount,
+          exclusions,
+        },
+        visitDate,
+        maxStops: maxStopsEffective,
+      })
+      if (aiOrder && aiOrder.length > 0) {
+        const byId = new Map(candidates.map((c) => [c.id, c]))
+        const picked = aiOrder.map((id) => byId.get(id)).filter((c): c is CandidateTrip => Boolean(c))
+        const rest = ordered.filter((c) => !aiOrder.includes(c.id))
+        ordered = [...picked, ...rest]
       }
 
-      // Apply admin widget toggles: if disabled, force-hide regardless of
-      // what the AI recommended.
-      const carSuggestion = showCarWidget
-        ? output.carSuggestion
-        : { ...output.carSuggestion, recommended: false }
-      const hotelSuggestion = showHotelWidget
-        ? output.hotelSuggestion
-        : { ...output.hotelSuggestion, recommended: false }
+      // 5) Deterministic timing — the single source of truth for slots,
+      //    travel, buffers, early-arrival, lunch and the max-stops cap.
+      const cityTravelMin = (fromCity: string, toCity: string): number => {
+        const a = normCity(fromCity); const b = normCity(toCity)
+        if (a === b) return 12
+        return CITY_TRAVEL_MIN[a]?.[b] ?? CITY_TRAVEL_MIN[b]?.[a] ?? 15
+      }
+      const { steps, dropped, notes: schedNotes } = await buildSchedule({
+        candidates: ordered,
+        config: {
+          dayStartTime,
+          dayEndTime,
+          bufferTimeBetweenStops,
+          maxStopsPerDay,
+          defaultActivityDuration,
+          autoInsertMealBreaks,
+          mealBreakDuration,
+          lunchBreakTime,
+          dinnerBreakTime,
+          travelMethodLabel,
+        },
+        prefs: {
+          duration: prefs.duration,
+          dayCount: prefs.dayCount,
+          isMultiDay,
+          excludeEarlyMorning,
+          excludeMeals,
+          interests: prefs.interests,
+          userMealBreaks,
+        },
+        visitDate,
+        addDays,
+        computeLeg,
+        cityTravelMin,
+      })
 
-      // Roll the "dropped to fit the visitor's chosen duration" trips
-      // into unavailableTrips so the existing partial-success chat path
-      // names them. They aren't unavailable per se (Palisis had slots) —
-      // the visitor's prefs simply couldn't fit them. The conflict
-      // payload below carries the structured prefs-change options.
+      // 6) Narration. AI writes summary + tips over the LOCKED timeline;
+      //    a deterministic fallback keeps the canvas populated when AI is down.
+      const timelineText = steps.map((s, i) => {
+        const brk = s.breakAfter && s.breakAfter.type !== "none"
+          ? `\n     ↳ ${s.breakAfter.label} (~${s.breakAfter.durationMinutes} min) in ${s.breakAfter.location}`
+          : ""
+        const travel = s.travelToNext ? `\n     ↳ travel: ${s.travelToNext}` : ""
+        return `${i + 1}. ${s.time}–${s.endTime} ${s.tripTitle} (${s.tripCity})${travel}${brk}`
+      }).join("\n")
+
+      let summary = ""
+      let tips: string[] = []
+      let carSuggestion: { recommended: boolean; reason: string } = { recommended: false, reason: "" }
+      let hotelSuggestion: { recommended: boolean; area: string; reason: string } = { recommended: false, area: "", reason: "" }
+
+      const narration = steps.length > 0
+        ? await narrate({
+            anthropicKey,
+            model: itineraryModel,
+            temperature: itineraryTemperature,
+            maxOutputTokens: itineraryMaxTokens,
+            timelineText,
+            tipsInstructions,
+            styleGuidance: prompt.slice(0, 1200),
+          })
+        : null
+
+      if (narration) {
+        summary = narration.summary
+        tips = narration.tips
+        carSuggestion = narration.carSuggestion
+        hotelSuggestion = narration.hotelSuggestion
+      } else {
+        const cities = Array.from(new Set(steps.map((s) => s.tripCity).filter(Boolean)))
+        const first = steps[0]
+        const last = steps[steps.length - 1]
+        const planLabel = isMultiDay
+          ? `${prefs.dayCount}-day`
+          : prefs.duration === "half-day"
+            ? "half-day"
+            : prefs.duration === "1-2h"
+              ? "quick"
+              : "full-day"
+        if (steps.length === 0) {
+          summary = "We couldn't fit any of your saved trips into the selected day window. Try extending your trip length, adding days, or picking another date."
+        } else {
+          summary = `A ${planLabel} plan with ${steps.length} stop${steps.length === 1 ? "" : "s"}${cities.length ? ` across ${cities.join(", ")}` : ""}, starting at ${first.time} and wrapping up by ${last.endTime}. Times are locked to live availability with realistic travel and a relaxed pace.`
+        }
+        const hasMeal = steps.some((s) => s.breakAfter?.type === "food")
+        tips = [
+          "Public transport is free across Luxembourg — buses, trams and trains.",
+          "Aim to arrive 5–10 minutes before each start time.",
+          hasMeal ? "A meal break is built into your day — no need to rush." : "Pack a snack; the schedule is tight between stops.",
+          cities.length > 1 ? "Your day spans several towns — a rental car keeps travel relaxed." : "Everything's close together — comfy shoes are all you need.",
+        ]
+      }
+
+      // Admin widget toggles (currently force-off).
+      const carOut = showCarWidget ? carSuggestion : { ...carSuggestion, recommended: false }
+      const hotelOut = showHotelWidget ? hotelSuggestion : { ...hotelSuggestion, recommended: false }
+
+      // Roll trips that couldn't be timed into the unavailable list so the
+      // existing partial-success chat path names them for the visitor.
       const combinedUnavailable = [
         ...unavailableTrips,
         ...(conflictPayload?.droppedForFit.map((d) => ({
-          tripId: d.tripId,
-          title: d.title,
-          reason: "DOES_NOT_FIT_DURATION",
-          suggestedDates: [] as string[],
+          tripId: d.tripId, title: d.title, reason: "DOES_NOT_FIT_DURATION", suggestedDates: [] as string[],
         })) ?? []),
+        ...dropped.map((d) => ({
+          tripId: d.tripId, title: d.title, reason: d.reason, suggestedDates: [] as string[],
+        })),
       ]
+
+      void schedNotes // retained for future debugging; surfaced via summary
+
       return Response.json({
-        ...output,
-        carSuggestion,
-        hotelSuggestion,
-        steps: reconciledSteps,
+        steps,
+        summary,
+        tips,
+        carSuggestion: carOut,
+        hotelSuggestion: hotelOut,
         visitDate,
         unavailableTrips: combinedUnavailable,
         alternativeDates,
         scanDays: SCAN_DAYS,
         widgets: { showCarWidget, showHotelWidget },
-        autoFilledTrips: droppedByAi,
+        autoFilledTrips: [],
         conflict: conflictPayload,
       })
-    } catch (aiErr) {
-      console.error("[itinerary] AI generation failed:", aiErr)
+    } catch (buildErr) {
+      console.error("[itinerary] build pipeline failed:", buildErr)
       return Response.json({
         error: "AI_GENERATION_FAILED",
         message: "Could not build a plan from the live availability. Please try again.",

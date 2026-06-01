@@ -24,6 +24,7 @@ Includes a full public frontend and a comprehensive admin panel at `/admin/*`.
 - **Database:** Replit PostgreSQL (16 tables) — `lib/db.ts` pool + `lib/db/queries.ts`
 - **Auth:** JWT via `jose` + bcrypt password hashing — HttpOnly cookie `admin_session`, 8h TTL
 - **AI:** Vercel AI SDK (streamText / UIMessageStreamResponse) — Anthropic Claude + OpenAI via Vercel AI Gateway
+- **Itinerary engine (HYBRID):** see "AI Trip Planner — Hybrid Engine" below
 - **File uploads:** Vercel Blob
 - **Translations:** Weglot
 - **Maps:** Mapbox
@@ -57,6 +58,52 @@ Implemented with `@reduxjs/toolkit` + `react-redux`. Two isolated stores to keep
 - **Server components** remain untouched — they call DB functions directly (best for SEO + performance)
 - **Client components** use RTK Query hooks — auto-deduplicates in-flight requests, caches responses
 - Pages already migrated to RTK Query: `departures`, `tickets`, `taxonomies`
+
+## AI Trip Planner — Hybrid Engine
+
+The itinerary builder (`POST /api/itinerary`) is a **hybrid** of AI + deterministic
+scheduling. The AI ONLY selects/orders WHICH trips to include; **deterministic server
+code locks all timing**. This keeps it token-lean and makes it degrade gracefully when
+the AI key is invalid (both env `ANTHROPIC_API_KEY` and DB `integrations.anthropic` may
+return 401 — the build still produces a real itinerary).
+
+### Pipeline (`app/api/itinerary/route.ts`)
+1. **Source candidates** — the trips passed in the request body (cart trips).
+2. **AI select/order** (`lib/itinerary/ai.ts` → `selectAndOrder`) — sends compact trip
+   cards + prefs + exclusions, gets back an ordered list of trip ids. **Fail-soft:
+   returns `null` on any AI failure**, and the route falls back to
+   `deterministicOrder(candidates, interests)` (interest/tag match + fit).
+3. **Fetch live slots** — real TourCMS/Palisis timeslots per trip.
+4. **Deterministic schedule** (`lib/itinerary/scheduler.ts` → `buildSchedule`) — the
+   single source of truth for timing:
+   - Picks the best non-conflicting slot per trip (full-day scan).
+   - Adds Mapbox travel legs + buffer + **5–10 min early arrival**.
+   - Inserts **lunch on full-day plans unless it's a food tour**.
+   - Enforces **max stops = `min(adminCap, HARD_MAX_STOPS=5)` AFTER fit** — the cap
+     lives in `lib/itinerary/scheduler.ts` (`HARD_MAX_STOPS`) and is clamped at line
+     ~198. The admin cap comes from settings, **NOT user-overridable**.
+   - Drops overflow trips with human-readable reasons.
+5. **AI narrate** (`lib/itinerary/ai.ts` → `narrate`, optional) — writes summary + tips
+   over the LOCKED timeline using the admin itinerary prompt as style guidance.
+   **Fail-soft: deterministic fallback summary keeps the canvas populated when AI is down.**
+
+### Admin settings → scheduler (kept in sync)
+`dbGetSettings()` numeric/string fields feed `buildSchedule` config directly:
+`dayStartTime`, `dayEndTime`, `bufferTimeBetweenStops`, `maxStopsPerDay`,
+`defaultActivityDuration`, `autoInsertMealBreaks`, `mealBreakDuration`,
+`lunchBreakTime`, `dinnerBreakTime`, `travelTimeMethod`. Editable in
+`/admin/ai-systems/itinerary` (prompt/tips/model → narration) and the planner
+behavior settings (numeric scheduling + meals).
+
+### Single-preference chip updates (no AI round-trip)
+In `app/planner/page.tsx`, when a plan is already on the canvas, the suggestion chips
+offer **direct single-field patches** (duration, date, no-early-morning exclusion).
+Clicking one calls `applyDirectPref(patch)` which merges ONLY that field into
+`prefsRef.current`, persists prefs (`PREFS_COOKIE`), and rebuilds the itinerary
+deterministically via `handleRegenerateItinerary` — **bypassing the AI chat entirely**.
+Chips carry an optional `patch` field; chips without a patch still route through the AI
+via `handleSend`. `Preferences.exclusions?: string[]` flows to the route which derives
+`excludeEarlyMorning`.
 
 ## Auth
 

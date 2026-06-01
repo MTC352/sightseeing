@@ -86,6 +86,9 @@ interface Preferences {
   /** Chat-supplied meal/break windows. Keyed by `type` — at most one
    *  entry per type so updates merge rather than duplicate. */
   mealBreaks?: MealBreakPref[]
+  /** Free-form scheduling constraints, e.g. "no-early-morning". Sent to
+   *  /api/itinerary which derives excludeEarlyMorning from it. */
+  exclusions?: string[]
 }
 const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "", adults: 1, children: 0, dayCount: 1 }
 
@@ -1171,7 +1174,7 @@ export default function PlannerPage() {
 
   const handleRegenerateItinerary = useCallback(async () => {
     setItineraryRegenerating(true)
-    const visitDate = prefs?.startDate || todayYMD()
+    const visitDate = prefsRef.current?.startDate || todayYMD()
     const pushFailure = (msg: string, alternativeDates: AlternativeDate[] = []) => {
       const lines: string[] = [msg]
       if (alternativeDates.length > 0) {
@@ -1209,7 +1212,7 @@ export default function PlannerPage() {
       const res = await fetch("/api/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trips, startDate: visitDate, preferences: prefs ?? undefined }),
+        body: JSON.stringify({ trips, startDate: visitDate, preferences: prefsRef.current ?? undefined }),
       })
       const data = await res.json().catch(() => null) as
         | (Itinerary & { error?: string; message?: string; alternativeDates?: AlternativeDate[]; conflict?: PlanConflictPayload["conflict"] })
@@ -1247,7 +1250,50 @@ export default function PlannerPage() {
     } finally {
       setItineraryRegenerating(false)
     }
-  }, [items, prefs])
+  }, [items])
+
+  /* ─── Direct single-preference update (no AI round-trip) ──────────────────
+     Date / duration / constraint chips patch ONE field on the current prefs,
+     persist them, and — only when a plan is already on the canvas — rebuild
+     the itinerary deterministically. Reads/writes prefsRef.current
+     synchronously so the immediate rebuild sees the new value (React state +
+     the prefsRef sync effect are both async). */
+  const applyDirectPref = useCallback((patch: Partial<Preferences>) => {
+    const base: Preferences = prefsRef.current ?? EMPTY_PREFS
+    const next: Preferences = { ...base }
+    if (typeof patch.duration === "string" && patch.duration) {
+      next.duration = patch.duration
+      // Couple dayCount to duration the same way the AI path does.
+      next.dayCount = patch.duration === "multi-day" ? Math.max(2, base.dayCount || 2) : 1
+    }
+    if (typeof patch.dayCount === "number" && patch.dayCount >= 1) {
+      next.dayCount = Math.min(14, Math.floor(patch.dayCount))
+    }
+    if (typeof patch.startDate === "string" && patch.startDate) next.startDate = patch.startDate
+    if (typeof patch.budget === "string" && patch.budget) next.budget = patch.budget
+    if (typeof patch.group === "string" && patch.group) next.group = patch.group
+    if (Array.isArray(patch.exclusions)) {
+      next.exclusions = patch.exclusions.filter((e): e is string => typeof e === "string").slice(0, 10)
+    }
+
+    const exclKey = (e?: string[]) => (e ?? []).slice().sort().join("|")
+    const unchanged =
+      next.duration === base.duration &&
+      next.dayCount === base.dayCount &&
+      next.startDate === base.startDate &&
+      next.budget === base.budget &&
+      next.group === base.group &&
+      exclKey(next.exclusions) === exclKey(base.exclusions)
+    if (unchanged) return
+
+    prefsRef.current = next
+    setPrefs(next)
+    try { setCookie(PREFS_COOKIE, JSON.stringify(next)) } catch { /* ignore */ }
+
+    // Only rebuild if a plan is already on the canvas; otherwise just keep
+    // the updated prefs for the next build the user triggers.
+    if (centerItinerary) void handleRegenerateItinerary()
+  }, [centerItinerary, handleRegenerateItinerary])
 
   const sendFeedback = useCallback(async (messageId: string, vote: "up" | "down") => {
     setFeedbackGiven((prev) => ({ ...prev, [messageId]: vote }))
@@ -2380,9 +2426,32 @@ export default function PlannerPage() {
 
   /* ── Context-aware suggestions that anticipate the next user action ── */
   const suggestions = useMemo(() => {
-    type Chip = { label: string; action: string }
+    type Chip = { label: string; action: string; patch?: Partial<Preferences> }
     const chips: Chip[] = []
     const turns = messages.filter((m) => m.role === "user").length
+
+    // Phase 0: A plan is on the canvas -- offer DIRECT single-pref tweaks that
+    // patch one field and rebuild deterministically (no AI round-trip).
+    if (centerItinerary) {
+      const dur = prefs?.duration ?? ""
+      if (dur !== "half-day") chips.push({ label: "Make it half-day", action: "", patch: { duration: "half-day" } })
+      if (dur !== "full-day") chips.push({ label: "Make it full-day", action: "", patch: { duration: "full-day" } })
+      const hasNoEarly = (prefs?.exclusions ?? []).includes("no-early-morning")
+      if (hasNoEarly) {
+        chips.push({ label: "Allow early starts", action: "", patch: { exclusions: (prefs?.exclusions ?? []).filter((e) => e !== "no-early-morning") } })
+      } else {
+        chips.push({ label: "No early starts", action: "", patch: { exclusions: [...(prefs?.exclusions ?? []), "no-early-morning"] } })
+      }
+      const hasNoLunch = (prefs?.exclusions ?? []).includes("no-lunch")
+      if (hasNoLunch) {
+        chips.push({ label: "Add lunch break", action: "", patch: { exclusions: (prefs?.exclusions ?? []).filter((e) => e !== "no-lunch") } })
+      } else {
+        chips.push({ label: "Skip lunch break", action: "", patch: { exclusions: [...(prefs?.exclusions ?? []), "no-lunch"] } })
+      }
+      const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) })()
+      if ((prefs?.startDate || todayYMD()) !== tomorrow) chips.push({ label: "Try tomorrow", action: "", patch: { startDate: tomorrow } })
+      return chips.slice(0, 4)
+    }
 
     // Phase 1: No messages yet or first turn -- broad discovery
     if (turns === 0) {
@@ -2435,7 +2504,7 @@ export default function PlannerPage() {
     if (chips.length < 4) chips.push({ label: "Rainy day ideas", action: "What should I do if it rains?" })
 
     return chips.slice(0, 4)
-  }, [messages, prefs, selectedTrip, totalItems, resultTrips])
+  }, [messages, prefs, selectedTrip, totalItems, resultTrips, centerItinerary])
 
   function handleSend(text: string) {
     if (!text.trim() || status !== "ready") return
@@ -3034,7 +3103,7 @@ export default function PlannerPage() {
               {!isStreaming && !itineraryRegenerating && suggestions.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto border-t border-border px-4 py-2 scrollbar-none">
                   {suggestions.map((s) => (
-                    <button key={s.label} type="button" onClick={() => handleSend(s.action)}
+                    <button key={s.label} type="button" onClick={() => s.patch ? applyDirectPref(s.patch) : handleSend(s.action)}
                       className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary">
                       {s.label}
                     </button>

@@ -1,0 +1,443 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Deterministic itinerary scheduler.
+
+   The AI's job (when a key is available) is ONLY to choose WHICH trips to
+   include and in WHAT priority order. This module owns all the timing math:
+   it locks every stop to a REAL Palisis timeslot, spaces stops by genuine
+   travel time + a 5–10 min "arrive early" cushion, inserts a lunch (and
+   optionally dinner / coffee) break, and enforces the max-stops cap AFTER
+   the duration / time-budget fit has been computed.
+
+   It is fully deterministic and has NO dependency on any AI provider, so the
+   planner keeps producing realistic itineraries even when the AI key is
+   invalid or absent.
+   ───────────────────────────────────────────────────────────────────────── */
+
+export const HARD_MAX_STOPS = 5
+const EARLY_ARRIVAL_MIN = 5
+
+export interface SlotInput {
+  startTime: string
+  endTime: string | null
+  totalPrice: string | null
+  totalPriceDisplay: string | null
+  spacesRemaining: string | null
+  componentKey: string
+}
+
+export interface TravelLeg {
+  driveMin: number | null
+  walkMin: number | null
+  transitMin: number | null
+  distanceKm: number | null
+  reason: "ok" | "no_token" | "no_geocode"
+  fromLabel: string | null
+  toLabel: string | null
+}
+
+export interface CandidateTrip {
+  id: string
+  title: string
+  city: string
+  category: string
+  durationMin: number
+  slots: SlotInput[]
+  tags: string[]
+  blurb: string
+  highlights: string[]
+  notes: string
+  location: string
+  departureGeo: string
+  endGeo: string
+}
+
+export interface SchedulerConfig {
+  dayStartTime: string
+  dayEndTime: string
+  bufferTimeBetweenStops: number
+  maxStopsPerDay: number
+  defaultActivityDuration: number
+  autoInsertMealBreaks: boolean
+  mealBreakDuration: number
+  lunchBreakTime: string
+  dinnerBreakTime: string
+  travelMethodLabel: string
+}
+
+export interface MealWindow {
+  earliest: string
+  latest: string
+  durationMinutes: number
+}
+
+export interface SchedulerPrefs {
+  duration: string
+  dayCount: number
+  isMultiDay: boolean
+  excludeEarlyMorning: boolean
+  /** When true, the user explicitly opted OUT of auto meal breaks. Default
+   *  false — lunch/dinner are included on full-day plans (skipped after food
+   *  trips) unless the user asks to exclude them. */
+  excludeMeals: boolean
+  interests: string[]
+  userMealBreaks: Map<"lunch" | "dinner" | "coffee", MealWindow>
+}
+
+export interface BreakAfter {
+  type: "food" | "coffee" | "none"
+  label: string
+  location: string
+  durationMinutes: number
+}
+
+export interface ScheduledStep {
+  tripId: string
+  tripTitle: string
+  title: string
+  time: string
+  endTime: string
+  priceFrom: string | null
+  spacesRemaining: string | null
+  durationMinutes: number
+  travelMinutes: number
+  travelToNext: string | null
+  travelLeg: TravelLeg | null
+  breakAfter: BreakAfter
+  tripHighlights: string[]
+  tripNotes: string
+  tripCity: string
+  tripLocation: string
+  day: number
+}
+
+export interface DroppedTrip {
+  tripId: string
+  title: string
+  reason: string
+}
+
+export type ComputeLeg = (
+  originGeo: string,
+  destGeo: string,
+  fromLabel: string | null,
+  toLabel: string | null,
+) => Promise<TravelLeg>
+
+/* ── Time helpers ──────────────────────────────────────────────────────── */
+export function toMin(hhmm: string): number {
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm)
+  if (!m) return -1
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+}
+export function toHHMM(total: number): string {
+  const t = Math.max(0, Math.min(24 * 60 - 1, Math.round(total)))
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`
+}
+
+/* ── Classification helpers ────────────────────────────────────────────── */
+const FOOD_RE = /\b(food|lunch|dinner|brunch|breakfast|wine|tasting|culinary|gastronom|restaurant|beer|cheese|chocolate|tapas|dining)\b/i
+const EVENING_RE = /\b(nightlife|night|bar crawl|pub crawl|pub|sunset|evening|by night|after dark|cocktail)\b/i
+const MORNING_RE = /\b(sunrise|early morning|dawn|breakfast)\b/i
+
+function haystack(t: CandidateTrip): string {
+  return `${t.title} ${t.category} ${t.tags.join(" ")} ${t.blurb}`.toLowerCase()
+}
+export function isFoodTrip(t: CandidateTrip): boolean {
+  return FOOD_RE.test(haystack(t))
+}
+export function timeBand(t: CandidateTrip): "morning" | "daytime" | "evening" {
+  const h = haystack(t)
+  if (EVENING_RE.test(h)) return "evening"
+  if (MORNING_RE.test(h)) return "morning"
+  return "daytime"
+}
+
+/** Interest / tag match score — used by the deterministic ordering fallback. */
+export function scoreCandidate(t: CandidateTrip, interests: string[]): number {
+  if (!interests.length) return 0
+  const h = haystack(t)
+  let s = 0
+  for (const i of interests) {
+    const needle = i.toLowerCase().trim()
+    if (needle && h.includes(needle)) s += 1
+  }
+  return s
+}
+
+/** Deterministic ordering used when AI selection is unavailable: by natural
+ *  time-of-day band (morning → daytime → evening), then interest match,
+ *  then shorter trips first so more of them fit the window. */
+export function deterministicOrder(trips: CandidateTrip[], interests: string[]): CandidateTrip[] {
+  const bandRank = { morning: 0, daytime: 1, evening: 2 } as const
+  return [...trips].sort((a, b) => {
+    const ba = bandRank[timeBand(a)] - bandRank[timeBand(b)]
+    if (ba !== 0) return ba
+    const sc = scoreCandidate(b, interests) - scoreCandidate(a, interests)
+    if (sc !== 0) return sc
+    if (a.durationMin !== b.durationMin) return a.durationMin - b.durationMin
+    return a.title.localeCompare(b.title)
+  })
+}
+
+/* ── Core scheduler ────────────────────────────────────────────────────── */
+interface Meal {
+  kind: "lunch" | "dinner"
+  earliest: number
+  latest: number
+  dur: number
+}
+
+export async function buildSchedule(opts: {
+  candidates: CandidateTrip[] // already in priority order
+  config: SchedulerConfig
+  prefs: SchedulerPrefs
+  visitDate: string
+  addDays: (ymd: string, n: number) => string
+  computeLeg: ComputeLeg
+  cityTravelMin: (fromCity: string, toCity: string) => number
+}): Promise<{ steps: ScheduledStep[]; dropped: DroppedTrip[]; notes: string[] }> {
+  const { candidates, config, prefs, visitDate, addDays, computeLeg, cityTravelMin } = opts
+
+  const maxStops = Math.max(1, Math.min(HARD_MAX_STOPS, Math.floor(config.maxStopsPerDay) || HARD_MAX_STOPS))
+  // Inter-stop gap = travel + admin-configured buffer + a fixed 5–10 min
+  // early arrival. These are SEPARATE components: the early arrival is a fixed
+  // courtesy margin (independent of the admin buffer) so visitors always reach
+  // the meeting point a few minutes ahead, while `buffer` is the admin's
+  // configurable breathing room between stops.
+  const earlyArrival = EARLY_ARRIVAL_MIN
+  const buffer = Math.max(0, Math.floor(config.bufferTimeBetweenStops) || 0)
+  const dayStart = toMin(config.dayStartTime) >= 0 ? toMin(config.dayStartTime) : 9 * 60
+  const dayEnd = toMin(config.dayEndTime) >= 0 ? toMin(config.dayEndTime) : 21 * 60
+  const dayCount = prefs.isMultiDay ? Math.max(1, prefs.dayCount) : 1
+
+  // Single-day time budget from the duration preference.
+  const fullWindow = Math.max(60, dayEnd - dayStart)
+  const budgetMin = prefs.isMultiDay
+    ? fullWindow
+    : prefs.duration === "1-2h"
+      ? 120
+      : prefs.duration === "half-day"
+        ? 300
+        : fullWindow
+
+  const earlyCutoff = prefs.excludeEarlyMorning ? 10 * 60 : -1
+
+  // Meals default ON for full-day/multi-day plans (and are skipped after a food
+  // trip in the loop below). The user can opt OUT via `excludeMeals`; an
+  // explicit user-supplied meal window still wins over the admin default.
+  const wantMeals = !prefs.excludeMeals && (config.autoInsertMealBreaks || prefs.userMealBreaks.size > 0)
+  const mealsTemplate: Meal[] = []
+  if (wantMeals && (prefs.duration === "full-day" || prefs.isMultiDay)) {
+    const lu = prefs.userMealBreaks.get("lunch")
+    mealsTemplate.push({
+      kind: "lunch",
+      earliest: toMin(lu?.earliest ?? "12:00"),
+      latest: toMin(lu?.latest ?? "14:00"),
+      dur: lu?.durationMinutes ?? config.mealBreakDuration,
+    })
+    const di = prefs.userMealBreaks.get("dinner")
+    mealsTemplate.push({
+      kind: "dinner",
+      earliest: toMin(di?.earliest ?? "18:30"),
+      latest: toMin(di?.latest ?? "20:30"),
+      dur: di?.durationMinutes ?? config.mealBreakDuration + 15,
+    })
+  }
+  // Auto coffee breaks are part of the "meal breaks" feature — when the user
+  // opts out of breaks (excludeMeals) we must NOT fill the freed-up gap with a
+  // coffee break either, or "Skip lunch break" would look ignored.
+  const coffeeWanted = !prefs.excludeMeals && (config.autoInsertMealBreaks || prefs.userMealBreaks.has("coffee"))
+  const coffeeDur = prefs.userMealBreaks.get("coffee")?.durationMinutes ?? 20
+
+  const used = new Set<string>()
+  const allSteps: ScheduledStep[] = []
+  const notes: string[] = []
+
+  for (let day = 0; day < dayCount; day++) {
+    if (allSteps.length >= maxStops) break
+    const dateForDay = addDays(visitDate, day)
+    const daySteps: ScheduledStep[] = []
+    const meals: Meal[] = mealsTemplate.map((m) => ({ ...m }))
+
+    let prev: {
+      step: ScheduledStep
+      endMin: number
+      city: string
+      endGeo: string
+      location: string
+      isFood: boolean
+    } | null = null
+    let firstStartMin = -1
+
+    for (const trip of candidates) {
+      if (used.has(trip.id)) continue
+      if (allSteps.length + daySteps.length >= maxStops) break
+
+      const dur = trip.durationMin
+      const effectiveEnd = prefs.isMultiDay
+        ? dayEnd
+        : Math.min(dayEnd, (firstStartMin >= 0 ? firstStartMin : dayStart) + budgetMin)
+
+      // Travel from the previous stop.
+      let travelMin = 0
+      let leg: TravelLeg | null = null
+      if (prev) {
+        leg = await computeLeg(
+          prev.endGeo,
+          trip.departureGeo,
+          prev.location || prev.city || null,
+          trip.location || trip.city || null,
+        )
+        travelMin = leg.driveMin ?? cityTravelMin(prev.city, trip.city)
+      }
+      const earliestStart = prev ? prev.endMin + travelMin + buffer + earlyArrival : dayStart
+
+      // Build the allowed-slot set for this trip on this day.
+      const band = timeBand(trip)
+      const inWindow = (s: SlotInput) => {
+        const st = toMin(s.startTime)
+        if (st < 0) return false
+        if (st < earliestStart) return false
+        if (st + dur > effectiveEnd) return false
+        if (earlyCutoff >= 0 && st < earlyCutoff) return false
+        return true
+      }
+      const bandOk = (s: SlotInput) => {
+        const st = toMin(s.startTime)
+        if (band === "evening") return st >= 17 * 60
+        if (band === "morning") return st < 11 * 60
+        return true
+      }
+      let pool = trip.slots.filter(inWindow)
+      const bandPool = pool.filter(bandOk)
+      if (bandPool.length > 0) {
+        pool = bandPool
+      } else if (pool.length > 0 && band !== "daytime") {
+        notes.push(`"${trip.title}" only has slots outside its usual ${band} window on ${dateForDay} — kept anyway.`)
+      }
+      if (pool.length === 0) continue // try this trip on a later day
+
+      pool = [...pool].sort((a, b) => toMin(a.startTime) - toMin(b.startTime))
+
+      // Should we reserve a meal in the gap BEFORE this trip?
+      let reservedMeal: Meal | null = null
+      if (prev && !prev.isFood) {
+        const dueMeal = meals.find((m) => prev!.endMin >= m.earliest - 15 && prev!.endMin <= m.latest)
+        if (dueMeal) {
+          const neededStart = prev.endMin + travelMin + buffer + earlyArrival + dueMeal.dur
+          const withMeal = pool.filter((s) => toMin(s.startTime) >= neededStart)
+          if (withMeal.length > 0) {
+            pool = withMeal
+            reservedMeal = dueMeal
+          }
+        }
+      }
+
+      const chosen = pool[0]
+      const startMin = toMin(chosen.startTime)
+      const slotEndMin = chosen.endTime ? toMin(chosen.endTime) : -1
+      const needsDerivedEnd = !chosen.endTime || slotEndMin <= startMin || slotEndMin - startMin < dur * 0.5
+      const endMin = needsDerivedEnd ? startMin + dur : slotEndMin
+      const realDur = needsDerivedEnd ? dur : slotEndMin - startMin
+
+      const step: ScheduledStep = {
+        tripId: trip.id,
+        tripTitle: trip.title,
+        title: trip.title,
+        time: chosen.startTime,
+        endTime: toHHMM(endMin),
+        priceFrom: chosen.totalPriceDisplay ?? chosen.totalPrice ?? null,
+        spacesRemaining: chosen.spacesRemaining,
+        durationMinutes: realDur,
+        travelMinutes: 0,
+        travelToNext: null,
+        travelLeg: null,
+        breakAfter: { type: "none", label: "", location: "", durationMinutes: 0 },
+        tripHighlights: trip.highlights,
+        tripNotes: trip.notes,
+        tripCity: trip.city,
+        tripLocation: trip.location,
+        day,
+      }
+
+      // Multi-day: prefix the first step of each day with a Markdown heading.
+      if (prefs.isMultiDay && daySteps.length === 0) {
+        step.title = `Day ${day + 1} — ${dateForDay}\n\n${trip.title}`
+      }
+
+      // Resolve travel + break on the PREVIOUS step now that this one is fixed.
+      if (prev) {
+        prev.step.travelLeg = leg
+        prev.step.travelMinutes = travelMin
+        if (leg && leg.driveMin !== null) {
+          prev.step.travelToNext = leg.distanceKm !== null
+            ? `${leg.driveMin} min by car · ${leg.distanceKm} km`
+            : `${leg.driveMin} min by car`
+        } else if (travelMin > 0) {
+          prev.step.travelToNext = `~${travelMin} min by ${config.travelMethodLabel}`
+        }
+
+        const gap = startMin - prev.endMin
+        const freeAfterTravel = gap - travelMin - buffer - earlyArrival
+        if (reservedMeal) {
+          prev.step.breakAfter = {
+            type: "food",
+            label: reservedMeal.kind === "lunch" ? "Lunch break" : "Dinner break",
+            location: prev.city || trip.city || "Luxembourg",
+            durationMinutes: Math.min(reservedMeal.dur, Math.max(15, freeAfterTravel)),
+          }
+          meals.splice(meals.indexOf(reservedMeal), 1)
+        } else if (coffeeWanted && freeAfterTravel >= 60) {
+          prev.step.breakAfter = {
+            type: "coffee",
+            label: "Coffee break",
+            location: prev.city || trip.city || "Luxembourg",
+            durationMinutes: Math.min(coffeeDur, freeAfterTravel - 5),
+          }
+        }
+      }
+
+      used.add(trip.id)
+      daySteps.push(step)
+      if (firstStartMin < 0) firstStartMin = startMin
+      const tripIsFood = isFoodTrip(trip)
+      // A food trip that lands inside a meal window IS that meal.
+      if (tripIsFood) {
+        for (let mi = meals.length - 1; mi >= 0; mi--) {
+          if (startMin <= meals[mi].latest && endMin >= meals[mi].earliest) meals.splice(mi, 1)
+        }
+      }
+      prev = {
+        step,
+        endMin,
+        city: trip.city,
+        endGeo: trip.endGeo,
+        location: trip.location,
+        isFood: tripIsFood,
+      }
+    }
+
+    if (daySteps.length > 0 && (prefs.duration === "full-day" || prefs.isMultiDay)) {
+      const lunchLeft = meals.some((m) => m.kind === "lunch")
+      if (lunchLeft && daySteps.length >= 1) {
+        notes.push(`Couldn't fit a clean 12:00–14:00 lunch break on ${dateForDay} — the live slots are packed. Consider a quick bite between stops.`)
+      }
+    }
+
+    allSteps.push(...daySteps)
+  }
+
+  const dropped: DroppedTrip[] = []
+  for (const trip of candidates) {
+    if (used.has(trip.id)) continue
+    dropped.push({
+      tripId: trip.id,
+      title: trip.title,
+      reason: allSteps.length >= maxStops
+        ? `Kept to ${maxStops} stops for a relaxed pace — extend your trip length or add days to include it.`
+        : "No slot fit your selected time window — try a longer day, more days, or another date.",
+    })
+  }
+
+  return { steps: allSteps, dropped, notes }
+}
