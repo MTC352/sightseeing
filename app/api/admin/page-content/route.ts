@@ -28,8 +28,20 @@ export async function POST(req: Request) {
     await requireAdminSession()
     const data = await req.json()
     const { slug, changes } = data
-    if (!slug || typeof changes !== "object") {
+    if (
+      !slug ||
+      typeof slug !== "string" ||
+      typeof changes !== "object" ||
+      changes === null ||
+      Array.isArray(changes)
+    ) {
       return NextResponse.json({ error: "slug and changes are required" }, { status: 400 })
+    }
+    if (!Object.values(changes).every((v) => typeof v === "string")) {
+      return NextResponse.json(
+        { error: "changes must be an object of string values" },
+        { status: 400 },
+      )
     }
     const saved = await dbSavePageContent(slug, changes)
     return NextResponse.json({ saved })

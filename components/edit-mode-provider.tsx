@@ -4,6 +4,8 @@ import { createContext, useContext, useState, useEffect, useCallback } from "rea
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Pencil, X, CheckCircle, Eye, Save, AlertCircle } from "lucide-react"
 import { AutoEditableLayer } from "@/components/auto-editable-layer"
+import { SavedContentApplier } from "@/components/saved-content-applier"
+import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
 
 interface EditModeCtx {
   isEditMode: boolean
@@ -83,14 +85,14 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   // must be true.
   const isEditMode = paramRequested && adminVerified
 
-  // Load all saved content from server when entering edit mode.
+  // Load all persisted inline edits once on mount — for EVERY visitor, not just
+  // admins — so the live site reflects saved edits immediately.
   useEffect(() => {
-    if (!isEditMode) return
     fetch("/api/page-content")
       .then((r) => r.json())
-      .then((data: Record<string, string>) => setSavedChanges(data))
+      .then((data: Record<string, string>) => setSavedChanges(data ?? {}))
       .catch(() => {})
-  }, [isEditMode])
+  }, [])
 
   const addChange = useCallback((key: string, value: string) => {
     setPendingChanges((prev) => ({ ...prev, [key]: value }))
@@ -114,15 +116,14 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   async function saveAll() {
     setSaveState("saving")
     try {
-      await Promise.all(
-        Object.entries(pendingChanges).map(([key, value]) =>
-          fetch("/api/page-content", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key, value }),
-          })
-        )
-      )
+      // Persist to the DB via the admin-protected endpoint in one batched call.
+      const res = await fetch("/api/admin/page-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ slug: INLINE_CONTENT_SLUG, changes: pendingChanges }),
+      })
+      if (!res.ok) throw new Error("save failed")
       setSavedChanges((prev) => ({ ...prev, ...pendingChanges }))
       setPendingChanges({})
       setSaveState("saved")
@@ -189,6 +190,8 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
           <AutoEditableLayer />
         </>
       )}
+      {/* Applies persisted generic (auto:*) edits to the live DOM for all visitors */}
+      <SavedContentApplier />
       {children}
     </EditModeContext.Provider>
   )

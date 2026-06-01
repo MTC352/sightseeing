@@ -27,9 +27,18 @@ explicit-editor UI, give its root `data-editable`; for global chrome (cookie ban
 a11y toolbar) use `data-no-edit`. Missing this re-introduces the bug where clicking
 Apply/Cancel inside an explicit editor opens the generic popover instead.
 
-**Persistence caveat:** `/api/page-content` (`lib/page-content-store.ts`) is an
-**in-memory Map** — edits do NOT survive a server restart, and `savedChanges` is only
-fetched in edit mode, so saved edits are NOT shown to normal visitors. A DB-backed
-alternative exists at `app/api/admin/page-content/route.ts` (`dbSavePageContent`) but
-the editor still POSTs to the in-memory one. Durable, visitor-facing persistence is a
-separate unfinished task — don't assume edits "go live" today.
+**Persistence (DB-backed, visitor-facing):** all inline edits live in the
+`page_content` table under ONE bucket slug `INLINE_CONTENT_SLUG="__inline__"`
+(`lib/page-content-slug.ts`) — the keys are globally unique so they self-namespace.
+- **Read:** `GET /api/page-content` is PUBLIC + read-only (`dbGetPageContent(__inline__)`,
+  fail-soft `{}`). Its POST returns 405 (the old unauthenticated in-memory write hole).
+- **Write:** `saveAll()` batches ONE `POST /api/admin/page-content` `{slug,changes}`
+  (admin-session-gated, `dbSavePageContent`). Validates `changes` is a plain object of
+  string values.
+- **Apply for visitors:** `EditModeProvider` fetches saved content on mount for EVERY
+  visitor (not just edit mode), so explicit `EditableText/EditableImage` show saved
+  values via context. Generic `auto:*` keys have no React component, so
+  `SavedContentApplier` (mounted always, no-ops in edit mode) writes them to the DOM via
+  path resolution / `[data-edit-key]`, debounced MutationObserver, equality-guarded.
+- `lib/page-content-store.ts` (in-memory Map) was DELETED. Edits now persist across
+  restarts and go live for all visitors.
