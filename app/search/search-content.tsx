@@ -18,7 +18,7 @@ import { DateTimeModal } from "@/components/date-time-modal"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import type { PlannerTimeslotsResponse } from "@/app/api/planner/timeslots/route"
+import type { AvTimeslot, AvSlotGroup, AvTripAvailability, AvailabilityMap } from "@/app/api/availability/route"
 import {
   type SearchFiltersConfig,
   DEFAULT_SEARCH_FILTERS_CONFIG,
@@ -57,9 +57,9 @@ function isVisibleTripTag(t: string): boolean {
   return Boolean(t) && !HIDDEN_TRIP_TAGS.has(t.toLowerCase())
 }
 
-interface Timeslot { time: string; spotsLeft: number; spotsTotal: number }
-interface TripAvailability { today: Timeslot[]; tomorrow: Timeslot[] }
-type AvailabilityMap = Record<string, TripAvailability>
+type Timeslot = AvTimeslot
+type SlotGroup = AvSlotGroup
+type TripAvailability = AvTripAvailability
 
 const MAX_SLOTS_SHOWN = 4
 
@@ -77,9 +77,13 @@ function getDummyDepartures(tripId: string): TripAvailability {
     }
     return slots.sort((a, b) => a.time.localeCompare(b.time))
   }
+  const today    = pickSlots(hash, 1 + (hash % 4))
+  const tomorrow = pickSlots(hash + 7, 1 + ((hash + 2) % 5))
   return {
-    today:    pickSlots(hash, 1 + (hash % 4)),
-    tomorrow: pickSlots(hash + 7, 1 + ((hash + 2) % 5)),
+    today,
+    tomorrow,
+    todayGroups:    today.length    ? [{ name: "", slots: today    }] : [],
+    tomorrowGroups: tomorrow.length ? [{ name: "", slots: tomorrow }] : [],
   }
 }
 
@@ -526,67 +530,22 @@ function SlotRow({
   )
 }
 
-/* ── Planner-slot chip (uses PlannerTimeslot with nullable spotsLeft) ── */
-function PlannerSlotChip({ slot }: { slot: PlannerTimeslotsResponse["today"][number] }) {
-  const unlimited = slot.spotsLeft === null
-  const soldOut   = !unlimited && slot.spotsLeft === 0
-  const lowStock  = !unlimited && !soldOut && slot.spotsLeft! <= 3
-
-  const colorClass = soldOut
-    ? "bg-red-50 border-red-200 text-red-700"
-    : lowStock
-    ? "bg-amber-50 border-amber-200 text-amber-700"
-    : "bg-emerald-50 border-emerald-200 text-emerald-700"
-  const dotColor = soldOut ? "bg-red-500" : lowStock ? "bg-amber-500" : "bg-emerald-500"
-
-  return (
-    <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${colorClass} ${soldOut ? "opacity-60" : ""}`}>
-      <span className="font-semibold">{slot.time}</span>
-      <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
-      <span className="text-[11px]">
-        {soldOut ? "Sold out" : unlimited ? "Open" : `${slot.spotsLeft} left`}
-      </span>
-    </div>
-  )
-}
-
 /* ── All-timeslots modal ── */
 function AllSlotsModal({
-  open, onClose, tripTitle, tripId, slotRows, persons, timeFrom, timeTo,
+  open, onClose, tripTitle, dayGroups, persons, timeFrom, timeTo,
 }: {
   open: boolean
   onClose: () => void
   tripTitle: string
-  tripId: string
-  slotRows: { label: string; slots: Timeslot[] }[]
+  /** One entry per day (Today / Tomorrow / a specific date label). */
+  dayGroups: { label: string; groups: SlotGroup[] }[]
   persons: number
   timeFrom: string
   timeTo: string
 }) {
-  const [plannerData, setPlannerData] = useState<PlannerTimeslotsResponse | null>(null)
-  const [plannerLoading, setPlannerLoading] = useState(false)
-
-  useEffect(() => {
-    if (!open || !tripId) return
-    let cancelled = false
-    setPlannerLoading(true)
-    setPlannerData(null)
-    ;(async () => {
-      try {
-        const res  = await fetch(`/api/planner/timeslots?tripId=${encodeURIComponent(tripId)}`, { cache: "no-store" })
-        const json = (await res.json()) as PlannerTimeslotsResponse
-        if (!cancelled) setPlannerData(json)
-      } catch { /* fall back to slotRows */ }
-      finally { if (!cancelled) setPlannerLoading(false) }
-    })()
-    return () => { cancelled = true }
-  }, [open, tripId])
-
-  const hasGroups    = plannerData?.ok === true && (
-    (plannerData.todayGroups?.length ?? 0) > 0 || (plannerData.tomorrowGroups?.length ?? 0) > 0
-  )
-  const multiCat     = hasGroups && (
-    (plannerData!.todayGroups?.length ?? 0) > 1 || (plannerData!.tomorrowGroups?.length ?? 0) > 1
+  /* Does any day have >1 variant with a real name? */
+  const multiCat = dayGroups.some(({ groups }) =>
+    groups.filter((g) => g.name).length > 1
   )
 
   return (
@@ -609,61 +568,45 @@ function AllSlotsModal({
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-5">
-          {plannerLoading ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              Loading availability…
-            </div>
-          ) : hasGroups ? (
-            /* ── Grouped view (from planner API) ── */
-            <div className="flex flex-col gap-7">
-              {(["today", "tomorrow"] as const).map((day) => {
-                const groups = day === "today" ? plannerData!.todayGroups : plannerData!.tomorrowGroups
-                if (!groups?.length) return null
-                return (
-                  <div key={day}>
-                    <p className="mb-3 text-sm font-semibold text-foreground">
-                      {day === "today" ? "Today" : "Tomorrow"}
-                    </p>
-                    <div className="flex flex-col gap-4">
-                      {groups.map((group, gi) => (
-                        <div key={gi}>
-                          {multiCat && group.name && (
-                            <p className="mb-2 text-xs font-medium text-muted-foreground pb-1.5 border-b border-border">
-                              {group.name}
-                            </p>
-                          )}
-                          <div className="flex flex-wrap gap-2">
-                            {group.slots.map((s, si) => (
-                              <PlannerSlotChip key={si} slot={s} />
-                            ))}
-                          </div>
+          <div className="flex flex-col gap-7">
+            {dayGroups.map(({ label, groups }) => {
+              const eligibleGroups = groups
+                .map((g) => ({
+                  ...g,
+                  slots: g.slots.filter(
+                    (s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo),
+                  ),
+                }))
+                .filter((g) => g.slots.length > 0)
+
+              if (eligibleGroups.length === 0) return null
+
+              return (
+                <div key={label}>
+                  {/* Day heading */}
+                  <p className="mb-3 text-sm font-semibold text-foreground">{label}</p>
+
+                  <div className="flex flex-col gap-4">
+                    {eligibleGroups.map((group, gi) => (
+                      <div key={gi}>
+                        {/* Category heading — only shown when there are multiple named variants */}
+                        {multiCat && group.name && (
+                          <p className="mb-2 border-b border-border pb-1.5 text-xs font-medium text-muted-foreground">
+                            {group.name}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          {group.slots.map((s, si) => (
+                            <TimeslotChip key={si} slot={s} />
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                )
-              })}
-            </div>
-          ) : (
-            /* ── Fallback: flat slot rows already available ── */
-            <div className="flex flex-col gap-5">
-              {slotRows.map(({ label, slots }) => {
-                const eligible = slots.filter(
-                  (s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo),
-                )
-                if (eligible.length === 0) return null
-                return (
-                  <div key={label}>
-                    <p className="mb-2.5 text-xs font-semibold text-foreground">{label}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {eligible.map((s, i) => <TimeslotChip key={i} slot={s} />)}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -692,9 +635,7 @@ function SearchListCard({
   const showSkeleton = isLoading
   const departures   = tripAvail ?? getDummyDepartures(trip.id)
 
-  // Build labeled slot rows: when date filter active show ONLY that date; otherwise today/tomorrow
-  const now           = new Date()
-  // Human-friendly labels for the no-date-filter view
+  // Build labeled slot rows (flat, deduplicated) — for card chip preview
   const todayLabel    = "Today"
   const tomorrowLabel = "Tomorrow"
 
@@ -704,6 +645,18 @@ function SearchListCard({
   } else {
     if (departures.today.length > 0)    slotRows.push({ label: todayLabel,    slots: departures.today })
     if (departures.tomorrow.length > 0) slotRows.push({ label: tomorrowLabel, slots: departures.tomorrow })
+  }
+
+  // Build grouped rows for the full-timeslot modal
+  const dayGroups: { label: string; groups: SlotGroup[] }[] = []
+  if (dateFilter?.date) {
+    if (departures.todayGroups.length > 0)
+      dayGroups.push({ label: formatDate(dateFilter.date), groups: departures.todayGroups })
+  } else {
+    if (departures.todayGroups.length > 0)
+      dayGroups.push({ label: todayLabel,    groups: departures.todayGroups })
+    if (departures.tomorrowGroups.length > 0)
+      dayGroups.push({ label: tomorrowLabel, groups: departures.tomorrowGroups })
   }
 
   const hasEligibleSlots = slotRows.some(({ slots }) =>
@@ -786,8 +739,7 @@ function SearchListCard({
         open={allSlotsOpen}
         onClose={() => setAllSlotsOpen(false)}
         tripTitle={trip.title}
-        tripId={trip.id}
-        slotRows={slotRows}
+        dayGroups={dayGroups}
         persons={persons}
         timeFrom={timeFrom}
         timeTo={timeTo}

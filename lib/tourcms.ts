@@ -141,6 +141,9 @@ export interface DepartureDate {
   original_price_1_display?: string
   offer_price_1?: string
   offer_price_1_display?: string
+  /** Variant / rate name (e.g. "Classical tasting with snacks"). Present when a tour
+   *  has multiple rate variants — each variant gets its own date entry at the same time. */
+  note?: string
 }
 
 /** A real-time availability component from checkAvailability */

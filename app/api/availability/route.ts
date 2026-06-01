@@ -5,9 +5,28 @@ import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
-interface Timeslot { time: string; spotsLeft: number; spotsTotal: number }
-interface TripAvailability { today: Timeslot[]; tomorrow: Timeslot[] }
-type AvailabilityMap = Record<string, TripAvailability>
+export interface AvTimeslot {
+  time: string
+  spotsLeft: number
+  spotsTotal: number
+  rateName?: string   // variant name from DepartureDate.note, e.g. "Classical Tasting"
+}
+
+export interface AvSlotGroup {
+  name: string           // variant name; "" = single unnamed group
+  slots: AvTimeslot[]
+}
+
+export interface AvTripAvailability {
+  /** Deduplicated flat list (best availability per time) — used for card chip preview */
+  today: AvTimeslot[]
+  tomorrow: AvTimeslot[]
+  /** Grouped by variant name — used for the full-timeslot modal */
+  todayGroups: AvSlotGroup[]
+  tomorrowGroups: AvSlotGroup[]
+}
+
+export type AvailabilityMap = Record<string, AvTripAvailability>
 
 // Multi-key cache: keyed by "startDate|endDate"
 const _cache = new Map<string, { data: AvailabilityMap; expiresAt: number }>()
@@ -23,6 +42,29 @@ function toYMD(d: Date) {
   return d.toISOString().split("T")[0]
 }
 
+/** Group a raw slot array by rateName, preserving insertion order. */
+function buildGroups(slots: AvTimeslot[]): AvSlotGroup[] {
+  const map = new Map<string, AvTimeslot[]>()
+  for (const s of slots) {
+    const key = s.rateName ?? ""
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(s)
+  }
+  return Array.from(map.entries()).map(([name, items]) => ({ name, slots: items }))
+}
+
+/** Deduplicate a slot list by time, keeping the entry with the highest spotsLeft. */
+function deduplicateByTime(slots: AvTimeslot[]): AvTimeslot[] {
+  const best = new Map<string, AvTimeslot>()
+  for (const s of slots) {
+    const existing = best.get(s.time)
+    if (!existing || s.spotsLeft > existing.spotsLeft) {
+      best.set(s.time, s)
+    }
+  }
+  return Array.from(best.values()).sort((a, b) => a.time.localeCompare(b.time))
+}
+
 export async function GET(req: Request) {
   schedulePrune()
   pruneAvailabilityCache()
@@ -31,19 +73,15 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const dateParam = searchParams.get("date")    ?? ""
-  const timeFrom  = searchParams.get("timeFrom") ?? ""
-  const timeTo    = searchParams.get("timeTo")   ?? ""
 
   const now         = new Date()
   const todayStr    = toYMD(now)
   const tomorrowStr = toYMD(new Date(now.getTime() + 86_400_000))
 
-  // When a specific date is requested, query only that date (both start + end = same day)
   const startDate = dateParam || todayStr
   const endDate   = dateParam || tomorrowStr
-  const dateMode  = dateParam !== ""           // true → user picked a date
+  const dateMode  = dateParam !== ""
 
-  // Cache keyed by date range only — time/person filtering is done client-side
   const cacheKey = `${startDate}|${endDate}`
   const cached   = _cache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
@@ -72,35 +110,37 @@ export async function GET(req: Request) {
           startdate_end:   endDate,
         })
 
-        const todaySlots: Timeslot[]    = []
-        const tomorrowSlots: Timeslot[] = []
+        const todayRaw: AvTimeslot[]    = []
+        const tomorrowRaw: AvTimeslot[] = []
 
         for (const d of dates) {
           if (!d.start_time) continue
 
-          // Time filtering is now client-side — return all slots regardless of time
           const raw      = d.spaces_remaining
           const unlimited = raw === "UNLIMITED"
           const spotsLeft  = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
           const spotsTotal = unlimited ? 100 : Math.max(spotsLeft + 8, 15)
-          const slot: Timeslot = {
-            time: d.start_time,
+
+          const slot: AvTimeslot = {
+            time:      d.start_time.slice(0, 5),
             spotsLeft,
             spotsTotal,
+            rateName:  d.note?.trim() || undefined,
           }
 
           if (dateMode) {
-            // All matching slots go into the "today" bucket (= the selected date)
-            todaySlots.push(slot)
+            todayRaw.push(slot)
           } else {
-            if (d.start_date === todayStr)    todaySlots.push(slot)
-            else if (d.start_date === tomorrowStr) tomorrowSlots.push(slot)
+            if (d.start_date === todayStr)         todayRaw.push(slot)
+            else if (d.start_date === tomorrowStr) tomorrowRaw.push(slot)
           }
         }
 
         result[row.id] = {
-          today:    todaySlots.sort((a, b) => a.time.localeCompare(b.time)),
-          tomorrow: tomorrowSlots.sort((a, b) => a.time.localeCompare(b.time)),
+          today:          deduplicateByTime(todayRaw),
+          tomorrow:       deduplicateByTime(tomorrowRaw),
+          todayGroups:    buildGroups(todayRaw),
+          tomorrowGroups: buildGroups(tomorrowRaw),
         }
       } catch {
         // skip — card falls back to dummy
@@ -108,8 +148,6 @@ export async function GET(req: Request) {
     })
   )
 
-  // Date-specific queries: 1-min cache (user expects fresh slot data for their chosen date)
-  // Default today/tomorrow: 5-min cache
   _cache.set(cacheKey, {
     data:      result,
     expiresAt: Date.now() + (dateMode ? 60_000 : 5 * 60_000),
