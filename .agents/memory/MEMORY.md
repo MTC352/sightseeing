@@ -1,5 +1,6 @@
 - [outdoor-today AI system](outdoor-today.md) — system_key='outdoor_today' in ai_system_configs; extra_config.display_count controls card count; 10-min server cache; tag fallback when no AI key.
 - [Itinerary hybrid engine](itinerary-hybrid-engine.md) — AI selects trips, deterministic scheduler times them; gap=travel+buffer+earlyArrival (separate); max-5 cap; no-early opt-in only; AI key often 401.
+- [SEO indexing control](seo-indexing-control.md) — same codebase on Replit-publish (staging) + live domain; indexing opt-in via ALLOW_INDEXING; no static public/robots.txt (conflicts with app/robots.ts).
 - [Error logging + key tests](error-logging-and-key-tests.md) — error_logs table via fail-soft logError (void it); admin Test-API-key route must POST keys in body, never URL query (leak risk).
 - [Planner chat UI gotchas](planner-chat-ui.md) — handleSend must allow "error" status (else chat freezes after AI fail); recs duration cap lives in fallbackTrips via durationCapHours+fitsCap.
 - [Planner recommendations canvas](planner-recommendations.md) — canvas recs are deterministic & decoupled from AI chat (fixes reload hang); date=visual grouping only; availability fetch must clear on each scan; pills edit one field via applyDirectPref.

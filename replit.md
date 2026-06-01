@@ -105,6 +105,17 @@ Chips carry an optional `patch` field; chips without a patch still route through
 via `handleSend`. `Preferences.exclusions?: string[]` flows to the route which derives
 `excludeEarlyMorning`.
 
+## SEO Indexing (staging vs live)
+
+Indexing is **opt-in** so the Replit-published demo/staging site stays out of Google.
+Controlled by env var `ALLOW_INDEXING` via `lib/seo.ts` (`isIndexingEnabled()`):
+- **Unset (default)** → `noindex` meta + `robots.txt` `Disallow: /` (Replit publish = staging).
+- **`ALLOW_INDEXING=true`** → `index, follow` + full `robots.txt` allow-list (live domain only).
+
+Wired into `app/layout.tsx` (robots metadata) and `app/robots.ts` (dynamic robots.txt).
+There must be **no static `public/robots.txt`** — it conflicts with `app/robots.ts`.
+Full runbook: `docs/seo-indexing.md`.
+
 ## Auth
 
 - **Site PIN gate:** `"3462"` — `components/site-password-gate.tsx` — localStorage (bypasses for `/admin` routes)

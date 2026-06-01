@@ -9,6 +9,7 @@ import { SitePasswordGate } from "@/components/site-password-gate"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
 import { CookieBanner } from "@/components/cookie-banner"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
+import { isIndexingEnabled } from "@/lib/seo"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -52,17 +53,28 @@ export const metadata: Metadata = {
       "x-default": BASE,
     },
   },
-  robots: {
-    index: false,
-    follow: false,
-    googleBot: {
-      index: false,
-      follow: false,
-      "max-video-preview": -1,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-    },
-  },
+  robots: isIndexingEnabled()
+    ? {
+        index: true,
+        follow: true,
+        googleBot: {
+          index: true,
+          follow: true,
+          "max-video-preview": -1,
+          "max-image-preview": "large",
+          "max-snippet": -1,
+        },
+      }
+    : {
+        index: false,
+        follow: false,
+        nocache: true,
+        googleBot: {
+          index: false,
+          follow: false,
+          noimageindex: true,
+        },
+      },
 }
 
 export const viewport: Viewport = {
