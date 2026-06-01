@@ -6,6 +6,17 @@ import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { useCart, type CartItem } from "@/lib/cart-context"
 import { ShoppingBag, X, Trash2, Clock, Star, MapPin, Loader2 } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 export default function SavedTripsPage() {
   const { items, removeItem, clearCart, totalPrice, totalItems, hydrated } = useCart()
@@ -54,13 +65,33 @@ export default function SavedTripsPage() {
             <h1 className="text-2xl font-bold text-foreground">My Saved Trips</h1>
             <p className="mt-1 text-sm text-muted-foreground">{totalItems} {totalItems === 1 ? "experience" : "experiences"} saved</p>
           </div>
-          <button
-            type="button"
-            onClick={clearCart}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Clear All
-          </button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Clear All
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear all saved trips?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will remove all {totalItems} {totalItems === 1 ? "experience" : "experiences"} from your saved trips. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={clearCart}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Clear All
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
 
         {/* Trip list */}
