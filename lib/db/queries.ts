@@ -1302,6 +1302,26 @@ export async function dbUpdatePlannerBehavior(data: Record<string, unknown>) {
   `, [JSON.stringify(data)])
 }
 
+// Returns the merged, enabled custom HTML for public-site injection.
+// `header` = everything not placed at body_end (head + body_start blocks),
+// `footer` = body_end blocks. Mirrors the merge semantics in dbGetSettings.
+export async function dbGetInjectionBlocks(): Promise<{ header: string; footer: string }> {
+  const rows = await query<{ label: string; placement: string; html: string | null }>(`
+    SELECT label, placement, html FROM header_footer_blocks
+    WHERE enabled = true AND html IS NOT NULL AND html != ''
+    ORDER BY placement, name
+  `)
+  const merge = (pred: (placement: string) => boolean) =>
+    rows
+      .filter((r) => pred(r.placement))
+      .map((r) => `<!-- ${r.label} -->\n${r.html}`)
+      .join('\n\n')
+  return {
+    header: merge((p) => p !== 'body_end'),
+    footer: merge((p) => p === 'body_end'),
+  }
+}
+
 export async function dbUpdateHeaderFooter(section: 'header' | 'footer', customHtml: string) {
   const placement = section === 'header' ? 'body_start' : 'body_end'
   const blockName = section === 'header' ? 'announcement_banner' : 'chat_widget'

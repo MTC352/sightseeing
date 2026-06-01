@@ -9,7 +9,9 @@ import { SitePasswordGate } from "@/components/site-password-gate"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
 import { CookieBanner } from "@/components/cookie-banner"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
+import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { isIndexingEnabled } from "@/lib/seo"
+import { dbGetInjectionBlocks } from "@/lib/db/queries"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -83,7 +85,8 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const injection = await dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" }))
   return (
     <html lang="en" className={instrumentSans.variable}>
       <head>
@@ -154,7 +157,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <CartProvider>
               <WeatherProvider>
                 <Suspense>
-                  <EditModeProvider>{children}</EditModeProvider>
+                  <EditModeProvider>
+                    {/* Admin-configured custom HTML injected above the navbar
+                        (announcement banners, head scripts, analytics). */}
+                    <CustomHtmlBlock html={injection.header} />
+                    {children}
+                    {/* Admin-configured custom HTML injected below the footer
+                        (chat widgets, body-end scripts). */}
+                    <CustomHtmlBlock html={injection.footer} />
+                  </EditModeProvider>
                 </Suspense>
               </WeatherProvider>
             </CartProvider>
