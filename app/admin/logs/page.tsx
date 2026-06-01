@@ -62,13 +62,30 @@ export default function LogsPage() {
     }
   }
 
-  function fmt(ts: string) {
+  function fmtTime(ts: string) {
     try {
-      return new Date(ts).toLocaleString()
+      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     } catch {
       return ts
     }
   }
+
+  function dayKey(ts: string) {
+    try {
+      return new Date(ts).toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+    } catch {
+      return ts.slice(0, 10)
+    }
+  }
+
+  // Group logs by calendar day (logs already arrive newest-first).
+  const grouped = logs.reduce<{ day: string; entries: ErrorLog[] }[]>((acc, log) => {
+    const day = dayKey(log.created_at)
+    const last = acc[acc.length - 1]
+    if (last && last.day === day) last.entries.push(log)
+    else acc.push({ day, entries: [log] })
+    return acc
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -146,11 +163,19 @@ export default function LogsPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {logs.map((log) => {
-            const isOpen = expanded[log.id]
-            const hasDetail = log.context && Object.keys(log.context).length > 0
-            return (
+        <div className="space-y-6">
+          {grouped.map((group) => (
+            <div key={group.day} className="space-y-2">
+              <div className="sticky top-0 z-10 -mx-1 flex items-center gap-2 bg-background/90 px-1 py-1 backdrop-blur">
+                <h2 className="text-sm font-semibold text-foreground">{group.day}</h2>
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}
+                </span>
+              </div>
+              {group.entries.map((log) => {
+                const isOpen = expanded[log.id]
+                const hasDetail = log.context && Object.keys(log.context).length > 0
+                return (
               <div key={log.id} className="rounded-lg border border-border bg-card">
                 <button
                   type="button"
@@ -172,7 +197,7 @@ export default function LogsPage() {
                       {log.status_code != null && (
                         <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">HTTP {log.status_code}</span>
                       )}
-                      <span className="text-xs text-muted-foreground">{fmt(log.created_at)}</span>
+                      <span className="text-xs text-muted-foreground">{fmtTime(log.created_at)}</span>
                     </div>
                     <p className="mt-1 break-words text-sm text-foreground">{log.message}</p>
                   </div>
@@ -183,8 +208,10 @@ export default function LogsPage() {
                   </pre>
                 )}
               </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

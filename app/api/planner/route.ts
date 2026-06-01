@@ -847,6 +847,46 @@ function getUpcomingLuxembourgHolidays(luxDate: Date, days: number): { name: str
     }))
 }
 
+/**
+ * Strip incomplete tool invocations out of the replayed message history.
+ *
+ * A tool call that was interrupted mid-stream — by the `stopSequences`
+ * kill-switch, the `stepCountIs` limit, or a transport error — gets persisted
+ * on the client as a tool part WITHOUT a completed input/output. When
+ * convertToModelMessages turns that into an Anthropic `tool_use` block it has
+ * no `input`, and Anthropic rejects the ENTIRE next request with a 400
+ * ("messages.N.content.0.tool_use.input: Field required"). That is what made
+ * the planner chat die on the turn after any tool-using reply, regardless of
+ * whether the API key was valid.
+ *
+ * We keep only fully-resolved tool parts (state "output-available" /
+ * "output-error") so every tool_use has both its input and a matching
+ * tool_result, and drop any message left with no parts.
+ */
+function sanitizePlannerMessages(messages: PlannerMessage[]): PlannerMessage[] {
+  const cleaned: PlannerMessage[] = []
+  for (const m of messages) {
+    const parts = (m.parts ?? []).filter((p) => {
+      const t = (p as { type?: string }).type ?? ""
+      if (!t.startsWith("tool-") && t !== "dynamic-tool") return true
+      const part = p as { state?: string; input?: unknown }
+      const resolved = part.state === "output-available" || part.state === "output-error"
+      // A tool_use replayed to Anthropic MUST carry its input object. Parts with
+      // undefined input slip through a state-only check — this happens both for
+      // interrupted streams AND for client-injected synthetic cards (e.g. the
+      // "manual-…" buildItinerary the planner page adds when it builds the
+      // itinerary deterministically). Either way, an empty input triggers the
+      // 400 "tool_use.input: Field required", so we require a real input here.
+      const hasInput = part.input !== undefined && part.input !== null
+      return resolved && hasInput
+    })
+    if (parts.length > 0) {
+      cleaned.push({ ...m, parts } as PlannerMessage)
+    }
+  }
+  return cleaned
+}
+
 export async function POST(req: Request) {
   schedulePrune()
   const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
@@ -872,6 +912,11 @@ export async function POST(req: Request) {
       console.error("[planner] validateUIMessages failed, using raw:", e)
       messages = body.messages ?? []
     }
+
+    // Drop any half-finished tool calls before replaying history to the model —
+    // an incomplete tool_use (no input) makes Anthropic reject the whole
+    // request with a 400 and breaks the chat. See sanitizePlannerMessages.
+    messages = sanitizePlannerMessages(messages)
 
     // Fetch live weather once per request and make it available to tools
     _liveWeather = await fetchLiveWeather()
