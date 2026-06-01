@@ -564,7 +564,6 @@ export default function TripDetailClient({
                 <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-foreground">Right now in Luxembourg</span>
-                    {!weatherLoading && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Live</span>}
                   </div>
                   {weatherLoading ? (
                     <div className="mt-3 flex items-center gap-3">
@@ -597,7 +596,6 @@ export default function TripDetailClient({
                                 <span className="text-muted-foreground">{d.day}</span>
                                 <DI className="h-5 w-5 text-primary" />
                                 <span className="font-semibold text-foreground">{d.high}&deg;</span>
-                                <span className="text-muted-foreground/60 text-[10px]">{d.low}&deg;</span>
                               </div>
                             )
                           })}

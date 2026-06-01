@@ -93,7 +93,7 @@ function useFeaturedTripIds(): Set<string> {
       .map((t) => String(t.id))
   )
 }
-import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink, Settings2, Loader2, Check, X as XIcon } from "lucide-react"
+import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink, Settings2, Loader2, Check, X as XIcon } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
 import { useEditMode } from "@/components/edit-mode-provider"
@@ -193,9 +193,6 @@ export function WeatherSection() {
             <div className="relative z-10 p-6">
               <div className="flex items-center justify-between">
                 <h3 className={`text-lg font-bold ${theme.text}`}>{weather?.current.city ?? "Luxembourg"}</h3>
-                {!isLoading && weather && (
-                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${theme.badge}`}>Live</span>
-                )}
               </div>
 
               <div className="mt-5 flex items-end gap-4">
@@ -229,10 +226,6 @@ export function WeatherSection() {
                   <Wind className="h-3.5 w-3.5" />
                   {isLoading ? "--" : `${weather?.current.wind} km/h`}
                 </span>
-                <span className="flex items-center gap-1">
-                  <Thermometer className="h-3.5 w-3.5" />
-                  {isLoading ? "--" : `${weather?.current.feelsLike}°C`}
-                </span>
               </div>
 
               {/* 4-day forecast grid */}
@@ -253,7 +246,6 @@ export function WeatherSection() {
                         <span className={`font-medium ${theme.subtext}`}>{d.day}</span>
                         <DI className={`h-5 w-5 ${theme.iconColor}`} />
                         <span className={`font-bold ${theme.text}`}>{d.high}&deg;</span>
-                        <span className={`text-[10px] ${theme.subtext}`}>{d.low}&deg;</span>
                       </div>
                     )
                   })
