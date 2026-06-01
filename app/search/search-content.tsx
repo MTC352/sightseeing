@@ -732,6 +732,14 @@ function SearchListCard({
               ))}
             </div>
           </div>
+        ) : (!dateFilter?.date && departures.nextAvailableDate) ? (
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Clock className="h-3.5 w-3.5 text-primary" />
+              Next timeslot available on{" "}
+              <span className="font-semibold text-foreground">{formatDate(departures.nextAvailableDate)}</span>
+            </p>
+          </div>
         ) : null}
       </div>
 

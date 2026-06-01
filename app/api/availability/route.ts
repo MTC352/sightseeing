@@ -24,6 +24,10 @@ export interface AvTripAvailability {
   /** Grouped by variant name — used for the full-timeslot modal */
   todayGroups: AvSlotGroup[]
   tomorrowGroups: AvSlotGroup[]
+  /** Earliest bookable date strictly AFTER tomorrow (YYYY-MM-DD), within the
+   *  scan window. Non-date mode only — lets cards show "Next timeslot available
+   *  on {date}" when there are no today/tomorrow slots. null when none found. */
+  nextAvailableDate?: string | null
 }
 
 export type AvailabilityMap = Record<string, AvTripAvailability>
@@ -78,8 +82,11 @@ export async function GET(req: Request) {
   const todayStr    = toYMD(now)
   const tomorrowStr = toYMD(new Date(now.getTime() + 86_400_000))
 
+  // Non-date mode scans a 30-day window (not just today/tomorrow) so we can
+  // surface the next bookable date for trips with no today/tomorrow slots.
+  const horizonStr = toYMD(new Date(now.getTime() + 30 * 86_400_000))
   const startDate = dateParam || todayStr
-  const endDate   = dateParam || tomorrowStr
+  const endDate   = dateParam || horizonStr
   const dateMode  = dateParam !== ""
 
   const cacheKey = `${startDate}|${endDate}`
@@ -112,6 +119,7 @@ export async function GET(req: Request) {
 
         const todayRaw: AvTimeslot[]    = []
         const tomorrowRaw: AvTimeslot[] = []
+        let nextAvailableDate: string | null = null
 
         for (const d of dates) {
           if (!d.start_time) continue
@@ -133,6 +141,18 @@ export async function GET(req: Request) {
           } else {
             if (d.start_date === todayStr)         todayRaw.push(slot)
             else if (d.start_date === tomorrowStr) tomorrowRaw.push(slot)
+            else if (
+              d.start_date &&
+              d.start_date > tomorrowStr &&
+              (unlimited || spotsLeft > 0)
+            ) {
+              // Track the earliest ACTUALLY-BOOKABLE date beyond tomorrow
+              // (skip sold-out departures so the card never points users at
+              // a date they can't book).
+              if (!nextAvailableDate || d.start_date < nextAvailableDate) {
+                nextAvailableDate = d.start_date
+              }
+            }
           }
         }
 
@@ -141,6 +161,7 @@ export async function GET(req: Request) {
           tomorrow:       deduplicateByTime(tomorrowRaw),
           todayGroups:    buildGroups(todayRaw),
           tomorrowGroups: buildGroups(tomorrowRaw),
+          nextAvailableDate: dateMode ? null : nextAvailableDate,
         }
       } catch {
         // skip — card falls back to dummy
