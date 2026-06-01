@@ -866,12 +866,14 @@ function PrefPill({
   value,
   icon: Icon,
   testid,
+  contentClassName,
   children,
 }: {
   label: string
   value: string
   icon?: LucideIcon
   testid?: string
+  contentClassName?: string
   children: (close: () => void) => React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -889,7 +891,7 @@ function PrefPill({
           <ChevronDown className="h-3 w-3 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-2">
+      <PopoverContent align="start" className={cn("w-56 p-2", contentClassName)}>
         <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
         {children(() => setOpen(false))}
       </PopoverContent>
@@ -995,6 +997,7 @@ function EditablePrefsBar({
           value={`${partyTotal} ${partyTotal === 1 ? "person" : "people"}`}
           icon={Users}
           testid="prefpill-party"
+          contentClassName="w-72"
         >
           {() => (
             <div className="flex flex-col gap-2">
