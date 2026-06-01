@@ -231,7 +231,7 @@ export function WeatherSection() {
                 </span>
                 <span className="flex items-center gap-1">
                   <Thermometer className="h-3.5 w-3.5" />
-                  {isLoading ? "--" : `${weather?.current.feelsLike}&deg;`}
+                  {isLoading ? "--" : `${weather?.current.feelsLike}°`}
                 </span>
               </div>
 

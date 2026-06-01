@@ -35,9 +35,11 @@ function decodeEntities(str: string | null | undefined): string {
   )
 }
 
-function SkeletonCard() {
+function SkeletonCard({ fill = false }: { fill?: boolean }) {
   return (
-    <div className="flex w-[calc(100vw-5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:w-64">
+    <div className={`flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${
+      fill ? "w-full" : "w-[calc(100vw-5rem)] shrink-0 sm:w-64"
+    }`}>
       <div className="h-[248px] w-full animate-pulse bg-secondary" />
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div className="h-2.5 w-16 animate-pulse rounded bg-secondary" />
@@ -198,9 +200,20 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
 
       {/* Carousel */}
       {isLoading ? (
-        <div className="mt-4 flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {Array.from({ length: 2 }).map((_, i) => <SkeletonCard key={i} />)}
-        </div>
+        displayCount <= 3 ? (
+          /* Match the few-trips grid so skeleton width === real card width */
+          <div className={`mt-4 grid gap-4 ${
+            displayCount === 1 ? "grid-cols-1" :
+            displayCount === 2 ? "grid-cols-2" :
+            "grid-cols-3"
+          }`}>
+            {Array.from({ length: displayCount }).map((_, i) => <SkeletonCard key={i} fill />)}
+          </div>
+        ) : (
+          <div className="mt-4 flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {Array.from({ length: displayCount }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+        )
       ) : trips.length === 0 ? (
         <div className="mt-4 flex items-center justify-center rounded-2xl border border-dashed border-border bg-secondary/30 p-8 text-center">
           <div>
