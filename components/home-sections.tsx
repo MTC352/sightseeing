@@ -513,8 +513,8 @@ export function ReviewsSection() {
         </div>
       )}
 
-      <div className="flex flex-col gap-8 lg:flex-row">
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-stretch">
+        <div className="flex min-w-0 flex-1 flex-col">
 
           {/* ── Header row: title + overall rating + CTA button ── */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -600,59 +600,8 @@ export function ReviewsSection() {
               </a>
             </div>
           ) : (
-            /* Live review cards */
-            <div className="mt-6 flex gap-4 overflow-x-auto pb-3 md:grid md:grid-cols-2 md:overflow-visible md:pb-0 xl:grid-cols-3">
-              {liveReviews.slice(0, 5).map((review, idx) => (
-                <div
-                  key={idx}
-                  className="group min-w-[260px] flex flex-col rounded-2xl border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md md:min-w-0"
-                >
-                  {/* Reviewer header */}
-                  <div className="flex items-start gap-3">
-                    {review.avatar ? (
-                      <img
-                        src={review.avatar}
-                        alt={review.author}
-                        width={40}
-                        height={40}
-                        className="h-10 w-10 rounded-full object-cover ring-2 ring-border"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                        {review.author.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-foreground">{review.author}</p>
-                      <p className="text-xs text-muted-foreground">{review.date}</p>
-                    </div>
-                    <GoogleBrandIcon className="h-4 w-4 shrink-0 opacity-70" />
-                  </div>
-
-                  {/* Stars */}
-                  <div className="mt-2">
-                    <ReviewStars rating={review.rating} size="sm" />
-                  </div>
-
-                  {/* Review text */}
-                  <p className="mt-2.5 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-5">
-                    {review.text}
-                  </p>
-
-                  {/* View on Google — appears on hover */}
-                  {review.url && (
-                    <a
-                      href={review.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-3 flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100"
-                    >
-                      View on Google <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
+            /* Live reviews — auto-advancing slider (loops the latest 5) */
+            <ReviewSlider reviews={liveReviews.slice(0, 5)} />
           )}
         </div>
 
@@ -674,6 +623,113 @@ function BestsellerSidebar() {
       <div className="mt-4">
         {isLoading ? <TripCardSkeleton /> : <TripCard trip={trips[0]} priority />}
       </div>
+    </div>
+  )
+}
+
+/* Reviews slider — one review at a time, auto-advances every 5s and loops.
+ * `flex-1` makes it fill the left column, which stretches to match the
+ * bestseller card height (parent row is lg:items-stretch). */
+function ReviewSlider({ reviews }: { reviews: LiveReview[] }) {
+  const [index, setIndex] = React.useState(0)
+  const [paused, setPaused] = React.useState(false)
+  const count = reviews.length
+
+  React.useEffect(() => {
+    if (index > count - 1) setIndex(0)
+  }, [count, index])
+
+  React.useEffect(() => {
+    if (count <= 1 || paused) return
+    // Respect users who prefer reduced motion — don't auto-rotate for them.
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
+    const id = setInterval(() => setIndex((i) => (i + 1) % count), 5000)
+    return () => clearInterval(id)
+  }, [count, paused])
+
+  if (count === 0) return null
+  const active = Math.min(index, count - 1)
+
+  return (
+    <div
+      className="mt-6 flex flex-1 flex-col"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      {/* Viewport */}
+      <div className="relative min-h-[260px] flex-1 overflow-hidden rounded-2xl">
+        <div
+          className="flex h-full transition-transform duration-500 ease-out"
+          style={{ transform: `translateX(-${active * 100}%)` }}
+        >
+          {reviews.map((review, idx) => (
+            <div key={idx} aria-hidden={idx !== active} className="h-full w-full shrink-0 px-0.5">
+              <div className="group flex h-full flex-col rounded-2xl border border-border bg-card p-6 shadow-sm">
+                {/* Reviewer header */}
+                <div className="flex items-start gap-3">
+                  {review.avatar ? (
+                    <img
+                      src={review.avatar}
+                      alt={review.author}
+                      width={44}
+                      height={44}
+                      className="h-11 w-11 rounded-full object-cover ring-2 ring-border"
+                    />
+                  ) : (
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
+                      {review.author.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-foreground">{review.author}</p>
+                    <p className="text-xs text-muted-foreground">{review.date}</p>
+                  </div>
+                  <GoogleBrandIcon className="h-5 w-5 shrink-0 opacity-70" />
+                </div>
+
+                {/* Stars */}
+                <div className="mt-3">
+                  <ReviewStars rating={review.rating} size="sm" />
+                </div>
+
+                {/* Review text */}
+                <p className="mt-3 flex-1 overflow-hidden text-sm leading-relaxed text-muted-foreground line-clamp-6">
+                  {review.text}
+                </p>
+
+                {/* View on Google */}
+                {review.url && (
+                  <a
+                    href={review.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary transition-opacity hover:underline"
+                  >
+                    View on Google <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Dots */}
+      {count > 1 && (
+        <div className="mt-4 flex items-center justify-center gap-2">
+          {reviews.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => setIndex(idx)}
+              aria-label={`Go to review ${idx + 1}`}
+              aria-current={idx === active}
+              className={`h-2 rounded-full transition-all ${
+                idx === active ? "w-6 bg-primary" : "w-2 bg-border hover:bg-muted-foreground/40"
+              }`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
