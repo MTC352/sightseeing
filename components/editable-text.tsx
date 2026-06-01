@@ -63,9 +63,12 @@ export function EditableText({
     return <Tag className={className}>{displayValue}</Tag>
   }
 
+  // Marker so the generic AutoEditableLayer skips elements already wrapped here.
+  const editableMarker = { "data-editable": "true" } as Record<string, string>
+
   if (editing) {
     return (
-      <span className="relative inline-flex flex-col gap-1">
+      <span data-editable="true" className="relative inline-flex flex-col gap-1">
         {multiline ? (
           <textarea
             ref={inputRef as React.Ref<HTMLTextAreaElement>}
@@ -116,6 +119,7 @@ export function EditableText({
 
   return (
     <Tag
+      {...editableMarker}
       className={cn(
         className,
         "group/editable relative cursor-pointer rounded underline decoration-amber-400 decoration-dotted underline-offset-2 transition-colors hover:bg-amber-400/10"

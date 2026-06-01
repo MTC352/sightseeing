@@ -91,7 +91,7 @@ export function EditableImage({
   return (
     // className is forwarded so callers can pass "absolute inset-0" etc.
     // "relative" is always added so the button overlay positions correctly.
-    <div className={cn(/\b(absolute|fixed|sticky)\b/.test(className ?? "") ? "" : "relative", className)}>
+    <div data-editable="true" className={cn(/\b(absolute|fixed|sticky)\b/.test(className ?? "") ? "" : "relative", className)}>
       {children(displaySrc)}
 
       {/* "Change image" button — always visible in edit mode */}

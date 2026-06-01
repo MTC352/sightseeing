@@ -83,6 +83,7 @@ export function AccessibilityToolbar() {
         aria-label="Accessibility options"
         aria-expanded={open}
         aria-controls="a11y-panel"
+        data-no-edit
         className="fixed bottom-20 right-4 z-[9998] flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-md transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:bottom-6 sm:right-6"
         style={{ bottom: open ? "auto" : undefined }}
       >
@@ -93,6 +94,7 @@ export function AccessibilityToolbar() {
       {open && (
         <div
           id="a11y-panel"
+          data-no-edit
           role="dialog"
           aria-label="Accessibility settings"
           aria-modal="false"

@@ -323,3 +323,26 @@
   height: 0;
   font-size: 0.875rem;
 }
+
+/* Auto-detected frontend editor (Edit Mode) */
+.auto-editable {
+  cursor: pointer;
+  outline: 1px dashed rgba(251, 191, 36, 0.7);
+  outline-offset: 2px;
+  border-radius: 2px;
+  transition: background-color 0.15s ease, outline-color 0.15s ease;
+}
+.auto-editable:hover {
+  background-color: rgba(251, 191, 36, 0.12);
+  outline-color: rgba(251, 191, 36, 1);
+}
+.auto-editable-img {
+  cursor: pointer;
+  outline: 2px dashed rgba(251, 191, 36, 0.9);
+  outline-offset: 2px;
+  border-radius: 2px;
+  transition: filter 0.15s ease;
+}
+.auto-editable-img:hover {
+  filter: brightness(0.95);
+}

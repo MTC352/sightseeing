@@ -37,6 +37,7 @@ export function CookieBanner() {
   return (
     <>
       <div
+        data-no-edit
         role="dialog"
         aria-modal="false"
         aria-label="Cookie consent"

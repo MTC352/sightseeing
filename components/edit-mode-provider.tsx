@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Pencil, X, CheckCircle, Eye, Save, AlertCircle } from "lucide-react"
+import { AutoEditableLayer } from "@/components/auto-editable-layer"
 
 interface EditModeCtx {
   isEditMode: boolean
@@ -184,6 +185,8 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
           </div>
           {/* Spacer pushes page content below the fixed banner */}
           <div className="h-10" aria-hidden="true" />
+          {/* Generic auto-detection editor for pages without explicit wrappers */}
+          <AutoEditableLayer />
         </>
       )}
       {children}
