@@ -5,7 +5,6 @@ import React, { useState } from "react"
 import Link from "next/link"
 import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
 import { OutdoorTodayTrips } from "./outdoor-today-trips"
-import { WeatherWidget } from "./weather-widget"
 import { tripSummaries as staticTrips, categories, type Trip } from "@/lib/data"
 import { useGetPublicTripsQuery, useGetGoogleReviewsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
@@ -94,7 +93,7 @@ function useFeaturedTripIds(): Set<string> {
       .map((t) => String(t.id))
   )
 }
-import { Star, ChevronRight, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink, Settings2, Loader2, Check, X as XIcon } from "lucide-react"
+import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Thermometer, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink, Settings2, Loader2, Check, X as XIcon } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
 import { useEditMode } from "@/components/edit-mode-provider"
@@ -103,6 +102,7 @@ import { DeparturesSoonSection } from "@/components/departing-soon-section"
 export { DeparturesSoonSection }
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = { "Food & Events": Utensils, "Sports & Nature": Bike, Culture: Landmark, Tours: MapIcon, "Gift Vouchers": Gift, "Private Tours": Users, Dinnerhopping: Wine, "LUGA Goodies": Sparkles }
+const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
 
 /* Trending Section */
 export function TrendingSection() {
@@ -144,12 +144,123 @@ export function TrendingSection() {
 export function WeatherSection() {
   const { weather, isLoading } = useWeather()
 
+  // Fallback skeleton icon while loading
+  const icon = weather?.current.icon ?? "cloud-sun"
+  const WeatherIcon = WEATHER_ICONS[icon] || CloudSun
+
+  // Minimal white background theme - no sky gradients
+  const BG_STYLES: Record<string, { bg: string; orb: string; text: string; subtext: string; badge: string; forecastBg: string; iconColor: string }> = {
+    "sun": {
+      bg: "bg-white",
+      orb: "hidden",
+      text: "text-foreground",
+      subtext: "text-muted-foreground",
+      badge: "bg-primary/10 text-primary border border-primary/20",
+      forecastBg: "bg-secondary hover:bg-secondary/80",
+      iconColor: "text-amber-500",
+    },
+    "cloud-sun": {
+      bg: "bg-white",
+      orb: "hidden",
+      text: "text-foreground",
+      subtext: "text-muted-foreground",
+      badge: "bg-primary/10 text-primary border border-primary/20",
+      forecastBg: "bg-secondary hover:bg-secondary/80",
+      iconColor: "text-slate-500",
+    },
+    "cloud-rain": {
+      bg: "bg-white",
+      orb: "hidden",
+      text: "text-foreground",
+      subtext: "text-muted-foreground",
+      badge: "bg-primary/10 text-primary border border-primary/20",
+      forecastBg: "bg-secondary hover:bg-secondary/80",
+      iconColor: "text-slate-600",
+    },
+  }
+
+  const theme = BG_STYLES[icon] ?? BG_STYLES["cloud-sun"]
+
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="rounded-2xl border border-border bg-card p-6 shadow-sm lg:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
-          {/* Shared weather widget — same widget used across the site */}
-          <WeatherWidget className="shrink-0 lg:w-72" />
+          {/* Weather card — minimal white design */}
+          <div
+            className={`shrink-0 overflow-hidden rounded-2xl border border-border shadow-sm lg:w-72 ${theme.bg}`}
+          >
+            {/* Content */}
+            <div className="relative z-10 p-6">
+              <div className="flex items-center justify-between">
+                <h3 className={`text-lg font-bold ${theme.text}`}>{weather?.current.city ?? "Luxembourg"}</h3>
+                {!isLoading && weather && (
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${theme.badge}`}>Live</span>
+                )}
+              </div>
+
+              <div className="mt-5 flex items-end gap-4">
+                {isLoading ? (
+                  <div className="h-16 w-40 animate-pulse rounded-lg bg-secondary" />
+                ) : (
+                  <>
+                    <WeatherIcon className={`h-16 w-16 ${theme.iconColor}`} />
+                    <div>
+                      <span className={`text-6xl font-light tracking-tight ${theme.text}`}>
+                        {weather?.current.temp ?? "--"}&deg;
+                      </span>
+                      <p className={`text-sm font-medium ${theme.text}`}>{weather?.current.condition}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {isLoading ? (
+                <div className="mt-3 h-4 w-32 animate-pulse rounded bg-secondary" />
+              ) : (
+                <p className={`mt-2 text-xs ${theme.subtext}`}>Feels like {weather?.current.feelsLike}&deg;C</p>
+              )}
+
+              <div className={`mt-4 flex gap-4 text-xs font-medium ${theme.subtext}`}>
+                <span className="flex items-center gap-1">
+                  <Droplets className="h-3.5 w-3.5" />
+                  {isLoading ? "--" : `${weather?.current.humidity}%`}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Wind className="h-3.5 w-3.5" />
+                  {isLoading ? "--" : `${weather?.current.wind} km/h`}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Thermometer className="h-3.5 w-3.5" />
+                  {isLoading ? "--" : `${weather?.current.feelsLike}°C`}
+                </span>
+              </div>
+
+              {/* 4-day forecast grid */}
+              <div className="mt-6 grid grid-cols-2 gap-2">
+                {isLoading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex flex-col items-center gap-2 rounded-lg bg-secondary p-3">
+                      <div className="h-2.5 w-8 animate-pulse rounded bg-muted" />
+                      <div className="h-5 w-5 animate-pulse rounded-full bg-muted" />
+                      <div className="h-3 w-6 animate-pulse rounded bg-muted" />
+                    </div>
+                  ))
+                ) : (
+                  weather?.forecast.map((d) => {
+                    const DI = WEATHER_ICONS[d.icon] || Sun
+                    return (
+                      <div key={d.day} className={`flex flex-col items-center gap-1.5 rounded-lg border border-border px-2 py-3 text-xs transition-colors ${theme.forecastBg}`}>
+                        <span className={`font-medium ${theme.subtext}`}>{d.day}</span>
+                        <DI className={`h-5 w-5 ${theme.iconColor}`} />
+                        <span className={`font-bold ${theme.text}`}>{d.high}&deg;</span>
+                        <span className={`text-[10px] ${theme.subtext}`}>{d.low}&deg;</span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* AI-powered outdoor recommendations */}
           <div className="flex min-w-0 flex-1 flex-col">
