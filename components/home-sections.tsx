@@ -697,17 +697,6 @@ function ReviewSlider({ reviews }: { reviews: LiveReview[] }) {
                   {review.text}
                 </p>
 
-                {/* View on Google */}
-                {review.url && (
-                  <a
-                    href={review.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary transition-opacity hover:underline"
-                  >
-                    View on Google <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
               </div>
             </div>
           ))}
