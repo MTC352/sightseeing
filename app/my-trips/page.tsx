@@ -5,97 +5,11 @@ import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { useCart, type CartItem } from "@/lib/cart-context"
-import { ShoppingBag, X, Minus, Plus, Trash2, Clock, Star, MapPin, Loader2, CreditCard, ExternalLink } from "lucide-react"
-
-const PALISIS_BASE = "https://booking.sightseeing.lu"
-
-function buildPalisisUrl(items: { id: string; quantity: number }[]): string {
-  const params = new URLSearchParams()
-  items.forEach(({ id, quantity }) => {
-    params.append("offer[]", id)
-    params.append("qty[]", String(quantity))
-  })
-  return `${PALISIS_BASE}/cart?${params.toString()}`
-}
-
-function CheckoutAllModal({ url, onClose }: { url: string; onClose: () => void }) {
-  const [loaded, setLoaded] = useState(false)
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-foreground/50 backdrop-blur-sm"
-        onClick={onClose}
-        role="button"
-        tabIndex={0}
-        aria-label="Close checkout"
-        onKeyDown={(e) => e.key === "Escape" && onClose()}
-      />
-      <div className="relative flex h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-              <CreditCard className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Secure Checkout</p>
-              <p className="text-xs text-muted-foreground">Powered by Palisis</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              Open in tab <ExternalLink className="h-3 w-3" />
-            </a>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-              aria-label="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-        {/* iframe */}
-        <div className="relative flex-1 overflow-hidden">
-          {!loaded && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-card">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Loading secure payment...</p>
-            </div>
-          )}
-          <iframe
-            src={url}
-            title="Secure Checkout"
-            className="h-full w-full border-0"
-            onLoad={() => setLoaded(true)}
-            allow="payment"
-            sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-top-navigation"
-          />
-        </div>
-        {/* Footer */}
-        <div className="flex shrink-0 items-center justify-center gap-2 border-t border-border bg-muted/40 px-4 py-2.5">
-          <svg className="h-3.5 w-3.5 text-muted-foreground" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-            <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-          </svg>
-          <p className="text-[11px] text-muted-foreground">256-bit SSL encrypted — your payment is secure</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-import { SmartItinerary } from "@/components/smart-itinerary"
+import { ShoppingBag, X, Trash2, Clock, Star, MapPin, Loader2 } from "lucide-react"
 
 export default function SavedTripsPage() {
-  const { items, removeItem, updateQuantity, clearCart, totalPrice, totalItems, hydrated } = useCart()
+  const { items, removeItem, clearCart, totalPrice, totalItems, hydrated } = useCart()
   const [selectedItem, setSelectedItem] = useState<CartItem | null>(null)
-  const [checkoutAllOpen, setCheckoutAllOpen] = useState(false)
-  const checkoutAllUrl = buildPalisisUrl(items.map((i) => ({ id: i.trip.id, quantity: i.quantity })))
 
   if (!hydrated) {
     return (
@@ -191,62 +105,28 @@ export default function SavedTripsPage() {
                   </div>
                 </div>
               </button>
-              {/* Quantity + Remove controls */}
-              <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Qty:</span>
-                  <button
-                    type="button"
-                    onClick={() => updateQuantity(item.trip.id, item.quantity - 1)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  >
-                    <Minus className="h-3 w-3" />
-                  </button>
-                  <span className="w-6 text-center text-sm font-semibold text-foreground">{item.quantity}</span>
-                  <button
-                    type="button"
-                    onClick={() => updateQuantity(item.trip.id, item.quantity + 1)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </button>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-bold text-foreground">{(item.trip.price * item.quantity).toFixed(2)} &euro;</span>
-                  <button
-                    type="button"
-                    onClick={() => removeItem(item.trip.id)}
-                    className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
-                  >
-                    <X className="h-3.5 w-3.5" /> Remove
-                  </button>
-                </div>
+              {/* Remove control */}
+              <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => removeItem(item.trip.id)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
+                >
+                  <X className="h-3.5 w-3.5" /> Remove
+                </button>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Smart Itinerary */}
-        <div className="mt-6">
-          <SmartItinerary />
-        </div>
-
-        {/* Total + Checkout All */}
+        {/* Estimated Total */}
         <div className="mt-6 rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-muted-foreground">Estimated Total</span>
             <span className="text-2xl font-bold text-foreground">{totalPrice.toFixed(2)} &euro;</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setCheckoutAllOpen(true)}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <CreditCard className="h-4 w-4" />
-            Checkout All {totalItems > 1 ? `(${totalItems} experiences)` : ""}
-          </button>
-          <p className="mt-2 text-center text-[11px] text-muted-foreground">
-            Secure payment via Palisis — 256-bit SSL encrypted
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Tap a trip to book it securely via Palisis.
           </p>
         </div>
       </div>
@@ -255,19 +135,15 @@ export default function SavedTripsPage() {
       {selectedItem && (
         <BookingModal item={selectedItem} onClose={() => setSelectedItem(null)} />
       )}
-
-      {/* Checkout All modal */}
-      {checkoutAllOpen && (
-        <CheckoutAllModal url={checkoutAllUrl} onClose={() => setCheckoutAllOpen(false)} />
-      )}
     </div>
   )
 }
 
 /* ── Booking Modal ──────────────────────────────── */
 function BookingModal({ item, onClose }: { item: CartItem; onClose: () => void }) {
+  const [loaded, setLoaded] = useState(false)
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center sm:p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
@@ -279,7 +155,7 @@ function BookingModal({ item, onClose }: { item: CartItem; onClose: () => void }
       />
 
       {/* Modal */}
-      <div className="relative z-10 mx-4 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+      <div className="relative z-10 flex h-full max-h-screen w-full flex-col overflow-hidden border border-border bg-card shadow-2xl sm:h-auto sm:max-h-[90vh] sm:max-w-2xl sm:rounded-2xl">
         {/* Close button */}
         <button
           type="button"
@@ -292,7 +168,7 @@ function BookingModal({ item, onClose }: { item: CartItem; onClose: () => void }
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
           {/* Trip hero */}
-          <div className="relative h-48 sm:h-56">
+          <div className="relative h-44 sm:h-56">
             <Image
               src={item.trip.image || "/placeholder.svg"}
               alt={item.trip.title}
@@ -349,13 +225,19 @@ function BookingModal({ item, onClose }: { item: CartItem; onClose: () => void }
 
           {/* Booking iframe */}
           <div className="border-t border-border">
-            <div className="booking-iframe-wrap">
+            <div className="booking-iframe-wrap relative">
+              {!loaded && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground">Loading booking options...</p>
+                </div>
+              )}
               <iframe
                 src="https://sightseeingluxembourg.palisis.com/?book-direct=r-8146"
                 title={`Book ${item.trip.title}`}
                 className="booking-iframe"
                 allow="payment"
-                loading="lazy"
+                onLoad={() => setLoaded(true)}
               />
             </div>
           </div>

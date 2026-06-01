@@ -31,7 +31,7 @@ const LINKS = {
     { label: "Trains", href: "/trains" },
     { label: "Cars", href: "/cars" },
     { label: "Hotels", href: "/hotels" },
-    { label: "Checkout", href: "/checkout" },
+    { label: "My Trips", href: "/my-trips" },
   ],
   "Support": [
     { label: "Help & FAQ", href: "/help" },

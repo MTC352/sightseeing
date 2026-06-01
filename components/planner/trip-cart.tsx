@@ -219,7 +219,7 @@ export function TripCart() {
 
           {/* Secondary: browse saved trips */}
           <Link
-            href="/checkout"
+            href="/my-trips"
             className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
           >
             View Saved Trips <ChevronRight className="h-4 w-4" />

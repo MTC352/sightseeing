@@ -135,11 +135,11 @@ export function Navbar() {
 
 
           <Link
-            href="/checkout"
+            href="/my-trips"
             className="relative flex items-center gap-1.5 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <ShoppingBag className="h-5 w-5" />
-            <span className="sr-only">Cart</span>
+            <span className="sr-only">My Trips</span>
             {totalItems > 0 && (
               <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
                 {totalItems}

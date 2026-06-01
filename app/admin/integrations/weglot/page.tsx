@@ -278,7 +278,7 @@ export default function WeglotSettingsPage() {
                   value={newUrl}
                   onChange={(e) => setNewUrl(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && addItem("excludedUrls", newUrl, () => setNewUrl(""))}
-                  placeholder="/admin or /checkout"
+                  placeholder="/admin or /my-trips"
                   className={`${inputClass} font-mono text-xs`}
                 />
                 <button

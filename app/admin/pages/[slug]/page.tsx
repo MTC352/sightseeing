@@ -10,7 +10,7 @@ const SLUG_TO_URL: Record<string, string> = {
   blog:       "/blog",
   careers:    "/careers",
   help:       "/help",
-  checkout:   "/checkout",
+  checkout:   "/my-trips",
 }
 
 export default async function PageEditorRedirect({
