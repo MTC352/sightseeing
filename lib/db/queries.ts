@@ -473,6 +473,25 @@ export async function dbDeleteHelpArticle(id: string) {
   await query(`DELETE FROM help_articles WHERE id = $1`, [id])
 }
 
+// Removes duplicate help articles, keeping the OLDEST row in each
+// (category, question, audience) group. Returns the number of rows removed.
+export async function dbDedupeHelpArticles(): Promise<number> {
+  const rows = await query<{ id: string }>(`
+    WITH ranked AS (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY category, question, COALESCE(audience, 'public')
+               ORDER BY created_at ASC, id ASC
+             ) AS rn
+      FROM help_articles
+    )
+    DELETE FROM help_articles
+    WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+    RETURNING id
+  `)
+  return rows.length
+}
+
 // ── Support Tickets ────────────────────────────────────────────────────────
 
 export async function dbListTickets(filters?: { status?: string }) {

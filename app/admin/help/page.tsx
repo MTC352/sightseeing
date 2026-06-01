@@ -2,6 +2,7 @@ import Link from "next/link"
 import { dbListHelpArticles } from "@/lib/db/queries"
 import { Plus, Pencil, HelpCircle, Globe, ShieldCheck } from "lucide-react"
 import { HelpArticleDeleteButton } from "./help-delete-button"
+import { HelpDedupeButton } from "./help-dedupe-button"
 
 export const dynamic = "force-dynamic"
 
@@ -94,6 +95,7 @@ export default async function AdminHelpPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <HelpDedupeButton />
           <Link href="/admin/docs" className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary">
             <ShieldCheck className="h-4 w-4" /> Admin Docs
           </Link>

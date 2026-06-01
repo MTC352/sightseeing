@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Save, Check, Bot, AlertCircle, Settings2, ChevronRight } from "lucide-react"
+import { ArrowLeft, Save, Check, Bot, AlertCircle, Settings2, ChevronRight, Wand2 } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 
 const MODELS = [
@@ -35,6 +35,32 @@ const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
     label: "Best Outdoor Experiences",
     hint: "Powers the 'Best Outdoor Experiences Today' section on the homepage. Receives today's weather, current time, available timeslots, trip descriptions, and details. Ranks trips by weather suitability and upcoming availability. Results are cached for 10 minutes.",
   },
+}
+
+const DEFAULT_PROMPT_SUGGESTIONS: Record<string, string> = {
+  blog: `You are an expert SEO and AEO (Answer Engine Optimization) content writer for a Luxembourg tourism website called "Sightseeing Luxembourg".
+
+  Generate a high-quality, engaging blog post with SEO best practices: compelling keyword-rich title, structured H2/H3 headings, natural keyword placement, 1200-1800 words, strong CTA.
+
+  AEO: Direct answers to likely questions, FAQ section (3-5 Q&As), structured lists, conversational language.
+
+  CONTENT GUIDELINES:
+  - Focus on Luxembourg tourism, activities, culture, food, and travel
+  - Be informative, engaging, and helpful to tourists
+  - Include practical tips and local insights
+  - Mention specific places, experiences, or tours when relevant
+  - Write in a warm, welcoming tone
+
+  OUTPUT FORMAT — metadata block first, then full Markdown:
+  ---
+  TITLE: [suggested title]
+  SLUG: [url-friendly-slug]
+  EXCERPT: [2-3 sentence excerpt]
+  READ_TIME: [X min read]
+  IMAGE_PROMPT: [detailed DALL-E cover image prompt, photorealistic Luxembourg travel photography style]
+  ---
+
+  Then the full Markdown article.`,
 }
 
 const BLOG_DEFAULT_CONFIG = {
@@ -80,6 +106,18 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
       .catch(() => {})
     return () => { cancelled = true }
   }, [system])
+
+  const defaultSuggestion = DEFAULT_PROMPT_SUGGESTIONS[system]
+
+  function loadDefaultSuggestion() {
+    if (!defaultSuggestion) return
+    const current = form.systemPrompt.trim()
+    if (current && current !== defaultSuggestion.trim()) {
+      const ok = window.confirm("Replace the current system prompt with the default suggestion? Your current text will be overwritten (you can still restore it from Revisions after saving).")
+      if (!ok) return
+    }
+    setForm((f) => ({ ...f, systemPrompt: defaultSuggestion }))
+  }
 
   async function save() {
     setSaving(true)
@@ -146,14 +184,27 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
       <div className="max-w-2xl space-y-6">
         {/* System prompt */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-1.5 flex items-center justify-between">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
             <label className={labelClass + " mb-0"}>System Prompt</label>
-            <PromptRevisions
-              systemKey={system}
-              promptKind="systemPrompt"
-              currentText={form.systemPrompt}
-              onActivate={(text) => setForm((f) => ({ ...f, systemPrompt: text }))}
-            />
+            <div className="flex items-center gap-2">
+              {defaultSuggestion && (
+                <button
+                  type="button"
+                  onClick={loadDefaultSuggestion}
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  title="Replace the prompt with a recommended default"
+                >
+                  <Wand2 className="h-3.5 w-3.5" />
+                  Load default suggestion
+                </button>
+              )}
+              <PromptRevisions
+                systemKey={system}
+                promptKind="systemPrompt"
+                currentText={form.systemPrompt}
+                onActivate={(text) => setForm((f) => ({ ...f, systemPrompt: text }))}
+              />
+            </div>
           </div>
           <textarea
             rows={8}

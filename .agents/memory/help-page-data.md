@@ -31,3 +31,13 @@ description: Where /help articles come from, how its UI hides articles, and why 
   keyed on `(question, category)`. There is **no DB-level unique constraint** on
   help_articles, so prevention relies on script/app behavior. If hardening further, add
   a unique index on `(audience, category, question)` and align any dedup SQL to the same key.
+
+## Runtime dedupe + dev/prod data divergence
+- Dev and prod are **separate databases** and their help_articles content has diverged:
+  dev was reseeded to a richer ~83-unique set; prod still held the old 17 FAQs tripled
+  to 50. Publishing syncs **schema only, not data**, so prod data bugs must be fixed in prod.
+- The agent can only run **read-only** SELECTs against prod (database skill). To clean prod
+  data the fix must run inside the deployed app: admin-gated `POST /api/admin/help/dedupe`
+  → `dbDedupeHelpArticles()` (keeps oldest per `(category, question, COALESCE(audience,'public'))`),
+  triggered by a "Remove duplicates" button on `/admin/help`. **How to apply:** user must
+  redeploy, then click the button once on the live site.
