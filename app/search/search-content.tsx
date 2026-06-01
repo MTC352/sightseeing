@@ -554,6 +554,9 @@ function AllSlotsModal({
         className="flex flex-col sm:max-w-2xl p-0 gap-0 overflow-hidden"
         style={{ maxHeight: "min(85vh, 680px)" }}
         aria-describedby={undefined}
+        // Prevent Radix from auto-focusing the first timeslot chip on open,
+        // which scrolls the body to that chip and reads as a "glitchy" jump.
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
         {/* Fixed header */}
         <DialogHeader className="shrink-0 px-6 pt-6 pb-4 border-b border-border">
