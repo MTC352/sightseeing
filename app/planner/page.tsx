@@ -12,6 +12,8 @@ import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { SidebarItinerary, ItineraryPanel, type Itinerary, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { weatherData, type Trip } from "@/lib/data"
+import { cn } from "@/lib/utils"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 
 // Fail-closed: NEVER bootstrap the AI planner with static seed data — it
 // would expose archived/draft trips that have been removed from the DB.
@@ -667,11 +669,15 @@ function TripCard({
   onSelect,
   isInCart,
   onAdd,
+  availableDates,
 }: {
   trip: Trip
   onSelect: (trip: Trip) => void
   isInCart: boolean
   onAdd: (trip: Trip) => void
+  /** When provided, render the trip's bookable dates (within the scan window)
+   *  as small chips — used for the "Available on other dates" group. */
+  availableDates?: string[]
 }) {
   // One-tick guard: cart state is render-time, so a fast double-click /
   // double-tap could fire onAdd twice before isInCart re-renders. We flip
@@ -759,7 +765,213 @@ function TripCard({
             <span className="text-base font-bold text-foreground">{trip.price > 0 ? `${trip.price.toFixed(0)}\u20AC` : "Free"}</span>
           </div>
         </div>
+        {availableDates && availableDates.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1" data-testid={`planner-trip-dates-${trip.id}`}>
+            <span className="text-[10px] font-medium text-muted-foreground">Available:</span>
+            {availableDates.slice(0, 4).map((d) => (
+              <span key={d} className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">{formatYMDPretty(d)}</span>
+            ))}
+            {availableDates.length > 4 && (
+              <span className="text-[10px] text-muted-foreground">+{availableDates.length - 4} more</span>
+            )}
+          </div>
+        )}
       </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────── */
+/*  EDITABLE PREFERENCE BAR                */
+/*  Each pill opens a Popover that edits   */
+/*  ONLY that field (single-pref editing). */
+/*  Patches go through applyDirectPref so   */
+/*  recs rebuild deterministically and chat */
+/*  history is preserved.                    */
+/* ────────────────────────────────────── */
+function PrefPill({
+  label,
+  value,
+  icon: Icon,
+  testid,
+  children,
+}: {
+  label: string
+  value: string
+  icon?: LucideIcon
+  testid?: string
+  children: (close: () => void) => React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid={testid}
+          title={`Edit ${label.toLowerCase()}`}
+          className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize transition-colors hover:bg-secondary/70 hover:ring-1 hover:ring-primary/40"
+        >
+          {Icon && <Icon className="h-3 w-3" />}
+          {value}
+          <ChevronDown className="h-3 w-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 p-2">
+        <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+        {children(() => setOpen(false))}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function EditablePrefsBar({
+  prefs,
+  formOptions,
+  onPatch,
+  onReset,
+}: {
+  prefs: Preferences
+  formOptions: FormOptions
+  onPatch: (patch: Partial<Preferences>) => void
+  onReset: () => void
+}) {
+  const groupLabel = formOptions.groups.find((g) => g.value === prefs.group)?.label ?? prefs.group
+  const durationLabel = formOptions.durations.find((d) => d.value === prefs.duration)?.label ?? prefs.duration
+  const budgetLabel = formOptions.budgets.find((b) => b.value === prefs.budget)?.label ?? prefs.budget
+  const interestLabel = (v: string) => formOptions.interests.find((i) => i.value === v)?.label ?? v
+
+  const toggleInterest = (val: string) => {
+    const has = prefs.interests.includes(val)
+    const next = has
+      ? prefs.interests.filter((v) => v !== val)
+      : prefs.interests.length < formOptions.maxInterests
+        ? [...prefs.interests, val]
+        : prefs.interests
+    onPatch({ interests: next })
+  }
+
+  const optionRow = (active: boolean, onClick: () => void, label: string, key: string) => (
+    <button
+      key={key}
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs capitalize hover:bg-secondary",
+        active && "bg-secondary font-medium text-primary",
+      )}
+    >
+      <span>{label}</span>
+      {active && <Check className="h-3.5 w-3.5" />}
+    </button>
+  )
+
+  return (
+    <div
+      data-testid="planner-prefs-bar"
+      className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2"
+    >
+      {/* Date */}
+      {formOptions.enabledSteps.dates && (
+        <PrefPill
+          label="Visit date"
+          value={prefs.startDate ? formatYMDPretty(prefs.startDate) : "Any date"}
+          icon={Calendar}
+          testid="prefpill-date"
+        >
+          {(close) => (
+            <div className="flex flex-col gap-1.5">
+              <input
+                type="date"
+                min={todayYMD()}
+                value={prefs.startDate || ""}
+                onChange={(e) => {
+                  if (e.target.value) onPatch({ startDate: e.target.value })
+                }}
+                data-testid="prefpill-date-input"
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+              />
+              <div className="grid grid-cols-3 gap-1">
+                {([["Today", todayYMD()], ["Tomorrow", tomorrowYMD()], ["Weekend", nextWeekendYMD()]] as const).map(
+                  ([lbl, val]) =>
+                    optionRow(prefs.startDate === val, () => { onPatch({ startDate: val }); close() }, lbl, lbl),
+                )}
+              </div>
+            </div>
+          )}
+        </PrefPill>
+      )}
+
+      {/* Group */}
+      {formOptions.enabledSteps.groups && (
+        <PrefPill label="Who's coming" value={groupLabel} testid="prefpill-group">
+          {(close) => (
+            <div className="flex flex-col gap-0.5">
+              {formOptions.groups.map((g) =>
+                optionRow(prefs.group === g.value, () => { onPatch({ group: g.value }); close() }, g.label, g.value),
+              )}
+            </div>
+          )}
+        </PrefPill>
+      )}
+
+      {/* Interests (multi-select toggle) */}
+      {formOptions.enabledSteps.interests &&
+        prefs.interests.map((i) => (
+          <PrefPill key={i} label="Interests" value={interestLabel(i)} testid={`prefpill-interest-${i}`}>
+            {() => (
+              <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
+                <p className="px-1 pb-1 text-[10px] text-muted-foreground">
+                  Pick up to {formOptions.maxInterests}
+                </p>
+                {formOptions.interests.map((opt) =>
+                  optionRow(
+                    prefs.interests.includes(opt.value),
+                    () => toggleInterest(opt.value),
+                    opt.label,
+                    opt.value,
+                  ),
+                )}
+              </div>
+            )}
+          </PrefPill>
+        ))}
+
+      {/* Duration */}
+      {formOptions.enabledSteps.durations && (
+        <PrefPill label="Time available" value={durationLabel} testid="prefpill-duration">
+          {(close) => (
+            <div className="flex flex-col gap-0.5">
+              {formOptions.durations.map((d) =>
+                optionRow(prefs.duration === d.value, () => { onPatch({ duration: d.value }); close() }, d.label, d.value),
+              )}
+            </div>
+          )}
+        </PrefPill>
+      )}
+
+      {/* Budget */}
+      {formOptions.enabledSteps.budgets && (
+        <PrefPill label="Budget" value={budgetLabel} testid="prefpill-budget">
+          {(close) => (
+            <div className="flex flex-col gap-0.5">
+              {formOptions.budgets.map((b) =>
+                optionRow(prefs.budget === b.value, () => { onPatch({ budget: b.value }); close() }, b.label, b.value),
+              )}
+            </div>
+          )}
+        </PrefPill>
+      )}
+
+      <button
+        type="button"
+        onClick={onReset}
+        className="ml-auto rounded-full p-1 text-muted-foreground hover:text-foreground"
+        title="Reset preferences"
+        data-testid="planner-prefs-reset"
+      >
+        <RotateCcw className="h-3 w-3" />
+      </button>
     </div>
   )
 }
@@ -1358,18 +1570,24 @@ export default function PlannerPage() {
     if (typeof patch.startDate === "string" && patch.startDate) next.startDate = patch.startDate
     if (typeof patch.budget === "string" && patch.budget) next.budget = patch.budget
     if (typeof patch.group === "string" && patch.group) next.group = patch.group
+    // Interests is the one array field a single-pref edit can REPLACE wholesale
+    // (incl. emptying it). The caller computes the next list (toggle add/remove).
+    if (Array.isArray(patch.interests)) {
+      next.interests = patch.interests.filter((v): v is string => typeof v === "string")
+    }
     if (Array.isArray(patch.exclusions)) {
       next.exclusions = patch.exclusions.filter((e): e is string => typeof e === "string").slice(0, 10)
     }
 
-    const exclKey = (e?: string[]) => (e ?? []).slice().sort().join("|")
+    const arrKey = (a?: string[]) => (a ?? []).slice().sort().join("|")
     const unchanged =
       next.duration === base.duration &&
       next.dayCount === base.dayCount &&
       next.startDate === base.startDate &&
       next.budget === base.budget &&
       next.group === base.group &&
-      exclKey(next.exclusions) === exclKey(base.exclusions)
+      arrKey(next.interests) === arrKey(base.interests) &&
+      arrKey(next.exclusions) === arrKey(base.exclusions)
     if (unchanged) return
 
     prefsRef.current = next
@@ -2525,6 +2743,63 @@ export default function PlannerPage() {
     return scored.slice(0, 8).map((s) => s.trip)
   }, [prefs, allTrips])
 
+  /* ── Planner availability (window scan) ───────────────────────────────
+     Drives the canvas "Recommended for you" ordering + date grouping.
+     Decoupled from the AI chat: the canvas shows EVERY preference-matching
+     trip, sorted by availability-on-selected-date then match score. The AI
+     chat remains a separate helper (it can still adjust prefs, which flows
+     back into this list). Window length is admin-configurable. */
+  const selectedDateForAvail = prefs?.startDate ?? ""
+  const [plannerAvail, setPlannerAvail] = useState<Record<string, { availableOnSelectedDate: boolean; availableDates: string[] }>>({})
+  const [availLoading, setAvailLoading] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setAvailLoading(true)
+    // Clear stale availability for the PREVIOUS date so grouping never reflects
+    // an old selection while the new window scan is in flight (or if it fails).
+    setPlannerAvail({})
+    const qs = selectedDateForAvail ? `?date=${encodeURIComponent(selectedDateForAvail)}` : ""
+    fetch(`/api/planner/availability${qs}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { trips?: Record<string, { availableOnSelectedDate: boolean; availableDates: string[] }> } | null) => {
+        if (cancelled) return
+        // Fail-soft: on a null/failed response leave availability empty so cards
+        // simply omit date chips rather than showing stale data.
+        setPlannerAvail(data?.trips ?? {})
+      })
+      .catch(() => { if (!cancelled) setPlannerAvail({}) /* fail-soft: no date chips */ })
+      .finally(() => { if (!cancelled) setAvailLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedDateForAvail])
+
+  /* Full preference-matched recommendation list, sorted by availability then
+     match score. `fallbackTrips` already returns ALL trips whose tags match
+     the visitor's interests (score-ordered); here we layer availability on
+     top so trips bookable on the selected date float to the top. */
+  const hasSelectedDate = !!prefs?.startDate
+  const recommendedTrips = useMemo(() => {
+    if (!prefs || prefs.interests.length === 0 || fallbackTrips.length === 0) return []
+    const arr = fallbackTrips.map((trip, idx) => {
+      const av = plannerAvail[trip.id]
+      return {
+        trip,
+        idx,
+        availableOnDate: hasSelectedDate && !!av?.availableOnSelectedDate,
+        soonest: av?.availableDates?.[0] ?? null,
+      }
+    })
+    arr.sort((a, b) => {
+      if (hasSelectedDate && a.availableOnDate !== b.availableOnDate) return a.availableOnDate ? -1 : 1
+      if (!hasSelectedDate && a.soonest !== b.soonest) {
+        if (!a.soonest) return 1
+        if (!b.soonest) return -1
+        return a.soonest < b.soonest ? -1 : 1
+      }
+      return a.idx - b.idx
+    })
+    return arr.map((m) => m.trip)
+  }, [prefs, fallbackTrips, plannerAvail, hasSelectedDate])
+
   // Mirror aiTrips into a ref so onToolCall (addToCart) can resolve DB-only
   // trips (tcms_*) that aren't in the static catalog. useChat's onToolCall
   // closure captures stale values, so we read latest via this ref.
@@ -2590,22 +2865,13 @@ export default function PlannerPage() {
   // suppress the map/header fallback — otherwise the map would briefly show
   // client-scored fallback pins while the trip-list showed the loading card.
   const discoveringPrefs = prefs !== null && prefs.interests.length > 0 && !hasCompletedFirstAiTurn
-  const resultTrips: Trip[] = displayedAiTrips.length > 0
-    ? displayedAiTrips
-    // First-turn streaming with no committed trips yet, OR prefs are set
-    // but the AI hasn't finished its first turn → show NOTHING so the map
-    // and header don't flash client-scored fallback pins/counts before the
-    // AI result lands. Outside both of those windows we fall back to the
-    // client-side scored picks so the panel is never empty after onboarding.
-    : (isStreaming || discoveringPrefs ? [] : fallbackTrips)
-  // Show the "discovering" skeleton when:
-  //   a) AI is mid-turn and hasn't committed picks yet (original guard), OR
-  //   b) Prefs are set with interests but the AI hasn't finished its first
-  //      turn yet — this suppresses the 300ms flash of the fallback grid
-  //      between handleOnboardingComplete() and the auto-submit timer firing.
-  const canvasIsDiscovering =
-    (isStreaming && displayedAiTrips.length === 0) ||
-    discoveringPrefs
+  // The Trip Canvas is now DETERMINISTIC and decoupled from the AI stream:
+  // it shows every preference-matching trip (availability-sorted) the moment
+  // prefs are known — no waiting on an AI turn. This is what eliminates the
+  // reload hang (previously `discoveringPrefs` could stay true forever when a
+  // restored chat suppressed the auto-send, pinning the canvas on "Discovering…"
+  // with an empty `resultTrips`). The AI chat remains a separate helper.
+  const resultTrips: Trip[] = recommendedTrips
   const showResults = resultTrips.length > 0
 
   /* Auto-expand map and center it when AI returns a new set of results */
@@ -2764,18 +3030,13 @@ export default function PlannerPage() {
             />
           ) : (
             <>
-              {/* Preference pills */}
-              <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2">
-                <span className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{prefs.group}</span>
-                {prefs.interests.map((i) => (
-                  <span key={i} className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{i}</span>
-                ))}
-                <span className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground">{prefs.duration}</span>
-                <span className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{prefs.budget}</span>
-                <button type="button" onClick={resetPrefs} className="ml-auto rounded-full p-1 text-muted-foreground hover:text-foreground" title="Reset preferences">
-                  <RotateCcw className="h-3 w-3" />
-                </button>
-              </div>
+              {/* Preference pills — clickable, single-field editing */}
+              <EditablePrefsBar
+                prefs={prefs}
+                formOptions={formOptions}
+                onPatch={applyDirectPref}
+                onReset={resetPrefs}
+              />
 
               {/* Chat messages -- TEXT and DATA only, never trip listings */}
               <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
@@ -3636,38 +3897,69 @@ export default function PlannerPage() {
                       Pick one or more interests in the chat (Food, Culture, Outdoor, Nightlife…) and we'll analyse the catalog to suggest trips that genuinely match.
                     </p>
                   </div>
-                ) : canvasIsDiscovering ? (
-                  /* While the AI is mid-turn AND we have no committed picks
-                     yet, show a clear "discovering" state instead of the
-                     interim 4-trip fallback grid. This is what removed the
-                     "4 then suddenly 7" flash the visitor reported. */
-                  <div
-                    className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-secondary/30 p-8 text-center"
-                    data-testid="planner-recs-loading"
-                  >
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />
-                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:0.15s]" />
-                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:0.3s]" />
+                ) : (() => {
+                  /* Date feature = VISUAL GROUPING ONLY (no clickable filter).
+                     When a date is selected, trips bookable on that date show
+                     in an "Available on {date}" group up top; every other
+                     preference-matching trip shows below WITH its own bookable
+                     dates (within the admin scan window). With no date picked,
+                     a single availability-then-score-sorted list is shown. */
+                  const onDate = hasSelectedDate
+                    ? recommendedTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
+                    : []
+                  const others = hasSelectedDate
+                    ? recommendedTrips.filter((t) => !plannerAvail[t.id]?.availableOnSelectedDate)
+                    : recommendedTrips
+                  const renderCard = (trip: Trip, showDates: boolean) => (
+                    <TripCard
+                      key={trip.id}
+                      trip={trip}
+                      onSelect={handleTripSelect}
+                      isInCart={isInCart(trip.id)}
+                      onAdd={addItem}
+                      availableDates={showDates ? (plannerAvail[trip.id]?.availableDates ?? []) : undefined}
+                    />
+                  )
+                  return (
+                    <div className="flex flex-col gap-5" data-testid="planner-recs-list">
+                      {hasSelectedDate ? (
+                        <>
+                          <div className="flex flex-col gap-3" data-testid="planner-recs-group-ondate">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                <Calendar className="h-3 w-3" /> Available on {formatYMDPretty(prefs!.startDate)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{onDate.length}</span>
+                              {availLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                            </div>
+                            {onDate.length > 0 ? (
+                              <div className="flex flex-col gap-3">{onDate.map((t) => renderCard(t, false))}</div>
+                            ) : (
+                              <p className="rounded-xl border border-dashed border-border bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
+                                {availLoading
+                                  ? "Checking which trips are open on this date…"
+                                  : `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — see other dates below.`}
+                              </p>
+                            )}
+                          </div>
+                          {others.length > 0 && (
+                            <div className="flex flex-col gap-3" data-testid="planner-recs-group-other">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                                  <Calendar className="h-3 w-3" /> Available on other dates
+                                </span>
+                                <span className="text-xs text-muted-foreground">{others.length}</span>
+                              </div>
+                              <div className="flex flex-col gap-3">{others.map((t) => renderCard(t, true))}</div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex flex-col gap-3">{others.map((t) => renderCard(t, true))}</div>
+                      )}
                     </div>
-                    <p className="text-sm font-medium text-foreground">Discovering the best trips for you…</p>
-                    <p className="max-w-xs text-xs text-muted-foreground">
-                      We're checking the live catalog, weather, and your interests. The Trip Canvas will fill in once we have your final picks.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3" data-testid="planner-recs-list">
-                    {resultTrips.map((trip) => (
-                      <TripCard
-                        key={trip.id}
-                        trip={trip}
-                        onSelect={handleTripSelect}
-                        isInCart={isInCart(trip.id)}
-                        onAdd={addItem}
-                      />
-                    ))}
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             </div>
           )}

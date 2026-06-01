@@ -1,5 +1,6 @@
 - [outdoor-today AI system](outdoor-today.md) — system_key='outdoor_today' in ai_system_configs; extra_config.display_count controls card count; 10-min server cache; tag fallback when no AI key.
 - [Itinerary hybrid engine](itinerary-hybrid-engine.md) — AI selects trips, deterministic scheduler times them; gap=travel+buffer+earlyArrival (separate); max-5 cap; no-early opt-in only; AI key often 401.
+- [Planner recommendations canvas](planner-recommendations.md) — canvas recs are deterministic & decoupled from AI chat (fixes reload hang); date=visual grouping only; availability fetch must clear on each scan; pills edit one field via applyDirectPref.
 - [Integration key precedence](integration-key-precedence.md) — admin-panel DB keys are source of truth; env is fallback only. Applies to Mapbox/TourCMS/OpenWeather/Google/Anthropic.
 - [TourCMS MULTI tours](tourcms-multi-tours.md) — start_time="MULTI" tours have bookable dates w/ no time; resolve real slots via checkAvailability, not datesndeals.
 - [Planner preflight card state](planner-preflight-state.md) — preflightCardState volatile (resets on refresh); restored buildItinerary cards must be rehydrated to "ready"; only latest card renders full.

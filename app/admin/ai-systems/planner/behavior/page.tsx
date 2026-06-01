@@ -26,6 +26,7 @@ interface PlannerBehaviorSettings {
   preferenceWeighting: number
   suggestionRandomness: number
   localFavoritesBias: number
+  availabilityWindowDays: number
   bufferTimeBetweenStops: number
   maxStopsPerDay: number
   defaultActivityDuration: number
@@ -46,6 +47,7 @@ const DEFAULT_SETTINGS: PlannerBehaviorSettings = {
   preferenceWeighting: 70,
   suggestionRandomness: 30,
   localFavoritesBias: 40,
+  availabilityWindowDays: 30,
   bufferTimeBetweenStops: 30,
   maxStopsPerDay: 6,
   defaultActivityDuration: 90,
@@ -296,6 +298,38 @@ export default function PlannerBehaviorPage() {
                 <span className="text-[10px] text-muted-foreground">Hidden Gems</span>
               </div>
               <p className="mt-1 text-center text-xs font-medium text-foreground">{settings.localFavoritesBias}%</p>
+            </div>
+
+            {/* Availability Scan Window */}
+            <div>
+              <label className={labelClass}>
+                <span className="flex items-center gap-2">
+                  <Clock className="h-3 w-3" />
+                  Availability Scan Window
+                </span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="7"
+                  max="120"
+                  step="1"
+                  value={settings.availabilityWindowDays}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      availabilityWindowDays: Math.min(120, Math.max(7, parseInt(e.target.value) || 30)),
+                    })
+                  }
+                  className={inputClass}
+                />
+                <span className="text-xs text-muted-foreground">days</span>
+              </div>
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                How many days ahead the Trip Planner scans for availability when showing recommendations.
+                Near dates scan today → +{settings.availabilityWindowDays} days; far dates scan{" "}
+                {Math.round(settings.availabilityWindowDays / 2)} days before/after the selected date.
+              </p>
             </div>
           </div>
         </section>
