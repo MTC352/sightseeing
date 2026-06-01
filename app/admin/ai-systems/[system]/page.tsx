@@ -17,7 +17,7 @@ const MODELS = [
 const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
   planner: {
     label: "Trip Planner",
-    hint: "Used on /planner. Has access to the full trip catalog, weather, cart, and group data. Supports tools: searchTrips, showWeather, offerCoupon, showTransitPlanner, buildItinerary, addToCart.",
+    hint: "Used on /planner. Has access to the full trip catalog, weather, cart, and group data. Supports tools: searchTrips, showWeather, offerCoupon, buildItinerary, addToCart.",
   },
   chat: {
     label: "Trip Chat",

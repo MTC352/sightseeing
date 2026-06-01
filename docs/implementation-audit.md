@@ -196,7 +196,7 @@ export async function POST() {
 
 | # | Task | File | Notes |
 |---|---|---|---|
-| 1 | Trip planner streaming with 7 tools | `app/api/planner/route.ts` | `streamText` with searchTrips, showWeather, offerCoupon, showTransitPlanner, showWeatherAlert, buildItinerary, addToCart |
+| 1 | Trip planner streaming with 6 tools | `app/api/planner/route.ts` | `streamText` with searchTrips, showWeather, offerCoupon, showWeatherAlert, buildItinerary, addToCart |
 | 2 | Help AI with FAQ knowledge base | `app/api/help-chat/route.ts` | Reads all published help articles as context |
 | 3 | Trip chat (per-trip context) | `app/api/trip-chat/route.ts` | Trip details injected into system prompt |
 | 4 | AI writing assistant (admin) | `app/api/admin/ai-advisor/route.ts` | Admin-side content generation helper |

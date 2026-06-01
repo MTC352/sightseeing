@@ -8,7 +8,6 @@ import { Navbar } from "@/components/site-navbar"
 import { TripCart } from "@/components/planner/trip-cart"
 import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
 import { SightseeingAlbum } from "@/components/chatgpt-widgets/sightseeing-album"
-import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { SidebarItinerary, ItineraryPanel, type Itinerary, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { weatherData, type Trip } from "@/lib/data"
@@ -3393,27 +3392,6 @@ export default function PlannerPage() {
                                     {"Best for: "}{coupon.tripTitle}
                                   </p>
                                 </div>
-                              </div>
-                            )
-                          }
-                          break
-                        }
-                        case "tool-showTransitPlanner": {
-                          if (part.state === "output-available") {
-                            const transit = part.output as { context: string; provider: string }
-                            textParts.push(
-                              <div key={idx} className="mt-2.5">
-                                {transit?.context && (
-                                  <p className="mb-2 text-xs text-muted-foreground">{transit.context}</p>
-                                )}
-                                <MobiliteitPlanner />
-                              </div>
-                            )
-                          } else {
-                            textParts.push(
-                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
-                                <span>Loading transit planner...</span>
                               </div>
                             )
                           }

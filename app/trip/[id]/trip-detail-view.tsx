@@ -9,7 +9,6 @@ import { useRouter } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { TripCard } from "@/components/trip-card"
-import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { TripChat } from "@/components/trip-chat"
 import { GoogleReviews } from "@/components/google-reviews"
 import { useCart } from "@/lib/cart-context"
@@ -510,11 +509,6 @@ export default function TripDetailClient({
 
             {/* FAQ + AI Chat — faqs are now dynamic, built server-side from DB */}
             <TripChat tripId={id} tripTitle={trip.title} faqs={faqs} />
-
-            {/* Getting there */}
-            <div className="mt-10">
-              <MobiliteitPlanner />
-            </div>
           </div>
 
           {/* Booking sidebar */}

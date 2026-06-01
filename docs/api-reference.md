@@ -1223,7 +1223,6 @@ Streaming conversational trip planner. Accepts a message history, user preferenc
 | `showWeather` | Show current weather data |
 | `showWeatherAlert` | Show a proactive weather-based recommendation card |
 | `offerCoupon` | Generate a one-time discount coupon code |
-| `showTransitPlanner` | Show the mobiliteit.lu transit planner widget |
 | `buildItinerary` | Build an optimized day itinerary from saved trips |
 | `addToCart` | Signal the client to add a trip to the cart cookie |
 

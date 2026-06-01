@@ -326,17 +326,6 @@ const offerCouponTool = tool({
   },
 })
 
-const showTransitPlannerTool = tool({
-  description:
-    "Show the mobiliteit.lu public transport trip planner widget so the user can plan their bus/train route. Call this when the user asks about getting there, public transport, buses, trains, trams, or how to reach a destination in Luxembourg.",
-  inputSchema: z.object({
-    context: z.string().describe("Brief context about why the widget is shown, e.g. 'Plan your bus route to Casemates du Bock'"),
-  }),
-  execute: async ({ context }) => {
-    return { context, provider: "mobiliteit.lu" }
-  },
-})
-
 const showWeatherAlertTool = tool({
   description:
     "Show a proactive weather-based recommendation card. Use this on the FIRST interaction to alert users about weather conditions affecting their trip choices. If rainy, suggest indoor alternatives. If sunny, reinforce outdoor picks. Only call ONCE.",
@@ -733,7 +722,6 @@ const tools = {
   searchTrips: searchTripsTool,
   showWeather: showWeatherTool,
   offerCoupon: offerCouponTool,
-  showTransitPlanner: showTransitPlannerTool,
   showWeatherAlert: showWeatherAlertTool,
   buildItinerary: buildItineraryTool,
   getTripDatesAndDeals: getTripDatesAndDealsTool,
@@ -1118,7 +1106,6 @@ export async function POST(req: Request) {
       "   - After the user's 2nd or 3rd message when they show interest",
       "   - When recommending your top pick",
       "   - NEVER offer a coupon on the very first message. Build rapport first.",
-      "11. TRANSIT: When the user asks about buses, trains, getting there, call showTransitPlanner. Luxembourg has free public transport.",
       "12. ITINERARY: When user has 3+ saved trips and asks for a plan/route/schedule/itinerary, call buildItinerary with optimized steps. Sequence by proximity, suggest realistic times starting at 09:00. The server overwrites travel times with real Mapbox driving/walking data — do NOT invent or recite minutes/distances in chat; the panel shows them.",
       "12a. AFTER buildItinerary — NEVER PRE-ANNOUNCE SUCCESS: the moment you call buildItinerary the client runs an availability + duration-vs-time-budget preflight on the real /api/itinerary endpoint. That preflight can come back with a CONFLICT (too many trips for the chosen duration, or unavailable on the date) AFTER your text has already been shown. So in the SAME turn as a buildItinerary tool call you MUST NOT claim the itinerary is 'ready', 'built', 'live', or 'on the Trip Canvas', and MUST NOT describe its stops, times, route, or window (no '09:30–22:30 from e-bike to dinner hopping'). Reply with ONE short neutral sentence such as \"Putting the day together — checking live availability now.\" or \"Building your day on the Trip Canvas — one moment.\". The inline card in chat will flip itself to either the full 'View Itinerary' state OR a 'Decision needed' state based on the preflight result, and any conflict question will be added to chat for you. Recap the schedule only AFTER the visitor confirms the plan or asks about a specific stop.",
       "12b. CANVAS AWARENESS: When the 'TRIP CANVAS — DAY ITINERARY IS OPEN' block above is present, the visitor is already looking at that exact plan. Treat it as ground truth — answer questions about order, timing, or contents from that block directly. If they ask to add/remove/swap a stop, acknowledge the change and call buildItinerary again with the updated sequence; the canvas will refresh automatically.",
