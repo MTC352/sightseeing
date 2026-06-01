@@ -80,7 +80,13 @@ export function describeError(err: unknown): { message: string; statusCode: numb
  * (a few % of writes) so it adds negligible per-request cost, and is fail-soft.
  */
 const LOG_RETENTION_DAYS = 30
-const ITINERARY_LOG_MAX_ROWS = 5000
+// High-volume sources that record a deliberate audit trail (one row per build /
+// per outbound API call) are capped to their most recent rows so they can't grow
+// error_logs without bound.
+const CAPPED_SOURCES: Record<string, number> = {
+  itinerary: 5000,
+  tourcms: 3000,
+}
 
 async function pruneOldLogs(): Promise<void> {
   try {
@@ -88,15 +94,17 @@ async function pruneOldLogs(): Promise<void> {
       `DELETE FROM error_logs WHERE created_at < NOW() - ($1 || ' days')::interval`,
       [String(LOG_RETENTION_DAYS)],
     )
-    await query(
-      `DELETE FROM error_logs
-        WHERE source = 'itinerary'
-          AND id NOT IN (
-            SELECT id FROM error_logs WHERE source = 'itinerary'
-            ORDER BY created_at DESC LIMIT $1
-          )`,
-      [ITINERARY_LOG_MAX_ROWS],
-    )
+    for (const [source, maxRows] of Object.entries(CAPPED_SOURCES)) {
+      await query(
+        `DELETE FROM error_logs
+          WHERE source = $1
+            AND id NOT IN (
+              SELECT id FROM error_logs WHERE source = $1
+              ORDER BY created_at DESC LIMIT $2
+            )`,
+        [source, maxRows],
+      )
+    }
   } catch (err) {
     console.error("[error-log] prune failed:", err)
   }

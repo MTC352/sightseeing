@@ -45,6 +45,14 @@ export default function LogsPage() {
     }
   }, [source])
 
+  // Pre-filter from the URL (e.g. /admin/logs?source=tourcms) so deep links
+  // from other pages land on the right source. Read after mount to avoid any
+  // server/client hydration mismatch.
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get("source")
+    if (s) setSource(s)
+  }, [])
+
   useEffect(() => { void load() }, [load])
 
   async function clearLogs() {

@@ -5,7 +5,7 @@ import Link from "next/link"
 import {
   RefreshCw, Download, CheckCircle2, XCircle,
   Info, ArrowLeft, ChevronDown, ChevronUp, Clock, Terminal,
-  TriangleAlert, Webhook, Copy, Check,
+  TriangleAlert, Webhook, Copy, Check, Gauge, ScrollText,
 } from "lucide-react"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -48,6 +48,15 @@ interface SyncLogEntry {
   created_at: string
 }
 
+interface RateLimit {
+  ok: boolean
+  remaining_hits?: number
+  remaining_hits_post?: number
+  hourly_limit?: number
+  hourly_limit_post?: number
+  error?: string
+}
+
 export default function PalisisPage() {
   const [importing, setImporting]       = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
@@ -62,6 +71,9 @@ export default function PalisisPage() {
   const [autoSyncSaving, setAutoSyncSaving] = useState(false)
   const [webhookUrl, setWebhookUrl]     = useState("")
   const [copied, setCopied]             = useState(false)
+  const [rateLimit, setRateLimit]       = useState<RateLimit | null>(null)
+  const [rlLoading, setRlLoading]       = useState(true)
+  const [rlCheckedAt, setRlCheckedAt]   = useState<Date | null>(null)
 
   // Load auto-sync setting + compute webhook URL on mount
   useEffect(() => {
@@ -115,7 +127,22 @@ export default function PalisisPage() {
     }
   }, [])
 
+  const fetchRateLimit = useCallback(async () => {
+    setRlLoading(true)
+    try {
+      const res  = await fetch("/api/admin/palisis-rate-limit")
+      const data = await res.json() as RateLimit
+      setRateLimit(data)
+      setRlCheckedAt(new Date())
+    } catch {
+      setRateLimit({ ok: false, error: "Request failed — could not reach the API." })
+    } finally {
+      setRlLoading(false)
+    }
+  }, [])
+
   useEffect(() => { fetchLogs() }, [fetchLogs])
+  useEffect(() => { fetchRateLimit() }, [fetchRateLimit])
 
   async function runImport() {
     setImporting(true)
@@ -157,6 +184,83 @@ export default function PalisisPage() {
         </div>
       </div>
 
+
+      {/* API rate limit status */}
+      <div className="mb-6 rounded-2xl border border-border bg-card p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
+              <Gauge className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-foreground">API Rate Limit</h2>
+              <p className="text-sm text-muted-foreground">
+                Remaining TourCMS/Palisis requests this hour. The check itself does not count against quota.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href="/admin/logs?source=tourcms"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <ScrollText className="h-3.5 w-3.5" /> View API call log
+            </Link>
+            <button
+              type="button"
+              onClick={fetchRateLimit}
+              disabled={rlLoading}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${rlLoading ? "animate-spin" : ""}`} /> Check
+            </button>
+          </div>
+        </div>
+
+        {rlLoading && !rateLimit ? (
+          <div className="mt-5 text-sm text-muted-foreground">Checking…</div>
+        ) : rateLimit && !rateLimit.ok ? (
+          <div className="mt-5 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{rateLimit.error ?? "Could not read rate limit status."}</span>
+          </div>
+        ) : rateLimit ? (
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            {([
+              { label: "GET requests", remaining: rateLimit.remaining_hits ?? 0, limit: rateLimit.hourly_limit ?? 0 },
+              { label: "POST requests", remaining: rateLimit.remaining_hits_post ?? 0, limit: rateLimit.hourly_limit_post ?? 0 },
+            ]).map((row) => {
+              const pct = row.limit > 0 ? Math.max(0, Math.min(100, (row.remaining / row.limit) * 100)) : 0
+              const low = row.limit > 0 && pct <= 10
+              return (
+                <div key={row.label} className="rounded-xl border border-border bg-secondary/30 p-4">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{row.label}</span>
+                    <span className={`text-sm font-bold ${low ? "text-destructive" : "text-foreground"}`}>
+                      {row.remaining.toLocaleString()}
+                      {row.limit > 0 && <span className="text-muted-foreground"> / {row.limit.toLocaleString()}</span>}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full rounded-full transition-all ${low ? "bg-destructive" : "bg-emerald-500"}`}
+                      style={{ width: `${row.limit > 0 ? pct : 100}%` }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    {row.limit > 0 ? `${row.remaining.toLocaleString()} of ${row.limit.toLocaleString()} remaining this hour` : "Remaining this hour"}
+                  </p>
+                </div>
+              )
+            })}
+            {rlCheckedAt && (
+              <p className="sm:col-span-2 text-[11px] text-muted-foreground/60">
+                Last checked {rlCheckedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              </p>
+            )}
+          </div>
+        ) : null}
+      </div>
 
       {/* Action cards */}
       <div className="grid gap-5 sm:grid-cols-2">

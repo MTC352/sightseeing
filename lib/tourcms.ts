@@ -25,6 +25,7 @@
 import { createHmac } from "node:crypto"
 import { XMLParser } from "fast-xml-parser"
 import { dbGetSettings } from "@/lib/db/queries"
+import { logError } from "@/lib/error-log"
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const BASE_URL = "https://api.tourcms.com"
@@ -246,6 +247,10 @@ export interface RateLimitStatus {
   ok: boolean
   remaining_hits: number
   remaining_hits_post: number
+  /** Hourly cap for GET requests (from <hourly_limit>). 0 when unknown. */
+  hourly_limit: number
+  /** Hourly cap for POST requests (from <hourly_limit_post>). 0 when unknown. */
+  hourly_limit_post: number
   error?: string
 }
 
@@ -366,68 +371,101 @@ async function apiRequest<T = Record<string, unknown>>(
   // Only idempotent GETs are retried. POST (booking creation) runs exactly once.
   const maxAttempts = verb === "GET" ? TOURCMS_GET_ATTEMPTS : 1
   let lastError: TourCMSError = { ok: false, error: "Request failed" }
+  const startedAt = Date.now()
+  let attemptsUsed = 0
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Re-sign on every attempt — the signature embeds a Unix timestamp and
-    // TourCMS rejects stale ones, so a retried request needs a fresh one.
-    const timestamp = Math.floor(Date.now() / 1000)
-    const signature = generateSignature(channelId, marketplaceId, apiKey, verb, path, timestamp)
-    const headers: Record<string, string> = {
-      "x-tourcms-date": String(timestamp),
-      "Authorization":  `TourCMS ${channelId}:${marketplaceId}:${signature}`,
-      "Content-type":   "application/xml",
-    }
-
-    let res: Response
-    let xmlText: string
-
-    try {
-      res = await fetch(`${BASE_URL}${path}`, {
-        method: verb,
-        headers,
-        body:   verb === "POST" ? body : undefined,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      })
-      xmlText = await res.text()
-    } catch (err) {
-      // Network failure / timeout — transient, retry if attempts remain.
-      lastError = { ok: false, error: err instanceof Error ? err.message : "Network error" }
-      if (attempt < maxAttempts - 1) {
-        await sleep(backoffDelay(attempt))
-        continue
+  const run = async (): Promise<T | TourCMSError> => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      attemptsUsed = attempt + 1
+      // Re-sign on every attempt — the signature embeds a Unix timestamp and
+      // TourCMS rejects stale ones, so a retried request needs a fresh one.
+      const timestamp = Math.floor(Date.now() / 1000)
+      const signature = generateSignature(channelId, marketplaceId, apiKey, verb, path, timestamp)
+      const headers: Record<string, string> = {
+        "x-tourcms-date": String(timestamp),
+        "Authorization":  `TourCMS ${channelId}:${marketplaceId}:${signature}`,
+        "Content-type":   "application/xml",
       }
-      return lastError
-    }
 
-    if (!res.ok) {
-      // 429 (rate limited) and 5xx are transient — back off and retry.
-      const retryable = res.status === 429 || res.status >= 500
-      lastError = { ok: false, error: `HTTP ${res.status}`, httpStatus: res.status }
-      if (retryable && attempt < maxAttempts - 1) {
-        const retryAfter = parseRetryAfterMs(res.headers.get("retry-after"))
-        await sleep(retryAfter ?? backoffDelay(attempt))
-        continue
+      let res: Response
+      let xmlText: string
+
+      try {
+        res = await fetch(`${BASE_URL}${path}`, {
+          method: verb,
+          headers,
+          body:   verb === "POST" ? body : undefined,
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        })
+        xmlText = await res.text()
+      } catch (err) {
+        // Network failure / timeout — transient, retry if attempts remain.
+        lastError = { ok: false, error: err instanceof Error ? err.message : "Network error" }
+        if (attempt < maxAttempts - 1) {
+          await sleep(backoffDelay(attempt))
+          continue
+        }
+        return lastError
       }
-      return lastError
+
+      if (!res.ok) {
+        // 429 (rate limited) and 5xx are transient — back off and retry.
+        const retryable = res.status === 429 || res.status >= 500
+        lastError = { ok: false, error: `HTTP ${res.status}`, httpStatus: res.status }
+        if (retryable && attempt < maxAttempts - 1) {
+          const retryAfter = parseRetryAfterMs(res.headers.get("retry-after"))
+          await sleep(retryAfter ?? backoffDelay(attempt))
+          continue
+        }
+        return lastError
+      }
+
+      let parsed: Record<string, unknown>
+      try {
+        parsed = xmlParser.parse(xmlText) as Record<string, unknown>
+      } catch {
+        return { ok: false, error: "XML parse error" }
+      }
+
+      const root     = (parsed.response ?? parsed) as Record<string, unknown>
+      const apiError = String(root.error ?? "").trim()
+      if (apiError && apiError !== "OK") {
+        return { ok: false, error: apiError }
+      }
+
+      return root as T
     }
 
-    let parsed: Record<string, unknown>
-    try {
-      parsed = xmlParser.parse(xmlText) as Record<string, unknown>
-    } catch {
-      return { ok: false, error: "XML parse error" }
-    }
-
-    const root     = (parsed.response ?? parsed) as Record<string, unknown>
-    const apiError = String(root.error ?? "").trim()
-    if (apiError && apiError !== "OK") {
-      return { ok: false, error: apiError }
-    }
-
-    return root as T
+    return lastError
   }
 
-  return lastError
+  const result = await run()
+
+  // Audit trail of every TourCMS/Palisis call so admins can review API usage
+  // in /admin/logs (source "tourcms"). Fire-and-forget + fail-soft so logging
+  // never adds latency to or breaks the request. The rate-limit status endpoint
+  // is skipped — it does not count against quota and would just be poll noise.
+  if (path !== "/api/rate_limit_status.xml") {
+    const failed = isError(result)
+    void logError({
+      source: "tourcms",
+      level: failed ? "error" : "info",
+      message: failed
+        ? `${verb} ${path} failed: ${(result as TourCMSError).error}`
+        : `${verb} ${path}`,
+      statusCode: failed ? ((result as TourCMSError).httpStatus ?? null) : 200,
+      context: {
+        verb,
+        path,
+        ok: !failed,
+        attempts: attemptsUsed,
+        durationMs: Date.now() - startedAt,
+        channelId,
+      },
+    })
+  }
+
+  return result
 }
 
 function isError(v: unknown): v is TourCMSError {
@@ -446,11 +484,15 @@ function isError(v: unknown): v is TourCMSError {
 export async function pingTourCMS(config: TourCMSConfig): Promise<RateLimitStatus> {
   // Rate limit endpoint uses channelId=0 per TourCMS docs
   const res = await apiRequest<Record<string, unknown>>(config, "GET", "/api/rate_limit_status.xml", undefined, 0)
-  if (isError(res)) return { ok: false, remaining_hits: 0, remaining_hits_post: 0, error: res.error }
+  if (isError(res)) {
+    return { ok: false, remaining_hits: 0, remaining_hits_post: 0, hourly_limit: 0, hourly_limit_post: 0, error: res.error }
+  }
   return {
     ok: true,
     remaining_hits:      Number(res.remaining_hits ?? 0),
     remaining_hits_post: Number(res.remaining_hits_post ?? 0),
+    hourly_limit:        Number(res.hourly_limit ?? 0),
+    hourly_limit_post:   Number(res.hourly_limit_post ?? 0),
   }
 }
 
