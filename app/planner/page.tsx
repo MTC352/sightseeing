@@ -528,13 +528,13 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
     : "Awesome — how many of you are in the group?"
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex gap-1 px-4 pt-4">
         {enabledIdxs.map((i) => (
           <div key={i} className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i <= step ? "bg-primary" : "bg-border"}`} />
         ))}
       </div>
-      <div className="flex flex-1 flex-col px-4 py-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5">
         <div className="mb-5 flex gap-2.5">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
             <Bot className="h-3.5 w-3.5 text-primary" />
