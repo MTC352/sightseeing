@@ -733,7 +733,7 @@ function TripCard({
           disabled={adding}
           data-testid={`planner-trip-add-${trip.id}`}
           aria-label={`Add ${trip.title} to My Trip`}
-          className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground opacity-0 shadow-sm transition-opacity hover:bg-primary/90 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 group-hover:opacity-100"
+          className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground opacity-100 shadow-sm transition-opacity hover:bg-primary/90 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100"
         >
           <Plus className="h-3 w-3" /> Add to My Trip
         </button>
@@ -748,13 +748,13 @@ function TripCard({
             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{trip.description}</p>
           )}
         </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            <span className="flex items-center gap-0.5"><Star className="h-3 w-3 fill-amber-400 text-amber-400" />{trip.rating}</span>
-            <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />{trip.duration}</span>
-            {trip.city && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{trip.city}</span>}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5 text-xs text-muted-foreground">
+            <span className="flex shrink-0 items-center gap-0.5"><Star className="h-3 w-3 fill-amber-400 text-amber-400" />{trip.rating}</span>
+            <span className="flex shrink-0 items-center gap-0.5"><Clock className="h-3 w-3" />{trip.duration}</span>
+            {trip.city && <span className="flex min-w-0 items-center gap-0.5"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{trip.city}</span></span>}
           </div>
-          <div className="flex items-baseline gap-1.5">
+          <div className="flex shrink-0 items-baseline gap-1.5">
             {trip.originalPrice && <span className="text-xs text-muted-foreground line-through">{trip.originalPrice.toFixed(0)}&euro;</span>}
             <span className="text-base font-bold text-foreground">{trip.price > 0 ? `${trip.price.toFixed(0)}\u20AC` : "Free"}</span>
           </div>
