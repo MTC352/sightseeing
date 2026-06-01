@@ -1037,11 +1037,50 @@ export function SearchContent({
         return true
       })
 
-      // Surface trips that actually have slots on the selected day (today) first,
-      // keeping the original relative order otherwise (stable sort).
+      // Default ordering (mirrors each card's displayed content):
+      //   1. Trips WITH available timeslots first, ordered by the nearest
+      //      upcoming slot (today before tomorrow; earliest time first).
+      //   2. Trips WITHOUT available timeslots after, ordered by their next
+      //      available date (soonest first); unknown dates last.
+      // Uses the same real-or-dummy source the card renders, so the list order
+      // always matches what users actually see on each card.
+      const slotMinutes = (time: string) => {
+        const [h, m] = time.split(":")
+        return (parseInt(h, 10) || 0) * 60 + (parseInt(m, 10) || 0)
+      }
+
+      const sortKey = (t: SearchTrip): { group: number; rank: number } => {
+        const dep = availability[t.id] ?? getDummyDepartures(t.id)
+        const fit = (s: Timeslot) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo)
+        const todayElig = dep.today.filter(fit)
+        // In date mode `today` holds the selected day's slots; tomorrow is N/A.
+        const tomorrowElig = dateFilterActive ? [] : dep.tomorrow.filter(fit)
+
+        if (todayElig.length > 0) {
+          const min = Math.min(...todayElig.map((s) => slotMinutes(s.time)))
+          return { group: 0, rank: min }              // today: 0..1439
+        }
+        if (tomorrowElig.length > 0) {
+          const min = Math.min(...tomorrowElig.map((s) => slotMinutes(s.time)))
+          return { group: 0, rank: 1440 + min }       // tomorrow: after all today
+        }
+        // No available slots → order by next available date (soonest first).
+        const next = dep.nextAvailableDate
+        return {
+          group: 1,
+          rank: next ? new Date(next + "T00:00:00").getTime() : Number.MAX_SAFE_INTEGER,
+        }
+      }
+
       result = result
-        .map((t, i) => ({ t, i, has: (availability[t.id]?.today.length ?? 0) > 0 }))
-        .sort((a, b) => (a.has === b.has ? a.i - b.i : a.has ? -1 : 1))
+        .map((t, i) => ({ t, i, k: sortKey(t) }))
+        .sort((a, b) =>
+          a.k.group !== b.k.group
+            ? a.k.group - b.k.group
+            : a.k.rank !== b.k.rank
+              ? a.k.rank - b.k.rank
+              : a.i - b.i,                             // stable tie-break
+        )
         .map((x) => x.t)
     }
 
