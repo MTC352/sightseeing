@@ -306,10 +306,6 @@ export function ItineraryTimeslots({
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Available Timeslots
         </p>
-        <span className="flex items-center gap-1 text-[9px] font-medium uppercase tracking-wider text-primary">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-          Live
-        </span>
       </div>
       <div className="flex flex-col gap-3">
         {renderDaySlots("today",    todayGroups,    todaySlots)}
