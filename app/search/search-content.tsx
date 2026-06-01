@@ -430,20 +430,23 @@ function SearchCardSkeleton() {
 }
 
 /* ── Grid card ── */
-function SearchCard({ trip, priority = false }: { trip: Trip; priority?: boolean }) {
+function SearchCard({ trip, priority = false, hasTodaySlots = false }: { trip: Trip; priority?: boolean; hasTodaySlots?: boolean }) {
   const { addItem, isInCart } = useCart()
   const inCart      = isInCart(trip.id)
   const goodWeather = useIsGoodWeatherForTrip(trip.category)
+  // "Today"-scoped tags are only relevant when the trip actually has slots today.
+  const isTodayBadge = !!trip.badge && /today/i.test(trip.badge)
+  const showBadge    = !!trip.badge && (!isTodayBadge || hasTodaySlots)
   return (
     <Link href={`/trip/${trip.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
       <div className="relative aspect-[4/3] overflow-hidden">
         <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority}
           className="object-cover transition-transform duration-300 group-hover:scale-105"
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" />
-        {trip.badge && (
+        {showBadge && (
           <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">{trip.badge}</span>
         )}
-        {goodWeather && (
+        {goodWeather && hasTodaySlots && (
           <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-semibold text-amber-900 shadow backdrop-blur-sm">
             <Sun className="h-2.5 w-2.5" />Good for today
           </span>
@@ -649,6 +652,11 @@ function SearchListCard({
   // Show skeleton for every card while ANY availability fetch is in progress.
   const showSkeleton = isLoading
   const departures   = tripAvail ?? getDummyDepartures(trip.id)
+  // "Today"-scoped tags are only relevant when the trip actually has slots on the
+  // selected day (tripAvail.today holds the selected date's slots when a date is set).
+  const hasTodaySlots = (tripAvail?.today.length ?? 0) > 0
+  const isTodayBadge  = !!trip.badge && /today/i.test(trip.badge)
+  const showBadge     = !!trip.badge && (!isTodayBadge || hasTodaySlots)
 
   // Build labeled slot rows (flat, deduplicated) — for card chip preview
   const todayLabel    = "Today"
@@ -686,10 +694,10 @@ function SearchListCard({
             className="object-cover transition-transform duration-300 group-hover:scale-105"
             sizes="(max-width: 640px) 100vw, 256px" />
         </Link>
-        {trip.badge && (
+        {showBadge && (
           <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">{trip.badge}</span>
         )}
-        {goodWeather && (
+        {goodWeather && hasTodaySlots && (
           <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-semibold text-amber-900 shadow backdrop-blur-sm">
             <Sun className="h-2.5 w-2.5" />Good for today
           </span>
@@ -1028,6 +1036,13 @@ export function SearchContent({
         // No availability-based filter → show all
         return true
       })
+
+      // Surface trips that actually have slots on the selected day (today) first,
+      // keeping the original relative order otherwise (stable sort).
+      result = result
+        .map((t, i) => ({ t, i, has: (availability[t.id]?.today.length ?? 0) > 0 }))
+        .sort((a, b) => (a.has === b.has ? a.i - b.i : a.has ? -1 : 1))
+        .map((x) => x.t)
     }
 
     return result
@@ -1269,7 +1284,7 @@ export function SearchContent({
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
-            {filtered.map((t, i) => <SearchCard key={t.id} trip={t} priority={i < 8} />)}
+            {filtered.map((t, i) => <SearchCard key={t.id} trip={t} priority={i < 8} hasTodaySlots={(availability[t.id]?.today.length ?? 0) > 0} />)}
           </div>
         ) : (
           <div className="flex flex-col">
