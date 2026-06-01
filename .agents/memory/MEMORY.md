@@ -1,5 +1,6 @@
 - [outdoor-today AI system](outdoor-today.md) — homepage "Best outdoor experiences"; system_key='outdoor_today'; day-scoped 10-min cache; MUST never render empty (fall back to all trips when no today-slots).
 - [Itinerary hybrid engine](itinerary-hybrid-engine.md) — AI selects trips, deterministic scheduler times them; gap=travel+buffer+earlyArrival (separate); max-5 cap; no-early opt-in only; AI key often 401.
+- [Itinerary availability parity](itinerary-availability-parity.md) — bulk datesndeals under-reports vs authoritative real-time checkavail; always fall back to checkavail when visit date has 0 bulk slots; GET-only retries; bounded fan-out; failed call=TOURCMS_ERROR not NO_SLOTS.
 - [Planner pref update paths](planner-pref-update-paths.md) — a planner pref can change via 4 separate paths (onboarding steppers, applyDirectPref, onToolCall chat merge, route schema); cap/rule changes must touch all four.
 - [Help page data](help-page-data.md) — /help reads DB (not hardcoded FAQ_DATA); articles hidden behind category grid so test via search box; dup root cause = un-guarded re-run seeds, now NOT EXISTS guarded.
 - [SEO indexing control](seo-indexing-control.md) — same codebase on Replit-publish (staging) + live domain; indexing opt-in via ALLOW_INDEXING; no static public/robots.txt (conflicts with app/robots.ts).

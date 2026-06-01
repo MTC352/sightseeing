@@ -30,6 +30,34 @@ import { dbGetSettings } from "@/lib/db/queries"
 const BASE_URL = "https://api.tourcms.com"
 const REQUEST_TIMEOUT_MS = 12_000
 
+// ── Resilience ───────────────────────────────────────────────────────────────
+// TourCMS enforces API rate limits and occasionally returns a transient
+// 429/5xx or times out. The itinerary builder fans out one availability call
+// per cart trip, so a single transient failure used to surface to the user as
+// a false "no availability". We retry IDEMPOTENT GET requests with exponential
+// backoff + jitter (honouring a Retry-After header) so multi-trip builds resolve
+// reliably. POST requests (booking creation) are NEVER retried — replaying a
+// booking write could double-book.
+const TOURCMS_GET_ATTEMPTS = 3        // 1 initial try + 2 retries
+const RETRY_BASE_MS = 400
+const RETRY_MAX_DELAY_MS = 2_500
+const RETRY_AFTER_CAP_MS = 5_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+function backoffDelay(attempt: number): number {
+  const expo = RETRY_BASE_MS * 2 ** attempt
+  const jitter = Math.floor(Math.random() * 150)
+  return Math.min(expo + jitter, RETRY_MAX_DELAY_MS)
+}
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null
+  const secs = parseInt(header, 10)
+  if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, RETRY_AFTER_CAP_MS)
+  return null
+}
+
 // ── XML Parser ─────────────────────────────────────────────────────────────────
 // isArray ensures single-item arrays aren't collapsed to plain objects
 const xmlParser = new XMLParser({
@@ -334,48 +362,72 @@ async function apiRequest<T = Record<string, unknown>>(
 ): Promise<T | TourCMSError> {
   const { marketplaceId, apiKey } = config
   const channelId = overrideChannelId ?? config.channelId
-  const timestamp = Math.floor(Date.now() / 1000)
-  const signature = generateSignature(channelId, marketplaceId, apiKey, verb, path, timestamp)
 
-  const headers: Record<string, string> = {
-    "x-tourcms-date": String(timestamp),
-    "Authorization":  `TourCMS ${channelId}:${marketplaceId}:${signature}`,
-    "Content-type":   "application/xml",
+  // Only idempotent GETs are retried. POST (booking creation) runs exactly once.
+  const maxAttempts = verb === "GET" ? TOURCMS_GET_ATTEMPTS : 1
+  let lastError: TourCMSError = { ok: false, error: "Request failed" }
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Re-sign on every attempt — the signature embeds a Unix timestamp and
+    // TourCMS rejects stale ones, so a retried request needs a fresh one.
+    const timestamp = Math.floor(Date.now() / 1000)
+    const signature = generateSignature(channelId, marketplaceId, apiKey, verb, path, timestamp)
+    const headers: Record<string, string> = {
+      "x-tourcms-date": String(timestamp),
+      "Authorization":  `TourCMS ${channelId}:${marketplaceId}:${signature}`,
+      "Content-type":   "application/xml",
+    }
+
+    let res: Response
+    let xmlText: string
+
+    try {
+      res = await fetch(`${BASE_URL}${path}`, {
+        method: verb,
+        headers,
+        body:   verb === "POST" ? body : undefined,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      })
+      xmlText = await res.text()
+    } catch (err) {
+      // Network failure / timeout — transient, retry if attempts remain.
+      lastError = { ok: false, error: err instanceof Error ? err.message : "Network error" }
+      if (attempt < maxAttempts - 1) {
+        await sleep(backoffDelay(attempt))
+        continue
+      }
+      return lastError
+    }
+
+    if (!res.ok) {
+      // 429 (rate limited) and 5xx are transient — back off and retry.
+      const retryable = res.status === 429 || res.status >= 500
+      lastError = { ok: false, error: `HTTP ${res.status}`, httpStatus: res.status }
+      if (retryable && attempt < maxAttempts - 1) {
+        const retryAfter = parseRetryAfterMs(res.headers.get("retry-after"))
+        await sleep(retryAfter ?? backoffDelay(attempt))
+        continue
+      }
+      return lastError
+    }
+
+    let parsed: Record<string, unknown>
+    try {
+      parsed = xmlParser.parse(xmlText) as Record<string, unknown>
+    } catch {
+      return { ok: false, error: "XML parse error" }
+    }
+
+    const root     = (parsed.response ?? parsed) as Record<string, unknown>
+    const apiError = String(root.error ?? "").trim()
+    if (apiError && apiError !== "OK") {
+      return { ok: false, error: apiError }
+    }
+
+    return root as T
   }
 
-  let res: Response
-  let xmlText: string
-
-  try {
-    res = await fetch(`${BASE_URL}${path}`, {
-      method: verb,
-      headers,
-      body:   verb === "POST" ? body : undefined,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
-    xmlText = await res.text()
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Network error" }
-  }
-
-  if (!res.ok) {
-    return { ok: false, error: `HTTP ${res.status}`, httpStatus: res.status }
-  }
-
-  let parsed: Record<string, unknown>
-  try {
-    parsed = xmlParser.parse(xmlText) as Record<string, unknown>
-  } catch {
-    return { ok: false, error: "XML parse error" }
-  }
-
-  const root     = (parsed.response ?? parsed) as Record<string, unknown>
-  const apiError = String(root.error ?? "").trim()
-  if (apiError && apiError !== "OK") {
-    return { ok: false, error: apiError }
-  }
-
-  return root as T
+  return lastError
 }
 
 function isError(v: unknown): v is TourCMSError {

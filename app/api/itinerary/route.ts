@@ -18,6 +18,7 @@ import {
   type ComputeLeg,
 } from "@/lib/itinerary/scheduler"
 import { selectAndOrder, narrate, type CompactCandidate } from "@/lib/itinerary/ai"
+import { logError } from "@/lib/error-log"
 
 /* ─────────────────────────────────────────────────────────────────────────
    Itinerary API — LIVE DATA ONLY.
@@ -202,6 +203,34 @@ function addDays(ymd: string, n: number): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(dt)
 }
 
+/** Run an async mapper over `items` with a bounded number of in-flight
+ *  promises, preserving input order. The itinerary builder fans out one
+ *  TourCMS availability call per cart trip; an unbounded Promise.all would
+ *  burst 5+ simultaneous requests and trip TourCMS rate limits, so we cap how
+ *  many run at once. The mapper is responsible for its own error handling. */
+const TOURCMS_FANOUT_CONCURRENCY = 3
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = cursor++
+      if (i >= items.length) return
+      results[i] = await fn(items[i], i)
+    }
+  }
+  const pool = Array.from(
+    { length: Math.max(1, Math.min(limit, items.length)) },
+    worker,
+  )
+  await Promise.all(pool)
+  return results
+}
+
 interface IncomingPreferences {
   group?: string
   interests?: string[]
@@ -345,8 +374,10 @@ export async function POST(req: Request) {
       slotsByDate: Map<string, LiveSlot[]>
     }
 
-    const availability: TripWindow[] = await Promise.all(
-      trips.map(async (trip, i): Promise<TripWindow> => {
+    const availability: TripWindow[] = await mapWithConcurrency(
+      trips,
+      TOURCMS_FANOUT_CONCURRENCY,
+      async (trip, i): Promise<TripWindow> => {
         const palisisId = palisisIds[i]
         if (!palisisId) {
           return { trip, palisisId: null, slots: [], slotsByDate: new Map(), status: "NO_PALISIS_LINK" }
@@ -381,12 +412,24 @@ export async function POST(req: Request) {
           for (const [k, arr] of slotsByDate) slotsByDate.set(k, sortSlots(arr))
 
           let visitSlots = slotsByDate.get(visitDate) ?? []
-          // MULTI fallback: the date is bookable but datesndeals gave no
-          // concrete start_time. Resolve the real timeslots via the
-          // real-time checkAvailability endpoint (the only place "MULTI"
-          // times exist) so the trip is correctly schedulable instead of
-          // being falsely reported as "no openings".
-          if (visitSlots.length === 0 && slotsByDate.has(visitDate)) {
+          // AUTHORITATIVE FALLBACK — booking-widget parity.
+          // datesndeals is a BULK listing and can under-report a given date:
+          //   • "MULTI"/recurring tours return bookable DATES with no per-date
+          //     start_time (the real times live ONLY in checkavail),
+          //   • the wide 21-day window can omit the very first day's rows, and
+          //   • a transient hiccup can yield an ok-but-incomplete payload.
+          // The public Palisis booking widget on /trip/[id] always resolves
+          // times via the real-time checkavail endpoint, so whenever the bulk
+          // feed gives us NO slots for the chosen date we re-check the same
+          // authoritative endpoint the widget uses. This closes the gap where
+          // a trip with real, bookable timeslots (visible on the trip page)
+          // was being falsely reported as "no openings in the next 21 days".
+          // Track whether the fallback itself FAILED (network/429/error) so a
+          // transient API failure is reported as TOURCMS_ERROR ("try again")
+          // rather than being silently misclassified as a definitive
+          // "no openings in the next 21 days".
+          let fallbackErrored = false
+          if (visitSlots.length === 0) {
             try {
               const avail = await checkAvailability(config, palisisId, {
                 date: visitDate,
@@ -400,22 +443,63 @@ export async function POST(req: Request) {
                   visitSlots = sortSlots(comp)
                   slotsByDate.set(visitDate, visitSlots)
                 }
+              } else {
+                fallbackErrored = true
               }
-            } catch { /* keep visitSlots empty → NO_SLOTS below */ }
+            } catch {
+              fallbackErrored = true
+            }
           }
 
           if (visitSlots.length === 0) {
+            // A failed fallback is NOT a genuine "no availability" answer — the
+            // date IS bookable, we just couldn't resolve the concrete times.
+            // Surface it as TOURCMS_ERROR (slotsByDate is retained so the UI
+            // can still offer the bookable alternative dates we DID see).
+            if (fallbackErrored) {
+              return {
+                trip,
+                palisisId,
+                slots: [],
+                slotsByDate,
+                status: "TOURCMS_ERROR",
+                error: "checkavail fallback failed for MULTI date",
+              }
+            }
             return { trip, palisisId, slots: [], slotsByDate, status: "NO_SLOTS" }
           }
           return { trip, palisisId, slots: visitSlots, slotsByDate, status: "OK" }
         } catch (err) {
           return { trip, palisisId, slots: [], slotsByDate: new Map(), status: "TOURCMS_ERROR", error: String(err) }
         }
-      }),
+      },
     )
 
     const bookable = availability.filter((a) => a.status === "OK")
     const unavailable = availability.filter((a) => a.status !== "OK")
+
+    // Persist live-availability API failures so admins can review them in
+    // /admin/logs. NO_SLOTS / NO_PALISIS_LINK are legitimate "no data" states,
+    // NOT errors — only TOURCMS_ERROR (network/429/5xx/parse/fallback) is logged.
+    const erroredTrips = availability.filter((a) => a.status === "TOURCMS_ERROR")
+    if (erroredTrips.length > 0) {
+      await Promise.all(
+        erroredTrips.map((a) =>
+          logError({
+            source: "itinerary",
+            level: "error",
+            message: `TourCMS availability failed for trip ${a.trip.id} (${a.trip.title}): ${a.error ?? "unknown error"}`,
+            context: {
+              tripId: a.trip.id,
+              palisisId: a.palisisId,
+              visitDate,
+              scanDays: SCAN_DAYS,
+              tripCount: trips.length,
+            },
+          }),
+        ),
+      )
+    }
 
     /* 2b) Derive per-trip suggested dates from the same window we already
        fetched — no extra API calls. */
@@ -1387,6 +1471,12 @@ ${tipsInstructions}`
       })
     } catch (buildErr) {
       console.error("[itinerary] build pipeline failed:", buildErr)
+      await logError({
+        source: "itinerary",
+        level: "error",
+        message: `Itinerary build pipeline failed: ${buildErr instanceof Error ? buildErr.message : String(buildErr)}`,
+        context: { visitDate, tripIds: trips.map((t) => t.id) },
+      })
       return Response.json({
         error: "AI_GENERATION_FAILED",
         message: "Could not build a plan from the live availability. Please try again.",
@@ -1397,6 +1487,11 @@ ${tipsInstructions}`
     }
   } catch (err) {
     console.error("[itinerary] Error:", err)
+    await logError({
+      source: "itinerary",
+      level: "error",
+      message: `Itinerary request failed: ${err instanceof Error ? err.message : String(err)}`,
+    })
     return Response.json({ error: "Failed to generate itinerary" }, { status: 500 })
   }
 }
