@@ -23,15 +23,15 @@ let _rainCache: { set: Set<string>; expiresAt: number } | null = null
 export async function getRainyDateSet(): Promise<Set<string>> {
   if (_rainCache && Date.now() < _rainCache.expiresAt) return _rainCache.set
 
-  let apiKey = (process.env.OPENWEATHER_API_KEY || "").trim()
-  if (!apiKey) {
-    try {
-      const settings = await dbGetSettings()
-      apiKey = (settings?.apiKeys?.openWeather ?? "").trim()
-    } catch {
-      /* ignore */
-    }
+  // Admin panel (DB integrations) is the source of truth; env is a fallback.
+  let apiKey = ""
+  try {
+    const settings = await dbGetSettings()
+    apiKey = (settings?.apiKeys?.openWeather ?? "").trim()
+  } catch {
+    /* ignore — fall through to env */
   }
+  if (!apiKey) apiKey = (process.env.OPENWEATHER_API_KEY || "").trim()
   if (!apiKey) {
     _rainCache = { set: new Set(), expiresAt: Date.now() + 30 * 60_000 }
     return _rainCache.set

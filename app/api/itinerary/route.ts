@@ -4,7 +4,9 @@ import { query } from "@/lib/db"
 import {
   getTourCMSConfig,
   showTourDatesAndDeals,
+  checkAvailability,
   type DepartureDate,
+  type AvailabilityComponent,
 } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import { parseHumanDuration } from "@/lib/parse-duration"
@@ -137,6 +139,37 @@ function shapeSlotFromDeparture(d: DepartureDate): LiveSlot | null {
     totalPriceDisplay: priceDisplay,
     spacesRemaining: raw ?? null,
     componentKey: `${d.start_date}T${startTime}`,
+  }
+}
+
+/** Is a datesndeals DATE row bookable at the date level (ignoring whether it
+ *  carries a concrete start_time)? "MULTI" tours come back with bookable dates
+ *  but no per-date time — the real times only exist in checkAvailability. */
+function isDepartureDateBookable(d: DepartureDate): boolean {
+  if (!d.start_date) return false
+  if (d.status && /cancel/i.test(d.status)) return false
+  const raw = d.spaces_remaining
+  if (raw && raw !== "UNLIMITED" && parseInt(raw, 10) <= 0) return false
+  return true
+}
+
+/** Convert a checkAvailability component (real-time timeslot) into LiveSlot. */
+function shapeSlotFromComponent(c: AvailabilityComponent, fallbackDate: string): LiveSlot | null {
+  if (!c.start_time) return null
+  const raw = c.spaces_remaining
+  if (raw && raw !== "UNLIMITED" && parseInt(raw, 10) <= 0) return null
+  const date = String(c.start_date || fallbackDate)
+  const startTime = String(c.start_time).slice(0, 5)
+  const priceDisplay = decodeHtmlEntities(c.total_price_display ?? null)
+  const priceRaw = decodeHtmlEntities(c.total_price ?? null)
+  return {
+    date,
+    startTime,
+    endTime: c.end_time ? String(c.end_time).slice(0, 5) : null,
+    totalPrice: priceRaw,
+    totalPriceDisplay: priceDisplay,
+    spacesRemaining: raw ?? null,
+    componentKey: c.component_key || `${date}T${startTime}`,
   }
 }
 
@@ -335,8 +368,42 @@ export async function POST(req: Request) {
             arr.push(s)
             slotsByDate.set(s.date, arr)
           }
+          // Date-level bookable set: includes "MULTI" tours that return
+          // bookable DATES with no concrete time. Seed these as empty slot
+          // buckets so alternative-date suggestions still surface them even
+          // though we only resolve real times for the chosen visit date.
+          for (const d of res.dates) {
+            if (isDepartureDateBookable(d)) {
+              const key = String(d.start_date)
+              if (!slotsByDate.has(key)) slotsByDate.set(key, [])
+            }
+          }
           for (const [k, arr] of slotsByDate) slotsByDate.set(k, sortSlots(arr))
-          const visitSlots = slotsByDate.get(visitDate) ?? []
+
+          let visitSlots = slotsByDate.get(visitDate) ?? []
+          // MULTI fallback: the date is bookable but datesndeals gave no
+          // concrete start_time. Resolve the real timeslots via the
+          // real-time checkAvailability endpoint (the only place "MULTI"
+          // times exist) so the trip is correctly schedulable instead of
+          // being falsely reported as "no openings".
+          if (visitSlots.length === 0 && slotsByDate.has(visitDate)) {
+            try {
+              const avail = await checkAvailability(config, palisisId, {
+                date: visitDate,
+                show_pickups: "0",
+              })
+              if (avail.ok) {
+                const comp = avail.components
+                  .map((c) => shapeSlotFromComponent(c, visitDate))
+                  .filter((s): s is LiveSlot => s !== null)
+                if (comp.length > 0) {
+                  visitSlots = sortSlots(comp)
+                  slotsByDate.set(visitDate, visitSlots)
+                }
+              }
+            } catch { /* keep visitSlots empty → NO_SLOTS below */ }
+          }
+
           if (visitSlots.length === 0) {
             return { trip, palisisId, slots: [], slotsByDate, status: "NO_SLOTS" }
           }

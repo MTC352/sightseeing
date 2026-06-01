@@ -68,13 +68,13 @@ export async function GET(request: Request) {
     return NextResponse.json(cached.data)
   }
 
-  let apiKey = process.env.OPENWEATHER_API_KEY
-  if (!apiKey) {
-    try {
-      const settings = await dbGetSettings()
-      apiKey = settings?.apiKeys?.openWeather ?? ""
-    } catch { /* ignore */ }
-  }
+  // Admin panel (DB integrations) is the source of truth; env is a fallback.
+  let apiKey = ""
+  try {
+    const settings = await dbGetSettings()
+    apiKey = settings?.apiKeys?.openWeather ?? ""
+  } catch { /* ignore — fall through to env */ }
+  if (!apiKey) apiKey = process.env.OPENWEATHER_API_KEY ?? ""
   if (!apiKey) {
     return NextResponse.json(buildFallback("OPENWEATHER_API_KEY not set"))
   }

@@ -1623,6 +1623,31 @@ export default function PlannerPage() {
       // fails soft to the deterministic, interest-scored fallback grid —
       // same principle as the itinerary engine's AI-down fallback.
       setHasCompletedFirstAiTurn(true)
+      // Release any in-flight build lock so the composer never stays
+      // disabled after a failed turn.
+      setItineraryRegenerating(false)
+      // Surface a friendly assistant bubble so the chat doesn't look frozen.
+      // The visitor sees clear feedback (and a hint that AI features need a
+      // working key) instead of a silent dead input.
+      setMessagesRef.current?.((prev) => {
+        const last = prev[prev.length - 1]
+        const lastText = last?.role === "assistant"
+          ? last.parts.find((p) => (p as { type?: string }).type === "text") as { text?: string } | undefined
+          : undefined
+        // Avoid stacking duplicate error bubbles on repeated failures.
+        if (lastText?.text?.startsWith("⚠️")) return prev
+        return ([
+          ...prev,
+          {
+            id: `err-${Date.now()}`,
+            role: "assistant",
+            parts: [{
+              type: "text",
+              text: "⚠️ I couldn't reach the AI assistant just now — the AI key may be invalid or expired. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas. Ask the site admin to update the AI key in the admin panel to re-enable chat.",
+            }],
+          } as PlannerMessage,
+        ])
+      })
     },
     onToolCall({ toolCall }) {
       if (toolCall.dynamic) return
@@ -1726,6 +1751,56 @@ export default function PlannerPage() {
   // handlers (handleOpenOrRebuildFromChat, handleRegenerateItinerary)
   // can push truthful failure messages without ordering gymnastics.
   useEffect(() => { setMessagesRef.current = (updater) => setMessages(updater) }, [setMessages])
+
+  /* Restored-session rehydration: when the chat is reloaded from
+     localStorage, every previously-built itinerary card is historical and
+     already cleared preflight in a past session. The preflight state map is
+     volatile (resets to {} on refresh), so without this those cards would be
+     stuck rendering the "Checking availability" stub forever. Mark each
+     restored buildItinerary card as "ready" so it renders the real itinerary,
+     and seed the auto-build guard with the latest one so the effect doesn't
+     redundantly re-run /api/itinerary for a plan we already built. */
+  const restoredCardsRehydratedRef = useRef(false)
+  useEffect(() => {
+    if (restoredCardsRehydratedRef.current) return
+    restoredCardsRehydratedRef.current = true
+    const restored = initialMessagesRef.current
+    if (!restored.length) return
+    const ids: string[] = []
+    for (const m of restored) {
+      for (const part of m.parts) {
+        const p = part as { type?: string; state?: string; toolCallId?: string }
+        if (p?.type === "tool-buildItinerary" && p?.state === "output-available" && p?.toolCallId) {
+          ids.push(String(p.toolCallId))
+        }
+      }
+    }
+    if (ids.length === 0) return
+    setPreflightCardState((prev) => {
+      const next = { ...prev }
+      for (const id of ids) if (next[id] === undefined) next[id] = "ready"
+      return next
+    })
+    // Treat the most recent restored plan as already auto-built so the
+    // auto-build effect leaves it alone (it only fires for NEW toolCallIds).
+    lastAutoBuiltToolCallIdRef.current = ids[ids.length - 1]
+  }, [])
+
+  /* The toolCallId of the MOST RECENT buildItinerary card in the chat. Only
+     this card renders the full expanded "Your Day Itinerary" timeline; any
+     earlier itinerary cards (from prior rebuilds) collapse to a one-line
+     "superseded" note so the chat never shows two competing day plans. */
+  const lastItineraryToolCallId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      for (const part of messages[i].parts) {
+        const p = part as { type?: string; state?: string; toolCallId?: string }
+        if (p?.type === "tool-buildItinerary" && p?.state === "output-available" && p?.toolCallId) {
+          return String(p.toolCallId)
+        }
+      }
+    }
+    return null
+  }, [messages])
 
   /* Apply a prefs patch coming from the sidebar's plan-conflict buttons
      ("Make it a full-day trip" / "Spread across N days"). We mirror the
@@ -3006,6 +3081,21 @@ export default function PlannerPage() {
                                         : `Checking live availability${dateLabel ? ` for ${dateLabel}` : ""}…`}
                                     </p>
                                   </div>
+                                </div>
+                              )
+                              break
+                            }
+                            // Collapse superseded plans: if a newer
+                            // buildItinerary card exists, this one is stale —
+                            // render a one-line note instead of a second full
+                            // "Your Day Itinerary" timeline so the chat never
+                            // shows two competing day plans at once.
+                            const thisToolCallId = (part as { toolCallId?: string }).toolCallId ?? ""
+                            if (lastItineraryToolCallId && thisToolCallId !== lastItineraryToolCallId) {
+                              textParts.push(
+                                <div key={idx} className="mt-2 flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
+                                  <Route className="h-3 w-3 shrink-0 opacity-60" />
+                                  <span>Earlier plan — replaced by your updated itinerary below.</span>
                                 </div>
                               )
                               break

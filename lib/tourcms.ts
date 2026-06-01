@@ -13,7 +13,8 @@
  *   - We NEVER modify tours, departures, bookings or any data on TourCMS
  *     except creating new bookings (startNewBooking + commitNewBooking)
  *
- * Credentials (env vars first, then DB integrations table):
+ * Credentials (DB integrations table first — admin panel is the source of
+ * truth — then env vars as a local/dev fallback):
  *   TOURCMS_CHANNEL_ID      — numeric channel ID (TourCMS → API Settings)
  *   TOURCMS_MARKETPLACE_ID  — our Marketplace Agent ID (from TourCMS welcome email)
  *   TOURCMS_API_KEY         — private API key (TourCMS → Configuration → API)
@@ -247,22 +248,13 @@ let _cachedConfig: TourCMSConfig | null = null
 let _cacheExpiry = 0
 
 /**
- * Load TourCMS credentials from env vars first, then DB integrations table.
+ * Load TourCMS credentials from the DB integrations table first (the admin
+ * panel is the source of truth), then fall back to env vars for local/dev.
  * Credentials are cached in-process for 5 minutes.
  * Returns null if no credentials are configured.
  */
 export async function getTourCMSConfig(): Promise<TourCMSConfig | null> {
   if (_cachedConfig && Date.now() < _cacheExpiry) return _cachedConfig
-
-  const envKey     = process.env.TOURCMS_API_KEY ?? ""
-  const envChannel = process.env.TOURCMS_CHANNEL_ID ? parseInt(process.env.TOURCMS_CHANNEL_ID, 10) : NaN
-  const envMarket  = process.env.TOURCMS_MARKETPLACE_ID ? parseInt(process.env.TOURCMS_MARKETPLACE_ID, 10) : 0
-
-  if (envKey && !isNaN(envChannel)) {
-    _cachedConfig = { channelId: envChannel, marketplaceId: envMarket || 0, apiKey: envKey }
-    _cacheExpiry  = Date.now() + 5 * 60 * 1000
-    return _cachedConfig
-  }
 
   try {
     const settings  = await dbGetSettings()
@@ -276,7 +268,17 @@ export async function getTourCMSConfig(): Promise<TourCMSConfig | null> {
       _cacheExpiry  = Date.now() + 5 * 60 * 1000
       return _cachedConfig
     }
-  } catch { /* DB unavailable — credentials not configured */ }
+  } catch { /* DB unavailable — fall through to env */ }
+
+  const envKey     = process.env.TOURCMS_API_KEY ?? ""
+  const envChannel = process.env.TOURCMS_CHANNEL_ID ? parseInt(process.env.TOURCMS_CHANNEL_ID, 10) : NaN
+  const envMarket  = process.env.TOURCMS_MARKETPLACE_ID ? parseInt(process.env.TOURCMS_MARKETPLACE_ID, 10) : 0
+
+  if (envKey && !isNaN(envChannel)) {
+    _cachedConfig = { channelId: envChannel, marketplaceId: envMarket || 0, apiKey: envKey }
+    _cacheExpiry  = Date.now() + 5 * 60 * 1000
+    return _cachedConfig
+  }
 
   return null
 }
