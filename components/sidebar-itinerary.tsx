@@ -1173,10 +1173,14 @@ function ItineraryStepCard({
   step,
   isActive = false,
   onLocationClick,
+  visitDate,
 }: {
   step: ItineraryStep
   isActive?: boolean
   onLocationClick?: () => void
+  /** The itinerary's chosen day (YYYY-MM-DD) — deep-linked to the trip page so
+   *  the booking calendar opens on the right month and the slot banner shows. */
+  visitDate?: string | null
 }) {
   // When the API returned a real Palisis slot for the chosen visitDate, the
   // displayed time/price/spaces are authoritative — we do NOT overlay
@@ -1202,6 +1206,16 @@ function ItineraryStepCard({
     ? (step.tripNotes ?? "").slice(0, NOTE_PREVIEW_CHARS).trimEnd() + "..."
     : step.tripNotes ?? ""
   const locationLabel = step.tripLocation || step.tripCity
+  // Deep-link to the trip page pre-loaded with this stop's day + time so the
+  // booking calendar opens on the right month and shows the "Trip Planner Slot"
+  // banner (mirrors the Departing Soon flow, with from=planner).
+  const bookingHref = (() => {
+    const qs = new URLSearchParams()
+    if (visitDate) qs.set("date", visitDate)
+    if (displayTime) qs.set("time", displayTime)
+    qs.set("from", "planner")
+    return `/trip/${encodeURIComponent(step.tripId)}?${qs.toString()}#booking`
+  })()
   return (
     <div className={`rounded-xl border bg-secondary/30 p-3.5 transition-all ${
       isActive
@@ -1219,11 +1233,22 @@ function ItineraryStepCard({
             <span className="text-[11px] font-medium text-muted-foreground"> – {step.endTime}</span>
           )}
         </span>
-        {/* Duration — bumped to bold/foreground so it reads as a stat, not a footnote. */}
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-foreground">
-          <Clock className="h-3 w-3 text-muted-foreground" />
-          {step.durationMinutes} min
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* Duration — bumped to bold/foreground so it reads as a stat, not a footnote. */}
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-foreground">
+            <Clock className="h-3 w-3 text-muted-foreground" />
+            {step.durationMinutes} min
+          </span>
+          {/* Book Now — jumps to the trip page with this slot pre-selected. */}
+          <Link
+            href={bookingHref}
+            data-testid="itinerary-book-now"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Book Now
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
       </div>
       {/* Title — slightly larger so it dominates the card. */}
       <p className="mt-1.5 text-[15px] font-bold leading-snug text-foreground">{step.tripTitle}</p>
@@ -1489,6 +1514,7 @@ export function ItineraryPanel({
                 step={step}
                 isActive={activeStopIndex === i}
                 onLocationClick={onFocusStop ? () => onFocusStop(i) : undefined}
+                visitDate={itinerary.visitDate}
               />
 
               {/* End-of-step time label appears on the rail between cards.

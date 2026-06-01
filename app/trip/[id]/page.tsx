@@ -261,10 +261,11 @@ export default async function TripPage({
   const selectedTime = typeof sp.time === "string" ? sp.time : undefined
   // Origin of the slot link — drives the heading shown above the booking
   // iframe so visitors understand which homepage row they came from.
-  // Accepted values: "deals" (Filling Up Fast) | "departing" (Departing Soon).
+  // Accepted values: "deals" (Filling Up Fast) | "departing" (Departing Soon)
+  // | "planner" (AI Trip Planner day itinerary "Book Now").
   const fromRaw = typeof sp.from === "string" ? sp.from : undefined
-  const selectedFrom: "deals" | "departing" | undefined =
-    fromRaw === "deals" || fromRaw === "departing" ? fromRaw : undefined
+  const selectedFrom: "deals" | "departing" | "planner" | undefined =
+    fromRaw === "deals" || fromRaw === "departing" || fromRaw === "planner" ? fromRaw : undefined
 
   const resolved = await resolveTrip(id)
   const { dbRow } = resolved

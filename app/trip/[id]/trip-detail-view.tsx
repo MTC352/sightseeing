@@ -129,10 +129,10 @@ export default function TripDetailClient({
   relatedTrips: RelatedTrip[]
   selectedDate?: string
   selectedTime?: string
-  /** Which homepage rail the visitor clicked to land here, so the
-   *  selected-slot banner can be labelled accurately ("Fill up fast slot",
-   *  "Soon departuring slot") instead of the generic "Your selected slot". */
-  selectedFrom?: "deals" | "departing"
+  /** Which rail the visitor clicked to land here, so the selected-slot banner
+   *  can be labelled accurately ("Fill up fast slot", "Soon departuring slot",
+   *  "Trip Planner Slot") instead of the generic "Your selected slot". */
+  selectedFrom?: "deals" | "departing" | "planner"
 }) {
   // Map of source → eyebrow text shown above the date/time inside the
   // selected-slot card. Falls back to the original generic label when the
@@ -142,7 +142,9 @@ export default function TripDetailClient({
       ? "Fill up fast slot"
       : selectedFrom === "departing"
         ? "Soon departuring slot"
-        : "Your selected slot"
+        : selectedFrom === "planner"
+          ? "Trip Planner Slot"
+          : "Your selected slot"
   // Fail-closed: only honor the server-supplied trip. Never fall back to the
   // static seed catalog — the server gate (dbGetTrip publicOnly) is the sole
   // source of truth for whether this trip is publishable.
