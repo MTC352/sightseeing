@@ -26,7 +26,7 @@ import {
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,
   CloudSun, CloudRain, Sun, Thermometer, Droplets, Wind,
   Users, Heart, Baby, UserRound, Minus, Plus,
-  Clock, DollarSign, ChevronRight, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
+  Clock, DollarSign, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
   Maximize2, Loader2,
 } from "lucide-react"
@@ -94,6 +94,8 @@ interface Preferences {
   exclusions?: string[]
 }
 const EMPTY_PREFS: Preferences = { group: "", interests: [], duration: "", budget: "", startDate: "", adults: 1, children: 0, dayCount: 1 }
+/** Hard cap on the combined party size (adults + children). */
+const MAX_PARTY = 10
 
 /** Normalize/clamp a meal-break pref coming from the AI tool input. Returns
  *  null if the entry is malformed. */
@@ -317,11 +319,11 @@ function wxColor(c: WxCond) {
 /* PARTY STEPPER (Adults / Children)       */
 /* ────────────────────────────────────── */
 function PartyStepper({
-  label, sub, icon, value, min, onDec, onInc,
+  label, sub, icon, value, min, onDec, onInc, incDisabled,
 }: {
   label: string; sub: string; icon: React.ReactNode;
   value: number; min: number;
-  onDec: () => void; onInc: () => void;
+  onDec: () => void; onInc: () => void; incDisabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between rounded-xl border-2 border-border bg-card px-4 py-3">
@@ -347,12 +349,25 @@ function PartyStepper({
           type="button"
           aria-label={`Increase ${label.toLowerCase()}`}
           onClick={onInc}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary"
+          disabled={incDisabled}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-30"
         >
           <Plus className="h-4 w-4" />
         </button>
       </div>
     </div>
+  )
+}
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+    >
+      <ChevronLeft className="h-4 w-4" /> Back
+    </button>
   )
 }
 
@@ -428,6 +443,15 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
     onComplete(merged)
   }
 
+  /** Move back to the previous enabled step. Disabled steps are walked over,
+   *  and already-filled field values are preserved. */
+  function goPrev(from: number) {
+    for (let i = from - 1; i >= 0; i--) {
+      if (stepEnabled(i)) { setStep(i); return }
+    }
+  }
+  const hasPrev = (i: number) => enabledIdxs.some((e) => e < i)
+
   function selectGroup(value: string) {
     const party = defaultPartyFor(value)
     const next = { ...prefs, group: value, adults: party.adults, children: party.children }
@@ -440,10 +464,18 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
     }
   }
   function bumpAdults(delta: number) {
-    setPrefs((p) => ({ ...p, adults: Math.max(1, Math.min(20, p.adults + delta)) }))
+    setPrefs((p) => {
+      const adults = Math.max(1, p.adults + delta)
+      if (adults + p.children > MAX_PARTY) return p
+      return { ...p, adults }
+    })
   }
   function bumpChildren(delta: number) {
-    setPrefs((p) => ({ ...p, children: Math.max(0, Math.min(20, p.children + delta)) }))
+    setPrefs((p) => {
+      const children = Math.max(0, p.children + delta)
+      if (p.adults + children > MAX_PARTY) return p
+      return { ...p, children }
+    })
   }
   function confirmParty() {
     setAskParty(false)
@@ -533,6 +565,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
               min={1}
               onDec={() => bumpAdults(-1)}
               onInc={() => bumpAdults(+1)}
+              incDisabled={prefs.adults + prefs.children >= MAX_PARTY}
             />
             <PartyStepper
               label="Children"
@@ -542,7 +575,9 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
               min={0}
               onDec={() => bumpChildren(-1)}
               onInc={() => bumpChildren(+1)}
+              incDisabled={prefs.adults + prefs.children >= MAX_PARTY}
             />
+            <p className="px-1 text-[10px] text-muted-foreground">Up to {MAX_PARTY} people total</p>
             <div className="flex items-center justify-between gap-2 pt-1">
               <button type="button" onClick={() => { setAskParty(false); setPrefs((p) => ({ ...p, group: "" })) }}
                 className="text-xs font-medium text-muted-foreground hover:text-foreground">
@@ -571,10 +606,13 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
               })}
             </div>
             <p className="text-center text-[10px] text-muted-foreground" data-testid="interest-count">{prefs.interests.length}/{maxInterests} selected</p>
-            <button type="button" disabled={prefs.interests.length === 0} onClick={() => goNext(1, prefs)}
-              className="mx-auto flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
-              Continue <ChevronRight className="h-4 w-4" />
-            </button>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              {hasPrev(1) ? <BackButton onClick={() => goPrev(1)} /> : <span />}
+              <button type="button" disabled={prefs.interests.length === 0} onClick={() => goNext(1, prefs)}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
+                Continue <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
         {step === 2 && !askDays && (
@@ -588,6 +626,11 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
                 )}
               </button>
             ))}
+            {hasPrev(2) && (
+              <div className="pt-1">
+                <BackButton onClick={() => goPrev(2)} />
+              </div>
+            )}
           </div>
         )}
         {step === 2 && askDays && (
@@ -625,6 +668,11 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
               className="mt-1 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border px-4 py-3 text-sm font-medium text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground">
               Skip — show all trips
             </button>
+            {hasPrev(3) && (
+              <div className="pt-1">
+                <BackButton onClick={() => goPrev(3)} />
+              </div>
+            )}
           </div>
         )}
         {step === 4 && (
@@ -671,6 +719,11 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
                 Start planning <ChevronRight className="h-4 w-4" />
               </button>
             </div>
+            {hasPrev(4) && (
+              <div className="pt-1">
+                <BackButton onClick={() => goPrev(4)} />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -854,6 +907,7 @@ function EditablePrefsBar({
   onReset: () => void
 }) {
   const groupLabel = formOptions.groups.find((g) => g.value === prefs.group)?.label ?? prefs.group
+  const partyTotal = Math.max(1, prefs.adults || 1) + Math.max(0, prefs.children || 0)
   const durationLabel = formOptions.durations.find((d) => d.value === prefs.duration)?.label ?? prefs.duration
   const budgetLabel = formOptions.budgets.find((b) => b.value === prefs.budget)?.label ?? prefs.budget
   const interestLabel = (v: string) => formOptions.interests.find((i) => i.value === v)?.label ?? v
@@ -927,6 +981,42 @@ function EditablePrefsBar({
               {formOptions.groups.map((g) =>
                 optionRow(prefs.group === g.value, () => { onPatch({ group: g.value }); close() }, g.label, g.value),
               )}
+            </div>
+          )}
+        </PrefPill>
+      )}
+
+      {/* Group size (party) — display + adjustable, capped at MAX_PARTY */}
+      {formOptions.enabledSteps.groups && (
+        <PrefPill
+          label="Group size"
+          value={`${partyTotal} ${partyTotal === 1 ? "person" : "people"}`}
+          icon={Users}
+          testid="prefpill-party"
+        >
+          {() => (
+            <div className="flex flex-col gap-2">
+              <PartyStepper
+                label="Adults"
+                sub="Ages 13+"
+                icon={<UserRound className="h-5 w-5" />}
+                value={prefs.adults}
+                min={1}
+                onDec={() => onPatch({ adults: Math.max(1, prefs.adults - 1) })}
+                onInc={() => { if (partyTotal < MAX_PARTY) onPatch({ adults: prefs.adults + 1 }) }}
+                incDisabled={partyTotal >= MAX_PARTY}
+              />
+              <PartyStepper
+                label="Children"
+                sub="Ages 0-12"
+                icon={<Baby className="h-5 w-5" />}
+                value={prefs.children}
+                min={0}
+                onDec={() => onPatch({ children: Math.max(0, prefs.children - 1) })}
+                onInc={() => { if (partyTotal < MAX_PARTY) onPatch({ children: prefs.children + 1 }) }}
+                incDisabled={partyTotal >= MAX_PARTY}
+              />
+              <p className="px-1 text-[10px] text-muted-foreground">Up to {MAX_PARTY} people total</p>
             </div>
           )}
         </PrefPill>
@@ -1587,6 +1677,14 @@ export default function PlannerPage() {
     if (typeof patch.startDate === "string" && patch.startDate) next.startDate = patch.startDate
     if (typeof patch.budget === "string" && patch.budget) next.budget = patch.budget
     if (typeof patch.group === "string" && patch.group) next.group = patch.group
+    if (typeof patch.adults === "number" && patch.adults >= 1) {
+      next.adults = Math.max(1, Math.min(MAX_PARTY, Math.floor(patch.adults)))
+    }
+    if (typeof patch.children === "number" && patch.children >= 0) {
+      next.children = Math.max(0, Math.floor(patch.children))
+    }
+    // Enforce the combined party cap (≥1 adult, ≤MAX_PARTY total).
+    next.children = Math.min(next.children, MAX_PARTY - next.adults)
     // Interests is the one array field a single-pref edit can REPLACE wholesale
     // (incl. emptying it). The caller computes the next list (toggle add/remove).
     if (Array.isArray(patch.interests)) {
@@ -1603,6 +1701,8 @@ export default function PlannerPage() {
       next.startDate === base.startDate &&
       next.budget === base.budget &&
       next.group === base.group &&
+      next.adults === base.adults &&
+      next.children === base.children &&
       arrKey(next.interests) === arrKey(base.interests) &&
       arrKey(next.exclusions) === arrKey(base.exclusions)
     if (unchanged) return
@@ -1903,8 +2003,8 @@ export default function PlannerPage() {
           duration: typeof patch.duration === "string" && patch.duration ? patch.duration : base.duration,
           budget: typeof patch.budget === "string" && patch.budget ? patch.budget : base.budget,
           startDate: typeof patch.startDate === "string" && patch.startDate ? patch.startDate : base.startDate,
-          adults: typeof patch.adults === "number" && patch.adults >= 1 ? Math.min(20, patch.adults) : base.adults,
-          children: typeof patch.children === "number" && patch.children >= 0 ? Math.min(20, patch.children) : base.children,
+          adults: typeof patch.adults === "number" && patch.adults >= 1 ? Math.min(MAX_PARTY, patch.adults) : base.adults,
+          children: typeof patch.children === "number" && patch.children >= 0 ? Math.min(MAX_PARTY, patch.children) : base.children,
           // Preserve / clamp dayCount on AI-driven updates. If the AI is
           // switching to multi-day, snap to at least 2 days; switching
           // away from multi-day collapses back to 1.
@@ -1931,6 +2031,10 @@ export default function PlannerPage() {
           if (typeof patch.adults !== "number") next.adults = d.adults
           if (typeof patch.children !== "number") next.children = d.children
         }
+
+        // Enforce the combined party cap: ≥1 adult, ≤MAX_PARTY people total.
+        next.adults = Math.max(1, Math.min(MAX_PARTY, next.adults))
+        next.children = Math.max(0, Math.min(MAX_PARTY - next.adults, next.children))
 
         // No-op short-circuit: skip churn if nothing actually changed.
         const mealBreaksKey = (mb: MealBreakPref[] | undefined) =>

@@ -710,8 +710,8 @@ const updatePreferencesTool = tool({
     "The new values persist for the rest of the conversation and future visits.",
   inputSchema: z.object({
     group: z.enum(["solo", "couple", "family", "friends"]).optional().describe("Travel party type."),
-    adults: z.number().int().min(1).max(20).optional().describe("Number of adults (ages 13+)."),
-    children: z.number().int().min(0).max(20).optional().describe("Number of children (ages 0-12)."),
+    adults: z.number().int().min(1).max(10).optional().describe("Number of adults (ages 13+). Combined party size (adults + children) is capped at 10."),
+    children: z.number().int().min(0).max(10).optional().describe("Number of children (ages 0-12). Combined party size (adults + children) is capped at 10."),
     interests: z.array(z.string()).max(10).optional().describe("Interest tags chosen by the visitor. The UI caps how many are allowed; pass only what the user explicitly mentions."),
     duration: z.enum(["1-2h", "half-day", "full-day"]).optional().describe("Trip duration preference."),
     budget: z.enum(["casual", "mid-range", "premium", "any"]).optional().describe("Budget preference."),
