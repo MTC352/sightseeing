@@ -49,6 +49,17 @@ export function rateLimit(
   request: NextRequest | Request,
   options: RateLimitOptions,
 ): { allowed: true } | { allowed: false; response: NextResponse } {
+  // Dev/preview bypass. In the Replit dev environment ALL traffic (the preview
+  // pane, HMR, screenshots, curl, and e2e browsers) egresses through ONE shared
+  // reverse-proxy IP, so the per-IP sliding window collapses into a single
+  // global bucket and a handful of preview requests exhaust the limit for the
+  // whole environment. That makes the planner unusable and blocks e2e testing.
+  // Rate limiting is a production abuse control, so we only enforce it there;
+  // production clients keep distinct real IPs and are unaffected.
+  if (process.env.NODE_ENV !== "production") {
+    return { allowed: true }
+  }
+
   const ip = getIp(request)
   const now = Date.now()
 

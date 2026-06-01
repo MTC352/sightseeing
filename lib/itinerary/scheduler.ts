@@ -15,6 +15,13 @@
 
 export const HARD_MAX_STOPS = 5
 const EARLY_ARRIVAL_MIN = 5
+// "Full day" is the visitor's MAX time option, so it must mean the WHOLE 24h
+// day — NOT the admin's daytime operating window (which exists to bound
+// half-day / unset plans). On a full-day plan we schedule from midnight
+// through end-of-day and let a late-night tour spill past midnight (e.g. a
+// 19:15–23:15 dinner-hopping bus, or a cruise that finishes ~01:00). Without
+// this, evening tours were wrongly dropped with "No slot fit your time window".
+export const LATE_NIGHT_SPILL_MIN = 2 * 60 // allow finishes up to ~02:00 the next day
 
 // Walk is recommended over driving for hops at or under this distance.
 const SHORT_HOP_KM = 1.2
@@ -158,8 +165,12 @@ export function toMin(hhmm: string): number {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
 }
 export function toHHMM(total: number): string {
-  const t = Math.max(0, Math.min(24 * 60 - 1, Math.round(total)))
-  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`
+  // Wrap past midnight rather than clamp to 23:59 — full-day plans allow a
+  // late-night tour to finish after 24:00 (see LATE_NIGHT_SPILL_MIN), so a
+  // 22:30–01:00 product must render its end as "01:00", not "23:59".
+  const t = Math.max(0, Math.round(total))
+  const wrapped = t % (24 * 60)
+  return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`
 }
 
 /** Parse a stored "lat,lng" geocode string into numbers. Returns null on any
@@ -316,8 +327,16 @@ export async function buildSchedule(opts: {
   // configurable breathing room between stops.
   const earlyArrival = EARLY_ARRIVAL_MIN
   const buffer = Math.round(Math.max(0, Math.floor(config.bufferTimeBetweenStops) || 0) * pacePreset.bufferMult)
-  const dayStart = toMin(config.dayStartTime) >= 0 ? toMin(config.dayStartTime) : 9 * 60
-  const dayEnd = toMin(config.dayEndTime) >= 0 ? toMin(config.dayEndTime) : 21 * 60
+  // Full-day, single-date plans use the WHOLE day (midnight → end-of-day +
+  // late-night spill) so evening / late-night tours are schedulable. Half-day,
+  // 1-2h, unset, and multi-day plans keep the admin's daytime operating window.
+  const isFullDay = !prefs.isMultiDay && prefs.duration === "full-day"
+  const dayStart = isFullDay
+    ? 0
+    : toMin(config.dayStartTime) >= 0 ? toMin(config.dayStartTime) : 9 * 60
+  const dayEnd = isFullDay
+    ? 24 * 60 + LATE_NIGHT_SPILL_MIN
+    : toMin(config.dayEndTime) >= 0 ? toMin(config.dayEndTime) : 21 * 60
   const dayCount = prefs.isMultiDay ? Math.max(1, prefs.dayCount) : 1
 
   // Single-day time budget from the duration preference.
@@ -359,6 +378,32 @@ export async function buildSchedule(opts: {
   const coffeeWanted = !prefs.excludeMeals && (config.autoInsertMealBreaks || prefs.userMealBreaks.has("coffee"))
   const coffeeDur = prefs.userMealBreaks.get("coffee")?.durationMinutes ?? 20
 
+  // Placement uses a single forward-only cursor (`prev`): each trip must start
+  // AFTER the previously placed one ends. That makes the VISIT ORDER decide
+  // feasibility — a late-slot trip visited before daytime trips pushes the
+  // cursor past midday and evicts them all with a false "no slot fit". The AI
+  // only decides WHICH trips to include; timing is deterministic here, so we
+  // visit candidates in chronological order of their earliest feasible slot.
+  // This is what lets a full-day plan keep its daytime stops AND its evening
+  // tour (e.g. a 19:15 dinner-hopping bus) instead of dropping the day for it.
+  // Stable sort preserves the AI's relative order among trips that can start at
+  // the same time; trips with no feasible slot sort last (they'd drop anyway).
+  const earliestFeasibleSlot = (t: CandidateTrip): number => {
+    let best = Infinity
+    for (const s of t.slots) {
+      const st = toMin(s.startTime)
+      if (st < 0) continue
+      if (st < dayStart) continue
+      if (earlyCutoff >= 0 && st < earlyCutoff) continue
+      if (st + t.durationMin > dayEnd) continue
+      if (st < best) best = st
+    }
+    return best
+  }
+  const orderedCandidates = [...workCandidates].sort(
+    (a, b) => earliestFeasibleSlot(a) - earliestFeasibleSlot(b),
+  )
+
   const used = new Set<string>()
   const allSteps: ScheduledStep[] = []
   const notes: string[] = []
@@ -379,7 +424,7 @@ export async function buildSchedule(opts: {
     } | null = null
     let firstStartMin = -1
 
-    for (const trip of workCandidates) {
+    for (const trip of orderedCandidates) {
       if (used.has(trip.id)) continue
       if (allSteps.length + daySteps.length >= targetStops) break
 
@@ -548,7 +593,7 @@ export async function buildSchedule(opts: {
   }
 
   const dropped: DroppedTrip[] = [...accessibilityDrops]
-  for (const trip of workCandidates) {
+  for (const trip of orderedCandidates) {
     if (used.has(trip.id)) continue
     dropped.push({
       tripId: trip.id,

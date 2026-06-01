@@ -77,6 +77,37 @@ scheduler drops it with a sentence reason. The old default mislabeled it "No ope
 next 21 days" — the exact false message users reported. NO_SLOTS is the only code that legitimately
 maps to the "No openings" copy.
 
+## "Full day" duration = TRUE whole-day window (not the admin daytime window)
+Single-day full-day plans (`isFullDay = !prefs.isMultiDay && prefs.duration === "full-day"`)
+schedule from `dayStart=0` to `dayEnd = 24*60 + LATE_NIGHT_SPILL_MIN` (spill = 2h, exported)
+so evening/late-night tours fit (e.g. BBQ tcms_14 19:15–23:15, or a cruise finishing ~01:00).
+Half-day / 1-2h / unset / multi-day KEEP the admin `dayStartTime`/`dayEndTime` window.
+The route's preflight `availableMinutes` for full-day must match (`24*60 + LATE_NIGHT_SPILL_MIN`)
+or the duration-vs-budget conflict check falsely flags evening tours. `toHHMM` WRAPS past
+midnight (`% 1440`) rather than clamping to 23:59, so post-24:00 finishes render correct
+next-day times. **Why:** before this, full-day used the ~09:00–21:00 daytime window and any
+tour ending after it was dropped with "No slot fit your selected time window".
+
+## Scheduler is a FORWARD-ONLY cursor — visit candidates in chronological slot order
+`buildSchedule` places trips with a single advancing `prev` cursor: each trip must start at/after
+`prev.endMin + travel + buffer + earlyArrival`. So the VISIT ORDER decides feasibility — a
+late-slot trip visited first pushes the cursor past midday and evicts every daytime trip with a
+false "no slot fit". Fix: sort candidates by `earliestFeasibleSlot` (earliest slot within
+`[dayStart,dayEnd]`, respecting `earlyCutoff` + duration) into `orderedCandidates`, used by BOTH
+the placement loop AND the drop-reporting loop. Stable sort preserves AI relative order among
+same-time trips. **Why:** the AI `selectAndOrder` can return any order; with BBQ ordered first a
+full-day cart dropped its 2 daytime trips. **Edge:** when candidates exceed the stops cap the
+chronological order (not AI rank) decides drops — accepted product tradeoff for order-invariant fit.
+
+## Rate limiting is PRODUCTION-ONLY (dev/preview bypass)
+`lib/rate-limit.ts` returns `{allowed:true}` when `NODE_ENV !== "production"`. **Why:** in the
+Replit dev environment ALL traffic (preview pane, HMR, screenshots, curl, Playwright e2e) egresses
+through ONE shared reverse-proxy IP, so the per-IP sliding window collapses into a single global
+bucket — a handful of preview requests exhaust the 10/min limit for the whole environment, making
+the planner unusable and 429-blocking e2e. Production clients keep distinct real IPs (limit intact).
+**How to apply:** don't try to "fix" e2e 429s by restarting/spacing calls — that's the shared-IP
+bucket, not your code.
+
 ## Testing the scheduler
 Whole-project `tsc` gets OOM-killed. Transpile the single file standalone:
 `npx tsc lib/itinerary/scheduler.ts --target es2022 --module es2022 --moduleResolution bundler --skipLibCheck --outDir /tmp/x`,

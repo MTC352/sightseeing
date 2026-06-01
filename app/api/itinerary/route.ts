@@ -14,6 +14,7 @@ import {
   buildSchedule,
   deterministicOrder,
   HARD_MAX_STOPS,
+  LATE_NIGHT_SPILL_MIN,
   type CandidateTrip,
   type ComputeLeg,
 } from "@/lib/itinerary/scheduler"
@@ -876,8 +877,15 @@ ${coffeeRule}
       availableMinutes = 120
     } else if (prefs.duration === "half-day") {
       availableMinutes = 300
+    } else if (prefs.duration === "full-day") {
+      // Full-day is the visitor's MAX time option — the WHOLE 24h day PLUS the
+      // scheduler's late-night spill — so the budget here matches the scheduler
+      // window exactly (buildSchedule: dayEnd = 24*60 + LATE_NIGHT_SPILL_MIN)
+      // and evening/late-night tours never trip a false "too many trips for
+      // your duration" conflict.
+      availableMinutes = 24 * 60 + LATE_NIGHT_SPILL_MIN
     } else {
-      // "full-day" or unset → full configured day window
+      // Unset → fall back to the admin's configured daytime window.
       availableMinutes = dayWindowMinutes
     }
 
