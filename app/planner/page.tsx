@@ -12,6 +12,7 @@ import { MobiliteitPlanner } from "@/components/mobiliteit-planner"
 import { SidebarItinerary, ItineraryPanel, type Itinerary, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { weatherData, type Trip } from "@/lib/data"
+import { parseDurationHoursMin } from "@/lib/duration-parser"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 
@@ -243,6 +244,22 @@ const DEFAULT_DURATION_OPTIONS = [
   { value: "half-day", label: "Half day" },
   { value: "full-day", label: "Full day" },
 ]
+
+/** Max trip length (in hours) the visitor can fit, derived from the
+ *  "time available" preference. Returns null = no cap (full-day, multi-day,
+ *  "any", empty, or any admin-custom option we don't recognise). Used to hide
+ *  recommendations that are physically too long for the selected window
+ *  (e.g. an 8-hour day tour when the visitor only has 1-2 hours). */
+function durationCapHours(duration: string | null | undefined): number | null {
+  switch (duration) {
+    case "1-2h":
+      return 2
+    case "half-day":
+      return 4
+    default:
+      return null
+  }
+}
 const DEFAULT_BUDGET_OPTIONS = [
   { value: "casual", label: "Keep it casual" },
   { value: "mid-range", label: "Mid-range" },
@@ -2715,6 +2732,18 @@ export default function PlannerPage() {
     if (!prefs) return []
     const wxCond = deriveWx()
     const hasInterests = prefs.interests.length > 0
+    /* Time-available cap: hide trips that can't fit the visitor's selected
+       duration. "1-2h" → ≤2h, "half-day" → ≤4h. Full-day / multi-day / any /
+       custom options impose no cap. Trips with an unparseable duration are
+       kept (we don't hide what we can't classify). Uses the SHORTEST option
+       of multi-option trips so e.g. "Full Day:7H / Half Day:4H" still fits a
+       half-day cap. */
+    const capH = durationCapHours(prefs.duration)
+    const fitsCap = (t: Trip) => {
+      if (capH == null) return true
+      const minH = parseDurationHoursMin(t.duration)
+      return minH == null || minH <= capH
+    }
     const scored = allTrips.map((t) => {
       let score = 0
       let interestHits = 0
@@ -2734,13 +2763,16 @@ export default function PlannerPage() {
     })
     scored.sort((a, b) => b.score - a.score)
     // Prefer trips that actually match at least one picked interest tag.
-    const matched = hasInterests
+    // Duration cap is applied AFTER scoring so over-long trips never surface.
+    const matched = (hasInterests
       ? scored.filter((s) => s.interestHits > 0)
       : scored.filter((s) => s.score > 0)
+    ).filter((s) => fitsCap(s.trip))
     if (matched.length > 0) return matched.map((s) => s.trip)
-    // Nothing matched the interests — show top-scored trips so the
-    // panel is never empty after a visitor finishes onboarding.
-    return scored.slice(0, 8).map((s) => s.trip)
+    // Nothing matched the interests — show top-scored trips (still within the
+    // duration cap) so the panel is never empty after a visitor finishes
+    // onboarding.
+    return scored.filter((s) => fitsCap(s.trip)).slice(0, 8).map((s) => s.trip)
   }, [prefs, allTrips])
 
   /* ── Planner availability (window scan) ───────────────────────────────
@@ -2968,7 +3000,13 @@ export default function PlannerPage() {
   }, [messages, prefs, selectedTrip, totalItems, resultTrips, centerItinerary])
 
   function handleSend(text: string) {
-    if (!text.trim() || status !== "ready") return
+    // Block ONLY while a turn is actively in flight. Previously this required
+    // status === "ready", which meant that after an AI error (status becomes
+    // "error", e.g. an invalid Anthropic key) EVERY subsequent send was
+    // silently dropped — typed messages AND recommendation pills (which route
+    // through handleSend). Allowing sends from the "error" state lets the user
+    // retry and lets non-patch pills work again.
+    if (!text.trim() || status === "streaming" || status === "submitted") return
     setSelectedTrip(null)
     sendMessage({ text })
     setInput("")
@@ -3895,6 +3933,24 @@ export default function PlannerPage() {
                     <p className="text-sm font-medium text-foreground">Tell the AI what you like</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Pick one or more interests in the chat (Food, Culture, Outdoor, Nightlife…) and we'll analyse the catalog to suggest trips that genuinely match.
+                    </p>
+                  </div>
+                ) : recommendedTrips.length === 0 ? (
+                  /* Interests are picked but nothing matched — most often
+                     because the selected "time available" duration cap filters
+                     out every catalog trip (e.g. only full-day tours match the
+                     chosen interests but the visitor has 1-2 hours). Make the
+                     cause explicit instead of rendering a blank panel. */
+                  <div
+                    className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
+                    data-testid="planner-recs-none-fit"
+                  >
+                    <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
+                    <p className="text-sm font-medium text-foreground">No trips fit those filters</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {durationCapHours(prefs.duration) != null
+                        ? "Nothing in the catalog matches your interests within the time you have. Try allowing more time (Half day / Full day) or picking another interest."
+                        : "Nothing in the catalog matches your interests yet. Try picking another interest in the chat."}
                     </p>
                   </div>
                 ) : (() => {

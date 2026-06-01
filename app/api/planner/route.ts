@@ -1143,7 +1143,11 @@ export async function POST(req: Request) {
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-      const anthropicKey = apiKeys?.anthropic || process.env.ANTHROPIC_API_KEY
+      // Trim: a pasted key with stray whitespace/newline is sent verbatim and
+      // Anthropic rejects it as "invalid x-api-key". Treat empty-after-trim as
+      // missing so we fall back to the env key (matches lib/weather.ts).
+      const anthropicKey =
+        (apiKeys?.anthropic ?? "").trim() || (process.env.ANTHROPIC_API_KEY ?? "").trim()
       if (!anthropicKey) {
         // Stream a chat-shaped error so the client's useChat hook can
         // display it inline instead of failing silently on a raw 503.
