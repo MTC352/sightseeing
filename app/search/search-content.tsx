@@ -18,6 +18,7 @@ import { DateTimeModal } from "@/components/date-time-modal"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import type { PlannerTimeslotsResponse } from "@/app/api/planner/timeslots/route"
 import {
   type SearchFiltersConfig,
   DEFAULT_SEARCH_FILTERS_CONFIG,
@@ -525,22 +526,78 @@ function SlotRow({
   )
 }
 
+/* ── Planner-slot chip (uses PlannerTimeslot with nullable spotsLeft) ── */
+function PlannerSlotChip({ slot }: { slot: PlannerTimeslotsResponse["today"][number] }) {
+  const unlimited = slot.spotsLeft === null
+  const soldOut   = !unlimited && slot.spotsLeft === 0
+  const lowStock  = !unlimited && !soldOut && slot.spotsLeft! <= 3
+
+  const colorClass = soldOut
+    ? "bg-red-50 border-red-200 text-red-700"
+    : lowStock
+    ? "bg-amber-50 border-amber-200 text-amber-700"
+    : "bg-emerald-50 border-emerald-200 text-emerald-700"
+  const dotColor = soldOut ? "bg-red-500" : lowStock ? "bg-amber-500" : "bg-emerald-500"
+
+  return (
+    <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${colorClass} ${soldOut ? "opacity-60" : ""}`}>
+      <span className="font-semibold">{slot.time}</span>
+      <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+      <span className="text-[11px]">
+        {soldOut ? "Sold out" : unlimited ? "Open" : `${slot.spotsLeft} left`}
+      </span>
+    </div>
+  )
+}
+
 /* ── All-timeslots modal ── */
 function AllSlotsModal({
-  open, onClose, tripTitle, slotRows, persons, timeFrom, timeTo,
+  open, onClose, tripTitle, tripId, slotRows, persons, timeFrom, timeTo,
 }: {
   open: boolean
   onClose: () => void
   tripTitle: string
+  tripId: string
   slotRows: { label: string; slots: Timeslot[] }[]
   persons: number
   timeFrom: string
   timeTo: string
 }) {
+  const [plannerData, setPlannerData] = useState<PlannerTimeslotsResponse | null>(null)
+  const [plannerLoading, setPlannerLoading] = useState(false)
+
+  useEffect(() => {
+    if (!open || !tripId) return
+    let cancelled = false
+    setPlannerLoading(true)
+    setPlannerData(null)
+    ;(async () => {
+      try {
+        const res  = await fetch(`/api/planner/timeslots?tripId=${encodeURIComponent(tripId)}`, { cache: "no-store" })
+        const json = (await res.json()) as PlannerTimeslotsResponse
+        if (!cancelled) setPlannerData(json)
+      } catch { /* fall back to slotRows */ }
+      finally { if (!cancelled) setPlannerLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [open, tripId])
+
+  const hasGroups    = plannerData?.ok === true && (
+    (plannerData.todayGroups?.length ?? 0) > 0 || (plannerData.tomorrowGroups?.length ?? 0) > 0
+  )
+  const multiCat     = hasGroups && (
+    (plannerData!.todayGroups?.length ?? 0) > 1 || (plannerData!.tomorrowGroups?.length ?? 0) > 1
+  )
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl" aria-describedby={undefined}>
-        <DialogHeader>
+      <DialogContent
+        className="flex flex-col sm:max-w-2xl p-0 gap-0 overflow-hidden"
+        style={{ maxHeight: "min(85vh, 680px)" }}
+        aria-describedby={undefined}
+      >
+        {/* Fixed header */}
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-4 border-b border-border">
           <div className="flex items-center gap-2 mb-1">
             <CalendarClock className="h-4 w-4 text-primary shrink-0" />
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -550,21 +607,63 @@ function AllSlotsModal({
           <DialogTitle className="text-base leading-snug">{tripTitle}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5 pt-2">
-          {slotRows.map(({ label, slots }) => {
-            const eligible = slots.filter(
-              (s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo),
-            )
-            if (eligible.length === 0) return null
-            return (
-              <div key={label}>
-                <p className="mb-2.5 text-xs font-semibold text-foreground">{label}</p>
-                <div className="flex flex-wrap gap-2">
-                  {eligible.map((s, i) => <TimeslotChip key={i} slot={s} />)}
-                </div>
-              </div>
-            )
-          })}
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          {plannerLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              Loading availability…
+            </div>
+          ) : hasGroups ? (
+            /* ── Grouped view (from planner API) ── */
+            <div className="flex flex-col gap-7">
+              {(["today", "tomorrow"] as const).map((day) => {
+                const groups = day === "today" ? plannerData!.todayGroups : plannerData!.tomorrowGroups
+                if (!groups?.length) return null
+                return (
+                  <div key={day}>
+                    <p className="mb-3 text-sm font-semibold text-foreground">
+                      {day === "today" ? "Today" : "Tomorrow"}
+                    </p>
+                    <div className="flex flex-col gap-4">
+                      {groups.map((group, gi) => (
+                        <div key={gi}>
+                          {multiCat && group.name && (
+                            <p className="mb-2 text-xs font-medium text-muted-foreground pb-1.5 border-b border-border">
+                              {group.name}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            {group.slots.map((s, si) => (
+                              <PlannerSlotChip key={si} slot={s} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            /* ── Fallback: flat slot rows already available ── */
+            <div className="flex flex-col gap-5">
+              {slotRows.map(({ label, slots }) => {
+                const eligible = slots.filter(
+                  (s) => slotFitsPersons(s, persons) && slotFitsTime(s, timeFrom, timeTo),
+                )
+                if (eligible.length === 0) return null
+                return (
+                  <div key={label}>
+                    <p className="mb-2.5 text-xs font-semibold text-foreground">{label}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {eligible.map((s, i) => <TimeslotChip key={i} slot={s} />)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -687,6 +786,7 @@ function SearchListCard({
         open={allSlotsOpen}
         onClose={() => setAllSlotsOpen(false)}
         tripTitle={trip.title}
+        tripId={trip.id}
         slotRows={slotRows}
         persons={persons}
         timeFrom={timeFrom}

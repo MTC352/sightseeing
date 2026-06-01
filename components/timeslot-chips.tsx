@@ -156,6 +156,8 @@ export function ItineraryTimeslots({
             palisisId: null,
             today: [],
             tomorrow: [],
+            todayGroups: [],
+            tomorrowGroups: [],
             error: "FETCH_FAILED",
           })
         }
@@ -168,11 +170,16 @@ export function ItineraryTimeslots({
     }
   }, [tripId])
 
-  const todaySlots = data?.today ?? []
+  const todaySlots    = data?.today    ?? []
   const tomorrowSlots = data?.tomorrow ?? []
+  const todayGroups   = data?.todayGroups    ?? []
+  const tomorrowGroups = data?.tomorrowGroups ?? []
   const hasSlots = todaySlots.length > 0 || tomorrowSlots.length > 0
 
-  // Recommended slot: prefer today, else tomorrow
+  // Multi-category: either day has >1 group with a name
+  const multiCat = todayGroups.length > 1 || tomorrowGroups.length > 1
+
+  // Recommended slot: prefer today, else tomorrow (always uses flat arrays)
   const recommended = useMemo(() => {
     if (todaySlots.length) {
       const idx = pickRecommendedIndex(todaySlots, suggestedTime)
@@ -225,6 +232,74 @@ export function ItineraryTimeslots({
     setSelected((prev) => (prev === key ? null : key))
   }
 
+  /** Render chips for one day, using grouped view when multiple categories exist */
+  function renderDaySlots(
+    day: "today" | "tomorrow",
+    groups: typeof todayGroups,
+    flatSlots: Timeslot[],
+  ) {
+    if (!flatSlots.length) return null
+
+    let flatIndex = 0 // tracks position in flat array for recommended highlighting
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11px] font-semibold text-foreground">
+          {day === "today" ? "Today" : "Tomorrow"}
+        </span>
+
+        {multiCat ? (
+          /* Grouped: category name + chips below it */
+          <div className="flex flex-col gap-2.5 mt-0.5">
+            {groups.map((group, gi) => {
+              const groupStart = flatIndex
+              flatIndex += group.slots.length
+              return (
+                <div key={gi}>
+                  {group.name && (
+                    <p className="mb-1 text-[10px] font-medium text-muted-foreground leading-tight">
+                      {group.name}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {group.slots.map((slot, si) => {
+                      const absIdx = groupStart + si
+                      return (
+                        <TimeslotChip
+                          key={`${day}-g${gi}-${si}`}
+                          slot={slot}
+                          selected={selected === `${day}-${slot.time}-${gi}`}
+                          recommended={recommended?.day === day && recommended.index === absIdx}
+                          onClick={() => {
+                            const key = `${day}-${slot.time}-${gi}`
+                            setSelected((prev) => (prev === key ? null : key))
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          /* Single category: flat chip row (original layout) */
+          <div className="flex flex-wrap gap-1.5">
+            {flatSlots.map((slot, i) => (
+              <TimeslotChip
+                key={`${day}-${i}-${slot.time}`}
+                slot={slot}
+                selected={selected === `${day}-${slot.time}`}
+                recommended={recommended?.day === day && recommended.index === i}
+                onClick={() => handleClick(day, slot)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="mt-2.5 rounded-xl border border-border bg-background/60 px-3 py-2.5">
       <div className="mb-2 flex items-center justify-between">
@@ -236,41 +311,9 @@ export function ItineraryTimeslots({
           Live
         </span>
       </div>
-      <div className="flex flex-col gap-2">
-        {todaySlots.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-16 shrink-0 text-[11px] font-semibold text-foreground">Today</span>
-            <div className="flex flex-wrap gap-1.5">
-              {todaySlots.map((slot, i) => (
-                <TimeslotChip
-                  key={`t-${i}-${slot.time}`}
-                  slot={slot}
-                  selected={selected === `today-${slot.time}`}
-                  recommended={recommended?.day === "today" && recommended.index === i}
-                  onClick={() => handleClick("today", slot)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-        {tomorrowSlots.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-16 shrink-0 text-[11px] font-semibold text-foreground">Tomorrow</span>
-            <div className="flex flex-wrap gap-1.5">
-              {tomorrowSlots.map((slot, i) => (
-                <TimeslotChip
-                  key={`tm-${i}-${slot.time}`}
-                  slot={slot}
-                  selected={selected === `tomorrow-${slot.time}`}
-                  recommended={
-                    recommended?.day === "tomorrow" && recommended.index === i
-                  }
-                  onClick={() => handleClick("tomorrow", slot)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="flex flex-col gap-3">
+        {renderDaySlots("today",    todayGroups,    todaySlots)}
+        {renderDaySlots("tomorrow", tomorrowGroups, tomorrowSlots)}
       </div>
       {recommended && (
         <p className="mt-2 flex items-center gap-1 text-[10px] font-medium text-primary">
@@ -281,7 +324,7 @@ export function ItineraryTimeslots({
       )}
       {selected && (
         <p className="mt-1 text-[10px] font-medium text-primary">
-          Selected {selected.replace("-", " ")}
+          Selected {selected.replace(/-\d+$/, "").replace("-", " ")}
         </p>
       )}
     </div>

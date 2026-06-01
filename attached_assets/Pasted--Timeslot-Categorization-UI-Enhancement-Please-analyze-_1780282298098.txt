@@ -1,0 +1,131 @@
+### Timeslot Categorization & UI Enhancement
+
+Please analyze the Timeslot API structure and implement a categorized timeslot display system.
+
+### Goal
+
+Currently, all timeslots are displayed in a flat list under a date (Today/Tomorrow). Instead, timeslots should be grouped and displayed **category-wise** when a trip contains multiple categories/variants.
+
+For example, if a trip has:
+
+* Classical Tasting
+* Classical Tasting with Snacks
+* Gourmet Tasting
+* Just a Taste
+
+and each category has its own availability/timeslots, then the UI should display:
+
+```text
+Tomorrow
+
+Classical Tasting
+12:00  13:00  14:00  ...
+
+Classical Tasting with Snacks
+12:00  13:00  14:00  ...
+
+Gourmet Tasting
+12:00  13:00  14:00  ...
+
+Just a Taste
+12:00  13:00  14:00  ...
+```
+
+---
+
+### API Analysis Required
+
+Please analyze the API response and identify:
+
+* How categories/variants are stored.
+* Whether categories have unique IDs.
+* How timeslots are linked to each category.
+* How availability/capacity is stored per category.
+* Whether multiple categories share the same timeslots or have separate timeslots.
+
+Based on the API structure, create the most appropriate grouping logic.
+
+---
+
+### Display Rules
+
+#### Case 1: Multiple Categories Exist
+
+Display:
+
+```text
+Tomorrow
+
+Category Name 1
+[timeslots]
+
+Category Name 2
+[timeslots]
+
+Category Name 3
+[timeslots]
+```
+
+Each category should have its own section.
+
+---
+
+#### Case 2: Single Category Only
+
+If the trip contains only one category/variant:
+
+```text
+Tomorrow
+
+[timeslots]
+```
+
+Do not display a category heading.
+
+No unnecessary category labels should appear.
+
+---
+
+### UI Requirements
+
+The current popup becomes too large when many timeslots exist.
+
+Improve the UI as follows:
+
+* Set a fixed/max height for the timeslot modal.
+* Enable vertical scrolling inside the modal content area.
+* Keep the modal header fixed.
+* Keep the close button visible at all times.
+* Ensure the layout remains usable even when there are many categories and timeslots.
+
+---
+
+### Timeslot Card Design
+
+Each timeslot should continue showing:
+
+* Time
+* Remaining availability (e.g., 36 left)
+* Availability indicator/status
+
+Example:
+
+```text
+12:00 • 36 left
+13:00 • 40 left
+14:00 • 40 left
+```
+
+---
+
+### UI Inspiration
+
+The first screenshot demonstrates the desired data structure and grouping concept:
+
+* Categories displayed separately with their names.
+* Timeslots organized under the relevant category.
+* Easier to understand when multiple variants share the same date.
+
+The visual design does not need to exactly match the screenshot, but the grouping logic and user experience should be similar.
+
+The final UI should be modern, clean, easy to scan, and scalable for trips that contain many categories and large numbers of timeslots.

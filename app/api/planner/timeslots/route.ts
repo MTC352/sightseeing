@@ -23,6 +23,12 @@ export interface PlannerTimeslot {
   priceDisplay?: string
   currency?: string
   componentKey?: string
+  componentName?: string             // variant/rate name from TourCMS note field
+}
+
+export interface TimeslotGroup {
+  name: string                       // category/variant name; "" = single unnamed group
+  slots: PlannerTimeslot[]
 }
 
 export interface PlannerTimeslotsResponse {
@@ -31,6 +37,8 @@ export interface PlannerTimeslotsResponse {
   palisisId: string | null
   today: PlannerTimeslot[]
   tomorrow: PlannerTimeslot[]
+  todayGroups: TimeslotGroup[]
+  tomorrowGroups: TimeslotGroup[]
   error?: string
   providerError?: string | null
 }
@@ -45,14 +53,8 @@ function addDaysYMD(ymd: string, days: number): string {
 }
 
 async function resolvePalisisId(tripId: string): Promise<string | null> {
-  // Fail-closed: only return a palisisId when the trip is confirmed published in our DB.
-  // No heuristic fallbacks — allowing unknown IDs through would let callers probe
-  // arbitrary TourCMS tour IDs and exhaust upstream quota without authorization.
-
-  // Primary lookup by our internal trip id (handles "tcms_NNN" and UUID formats)
   let row = (await dbGetTrip(tripId, { publicOnly: true }).catch(() => null)) as Record<string, unknown> | null
 
-  // Secondary lookup: caller passed the raw numeric palisis_id directly
   if (!row && /^\d+$/.test(tripId)) {
     try {
       const rows = (await query(
@@ -63,7 +65,6 @@ async function resolvePalisisId(tripId: string): Promise<string | null> {
     } catch { /* ignore */ }
   }
 
-  // If no published record was found, refuse — do not fall through to TourCMS
   if (!row) return null
 
   const fromRow =
@@ -73,42 +74,56 @@ async function resolvePalisisId(tripId: string): Promise<string | null> {
   return fromRow ? String(fromRow) : null
 }
 
-function normalizeComponents(components: AvailabilityComponent[]): PlannerTimeslot[] {
-  return components
-    .slice()
-    .sort((a, b) => {
-      const aT = a.start_time_utcseconds ? parseInt(a.start_time_utcseconds, 10) : 0
-      const bT = b.start_time_utcseconds ? parseInt(b.start_time_utcseconds, 10) : 0
-      return aT - bT
-    })
-    .map((c) => {
-      const raw = c.spaces_remaining
-      const unlimited = raw === "UNLIMITED"
-      const spotsLeft = unlimited
-        ? null
-        : Math.max(0, parseInt(raw ?? "0", 10) || 0)
-      // Show HH:MM only
-      const time = (c.start_time ?? "").slice(0, 5)
-      return {
-        time,
-        spotsLeft,
-        spotsTotal: null,
-        priceDisplay: c.total_price_display ?? undefined,
-        currency: c.sale_currency ?? undefined,
-        componentKey: c.component_key ?? undefined,
-      } satisfies PlannerTimeslot
-    })
-    .filter((s) => s.time.length > 0)
+/** Group availability components by their variant name (c.note), sorted by start time. */
+function buildGroups(components: AvailabilityComponent[]): { groups: TimeslotGroup[]; flat: PlannerTimeslot[] } {
+  const sorted = components.slice().sort((a, b) => {
+    const aT = a.start_time_utcseconds ? parseInt(a.start_time_utcseconds, 10) : 0
+    const bT = b.start_time_utcseconds ? parseInt(b.start_time_utcseconds, 10) : 0
+    return aT - bT
+  })
+
+  const groupMap = new Map<string, PlannerTimeslot[]>()
+
+  for (const c of sorted) {
+    const time = (c.start_time ?? "").slice(0, 5)
+    if (!time) continue
+
+    const raw = c.spaces_remaining
+    const unlimited = raw === "UNLIMITED"
+    const spotsLeft = unlimited
+      ? null
+      : Math.max(0, parseInt(raw ?? "0", 10) || 0)
+
+    const slot: PlannerTimeslot = {
+      time,
+      spotsLeft,
+      spotsTotal: null,
+      priceDisplay: c.total_price_display ?? undefined,
+      currency: c.sale_currency ?? undefined,
+      componentKey: c.component_key ?? undefined,
+      componentName: c.note?.trim() || undefined,
+    }
+
+    const groupKey = c.note?.trim() ?? ""
+    if (!groupMap.has(groupKey)) groupMap.set(groupKey, [])
+    groupMap.get(groupKey)!.push(slot)
+  }
+
+  const groups: TimeslotGroup[] = Array.from(groupMap.entries()).map(([name, slots]) => ({ name, slots }))
+  const flat = groups.flatMap((g) => g.slots)
+
+  return { groups, flat }
 }
 
 async function fetchSlotsForDate(
   config: NonNullable<Awaited<ReturnType<typeof getTourCMSConfig>>>,
   palisisId: string,
   date: string,
-): Promise<{ ok: boolean; slots: PlannerTimeslot[]; providerError?: string }> {
+): Promise<{ ok: boolean; groups: TimeslotGroup[]; flat: PlannerTimeslot[]; providerError?: string }> {
   const res = await checkAvailability(config, palisisId, { date, show_pickups: "0" })
-  if (!res.ok) return { ok: false, slots: [], providerError: res.error }
-  return { ok: true, slots: normalizeComponents(res.components) }
+  if (!res.ok) return { ok: false, groups: [], flat: [], providerError: res.error }
+  const { groups, flat } = buildGroups(res.components)
+  return { ok: true, groups, flat }
 }
 
 export async function GET(req: Request) {
@@ -121,7 +136,7 @@ export async function GET(req: Request) {
   const tripId = searchParams.get("tripId") ?? ""
   if (!tripId) {
     return NextResponse.json<PlannerTimeslotsResponse>(
-      { ok: false, tripId: "", palisisId: null, today: [], tomorrow: [], error: "MISSING_TRIP_ID" },
+      { ok: false, tripId: "", palisisId: null, today: [], tomorrow: [], todayGroups: [], tomorrowGroups: [], error: "MISSING_TRIP_ID" },
       { status: 400 },
     )
   }
@@ -129,7 +144,7 @@ export async function GET(req: Request) {
   const config = await getTourCMSConfig()
   if (!config) {
     return NextResponse.json<PlannerTimeslotsResponse>(
-      { ok: false, tripId, palisisId: null, today: [], tomorrow: [], error: "TOURCMS_NOT_CONFIGURED" },
+      { ok: false, tripId, palisisId: null, today: [], tomorrow: [], todayGroups: [], tomorrowGroups: [], error: "TOURCMS_NOT_CONFIGURED" },
       { status: 200 },
     )
   }
@@ -137,12 +152,11 @@ export async function GET(req: Request) {
   const palisisId = await resolvePalisisId(tripId)
   if (!palisisId) {
     return NextResponse.json<PlannerTimeslotsResponse>(
-      { ok: false, tripId, palisisId: null, today: [], tomorrow: [], error: "NO_PALISIS_LINK" },
+      { ok: false, tripId, palisisId: null, today: [], tomorrow: [], todayGroups: [], tomorrowGroups: [], error: "NO_PALISIS_LINK" },
       { status: 200 },
     )
   }
 
-  // Serve from cache: keyed by palisisId + current date (today/tomorrow are always the same pair)
   const today = todayYMD()
   const cacheKey = `${palisisId}|${today}`
   const cached = _timeslotsCache.get(cacheKey)
@@ -164,6 +178,8 @@ export async function GET(req: Request) {
         palisisId,
         today: [],
         tomorrow: [],
+        todayGroups: [],
+        tomorrowGroups: [],
         error: "TOURCMS_ERROR",
         providerError: todayRes.providerError ?? tomorrowRes.providerError ?? null,
       },
@@ -175,8 +191,10 @@ export async function GET(req: Request) {
     ok: true,
     tripId,
     palisisId,
-    today: todayRes.slots,
-    tomorrow: tomorrowRes.slots,
+    today: todayRes.flat,
+    tomorrow: tomorrowRes.flat,
+    todayGroups: todayRes.groups,
+    tomorrowGroups: tomorrowRes.groups,
   }
   _timeslotsCache.set(cacheKey, { data: payload, expiresAt: Date.now() + 5 * 60_000 })
   return NextResponse.json<PlannerTimeslotsResponse>(payload)
