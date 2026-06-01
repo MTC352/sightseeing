@@ -52,7 +52,10 @@ function sanitizeCartItem(raw: unknown): CartItem | null {
   if (typeof t.title !== "string" || !t.title) return null
   const price = Number(t.price)
   if (!Number.isFinite(price) || price < 0) return null
-  const quantity = Math.max(1, Math.floor(Number(o.quantity) || 1))
+  // Quantity is always 1 per trip: the cart shows one line per experience and
+  // the head-count comes from the planner preferences (persons), not a
+  // per-item quantity. Coerce any legacy persisted value to 1.
+  const quantity = 1
   const safeTrip = {
     ...(t as object),
     id: t.id,
@@ -119,9 +122,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const addItem = useCallback((trip: Trip) => {
+    // Idempotent: a trip is either in the cart or not — re-adding never bumps a
+    // per-item quantity. The number of people is driven by planner preferences.
     setItems((prev) => {
-      const existing = prev.find((i) => i.trip.id === trip.id)
-      if (existing) return prev.map((i) => (i.trip.id === trip.id ? { ...i, quantity: i.quantity + 1 } : i))
+      if (prev.some((i) => i.trip.id === trip.id)) return prev
       return [...prev, { trip, quantity: 1 }]
     })
   }, [])

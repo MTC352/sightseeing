@@ -4026,7 +4026,7 @@ export default function PlannerPage() {
             <span className="text-sm font-semibold text-foreground">My Trip</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <TripCart />
+            <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} />
           </div>
           <div className="shrink-0">
             <SidebarItinerary
@@ -4057,7 +4057,7 @@ export default function PlannerPage() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <TripCart />
+                <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} />
               </div>
               <div className="shrink-0">
                 <SidebarItinerary

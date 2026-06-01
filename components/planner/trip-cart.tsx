@@ -4,7 +4,7 @@ import { useState, useCallback } from "react"
 import { useCart } from "@/lib/cart-context"
 import Image from "next/image"
 import Link from "next/link"
-import { ShoppingBag, X, Minus, Plus, Trash2, ChevronRight, Clock, CreditCard, Loader2, ExternalLink } from "lucide-react"
+import { ShoppingBag, X, Trash2, ChevronRight, Clock, CreditCard, Loader2, ExternalLink, Users } from "lucide-react"
 
 // Palisis widget base URL — swap domain when live credentials are provided
 const PALISIS_BASE = "https://booking.sightseeing.lu"
@@ -101,16 +101,28 @@ function CheckoutModal({ url, onClose }: CheckoutModalProps) {
   )
 }
 
-export function TripCart() {
-  const { items, removeItem, updateQuantity, clearCart, totalPrice, totalItems } = useCart()
+interface TripCartProps {
+  /** Number of people selected during the planner preferences (adults + children).
+   *  Drives the per-trip person count, the line prices, and the checkout quantity.
+   *  Defaults to 1 when the cart is shown outside the planner. */
+  persons?: number
+}
+
+export function TripCart({ persons }: TripCartProps = {}) {
+  const { items, removeItem, clearCart, totalItems } = useCart()
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+
+  // Person count comes from the preferences, not editable in the cart.
+  const partySize = Math.max(1, Math.floor(persons ?? 1))
 
   const handleCheckoutAll = useCallback(() => {
     setCheckoutOpen(true)
   }, [])
 
+  const totalPrice = items.reduce((sum, i) => sum + i.trip.price * partySize, 0)
+
   const checkoutUrl = buildPalisisUrl(
-    items.map((i) => ({ id: i.trip.id, quantity: i.quantity }))
+    items.map((i) => ({ id: i.trip.id, quantity: partySize }))
   )
 
   if (items.length === 0) {
@@ -167,27 +179,20 @@ export function TripCart() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-bold text-primary">
-                      {(item.trip.price * item.quantity).toFixed(2)}&nbsp;&euro;
+                      {(item.trip.price * partySize).toFixed(2)}&nbsp;&euro;
                     </span>
                     <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => updateQuantity(item.trip.id, item.quantity - 1)}
-                        className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      <span
+                        className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        title="People selected in your preferences"
                       >
-                        <Minus className="h-3 w-3" />
-                      </button>
-                      <span className="w-5 text-center text-sm font-semibold text-foreground">{item.quantity}</span>
-                      <button
-                        type="button"
-                        onClick={() => updateQuantity(item.trip.id, item.quantity + 1)}
-                        className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
+                        <Users className="h-3 w-3" />
+                        {partySize}
+                      </span>
                       <button
                         type="button"
                         onClick={() => removeItem(item.trip.id)}
+                        aria-label={`Remove ${item.trip.title}`}
                         className="ml-1 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-destructive"
                       >
                         <X className="h-3.5 w-3.5" />
