@@ -181,7 +181,8 @@ export function TripCart({ persons }: TripCartProps = {}) {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-bold text-primary">
-                      {(item.trip.price * partySize).toFixed(2)}&nbsp;&euro;
+                      {item.trip.price.toFixed(2)}&nbsp;&euro;
+                      <span className="ml-1 text-[11px] font-medium text-muted-foreground">/ per person</span>
                     </span>
                     <div className="flex items-center gap-1.5">
                       <span
