@@ -13,6 +13,7 @@ import { TripChat } from "@/components/trip-chat"
 import { GoogleReviews } from "@/components/google-reviews"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
+import { substitutePlaceholders } from "@/lib/booking-url"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 
@@ -61,26 +62,6 @@ export type RelatedTrip = {
   tags: string[]
   badge?: string
   city?: string
-}
-
-/**
- * Memoized so that parent re-renders never unmount/remount the iframe.
- */
-function substitutePlaceholders(url: string, date?: string, _time?: string): string {
-  if (!url) return url
-  let month: string
-  let year: string
-  const m = date ? /^(\d{4})-(\d{2})-\d{2}$/.exec(date) : null
-  if (m) {
-    year = m[1]
-    month = m[2]
-  } else {
-    const now = new Date()
-    year = String(now.getFullYear())
-    month = String(now.getMonth() + 1).padStart(2, "0")
-  }
-  const sep = url.includes("?") ? "&" : "?"
-  return `${url}${sep}month_year=${month}_${year}`
 }
 
 function formatSelectedDate(iso: string): string {
