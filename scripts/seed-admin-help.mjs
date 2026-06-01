@@ -611,7 +611,10 @@ async function run() {
   for (const a of articles) {
     await pool.query(
       `INSERT INTO help_articles (id, question, answer, category, status, sort_order, created_by, updated_by)
-       VALUES (gen_random_uuid(), $1, $2, $3, 'published', $4, $5, $5)`,
+       SELECT gen_random_uuid(), $1, $2, $3, 'published', $4, $5, $5
+       WHERE NOT EXISTS (
+         SELECT 1 FROM help_articles WHERE question = $1 AND category = $3
+       )`,
       [a.question, a.answer, a.category, a.sort_order, ADMIN_ID],
     )
     count++

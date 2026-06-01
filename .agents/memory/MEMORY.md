@@ -1,5 +1,6 @@
 - [outdoor-today AI system](outdoor-today.md) — homepage "Best outdoor experiences"; system_key='outdoor_today'; day-scoped 10-min cache; MUST never render empty (fall back to all trips when no today-slots).
 - [Itinerary hybrid engine](itinerary-hybrid-engine.md) — AI selects trips, deterministic scheduler times them; gap=travel+buffer+earlyArrival (separate); max-5 cap; no-early opt-in only; AI key often 401.
+- [Help page data](help-page-data.md) — /help reads DB (not hardcoded FAQ_DATA); articles hidden behind category grid so test via search box; dup root cause = un-guarded re-run seeds, now NOT EXISTS guarded.
 - [SEO indexing control](seo-indexing-control.md) — same codebase on Replit-publish (staging) + live domain; indexing opt-in via ALLOW_INDEXING; no static public/robots.txt (conflicts with app/robots.ts).
 - [Error logging + key tests](error-logging-and-key-tests.md) — error_logs table via fail-soft logError (void it); admin Test-API-key route must POST keys in body, never URL query (leak risk).
 - [Planner chat UI gotchas](planner-chat-ui.md) — handleSend must allow "error" status (else chat freezes after AI fail); recs duration cap lives in fallbackTrips via durationCapHours+fitsCap.

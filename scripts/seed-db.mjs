@@ -162,7 +162,10 @@ async function seedHelpArticles() {
   for (const a of articles) {
     await query(
       `INSERT INTO help_articles (question, answer, category, status, sort_order)
-       VALUES ($1,$2,$3,'published',$4)`,
+       SELECT $1,$2,$3,'published',$4
+       WHERE NOT EXISTS (
+         SELECT 1 FROM help_articles WHERE question = $1 AND category = $3
+       )`,
       [a.question, a.answer, a.category, a.sort_order]
     )
   }
