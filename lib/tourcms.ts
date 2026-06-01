@@ -482,8 +482,12 @@ function isError(v: unknown): v is TourCMSError {
  * Does NOT count against rate limits. Use for credential verification.
  */
 export async function pingTourCMS(config: TourCMSConfig): Promise<RateLimitStatus> {
-  // Rate limit endpoint uses channelId=0 per TourCMS docs
-  const res = await apiRequest<Record<string, unknown>>(config, "GET", "/api/rate_limit_status.xml", undefined, 0)
+  // Sign with the account's OWN channelId. channelId=0 is only valid for
+  // Marketplace Agent accounts (marketplaceId != 0). A private channel account
+  // (marketplaceId == 0) gets FAIL_KEYNOTFOUND / HTTP 401 when signed with 0,
+  // even though the credentials are perfectly valid for its real channelId.
+  const signChannelId = config.marketplaceId ? 0 : config.channelId
+  const res = await apiRequest<Record<string, unknown>>(config, "GET", "/api/rate_limit_status.xml", undefined, signChannelId)
   if (isError(res)) {
     return { ok: false, remaining_hits: 0, remaining_hits_post: 0, hourly_limit: 0, hourly_limit_post: 0, error: res.error }
   }
