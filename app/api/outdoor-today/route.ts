@@ -225,11 +225,21 @@ export async function GET(req: Request) {
     const slotMap = new Map<string, OutdoorTodaySlot[]>()
     for (const r of slotResults) slotMap.set(r.tripId, r.slots)
 
-    // Eligible trips: have upcoming slots OR (no TourCMS) all trips
-    const eligibleTrips = tourcmsConfig
+    // Eligible trips: PREFER trips that still have live slots TODAY.
+    let eligibleTrips = tourcmsConfig
       ? allTrips.filter((t) => slotMap.has(String(t.id)))
       : allTrips.slice(0, 20)
 
+    // FALLBACK: if nothing has a slot today (or TourCMS returned nothing), the
+    // section must STILL show the best available trips — never render empty.
+    // These fallback trips just won't carry a "Today HH:MM" timeslot badge.
+    // The cache key is day-scoped, so once real today-slots appear the next
+    // refresh automatically swaps them in.
+    if (eligibleTrips.length === 0) {
+      eligibleTrips = allTrips.slice(0, 20)
+    }
+
+    // Only genuinely empty when the DB has no published trips at all.
     if (eligibleTrips.length === 0) {
       const payload: OutdoorTodayResponse = {
         ok: true,

@@ -1,4 +1,4 @@
-- [outdoor-today AI system](outdoor-today.md) — system_key='outdoor_today' in ai_system_configs; extra_config.display_count controls card count; 10-min server cache; tag fallback when no AI key.
+- [outdoor-today AI system](outdoor-today.md) — homepage "Best outdoor experiences"; system_key='outdoor_today'; day-scoped 10-min cache; MUST never render empty (fall back to all trips when no today-slots).
 - [Itinerary hybrid engine](itinerary-hybrid-engine.md) — AI selects trips, deterministic scheduler times them; gap=travel+buffer+earlyArrival (separate); max-5 cap; no-early opt-in only; AI key often 401.
 - [SEO indexing control](seo-indexing-control.md) — same codebase on Replit-publish (staging) + live domain; indexing opt-in via ALLOW_INDEXING; no static public/robots.txt (conflicts with app/robots.ts).
 - [Error logging + key tests](error-logging-and-key-tests.md) — error_logs table via fail-soft logError (void it); admin Test-API-key route must POST keys in body, never URL query (leak risk).
