@@ -127,6 +127,12 @@ export interface ScheduledStep {
   tripNotes: string
   tripCity: string
   tripLocation: string
+  /** Real geocoded coordinates of this stop's departure point (parsed from
+   *  the trip's departure_geocode, fallback end_geocode). Drives accurate map
+   *  marker placement so identical locations land on the same spot. Null when
+   *  the catalogue record has no coordinates. */
+  lat: number | null
+  lng: number | null
   day: number
   /** Deterministic weather advisory for outdoor trips on a rainy day. */
   weatherFlag: string | null
@@ -154,6 +160,17 @@ export function toMin(hhmm: string): number {
 export function toHHMM(total: number): string {
   const t = Math.max(0, Math.min(24 * 60 - 1, Math.round(total)))
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`
+}
+
+/** Parse a stored "lat,lng" geocode string into numbers. Returns null on any
+ *  malformed/empty value so the UI can fall back gracefully. */
+export function parseGeo(s: string): { lat: number; lng: number } | null {
+  if (!s) return null
+  const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(s)
+  if (!m) return null
+  const lat = parseFloat(m[1]); const lng = parseFloat(m[2])
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  return { lat, lng }
 }
 
 /* ── Classification helpers ────────────────────────────────────────────── */
@@ -440,6 +457,7 @@ export async function buildSchedule(opts: {
       const endMin = needsDerivedEnd ? startMin + dur : slotEndMin
       const realDur = needsDerivedEnd ? dur : slotEndMin - startMin
 
+      const stepGeo = parseGeo(trip.departureGeo) ?? parseGeo(trip.endGeo)
       const step: ScheduledStep = {
         tripId: trip.id,
         tripTitle: trip.title,
@@ -457,6 +475,8 @@ export async function buildSchedule(opts: {
         tripNotes: trip.notes,
         tripCity: trip.city,
         tripLocation: trip.location,
+        lat: stepGeo?.lat ?? null,
+        lng: stepGeo?.lng ?? null,
         day,
         weatherFlag: null,
       }

@@ -826,6 +826,41 @@ export default function PlannerPage() {
   const [centerItineraryOpen, setCenterItineraryOpen] = useState(false)
   const [itineraryRegenerating, setItineraryRegenerating] = useState(false)
   const itineraryRestoredRef = useRef(false)
+  // Bidirectional list↔map sync. activeStopIndex/activeLegIndex are indexed
+  // against itineraryMapTrips / itineraryMapCoords (the rendered stop list),
+  // which is what the map and the panel agree on.
+  const [activeStopIndex, setActiveStopIndex] = useState<number | null>(null)
+  const [activeLegIndex, setActiveLegIndex] = useState<number | null>(null)
+  const mapSectionRef = useRef<HTMLDivElement | null>(null)
+  // List → map: clicking a stop's location focuses its pin (and expands +
+  // scrolls the map into view so the highlight is visible).
+  const handleFocusStop = useCallback((index: number) => {
+    setActiveLegIndex(null)
+    setActiveStopIndex(index)
+    setMapExpanded(true)
+    mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [])
+  const handleFocusLeg = useCallback((index: number) => {
+    setActiveStopIndex(null)
+    setActiveLegIndex(index)
+    setMapExpanded(true)
+    mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [])
+  // Map → list: clicking a pin/route updates active state; the panel's own
+  // effect scrolls the matching card into view.
+  const handleMapStopClick = useCallback((index: number) => {
+    setActiveLegIndex(null)
+    setActiveStopIndex(index)
+  }, [])
+  const handleMapLegClick = useCallback((index: number) => {
+    setActiveStopIndex(null)
+    setActiveLegIndex(index)
+  }, [])
+  // Reset focus whenever the itinerary changes or the panel closes.
+  useEffect(() => {
+    setActiveStopIndex(null)
+    setActiveLegIndex(null)
+  }, [centerItinerary, centerItineraryOpen])
   // Dynamic trips catalog — hydrated from DB on mount.
   // Bootstraps from the static seed so the first render isn't empty and so
   // the page still works if the DB endpoint is unreachable.
@@ -891,18 +926,40 @@ export default function PlannerPage() {
   // a driving route polyline. Only shown while the itinerary panel is
   // actually open so closing the panel returns the map to "search
   // results" mode.
-  const itineraryMapTrips = useMemo<Trip[] | undefined>(() => {
+  // Single source of truth for the itinerary map: trips, per-stop coords, and
+  // the FULL-STEP index each rendered marker maps back to — all three skip the
+  // same unresolved steps so they stay aligned with each other AND with the
+  // panel (which indexes by full itinerary.steps). `stepIndices[k]` is the full
+  // step index of the k-th rendered marker; when every step resolves this is
+  // the identity [0,1,2,…].
+  const itineraryMap = useMemo<{
+    trips: Trip[]
+    coords: ([number, number] | null)[]
+    stepIndices: number[]
+  } | undefined>(() => {
     if (!centerItinerary || !centerItineraryOpen) return undefined
     const byId = new Map<string, Trip>()
     for (const t of allTrips) byId.set(t.id, t)
     for (const ci of items) byId.set(ci.trip.id, ci.trip)
-    const out: Trip[] = []
-    for (const s of centerItinerary.steps) {
+    const trips: Trip[] = []
+    const coords: ([number, number] | null)[] = []
+    const stepIndices: number[] = []
+    centerItinerary.steps.forEach((s, fullIdx) => {
       const t = byId.get(s.tripId)
-      if (t) out.push(t)
-    }
-    return out.length > 0 ? out : undefined
+      if (!t) return
+      trips.push(t)
+      coords.push(
+        typeof s.lat === "number" && typeof s.lng === "number"
+          ? [s.lng, s.lat]
+          : null,
+      )
+      stepIndices.push(fullIdx)
+    })
+    return trips.length > 0 ? { trips, coords, stepIndices } : undefined
   }, [centerItinerary, centerItineraryOpen, allTrips, items])
+  const itineraryMapTrips = itineraryMap?.trips
+  const itineraryMapCoords = itineraryMap?.coords
+  const itineraryMapStepIndices = itineraryMap?.stepIndices
 
   // Set of trip ids currently in the cart — used by the drift guard
   // below to test "is every itinerary step still represented in the
@@ -3271,13 +3328,19 @@ export default function PlannerPage() {
                   </div>
                   {mapExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                 </button>
-                <div className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
+                <div ref={mapSectionRef} className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
                   <SightseeingMap
                     trips={resultTrips}
                     onSelect={handleTripSelect}
                     visible={mapExpanded}
                     suppressFullscreen
                     itineraryTrips={itineraryMapTrips}
+                    itineraryCoords={itineraryMapCoords}
+                    itineraryStepIndices={itineraryMapStepIndices}
+                    activeStopIndex={activeStopIndex}
+                    activeLegIndex={activeLegIndex}
+                    onStopClick={handleMapStopClick}
+                    onLegClick={handleMapLegClick}
                   />
                 </div>
               </div>
@@ -3286,6 +3349,10 @@ export default function PlannerPage() {
                 onClose={handleCloseItinerary}
                 onRegenerate={handleRegenerateItinerary}
                 regenerating={itineraryRegenerating}
+                onFocusStop={handleFocusStop}
+                onFocusLeg={handleFocusLeg}
+                activeStopIndex={activeStopIndex}
+                activeLegIndex={activeLegIndex}
               />
             </div>
           ) : !showResults ? (

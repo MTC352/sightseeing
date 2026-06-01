@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useCart } from "@/lib/cart-context"
 import Link from "next/link"
 import Image from "next/image"
@@ -127,6 +127,10 @@ interface ItineraryStep {
   tripCity?: string
   /** Optional precise departure address — preferred over city when present */
   tripLocation?: string
+  /** Real geocoded coordinates of this stop's departure point — drives accurate
+   *  map marker placement (falls back to a city approximation when null). */
+  lat?: number | null
+  lng?: number | null
   /** Real travel data computed server-side via Mapbox Directions. Any null
    *  field means "no data" and the UI must show "—" instead of guessing. */
   travelLeg?: {
@@ -1150,10 +1154,30 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
   )
 }
 
+/* Split an essential-info note into discrete points. Catalogue notes arrive as
+ * a single string with `*` / `•` / `·` bullet markers; we render one per line.
+ * Returns a single-element array when the text has no bullet markers. */
+function parseNotePoints(text: string): string[] {
+  if (!text) return []
+  return text
+    .trim()
+    .split(/\s*[\*\u2022\u00B7]\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+}
+
 /* ─────────────────────────────────────────────── */
 /* STEP CARD — handles its own real-time snap state */
 /* ─────────────────────────────────────────────── */
-function ItineraryStepCard({ step }: { step: ItineraryStep }) {
+function ItineraryStepCard({
+  step,
+  isActive = false,
+  onLocationClick,
+}: {
+  step: ItineraryStep
+  isActive?: boolean
+  onLocationClick?: () => void
+}) {
   // When the API returned a real Palisis slot for the chosen visitDate, the
   // displayed time/price/spaces are authoritative — we do NOT overlay
   // today/tomorrow chip-snap data because that endpoint is date-agnostic.
@@ -1179,7 +1203,11 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
     : step.tripNotes ?? ""
   const locationLabel = step.tripLocation || step.tripCity
   return (
-    <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
+    <div className={`rounded-xl border bg-secondary/30 p-3.5 transition-all ${
+      isActive
+        ? "border-orange-400 ring-2 ring-orange-400/40"
+        : "border-border"
+    }`}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-bold text-primary">
           <span className="text-[10px] font-medium text-muted-foreground">
@@ -1200,10 +1228,22 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
       {/* Title — slightly larger so it dominates the card. */}
       <p className="mt-1.5 text-[15px] font-bold leading-snug text-foreground">{step.tripTitle}</p>
       {locationLabel && (
-        <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground" title={locationLabel}>
-          <MapPin className="h-3 w-3 text-primary/60" />
-          <span className="truncate">{locationLabel}</span>
-        </p>
+        onLocationClick ? (
+          <button
+            type="button"
+            onClick={onLocationClick}
+            title={`Show ${locationLabel} on the map`}
+            className="mt-0.5 flex w-full items-center gap-1 text-left text-[11px] text-muted-foreground transition-colors hover:text-primary"
+          >
+            <MapPin className="h-3 w-3 shrink-0 text-primary/60" />
+            <span className="truncate underline decoration-dotted decoration-primary/40 underline-offset-2">{locationLabel}</span>
+          </button>
+        ) : (
+          <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground" title={locationLabel}>
+            <MapPin className="h-3 w-3 text-primary/60" />
+            <span className="truncate">{locationLabel}</span>
+          </p>
+        )
       )}
       {hasLiveData && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
@@ -1241,24 +1281,59 @@ function ItineraryStepCard({ step }: { step: ItineraryStep }) {
           </ul>
         </div>
       )}
-      {/* Important note — collapsible "Read more" once it crosses the threshold. */}
-      {step.tripNotes && (
-        <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200/60 bg-amber-50/60 px-2 py-1.5 text-[11.5px] leading-snug text-amber-900/85">
-          <Info className="mt-px h-3 w-3 shrink-0 text-amber-600" />
-          <span>
-            {notePreview}
-            {noteIsLong && (
-              <button
-                type="button"
-                onClick={() => setNoteExpanded((v) => !v)}
-                className="ml-1 inline font-semibold text-amber-700 underline decoration-amber-400/60 underline-offset-2 hover:text-amber-800"
-              >
-                {noteExpanded ? "Show less" : "Read more"}
-              </button>
-            )}
-          </span>
-        </div>
-      )}
+      {/* Important note — bullet points when the catalogue note is bulleted,
+          otherwise a single collapsible paragraph. */}
+      {step.tripNotes && (() => {
+        const points = parseNotePoints(step.tripNotes)
+        // Multiple bullet points → render one per line.
+        if (points.length > 1) {
+          const COLLAPSE_AT = 2
+          const isLong = points.length > COLLAPSE_AT
+          const visible = isLong && !noteExpanded ? points.slice(0, COLLAPSE_AT) : points
+          return (
+            <div className="mt-2 rounded-md border border-amber-200/60 bg-amber-50/60 px-2 py-1.5 text-[11.5px] leading-snug text-amber-900/85">
+              <div className="flex items-start gap-1.5">
+                <Info className="mt-px h-3 w-3 shrink-0 text-amber-600" />
+                <ul className="space-y-1">
+                  {visible.map((p, i) => (
+                    <li key={i} className="flex gap-1.5">
+                      <span className="mt-[5px] inline-block h-1 w-1 shrink-0 rounded-full bg-amber-500/70" />
+                      <span>{p}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {isLong && (
+                <button
+                  type="button"
+                  onClick={() => setNoteExpanded((v) => !v)}
+                  className="ml-[18px] mt-1 inline font-semibold text-amber-700 underline decoration-amber-400/60 underline-offset-2 hover:text-amber-800"
+                >
+                  {noteExpanded ? "Show less" : `Read more (${points.length - COLLAPSE_AT} more)`}
+                </button>
+              )}
+            </div>
+          )
+        }
+        // Single paragraph — keep the char-threshold "Read more".
+        return (
+          <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200/60 bg-amber-50/60 px-2 py-1.5 text-[11.5px] leading-snug text-amber-900/85">
+            <Info className="mt-px h-3 w-3 shrink-0 text-amber-600" />
+            <span>
+              {notePreview}
+              {noteIsLong && (
+                <button
+                  type="button"
+                  onClick={() => setNoteExpanded((v) => !v)}
+                  className="ml-1 inline font-semibold text-amber-700 underline decoration-amber-400/60 underline-offset-2 hover:text-amber-800"
+                >
+                  {noteExpanded ? "Show less" : "Read more"}
+                </button>
+              )}
+            </span>
+          </div>
+        )
+      })()}
       {/* Only show the today/tomorrow chip helper when we have no authoritative
           live data for the chosen visit date. Otherwise the chips would
           contradict the confirmed Palisis slot. */}
@@ -1281,14 +1356,35 @@ export function ItineraryPanel({
   onClose,
   onRegenerate,
   regenerating,
+  onFocusStop,
+  onFocusLeg,
+  activeStopIndex = null,
+  activeLegIndex = null,
 }: {
   itinerary: Itinerary
   onClose: () => void
   onRegenerate: () => void
   regenerating: boolean
+  /** Fired when a stop's location is clicked — parent highlights the map pin. */
+  onFocusStop?: (index: number) => void
+  /** Fired when a "Travel to next stop" location is clicked — parent highlights
+   *  the route leg on the map. */
+  onFocusLeg?: (index: number) => void
+  /** Currently-focused stop / leg (driven by map clicks) — scrolls the matching
+   *  card/leg into view and highlights it. */
+  activeStopIndex?: number | null
+  activeLegIndex?: number | null
 }) {
   const showCarWidget = itinerary.widgets?.showCarWidget !== false
   const showHotelWidget = itinerary.widgets?.showHotelWidget !== false
+  // Per-step DOM refs so a map click can scroll the matching card into view.
+  const stepRefs = useRef<(HTMLDivElement | null)[]>([])
+  useEffect(() => {
+    const idx = activeStopIndex ?? activeLegIndex
+    if (idx == null) return
+    const el = stepRefs.current[idx]
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [activeStopIndex, activeLegIndex])
   return (
     <div className="flex h-full flex-col overflow-hidden bg-card">
       {/* Header */}
@@ -1353,7 +1449,11 @@ export function ItineraryPanel({
             // present, is rendered AFTER the break).
             const breakStartTime = step.endTime ?? null
             return (
-            <div key={i} className="relative pb-6 last:pb-0">
+            <div
+              key={i}
+              ref={(el) => { stepRefs.current[i] = el }}
+              className="relative pb-6 last:pb-0"
+            >
               {/* Step number bubble — centred ON the green rail (parent
                   has `pl-7` + `border-l-2`, so x=0..2 is the rail; a 28px
                   bubble at -left-[15px] sits at x=-15..13 → centre +1
@@ -1367,7 +1467,11 @@ export function ItineraryPanel({
                 <span className="text-sm font-bold text-primary tabular-nums">{step.time}</span>
               </div>
 
-              <ItineraryStepCard step={step} />
+              <ItineraryStepCard
+                step={step}
+                isActive={activeStopIndex === i}
+                onLocationClick={onFocusStop ? () => onFocusStop(i) : undefined}
+              />
 
               {/* End-of-step time label appears on the rail between cards.
                   Suppressed in two cases:
@@ -1504,9 +1608,13 @@ export function ItineraryPanel({
                 // numbers came from the static fallback matrix.
                 const isLive = leg?.reason === "ok"
                 return (
-                  <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 px-3.5 py-2.5 text-xs">
+                  <div className={`mt-3 rounded-lg border bg-secondary/40 px-3.5 py-2.5 text-xs transition-all ${
+                    activeLegIndex === i
+                      ? "border-orange-400 ring-2 ring-orange-400/40"
+                      : "border-border/60"
+                  }`}>
                     <div className="mb-1.5 flex items-start justify-between gap-2">
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex min-w-0 flex-col gap-0.5">
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                           Travel to next stop
                           {leg?.distanceKm !== null && leg?.distanceKm !== undefined && (
@@ -1520,14 +1628,30 @@ export function ItineraryPanel({
                             </span>
                           )}
                         </span>
-                        <span className="flex items-center gap-1 text-[10.5px] leading-snug text-muted-foreground/90">
-                          <MapPin className="h-2.5 w-2.5 shrink-0 text-foreground/40" />
-                          <span className="truncate">
-                            <span className="text-foreground/80">{fromLabel}</span>
-                            <span className="mx-1 text-foreground/40">→</span>
-                            <span className="text-foreground/80">{toLabel}</span>
+                        {onFocusLeg ? (
+                          <button
+                            type="button"
+                            onClick={() => onFocusLeg(i)}
+                            title="Show this leg on the map"
+                            className="flex min-w-0 items-center gap-1 text-left text-[10.5px] leading-snug text-muted-foreground/90 transition-colors hover:text-primary"
+                          >
+                            <MapPin className="h-2.5 w-2.5 shrink-0 text-foreground/40" />
+                            <span className="truncate">
+                              <span className="text-foreground/80">{fromLabel}</span>
+                              <span className="mx-1 text-foreground/40">→</span>
+                              <span className="text-foreground/80">{toLabel}</span>
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="flex min-w-0 items-center gap-1 text-[10.5px] leading-snug text-muted-foreground/90">
+                            <MapPin className="h-2.5 w-2.5 shrink-0 text-foreground/40" />
+                            <span className="truncate">
+                              <span className="text-foreground/80">{fromLabel}</span>
+                              <span className="mx-1 text-foreground/40">→</span>
+                              <span className="text-foreground/80">{toLabel}</span>
+                            </span>
                           </span>
-                        </span>
+                        )}
                       </div>
                       {arrivalTime && has && (
                         <span className="shrink-0 text-[11px] font-medium tabular-nums text-foreground/70">

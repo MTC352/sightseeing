@@ -1,3 +1,4 @@
 - [outdoor-today AI system](outdoor-today.md) — system_key='outdoor_today' in ai_system_configs; extra_config.display_count controls card count; 10-min server cache; tag fallback when no AI key.
 - [Itinerary hybrid engine](itinerary-hybrid-engine.md) — AI selects trips, deterministic scheduler times them; gap=travel+buffer+earlyArrival (separate); max-5 cap; no-early opt-in only; AI key often 401.
+- [Itinerary list↔map sync](itinerary-map-sync.md) — shared active indices are full-step space; map renders a subset & skips unresolved steps, so a stepIndices array translates at the map boundary.
 - [Planner cross-surface invariants](planner-cross-surface-invariants.md) — resolvePalisisId exists in BOTH planner+itinerary routes (keep fail-closed in sync); multi-day hide spans 5 surfaces.

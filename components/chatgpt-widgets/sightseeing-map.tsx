@@ -37,6 +37,22 @@ function tripToCoords(trip: Trip, index: number): [number, number] {
   return [base[0] + jitterLng, base[1] + jitterLat]
 }
 
+/** Give exact-duplicate coordinates a tiny deterministic fan-out (~18 m) so two
+ *  stops that genuinely share a location stay clustered together (matching the
+ *  itinerary list) yet remain individually clickable on the map. */
+function dedupeCoords(coords: [number, number][]): [number, number][] {
+  const seen = new Map<string, number>()
+  return coords.map(([lng, lat]) => {
+    const key = `${lng.toFixed(5)},${lat.toFixed(5)}`
+    const n = seen.get(key) ?? 0
+    seen.set(key, n + 1)
+    if (n === 0) return [lng, lat]
+    const angle = (n * 137.5) * Math.PI / 180
+    const r = 0.00018
+    return [lng + Math.cos(angle) * r, lat + Math.sin(angle) * r]
+  })
+}
+
 const LUX_CENTER: [number, number] = [6.13, 49.61]
 
 interface SightseeingMapProps {
@@ -53,16 +69,65 @@ interface SightseeingMapProps {
    * Pass [] or undefined to fall back to normal trips-mode rendering.
    */
   itineraryTrips?: Trip[]
+  /** Real per-stop coordinates [lng, lat] aligned 1:1 with itineraryTrips. A
+   *  null entry falls back to the city-derived approximation. Drives accurate
+   *  marker placement so identical locations land on the same spot. */
+  itineraryCoords?: ([number, number] | null)[]
+  /** Full-step index that each rendered marker maps back to, aligned 1:1 with
+   *  itineraryTrips. Lets the map speak the SAME index space as the itinerary
+   *  panel (which indexes by full itinerary.steps) even when some steps are
+   *  skipped here. Defaults to the identity [0,1,2,…] when omitted. */
+  itineraryStepIndices?: number[]
+  /** Index (full-step space) of the currently-focused stop (from the itinerary
+   *  list). Highlights that numbered pin and recentres the map on it. */
+  activeStopIndex?: number | null
+  /** Index of the currently-focused travel leg (stop i → i+1). Highlights that
+   *  route segment. */
+  activeLegIndex?: number | null
+  /** Fired when the user clicks a numbered stop pin — lets the parent scroll the
+   *  matching itinerary card into view. */
+  onStopClick?: (index: number) => void
+  /** Fired when the user clicks a route segment — lets the parent scroll the
+   *  matching "Travel to next stop" block into view. */
+  onLegClick?: (index: number) => void
 }
 
-export function SightseeingMap({ trips, onSelect, visible = true, suppressFullscreen = false, itineraryTrips }: SightseeingMapProps) {
+export function SightseeingMap({ trips, onSelect, visible = true, suppressFullscreen = false, itineraryTrips, itineraryCoords, itineraryStepIndices, activeStopIndex = null, activeLegIndex = null, onStopClick, onLegClick }: SightseeingMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapboxRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
   const itineraryMarkersRef = useRef<any[]>([])
+  const itineraryMarkerElsRef = useRef<HTMLButtonElement[]>([])
+  const itineraryCoordsRef = useRef<[number, number][]>([])
+  // Full-step index for each rendered marker (parallel to itineraryCoordsRef).
+  // Lets the active-stop effect find the local marker for a full-step index.
+  const itineraryStepIndicesRef = useRef<number[]>([])
   const tokenRef = useRef<string>("")
+  // Mirror callbacks + active indices into refs so the heavy marker/route effect
+  // doesn't need them in its dependency array (which would tear down and rebuild
+  // the whole route on every parent re-render).
+  const onStopClickRef = useRef<typeof onStopClick>(onStopClick)
+  const onLegClickRef = useRef<typeof onLegClick>(onLegClick)
+  const activeStopIndexRef = useRef<number | null>(activeStopIndex)
+  const activeLegIndexRef = useRef<number | null>(activeLegIndex)
+  useEffect(() => { onStopClickRef.current = onStopClick }, [onStopClick])
+  useEffect(() => { onLegClickRef.current = onLegClick }, [onLegClick])
   const itineraryMode = !!(itineraryTrips && itineraryTrips.length > 0)
+
+  // Stable route-layer event handlers (so on/off use the same reference).
+  const handleRouteClick = useCallback((e: any) => {
+    const li = e?.features?.[0]?.properties?.legIndex
+    if (typeof li === "number") onLegClickRef.current?.(li)
+  }, [])
+  const handleRouteEnter = useCallback(() => {
+    const m = mapRef.current
+    if (m) m.getCanvas().style.cursor = "pointer"
+  }, [])
+  const handleRouteLeave = useCallback(() => {
+    const m = mapRef.current
+    if (m) m.getCanvas().style.cursor = ""
+  }, [])
 
   const [selected, setSelected] = useState<Trip | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -183,58 +248,104 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     const mapboxgl = mapboxRef.current
     if (!map || !mapboxgl || !mapReady) return
 
-    // Clear any prior itinerary markers / route
+    // Clear any prior itinerary markers / route + detach route handlers
     itineraryMarkersRef.current.forEach((m) => m.remove())
     itineraryMarkersRef.current = []
+    itineraryMarkerElsRef.current = []
+    if (map.getLayer("itinerary-route-line")) {
+      map.off("click", "itinerary-route-line", handleRouteClick)
+      map.off("mouseenter", "itinerary-route-line", handleRouteEnter)
+      map.off("mouseleave", "itinerary-route-line", handleRouteLeave)
+    }
+    if (map.getLayer("itinerary-route-highlight")) map.removeLayer("itinerary-route-highlight")
     if (map.getLayer("itinerary-route-line")) map.removeLayer("itinerary-route-line")
     if (map.getLayer("itinerary-route-casing")) map.removeLayer("itinerary-route-casing")
     if (map.getSource("itinerary-route")) map.removeSource("itinerary-route")
 
-    if (!itineraryTrips || itineraryTrips.length === 0) return
+    if (!itineraryTrips || itineraryTrips.length === 0) {
+      itineraryCoordsRef.current = []
+      return
+    }
 
-    const coords: [number, number][] = itineraryTrips.map((t, i) => tripToCoords(t, i))
+    // Prefer REAL per-stop coordinates; fall back to the city approximation
+    // only when a stop has no geocode. Exact duplicates get a tiny fan-out so
+    // shared locations cluster (matching the list) yet stay clickable.
+    const rawCoords: [number, number][] = itineraryTrips.map((t, i) => {
+      const real = itineraryCoords?.[i]
+      return (real ?? tripToCoords(t, i)) as [number, number]
+    })
+    const coords = dedupeCoords(rawCoords)
+    itineraryCoordsRef.current = coords
+    // Full-step index per rendered marker (identity when not provided).
+    const stepIndices = itineraryTrips.map((_, i) => itineraryStepIndices?.[i] ?? i)
+    itineraryStepIndicesRef.current = stepIndices
 
     // Numbered pins
     itineraryTrips.forEach((trip, i) => {
       const [lng, lat] = coords[i]
+      const stepIdx = stepIndices[i]
       const el = document.createElement("button")
       el.className = "sightseeing-map-itinerary-pin"
+      if (stepIdx === activeStopIndexRef.current) el.classList.add("is-active")
       el.setAttribute("aria-label", `Stop ${i + 1}: ${trip.title}`)
       el.innerHTML = `<span>${i + 1}</span>`
-      el.addEventListener("click", () => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation()
         setSelected((prev) => (prev?.id === trip.id ? null : trip))
+        onStopClickRef.current?.(stepIdx)
       })
       const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
         .setLngLat([lng, lat])
         .addTo(map)
       itineraryMarkersRef.current.push(marker)
+      itineraryMarkerElsRef.current.push(el)
     })
 
     // Fit bounds to the itinerary
     if (coords.length > 1) {
       const bounds = new mapboxgl.LngLatBounds()
       coords.forEach((c) => bounds.extend(c))
-      map.fitBounds(bounds, { padding: 60, maxZoom: 13, duration: 600 })
+      map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 600 })
     } else {
       map.flyTo({ center: coords[0], zoom: 13, duration: 600 })
     }
 
-    // Route polyline (best-effort: if Directions fails, fall back to a
-    // straight line so users still see the sequence). Mapbox Directions
-    // caps each request at 25 waypoints, which is well above any
-    // realistic day-trip plan.
+    // Per-leg route segments. Each consecutive pair becomes its own LineString
+    // feature tagged with `legIndex` so the list↔map sync can highlight and
+    // click individual legs. Best-effort Mapbox Directions per leg; falls back
+    // to a straight line so users always see the sequence.
     let cancelled = false
-    const drawRoute = async (geometry: GeoJSON.Geometry) => {
-      // Re-check `cancelled` AFTER any await chain so two rapid
-      // plan-rebuilds can't both reach `addSource` and crash Mapbox
-      // with "Source already exists".
+    const buildRoutes = async () => {
+      const features: GeoJSON.Feature[] = []
+      for (let i = 0; i < coords.length - 1; i++) {
+        const a = coords[i]
+        const b = coords[i + 1]
+        let geometry: GeoJSON.Geometry = { type: "LineString", coordinates: [a, b] }
+        if (tokenRef.current) {
+          try {
+            const url =
+              `https://api.mapbox.com/directions/v5/mapbox/driving/${a[0]},${a[1]};${b[0]},${b[1]}` +
+              `?geometries=geojson&overview=full&access_token=${encodeURIComponent(tokenRef.current)}`
+            const r = await fetch(url)
+            if (r.ok) {
+              const d = await r.json()
+              const g = d?.routes?.[0]?.geometry
+              if (g) geometry = g
+            }
+          } catch { /* keep straight-line fallback */ }
+        }
+        // Tag the leg with the FROM-stop's full-step index so the panel (which
+        // indexes travel boxes by from-step) and the map agree on leg identity.
+        features.push({ type: "Feature", properties: { legIndex: stepIndices[i] }, geometry })
+      }
+      // Re-check AFTER the await chain so two rapid plan-rebuilds can't both
+      // reach addSource and crash Mapbox with "Source already exists".
       if (cancelled || !mapRef.current || !mapReady) return
       const m = mapRef.current
       if (m.getSource("itinerary-route")) return
-      if (cancelled) return
       m.addSource("itinerary-route", {
         type: "geojson",
-        data: { type: "Feature", properties: {}, geometry },
+        data: { type: "FeatureCollection", features },
       })
       m.addLayer({
         id: "itinerary-route-casing",
@@ -250,30 +361,56 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
         layout: { "line-join": "round", "line-cap": "round" },
         paint: { "line-color": "#16a34a", "line-width": 3.5, "line-opacity": 0.95 },
       })
+      m.addLayer({
+        id: "itinerary-route-highlight",
+        type: "line",
+        source: "itinerary-route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#f97316", "line-width": 6, "line-opacity": 0.95 },
+        filter: ["==", ["get", "legIndex"], activeLegIndexRef.current ?? -1],
+      })
+      m.on("click", "itinerary-route-line", handleRouteClick)
+      m.on("mouseenter", "itinerary-route-line", handleRouteEnter)
+      m.on("mouseleave", "itinerary-route-line", handleRouteLeave)
     }
-
-    if (coords.length >= 2 && tokenRef.current) {
-      const path = coords.map(([lng, lat]) => `${lng},${lat}`).join(";")
-      const url =
-        `https://api.mapbox.com/directions/v5/mapbox/driving/${path}` +
-        `?geometries=geojson&overview=full&access_token=${encodeURIComponent(tokenRef.current)}`
-      fetch(url)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          const g = data?.routes?.[0]?.geometry
-          if (g) {
-            void drawRoute(g)
-          } else {
-            void drawRoute({ type: "LineString", coordinates: coords })
-          }
-        })
-        .catch(() => { void drawRoute({ type: "LineString", coordinates: coords }) })
-    }
+    void buildRoutes()
 
     return () => {
       cancelled = true
+      const m = mapRef.current
+      if (m && m.getLayer && m.getLayer("itinerary-route-line")) {
+        m.off("click", "itinerary-route-line", handleRouteClick)
+        m.off("mouseenter", "itinerary-route-line", handleRouteEnter)
+        m.off("mouseleave", "itinerary-route-line", handleRouteLeave)
+      }
     }
-  }, [itineraryTrips, mapReady])
+  }, [itineraryTrips, itineraryCoords, itineraryStepIndices, mapReady, handleRouteClick, handleRouteEnter, handleRouteLeave])
+
+  // Active stop → toggle the `is-active` pin class + recentre on it. The
+  // incoming index is in FULL-STEP space, so we match it against each marker's
+  // mapped step index rather than its local position.
+  useEffect(() => {
+    activeStopIndexRef.current = activeStopIndex
+    const stepIndices = itineraryStepIndicesRef.current
+    itineraryMarkerElsRef.current.forEach((el, i) => {
+      if (el) el.classList.toggle("is-active", stepIndices[i] === activeStopIndex)
+    })
+    const map = mapRef.current
+    const coords = itineraryCoordsRef.current
+    const localIdx = activeStopIndex == null ? -1 : stepIndices.indexOf(activeStopIndex)
+    if (map && mapReady && localIdx >= 0 && coords[localIdx]) {
+      map.flyTo({ center: coords[localIdx], zoom: Math.max(map.getZoom?.() ?? 13, 13), duration: 500 })
+    }
+  }, [activeStopIndex, mapReady])
+
+  // Active leg → update the highlight layer filter.
+  useEffect(() => {
+    activeLegIndexRef.current = activeLegIndex
+    const map = mapRef.current
+    if (map && mapReady && map.getLayer && map.getLayer("itinerary-route-highlight")) {
+      map.setFilter("itinerary-route-highlight", ["==", ["get", "legIndex"], activeLegIndex ?? -1])
+    }
+  }, [activeLegIndex, mapReady])
 
   // Resize whenever the panel becomes visible or goes fullscreen. We
   // deliberately do NOT re-fit camera here — that's owned by the marker

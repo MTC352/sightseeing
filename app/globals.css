@@ -160,6 +160,13 @@
   transform: scale(1.15);
   z-index: 10;
 }
+/* Active stop — highlighted when its itinerary card / location is focused. */
+.sightseeing-map-itinerary-pin.is-active {
+  background: #f97316;
+  transform: scale(1.22);
+  z-index: 11;
+  box-shadow: 0 0 0 4px rgba(249,115,22,.35), 0 2px 8px rgba(0,0,0,.3);
+}
 /* Photo spot markers */
 .sightseeing-photo-pin {
   display: flex;
