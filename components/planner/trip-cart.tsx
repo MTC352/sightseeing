@@ -109,11 +109,13 @@ interface TripCartProps {
 }
 
 export function TripCart({ persons }: TripCartProps = {}) {
-  const { items, removeItem, clearCart, totalItems } = useCart()
+  const { items, removeItem, clearCart, totalItems, persons: ctxPersons } = useCart()
   const [checkoutOpen, setCheckoutOpen] = useState(false)
 
-  // Person count comes from the preferences, not editable in the cart.
-  const partySize = Math.max(1, Math.floor(persons ?? 1))
+  // Person count comes from the preferences, not editable in the cart. Prefer an
+  // explicit prop (live planner state) and fall back to the cart context's
+  // preference-derived value when rendered outside the planner.
+  const partySize = Math.max(1, Math.floor(persons ?? ctxPersons))
 
   const handleCheckoutAll = useCallback(() => {
     setCheckoutOpen(true)

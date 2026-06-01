@@ -45,6 +45,8 @@ function setCookie(name: string, value: string) {
   // Mirror to localStorage so prefs survive even when the cookie is stripped.
   if (name === PREFS_COOKIE) {
     try { window.localStorage.setItem(PREFS_LOCAL_KEY, value) } catch { /* ignore */ }
+    // Notify in-tab listeners (e.g. the cart's party-size sync) that prefs changed.
+    try { window.dispatchEvent(new Event("sightseeing:prefs")) } catch { /* ignore */ }
   }
 }
 function getCookie(name: string): string | null {

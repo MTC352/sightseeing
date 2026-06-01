@@ -20,6 +20,40 @@ const STORAGE_KEY = "sightseeing_cart_v2"
 // or confuse future debugging.
 const LEGACY_COOKIE = "sightseeing_cart"
 
+// Planner preferences live in this cookie + localStorage mirror (see
+// app/planner/page.tsx). The party size (adults + children) drives how many
+// people each cart line is priced for. The planner dispatches PREFS_EVENT on
+// the window whenever it writes prefs, so the cart can re-read live in-tab; the
+// localStorage mirror also lets us pick up cross-tab edits via the storage event.
+const PREFS_COOKIE = "sightseeing_prefs"
+const PREFS_LOCAL_KEY = "sightseeing_prefs_v1"
+const PREFS_EVENT = "sightseeing:prefs"
+
+/** Read the planner party size (adults + children) from the prefs mirror, then
+ *  the cookie. Always returns at least 1 — a cart line is never priced for 0
+ *  people, and a missing/corrupt prefs payload falls back to a single person. */
+function readPersons(): number {
+  if (typeof window === "undefined") return 1
+  let raw: string | null = null
+  try { raw = window.localStorage.getItem(PREFS_LOCAL_KEY) } catch { /* ignore */ }
+  if (!raw && typeof document !== "undefined") {
+    try {
+      const m = document.cookie.split("; ").find((c) => c.startsWith(`${PREFS_COOKIE}=`))
+      if (m) raw = decodeURIComponent(m.split("=").slice(1).join("="))
+    } catch { /* ignore */ }
+  }
+  if (!raw) return 1
+  try {
+    const p = JSON.parse(raw) as { adults?: unknown; children?: unknown }
+    const adults = Number(p.adults)
+    const children = Number(p.children)
+    const total =
+      (Number.isFinite(adults) ? Math.max(0, adults) : 0) +
+      (Number.isFinite(children) ? Math.max(0, children) : 0)
+    return Math.max(1, Math.floor(total))
+  } catch { return 1 }
+}
+
 export interface CartItem { trip: Trip; quantity: number }
 
 interface CartContextType {
@@ -27,6 +61,8 @@ interface CartContextType {
   addItem: (trip: Trip) => void; removeItem: (tripId: string) => void
   updateQuantity: (tripId: string, quantity: number) => void; clearCart: () => void
   isInCart: (tripId: string) => boolean; totalPrice: number; totalItems: number
+  /** People per trip, sourced from the planner preferences (adults + children). */
+  persons: number
 }
 
 export const CartContext = createContext<CartContextType | undefined>(undefined)
@@ -93,6 +129,7 @@ function clearLegacyCookie() {
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const [persons, setPersons] = useState(1)
   const skipSync = useRef(false)
 
   // Hydrate once on mount, then keep storage in sync with state.
@@ -121,6 +158,26 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", onStorage)
   }, [])
 
+  // Keep the party size in sync with the planner preferences. Re-read on mount,
+  // on the planner's in-tab prefs event, on cross-tab storage edits to the prefs
+  // mirror, and whenever the tab regains focus (covers cookie-only updates).
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const sync = () => setPersons(readPersons())
+    sync()
+    const onStorage = (e: StorageEvent) => { if (e.key === PREFS_LOCAL_KEY) sync() }
+    window.addEventListener(PREFS_EVENT, sync)
+    window.addEventListener("storage", onStorage)
+    window.addEventListener("focus", sync)
+    document.addEventListener("visibilitychange", sync)
+    return () => {
+      window.removeEventListener(PREFS_EVENT, sync)
+      window.removeEventListener("storage", onStorage)
+      window.removeEventListener("focus", sync)
+      document.removeEventListener("visibilitychange", sync)
+    }
+  }, [])
+
   const addItem = useCallback((trip: Trip) => {
     // Idempotent: a trip is either in the cart or not — re-adding never bumps a
     // per-item quantity. The number of people is driven by planner preferences.
@@ -144,11 +201,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
   const isInCart = useCallback((tripId: string) => items.some((i) => i.trip.id === tripId), [items])
-  const totalPrice = items.reduce((sum, i) => sum + i.trip.price * i.quantity, 0)
+  // Each line is priced for the whole party (price × persons). totalItems stays
+  // the number of distinct experiences, NOT the head-count.
+  const totalPrice = items.reduce((sum, i) => sum + i.trip.price * persons, 0)
   const totalItems = items.reduce((sum, i) => sum + i.quantity, 0)
 
   return (
-    <CartContext.Provider value={{ items, hydrated, addItem, removeItem, updateQuantity, clearCart, isInCart, totalPrice, totalItems }}>
+    <CartContext.Provider value={{ items, hydrated, addItem, removeItem, updateQuantity, clearCart, isInCart, totalPrice, totalItems, persons }}>
       {children}
     </CartContext.Provider>
   )
@@ -157,7 +216,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 const CART_FALLBACK: CartContextType = {
   items: [], hydrated: false,
   addItem: () => {}, removeItem: () => {}, updateQuantity: () => {}, clearCart: () => {},
-  isInCart: () => false, totalPrice: 0, totalItems: 0,
+  isInCart: () => false, totalPrice: 0, totalItems: 0, persons: 1,
 }
 
 export function useCart() {

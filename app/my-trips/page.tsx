@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 export default function SavedTripsPage() {
-  const { items, removeItem, clearCart, totalPrice, totalItems, hydrated } = useCart()
+  const { items, removeItem, clearCart, totalPrice, totalItems, hydrated, persons } = useCart()
   const [selectedItem, setSelectedItem] = useState<CartItem | null>(null)
 
   if (!hydrated) {
@@ -136,12 +136,14 @@ export default function SavedTripsPage() {
                     <span className="flex items-center gap-0.5"><Clock className="h-3 w-3" />{item.trip.duration}</span>
                     {item.trip.city && <span className="flex items-center gap-0.5"><MapPin className="h-3 w-3" />{item.trip.city}</span>}
                   </div>
-                  <div className="mt-1">
-                    <span className="text-lg font-bold text-primary">{item.trip.price.toFixed(2)} &euro;</span>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-lg font-bold text-primary">{(item.trip.price * persons).toFixed(2)} &euro;</span>
                     {item.trip.originalPrice && (
-                      <span className="ml-2 text-xs text-muted-foreground line-through">{item.trip.originalPrice.toFixed(2)} &euro;</span>
+                      <span className="text-xs text-muted-foreground line-through">{(item.trip.originalPrice * persons).toFixed(2)} &euro;</span>
                     )}
-                    <span className="ml-1 text-xs text-muted-foreground">/ person</span>
+                    <span className="text-xs text-muted-foreground">
+                      {persons === 1 ? "/ person" : `${item.trip.price.toFixed(2)} \u20ac \u00d7 ${persons} people`}
+                    </span>
                   </div>
                 </div>
               </button>
@@ -152,7 +154,9 @@ export default function SavedTripsPage() {
         {/* Estimated Total */}
         <div className="mt-6 rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-muted-foreground">Estimated Total</span>
+            <span className="text-sm font-medium text-muted-foreground">
+              Estimated Total <span className="text-muted-foreground/70">({persons} {persons === 1 ? "person" : "people"})</span>
+            </span>
             <span className="text-2xl font-bold text-foreground">{totalPrice.toFixed(2)} &euro;</span>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
@@ -163,14 +167,14 @@ export default function SavedTripsPage() {
 
       {/* Individual booking modal */}
       {selectedItem && (
-        <BookingModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+        <BookingModal item={selectedItem} persons={persons} onClose={() => setSelectedItem(null)} />
       )}
     </div>
   )
 }
 
 /* ── Booking Modal ──────────────────────────────── */
-function BookingModal({ item, onClose }: { item: CartItem; onClose: () => void }) {
+function BookingModal({ item, persons, onClose }: { item: CartItem; persons: number; onClose: () => void }) {
   const [loaded, setLoaded] = useState(false)
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center sm:p-4">
@@ -226,12 +230,14 @@ function BookingModal({ item, onClose }: { item: CartItem; onClose: () => void }
 
           {/* Summary details */}
           <div className="px-5 py-4">
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-foreground">{item.trip.price.toFixed(2)} &euro;</span>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span className="text-2xl font-bold text-foreground">{(item.trip.price * persons).toFixed(2)} &euro;</span>
               {item.trip.originalPrice && (
-                <span className="text-sm text-muted-foreground line-through">{item.trip.originalPrice.toFixed(2)} &euro;</span>
+                <span className="text-sm text-muted-foreground line-through">{(item.trip.originalPrice * persons).toFixed(2)} &euro;</span>
               )}
-              <span className="text-xs text-muted-foreground">/ person</span>
+              <span className="text-xs text-muted-foreground">
+                {persons === 1 ? "/ person" : `${item.trip.price.toFixed(2)} \u20ac \u00d7 ${persons} people`}
+              </span>
             </div>
             {item.trip.description && (
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground line-clamp-3">{item.trip.description}</p>
