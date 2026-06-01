@@ -1129,16 +1129,16 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
                   <button
                     type="button"
                     onClick={handleClick}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
                   >
                     {drifted ? (
                       <>
-                        <Sparkles className="h-3 w-3" />
+                        <Sparkles className="h-4 w-4" />
                         Rebuild &amp; View
                       </>
                     ) : (
                       <>
-                        <Maximize2 className="h-3 w-3" />
+                        <Maximize2 className="h-4 w-4" />
                         View Itinerary
                       </>
                     )}
