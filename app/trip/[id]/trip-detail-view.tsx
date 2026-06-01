@@ -13,10 +13,8 @@ import { TripChat } from "@/components/trip-chat"
 import { GoogleReviews } from "@/components/google-reviews"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
-import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets } from "lucide-react"
-import { useWeather } from "@/hooks/use-weather"
-
-const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
+import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe } from "lucide-react"
+import { WeatherWidget } from "@/components/weather-widget"
 
 /* ─── Types shared with the server page ─────────────────────────────── */
 export type TripDbDetail = {
@@ -152,7 +150,6 @@ export default function TripDetailClient({
 
   const { addItem, isInCart } = useCart()
   const [galleryIdx, setGalleryIdx] = useState(0)
-  const { weather, isLoading: weatherLoading } = useWeather()
   const router = useRouter()
   const [canGoBack, setCanGoBack] = useState(false)
 
@@ -559,54 +556,8 @@ export default function TripDetailClient({
                 </div>
               ) : null}
 
-              {/* Live weather */}
-              {(weatherLoading || weather) && (
-                <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">Right now in Luxembourg</span>
-                    {!weatherLoading && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Live</span>}
-                  </div>
-                  {weatherLoading ? (
-                    <div className="mt-3 flex items-center gap-3">
-                      <div className="h-9 w-9 animate-pulse rounded-full bg-muted" />
-                      <div className="space-y-1.5">
-                        <div className="h-6 w-16 animate-pulse rounded bg-muted" />
-                        <div className="h-3 w-24 animate-pulse rounded bg-muted" />
-                      </div>
-                    </div>
-                  ) : weather && (() => {
-                    const WIcon = WEATHER_ICONS[weather.current.icon] || CloudSun
-                    return (
-                      <div className="mt-3">
-                        <div className="flex items-center gap-3">
-                          <WIcon className="h-9 w-9 text-primary" />
-                          <div>
-                            <span className="text-2xl font-bold text-foreground">{weather.current.temp}&deg;C</span>
-                            <p className="text-xs text-muted-foreground">{weather.current.condition}</p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Droplets className="h-3 w-3" />{weather.current.humidity}%</span>
-                          <span className="flex items-center gap-1"><Wind className="h-3 w-3" />{weather.current.wind} km/h</span>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          {weather.forecast.map((d) => {
-                            const DI = WEATHER_ICONS[d.icon] || Sun
-                            return (
-                              <div key={d.day} className="flex flex-col items-center justify-center gap-1 rounded-xl bg-secondary/50 py-4 text-xs">
-                                <span className="text-muted-foreground">{d.day}</span>
-                                <DI className="h-5 w-5 text-primary" />
-                                <span className="font-semibold text-foreground">{d.high}&deg;</span>
-                                <span className="text-muted-foreground/60 text-[10px]">{d.low}&deg;</span>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
+              {/* Live weather — shared widget used across the site */}
+              <WeatherWidget />
             </div>
           </div>
         </div>
