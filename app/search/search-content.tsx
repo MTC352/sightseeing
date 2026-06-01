@@ -552,7 +552,19 @@ function AllSlotsModal({
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent
         className="flex flex-col sm:max-w-2xl p-0 gap-0 overflow-hidden"
-        style={{ maxHeight: "min(85vh, 680px)" }}
+        // The shared Dialog entrance animates translateY from -48% to the resting
+        // -50% (plus a 95% zoom), which reads as the content "moving up" on open.
+        // Pin the enter/exit transform vars to the resting centered position so
+        // only the opacity fade remains — no vertical drift, no zoom.
+        style={{
+          maxHeight: "min(85vh, 680px)",
+          ["--tw-enter-translate-x" as string]: "-50%",
+          ["--tw-enter-translate-y" as string]: "-50%",
+          ["--tw-enter-scale" as string]: "1",
+          ["--tw-exit-translate-x" as string]: "-50%",
+          ["--tw-exit-translate-y" as string]: "-50%",
+          ["--tw-exit-scale" as string]: "1",
+        } as React.CSSProperties}
         aria-describedby={undefined}
         // Prevent Radix from auto-focusing the first timeslot chip on open,
         // which scrolls the body to that chip and reads as a "glitchy" jump.
