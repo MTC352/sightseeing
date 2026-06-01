@@ -97,11 +97,20 @@ export default function SavedTripsPage() {
         {/* Trip list */}
         <div className="mt-6 flex flex-col gap-4">
           {items.map((item, itemIdx) => (
-            <div key={item.trip.id} className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+            <div key={item.trip.id} className="group relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+              {/* Remove control (top-right) */}
+              <button
+                type="button"
+                onClick={() => removeItem(item.trip.id)}
+                aria-label={`Remove ${item.trip.title}`}
+                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <X className="h-4 w-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => setSelectedItem(item)}
-                className="flex w-full items-start gap-4 p-4 text-left"
+                className="flex w-full items-start gap-4 p-4 pr-12 text-left"
               >
                 <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl sm:h-28 sm:w-36">
                   <Image
@@ -136,16 +145,6 @@ export default function SavedTripsPage() {
                   </div>
                 </div>
               </button>
-              {/* Remove control */}
-              <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => removeItem(item.trip.id)}
-                  className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
-                >
-                  <X className="h-3.5 w-3.5" /> Remove
-                </button>
-              </div>
             </div>
           ))}
         </div>
