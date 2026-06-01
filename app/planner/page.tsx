@@ -3852,10 +3852,6 @@ export default function PlannerPage() {
                   </div>
                 </div>
               </div>
-              {/* Public transport planner */}
-              <div className="border-t border-border px-4 py-5">
-                <MobiliteitPlanner />
-              </div>
             </div>
           ) : (
             /* ── Results: Map + Grid ── */
