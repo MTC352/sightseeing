@@ -14,10 +14,15 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const source = searchParams.get("source")?.trim() || undefined
   const limit = parseInt(searchParams.get("limit") ?? "200", 10)
+  const levelParam = searchParams.get("level")?.trim()
+  const level =
+    levelParam === "error" || levelParam === "warn" || levelParam === "info"
+      ? levelParam
+      : undefined
 
   try {
     const [logs, sources] = await Promise.all([
-      dbListErrorLogs({ limit: Number.isFinite(limit) ? limit : 200, source }),
+      dbListErrorLogs({ limit: Number.isFinite(limit) ? limit : 200, source, level }),
       dbListErrorLogSources(),
     ])
     return NextResponse.json({ logs, sources })

@@ -688,8 +688,12 @@ export async function POST(req: Request) {
     const itineraryMaxTokens = typeof itinerarySettings.maxTokens === "number" && itinerarySettings.maxTokens > 0
       ? Math.min(8192, Math.floor(itinerarySettings.maxTokens))
       : null
+    // DB-managed key first, env as fallback — keep this precedence identical to
+    // the planner route. The env key may be stale/invalid while the admin-managed
+    // DB key is the source of truth; env-first caused intermittent 401s here.
     const anthropicKey =
-      (process.env.ANTHROPIC_API_KEY || (allSettings.apiKeys as Record<string, string> | undefined)?.anthropic || "").trim()
+      ((allSettings.apiKeys as Record<string, string> | undefined)?.anthropic ?? "").trim() ||
+      (process.env.ANTHROPIC_API_KEY ?? "").trim()
     const dayStartTime = String(settings.dayStartTime ?? "09:00")
     const dayEndTime = String(settings.dayEndTime ?? "21:00")
     const bufferTimeBetweenStops = Number(settings.bufferTimeBetweenStops ?? 30)

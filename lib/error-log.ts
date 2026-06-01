@@ -156,18 +156,25 @@ export async function logCaughtError(
 export async function dbListErrorLogs(opts?: {
   limit?: number
   source?: string
+  level?: "error" | "warn" | "info"
 }): Promise<ErrorLogEntry[]> {
   await ensureTable()
   const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 1000)
+  const where: string[] = []
+  const params: (string | number)[] = []
   if (opts?.source) {
-    return query<ErrorLogEntry>(
-      `SELECT * FROM error_logs WHERE source = $1 ORDER BY created_at DESC LIMIT $2`,
-      [opts.source, limit]
-    )
+    params.push(opts.source)
+    where.push(`source = $${params.length}`)
   }
+  if (opts?.level) {
+    params.push(opts.level)
+    where.push(`level = $${params.length}`)
+  }
+  params.push(limit)
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")} ` : ""
   return query<ErrorLogEntry>(
-    `SELECT * FROM error_logs ORDER BY created_at DESC LIMIT $1`,
-    [limit]
+    `SELECT * FROM error_logs ${whereSql}ORDER BY created_at DESC LIMIT $${params.length}`,
+    params
   )
 }
 

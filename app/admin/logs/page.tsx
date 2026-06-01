@@ -23,6 +23,7 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<ErrorLog[]>([])
   const [sources, setSources] = useState<string[]>([])
   const [source, setSource] = useState<string>("")
+  const [level, setLevel] = useState<"" | "error" | "warn" | "info">("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [expanded, setExpanded] = useState<Record<number, boolean>>({})
@@ -32,7 +33,7 @@ export default function LogsPage() {
     setLoading(true)
     setError("")
     try {
-      const url = `/api/admin/logs?limit=300${source ? `&source=${encodeURIComponent(source)}` : ""}`
+      const url = `/api/admin/logs?limit=300${source ? `&source=${encodeURIComponent(source)}` : ""}${level ? `&level=${level}` : ""}`
       const res = await fetch(url)
       const data = (await res.json()) as { logs?: ErrorLog[]; sources?: string[]; error?: string }
       if (!res.ok) throw new Error(data.error ?? "Failed to load logs")
@@ -43,7 +44,7 @@ export default function LogsPage() {
     } finally {
       setLoading(false)
     }
-  }, [source])
+  }, [source, level])
 
   // Pre-filter from the URL (e.g. /admin/logs?source=tourcms) so deep links
   // from other pages land on the right source. Read after mount to avoid any
@@ -151,6 +152,35 @@ export default function LogsPage() {
             {s}
           </button>
         ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-xs font-medium text-muted-foreground">Level:</span>
+        {([
+          { key: "", label: "All" },
+          { key: "error", label: "Error" },
+          { key: "warn", label: "Warn" },
+          { key: "info", label: "Info" },
+        ] as const).map((opt) => {
+          const active = level === opt.key
+          const activeCls =
+            opt.key === "error" ? "border-destructive bg-destructive/10 text-destructive"
+            : opt.key === "warn" ? "border-amber-500 bg-amber-500/10 text-amber-600"
+            : opt.key === "info" ? "border-blue-500 bg-blue-500/10 text-blue-600"
+            : "border-primary bg-primary/10 text-primary"
+          return (
+            <button
+              key={opt.key || "all"}
+              type="button"
+              onClick={() => setLevel(opt.key)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                active ? activeCls : "border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
       </div>
 
       {error && (
