@@ -1543,10 +1543,30 @@ export default function PlannerPage() {
     } catch { /* ignore */ }
   }
 
+  // Declared BEFORE useChat so the onError handler below can flip the
+  // first-turn gate. (Render order is unconditional, so hoisting these
+  // useState calls is hook-safe.)
+  const [committedAiTrips, setCommittedAiTrips] = useState<Trip[]>([])
+  // Becomes true once the AI completes its first streaming turn. Until then
+  // (including the brief 300ms gap between prefs being stored and the chat
+  // auto-submission firing), we show the loading state rather than the
+  // client-scored fallback grid so there's no premature 4-trip flash.
+  const [hasCompletedFirstAiTurn, setHasCompletedFirstAiTurn] = useState(false)
+
   const { messages, sendMessage, addToolOutput, status, setMessages } = useChat<PlannerMessage>({
     transport,
     messages: initialMessagesRef.current,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    onError() {
+      // AI turn failed (e.g. invalid/expired key → 401, or the model
+      // provider is unreachable). Without this, the stream-end transition
+      // that normally flips `hasCompletedFirstAiTurn` may never be observed,
+      // leaving `discoveringPrefs` true forever and pinning the canvas on the
+      // "Finding your perfect trips…" spinner. Flip the gate so the canvas
+      // fails soft to the deterministic, interest-scored fallback grid —
+      // same principle as the itinerary engine's AI-down fallback.
+      setHasCompletedFirstAiTurn(true)
+    },
     onToolCall({ toolCall }) {
       if (toolCall.dynamic) return
       if (toolCall.toolName === "updatePreferences") {
@@ -2401,13 +2421,9 @@ export default function PlannerPage() {
      may call `searchTrips` more than once per turn — first a broad scan,
      then a narrowed final pick — and we only want to commit the final
      result. While the AI is mid-turn we keep showing the LAST committed
-     set (or nothing if this is the visitor's first turn). */
-  const [committedAiTrips, setCommittedAiTrips] = useState<Trip[]>([])
-  // Becomes true once the AI completes its first streaming turn. Until then
-  // (including the brief 300ms gap between prefs being stored and the chat
-  // auto-submission firing), we show the loading state rather than the
-  // client-scored fallback grid so there's no premature 4-trip flash.
-  const [hasCompletedFirstAiTurn, setHasCompletedFirstAiTurn] = useState(false)
+     set (or nothing if this is the visitor's first turn).
+     NOTE: `committedAiTrips` and `hasCompletedFirstAiTurn` are declared
+     above useChat (so onError can flip the gate). */
   const prevStreamingRef = useRef(isStreaming)
   useEffect(() => {
     // Stream just ended → commit whatever aiTrips ended up as the final.

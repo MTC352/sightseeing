@@ -36,3 +36,23 @@ and unnecessary.
 the chat tool, and old persisted prefs.
 
 **How to apply:** If re-enabling multi-day later, flip all five together.
+
+# Planner chat trip discovery is AI-only — client must fail soft
+
+The planner chat (`/api/planner`) discovers/recommends trips ONLY through the AI's
+`searchTrips` tool calls — there is NO deterministic discovery fallback in the route
+(unlike the itinerary engine, which has a server-side deterministic scheduler).
+
+**Consequence:** When the AI key 401s (common in dev), the chat stream errors and emits
+no `searchTrips` output, so `aiTrips` stays empty. The CLIENT must fail soft: `useChat`'s
+`onError` flips `hasCompletedFirstAiTurn` true so the canvas renders the deterministic
+client-side `fallbackTrips` grid (interest-scored over the DB catalog) instead of spinning
+forever on "Finding your perfect trips…".
+
+**Why:** `discoveringPrefs = prefs && interests>0 && !hasCompletedFirstAiTurn`. That gate is
+normally cleared by the streaming→done transition; on an AI error that transition can be
+missed, so without `onError` the spinner never clears.
+
+**How to apply:** Don't assume the planner degrades gracefully just because the itinerary
+engine does — they're separate. Any change to chat error handling must keep the first-turn
+gate getting flipped on failure.
