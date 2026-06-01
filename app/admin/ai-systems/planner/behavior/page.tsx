@@ -36,6 +36,8 @@ interface PlannerBehaviorSettings {
   dinnerBreakTime: string
   mealBreakDuration: number
   travelTimeMethod: "walking" | "driving" | "public_transport"
+  pace: "relaxed" | "balanced" | "packed"
+  mapProvider: "mapbox" | "google"
 }
 
 const DEFAULT_SETTINGS: PlannerBehaviorSettings = {
@@ -54,7 +56,20 @@ const DEFAULT_SETTINGS: PlannerBehaviorSettings = {
   dinnerBreakTime: "19:00",
   mealBreakDuration: 60,
   travelTimeMethod: "public_transport",
+  pace: "balanced",
+  mapProvider: "mapbox",
 }
+
+const PACE_OPTIONS = [
+  { value: "relaxed", label: "Relaxed", description: "Roomier, fewer stops" },
+  { value: "balanced", label: "Balanced", description: "Default rhythm" },
+  { value: "packed", label: "Packed", description: "Tighter, more stops" },
+]
+
+const MAP_PROVIDERS = [
+  { value: "mapbox", label: "Mapbox", description: "Live routing" },
+  { value: "google", label: "Google Maps", description: "Needs Directions key" },
+]
 
 const MODELS = [
   { value: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6", provider: "Anthropic" },
@@ -85,7 +100,7 @@ export default function PlannerBehaviorPage() {
   useEffect(() => {
     fetch("/api/admin/planner-behavior")
       .then((res) => res.json())
-      .then((data) => setSettings(data))
+      .then((data) => setSettings({ ...DEFAULT_SETTINGS, ...data }))
       .catch(() => setSettings(DEFAULT_SETTINGS))
       .finally(() => setLoading(false))
   }, [])
@@ -398,6 +413,54 @@ export default function PlannerBehaviorPage() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Pace */}
+            <div>
+              <label className={labelClass}>Default Pace</label>
+              <div className="grid grid-cols-3 gap-2">
+                {PACE_OPTIONS.map((p) => (
+                  <button
+                    key={p.value}
+                    onClick={() => setSettings({ ...settings, pace: p.value as typeof settings.pace })}
+                    className={`flex flex-col items-center gap-1 rounded-xl border-2 p-3 transition-colors ${
+                      settings.pace === p.value
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/30"
+                    }`}
+                  >
+                    <span className="text-xs font-medium text-foreground">{p.label}</span>
+                    <span className="text-[9px] text-muted-foreground">{p.description}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Scales buffer time and target number of stops (always clamped to Max Stops Per Day).
+              </p>
+            </div>
+
+            {/* Map / Routing Provider */}
+            <div>
+              <label className={labelClass}>Map / Routing Provider</label>
+              <div className="grid grid-cols-2 gap-2">
+                {MAP_PROVIDERS.map((m) => (
+                  <button
+                    key={m.value}
+                    onClick={() => setSettings({ ...settings, mapProvider: m.value as typeof settings.mapProvider })}
+                    className={`flex flex-col items-center gap-1 rounded-xl border-2 p-3 transition-colors ${
+                      settings.mapProvider === m.value
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/30"
+                    }`}
+                  >
+                    <span className="text-xs font-medium text-foreground">{m.label}</span>
+                    <span className="text-[9px] text-muted-foreground">{m.description}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Mapbox is live today. Google requires a Directions API key — until one is added it falls back to Mapbox.
+              </p>
             </div>
           </div>
         </section>

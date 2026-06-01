@@ -16,6 +16,18 @@
 export const HARD_MAX_STOPS = 5
 const EARLY_ARRIVAL_MIN = 5
 
+// Walk is recommended over driving for hops at or under this distance.
+const SHORT_HOP_KM = 1.2
+
+// Pace presets scale the inter-stop buffer and how many stops we aim for.
+// Always clamped to the admin max stops. Admin-managed via Trip Planner settings.
+const PACE_PRESETS = {
+  relaxed: { bufferMult: 1.5, stopDelta: -1 },
+  balanced: { bufferMult: 1.0, stopDelta: 0 },
+  packed: { bufferMult: 0.6, stopDelta: 0 },
+} as const
+export type Pace = keyof typeof PACE_PRESETS
+
 export interface SlotInput {
   startTime: string
   endTime: string | null
@@ -62,6 +74,9 @@ export interface SchedulerConfig {
   lunchBreakTime: string
   dinnerBreakTime: string
   travelMethodLabel: string
+  /** Admin-managed pace preset — scales buffer + target stop count (clamped to
+   *  maxStopsPerDay). Defaults to "balanced". */
+  pace?: Pace
 }
 
 export interface MealWindow {
@@ -81,6 +96,11 @@ export interface SchedulerPrefs {
   excludeMeals: boolean
   interests: string[]
   userMealBreaks: Map<"lunch" | "dinner" | "coffee", MealWindow>
+  /** OPT-IN accessibility: when true, physically demanding / non-step-free trips
+   *  are hard-dropped with a clear reason. Default false. */
+  excludeInaccessible?: boolean
+  /** Total party size — used to drop slots that can't seat the whole group. */
+  partySize?: number
 }
 
 export interface BreakAfter {
@@ -108,6 +128,8 @@ export interface ScheduledStep {
   tripCity: string
   tripLocation: string
   day: number
+  /** Deterministic weather advisory for outdoor trips on a rainy day. */
+  weatherFlag: string | null
 }
 
 export interface DroppedTrip {
@@ -138,12 +160,51 @@ export function toHHMM(total: number): string {
 const FOOD_RE = /\b(food|lunch|dinner|brunch|breakfast|wine|tasting|culinary|gastronom|restaurant|beer|cheese|chocolate|tapas|dining)\b/i
 const EVENING_RE = /\b(nightlife|night|bar crawl|pub crawl|pub|sunset|evening|by night|after dark|cocktail)\b/i
 const MORNING_RE = /\b(sunrise|early morning|dawn|breakfast)\b/i
+// Physically demanding / not step-free. Used ONLY when the visitor explicitly
+// opts into accessible planning (hard drop with a clear reason).
+const INACCESSIBLE_RE = /\b(hik(e|ing)|trek|climb(ing)?|steep|strenuous|rugged|mountain|kayak|canoe|cav(e|ing)|cycl(e|ing)|bike|bicycle|e-bike|rappel|via ferrata|scramble|uneven terrain|stairs only|many steps)\b/i
+// Weather-exposed / outdoor trips. Used to flag rain risk deterministically.
+const OUTDOOR_RE = /\b(outdoor|open-air|hik(e|ing)|walking tour|park|garden|vineyard|cruise|boat|river|kayak|canoe|bike|bicycle|cycl|segway|terrace|picnic|grounds|nature|forest|trail)\b/i
 
 function haystack(t: CandidateTrip): string {
   return `${t.title} ${t.category} ${t.tags.join(" ")} ${t.blurb}`.toLowerCase()
 }
 export function isFoodTrip(t: CandidateTrip): boolean {
   return FOOD_RE.test(haystack(t))
+}
+export function isInaccessibleTrip(t: CandidateTrip): boolean {
+  return INACCESSIBLE_RE.test(haystack(t))
+}
+export function isOutdoorTrip(t: CandidateTrip): boolean {
+  return OUTDOOR_RE.test(haystack(t))
+}
+
+/** Build the human-readable travel summary for a leg. Shows BOTH drive and
+ *  walk when available and recommends the faster option (walk for short hops),
+ *  and clearly labels a fallback estimate vs. a live Mapbox/Google figure. */
+export function describeTravel(
+  leg: TravelLeg | null,
+  fallbackMin: number,
+  methodLabel: string,
+): string | null {
+  if (leg && leg.reason === "ok" && (leg.driveMin !== null || leg.walkMin !== null)) {
+    const parts: string[] = []
+    const drive = leg.driveMin
+    const walk = leg.walkMin
+    let rec: "walk" | "drive" | null = null
+    const shortHop = leg.distanceKm !== null && leg.distanceKm <= SHORT_HOP_KM
+    if (walk !== null && drive !== null) rec = shortHop || walk <= drive ? "walk" : "drive"
+    else if (walk !== null) rec = "walk"
+    else if (drive !== null) rec = "drive"
+    if (drive !== null) parts.push(`${drive} min drive`)
+    if (walk !== null) parts.push(`${walk} min walk`)
+    let s = parts.join(" · ")
+    if (rec) s += ` (${rec} recommended)`
+    if (leg.distanceKm !== null) s += ` · ${leg.distanceKm} km`
+    return s
+  }
+  if (fallbackMin > 0) return `~${fallbackMin} min by ${methodLabel} (estimated)`
+  return null
 }
 export function timeBand(t: CandidateTrip): "morning" | "daytime" | "evening" {
   const h = haystack(t)
@@ -195,17 +256,49 @@ export async function buildSchedule(opts: {
   addDays: (ymd: string, n: number) => string
   computeLeg: ComputeLeg
   cityTravelMin: (fromCity: string, toCity: string) => number
+  /** Deterministic weather signal for the visit date (single-day plans). */
+  weather?: { rainyDay?: boolean } | null
 }): Promise<{ steps: ScheduledStep[]; dropped: DroppedTrip[]; notes: string[] }> {
-  const { candidates, config, prefs, visitDate, addDays, computeLeg, cityTravelMin } = opts
+  const { candidates, config, prefs, visitDate, addDays, computeLeg, cityTravelMin, weather } = opts
 
   const maxStops = Math.max(1, Math.min(HARD_MAX_STOPS, Math.floor(config.maxStopsPerDay) || HARD_MAX_STOPS))
+  // Pace scales the buffer and the number of stops we aim for, always clamped
+  // to the admin max. relaxed = roomier + one fewer stop; packed = tighter.
+  const pace: Pace = config.pace && config.pace in PACE_PRESETS ? config.pace : "balanced"
+  const pacePreset = PACE_PRESETS[pace]
+  const targetStops = Math.max(1, Math.min(maxStops, maxStops + pacePreset.stopDelta))
+  const rainyDay = weather?.rainyDay === true
+  const partySize = Math.max(1, Math.floor(prefs.partySize ?? 1))
+  const fitsParty = (s: SlotInput): boolean => {
+    const r = (s.spacesRemaining ?? "").toString().trim().toUpperCase()
+    if (!r || r === "UNLIMITED") return true
+    const n = parseInt(r, 10)
+    return Number.isNaN(n) ? true : n >= partySize
+  }
+
+  // OPT-IN accessibility: hard-drop physically demanding trips up front with a
+  // clear reason, leaving the rest for normal scheduling.
+  const accessibilityDrops: DroppedTrip[] = []
+  const workCandidates = prefs.excludeInaccessible
+    ? candidates.filter((t) => {
+        if (isInaccessibleTrip(t)) {
+          accessibilityDrops.push({
+            tripId: t.id,
+            title: t.title,
+            reason: "Removed — this trip isn't step-free/low-mobility friendly, per your accessibility request.",
+          })
+          return false
+        }
+        return true
+      })
+    : candidates
   // Inter-stop gap = travel + admin-configured buffer + a fixed 5–10 min
   // early arrival. These are SEPARATE components: the early arrival is a fixed
   // courtesy margin (independent of the admin buffer) so visitors always reach
   // the meeting point a few minutes ahead, while `buffer` is the admin's
   // configurable breathing room between stops.
   const earlyArrival = EARLY_ARRIVAL_MIN
-  const buffer = Math.max(0, Math.floor(config.bufferTimeBetweenStops) || 0)
+  const buffer = Math.round(Math.max(0, Math.floor(config.bufferTimeBetweenStops) || 0) * pacePreset.bufferMult)
   const dayStart = toMin(config.dayStartTime) >= 0 ? toMin(config.dayStartTime) : 9 * 60
   const dayEnd = toMin(config.dayEndTime) >= 0 ? toMin(config.dayEndTime) : 21 * 60
   const dayCount = prefs.isMultiDay ? Math.max(1, prefs.dayCount) : 1
@@ -254,7 +347,7 @@ export async function buildSchedule(opts: {
   const notes: string[] = []
 
   for (let day = 0; day < dayCount; day++) {
-    if (allSteps.length >= maxStops) break
+    if (allSteps.length >= targetStops) break
     const dateForDay = addDays(visitDate, day)
     const daySteps: ScheduledStep[] = []
     const meals: Meal[] = mealsTemplate.map((m) => ({ ...m }))
@@ -269,9 +362,9 @@ export async function buildSchedule(opts: {
     } | null = null
     let firstStartMin = -1
 
-    for (const trip of candidates) {
+    for (const trip of workCandidates) {
       if (used.has(trip.id)) continue
-      if (allSteps.length + daySteps.length >= maxStops) break
+      if (allSteps.length + daySteps.length >= targetStops) break
 
       const dur = trip.durationMin
       const effectiveEnd = prefs.isMultiDay
@@ -309,6 +402,13 @@ export async function buildSchedule(opts: {
         return true
       }
       let pool = trip.slots.filter(inWindow)
+      if (partySize > 1) {
+        const partyPool = pool.filter(fitsParty)
+        if (pool.length > 0 && partyPool.length === 0) {
+          notes.push(`"${trip.title}" had no slots with space for your group of ${partySize} on ${dateForDay} — try a smaller group or another date.`)
+        }
+        pool = partyPool
+      }
       const bandPool = pool.filter(bandOk)
       if (bandPool.length > 0) {
         pool = bandPool
@@ -358,6 +458,7 @@ export async function buildSchedule(opts: {
         tripCity: trip.city,
         tripLocation: trip.location,
         day,
+        weatherFlag: null,
       }
 
       // Multi-day: prefix the first step of each day with a Markdown heading.
@@ -365,17 +466,16 @@ export async function buildSchedule(opts: {
         step.title = `Day ${day + 1} — ${dateForDay}\n\n${trip.title}`
       }
 
+      // Deterministic weather advisory — flag outdoor stops on a rainy day.
+      if (rainyDay && isOutdoorTrip(trip)) {
+        step.weatherFlag = "☔ Outdoor — rain expected; bring a layer or check the forecast before you go."
+      }
+
       // Resolve travel + break on the PREVIOUS step now that this one is fixed.
       if (prev) {
         prev.step.travelLeg = leg
         prev.step.travelMinutes = travelMin
-        if (leg && leg.driveMin !== null) {
-          prev.step.travelToNext = leg.distanceKm !== null
-            ? `${leg.driveMin} min by car · ${leg.distanceKm} km`
-            : `${leg.driveMin} min by car`
-        } else if (travelMin > 0) {
-          prev.step.travelToNext = `~${travelMin} min by ${config.travelMethodLabel}`
-        }
+        prev.step.travelToNext = describeTravel(leg, travelMin, config.travelMethodLabel)
 
         const gap = startMin - prev.endMin
         const freeAfterTravel = gap - travelMin - buffer - earlyArrival
@@ -427,15 +527,15 @@ export async function buildSchedule(opts: {
     allSteps.push(...daySteps)
   }
 
-  const dropped: DroppedTrip[] = []
-  for (const trip of candidates) {
+  const dropped: DroppedTrip[] = [...accessibilityDrops]
+  for (const trip of workCandidates) {
     if (used.has(trip.id)) continue
     dropped.push({
       tripId: trip.id,
       title: trip.title,
-      reason: allSteps.length >= maxStops
-        ? `Kept to ${maxStops} stops for a relaxed pace — extend your trip length or add days to include it.`
-        : "No slot fit your selected time window — try a longer day, more days, or another date.",
+      reason: allSteps.length >= targetStops
+        ? `Kept to ${targetStops} stops for a ${pace} pace — extend your trip length to include it.`
+        : "No slot fit your selected time window — try a longer day or another date.",
     })
   }
 

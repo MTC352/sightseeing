@@ -593,6 +593,10 @@ export async function dbGetSettings() {
     dayStartTime: '09:00', dayEndTime: '21:00', autoInsertMealBreaks: true,
     lunchBreakTime: '12:30', dinnerBreakTime: '19:00', mealBreakDuration: 60,
     travelTimeMethod: 'public_transport',
+    // Pace preset feeds lib/itinerary/scheduler.ts (buffer scale + target stops,
+    // clamped to maxStopsPerDay). Map provider selects the routing backend for
+    // travel legs ('mapbox' live today; 'google' requires a Directions key).
+    pace: 'balanced', mapProvider: 'mapbox',
   }
   // Itinerary builder: defaults are the *current* live defaults so the admin
   // page renders with the values that are actually in effect right now.

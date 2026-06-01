@@ -1,0 +1,71 @@
+Budget — not Need to Implement as It's disabled from backend and it varies per selection of slots. 
+
+Party size (adults/children) — only used for availability, which Only need to be consider availability for Now and check if API is returning the Adults and child separation availability then Impleent tha way.
+
+Interests — ignored by the scheduler 
+Implementaiton => AI Should be using the Interest to order the trips initially for the filteration of the trips then ordering of the  trips should be based on it's best time of day to do that trip. like some trips are best to visit inn morning some are during evening, but initially trips selection should be based on interest and then order should be based on trips description and timeslot's availability. like might be 2 trips which are best to visit in morning then it needs to be order based on timeslots availability, ex. both trip have timeslots availability then make sure which is best to visit first ased on prefrence and other, also, if both trips are smae then AI suggest better to visit one trip and other for another interest so user's all interest can be considered. 
+Some time a trip in morning don't have timeslot availability because of all seats booked or no timeslot then it need to be moved further but not should be moved like other trips which best visit time gets affected and gets ruined all trips best visit time. So first of all list all scenarios and then consider what AI suggest to do in that scenarios and if user have some preferences for that scenario then it should get priority for building itinerary. 
+
+Accessibility — 
+Currently There's no "wheelchair/step-free/low-mobility" filter that drops incompatible trips.
+Implementation: add an accessibility exclusion that hard-drops non-accessible trips with a clear reason only If user specifically asks for it then trips selection and all should be consider that as user's preference. 
+
+Pace — not a real input 🟢
+Max-5 stops is a fixed cap, but there's no "relaxed / packed" pace control that changes buffers or stop count within the admin cap.
+Implementation: a pace pref that scales buffer + target stop count (still clamped to admin max). Make sure it's managable from Admin Trip Planner settings. 
+
+B. Scheduler logic gaps -Weather doesn't change the deterministic plan 
+Weather only nudges AI scoring. With AI down, outdoor trips are scheduled normally on a rainy day.
+Implementation: Make Implementation with Notes on trip Display in itinerary : deterministic rain penalty — reorder outdoor trips to drier windows or flag them ("☔ outdoor — rain expected").
+
+Single-trip plans can still insert meal breaks awkwardly With one trip + auto-meals on, lunch/dinner can be added around a lone stop.
+Implementation: only auto-insert meals when there's an actual gap between two stops that spans the meal window and only if Realistic Lunch time is between trips and after trips it's almost evening or user trip started in morning and meal time seems like skipped it should be realistic not always on.
+
+
+Multi-day doesn't cluster by region or handle travel days 
+Implemetation : Hide the Multi Day Option from on-boarding and building itinerary for Now as we are limiting the trips for now It . 
+
+C. Travel & transport
+No transit times 🟡
+transitMin is always null; Mapbox transit profile isn't used. Only drive/walk.
+Implementation: clearly label that times are drive/walk only. and it should be based on Mapbox, Google Map Give Better option? then We can Make Setting in Admin Panel for use mapbox or Google Map in Trip planning.
+
+Transport mode is global, not per-leg 🟢
+One admin-set mode for the whole day; a short hop that's faster on foot still shows drive time.
+Implementation: Show the Both time and recommend the faster of walk/drive per leg (e.g., walk under ~1.2 km).
+
+Mapbox-down fallback is a hardcoded city travel time 🟡
+When geocoding/token fails, legs fall back to a flat estimate, shown as if real. Currently surfaced as "—" in some places, a flat number in others.
+Implementation: consistently label estimated vs. live travel time. and Make sure if Mapbox is failing frequently use Google Maps. 
+
+D. Error & empty states
+0-trip build 🟡
+API returns 400; the UI only disables the button. If the chat tool calls build with an empty shortlist, it errors with no friendly guidance.
+Implementation: friendly empty state ("Add a few trips first, or want me to suggest some?").
+
+Partial availability messaging 🟢
+Implementation: When some trips have no slots they land in unavailableTrips, but it's worth confirming the UI clearly tells the user which ones and why, plus offers alternative dates per trip (not just the whole plan).
+
+All-trips-dropped 🟢
+Implementation: Confirm there's a distinct, friendly state when everything gets dropped (vs. a silent empty plan).
+
+E. Persistence, sharing, booking
+Itineraries aren't saved to the DB 🔴
+They live in cookie/localStorage only — clearing storage loses the plan; no "my trips," no shareable link.
+Hold for Now Phase 2: For Now No need to save built itineraries to the DB with a shareable id. ONce we'll Implement User side Authentication then We'll Implement this feature only for authenticated users. For Now Make Trip Planner Task of it so in Phase 2 We review and Implement it. 
+
+
+No export (PDF / iCal / print) 🟡
+No way to take the plan offline or add to a calendar.
+Hold For Now Phase 2: "Add to calendar" (iCal) + print/PDF. we'll Implement User side Authentication then We'll Implement this feature only for authenticated users. For Now Make Trip Planner Task of it so in Phase 2 We review and Implement it. 
+
+Booking handoff isn't unified 🟡
+Each stop books separately via its own Palisis flow; no single "book all."
+Implementation: We are still researching on a consolidated booking summary/checkout, Where we can checkout and Book Whole itinerary by checking availability first and then if all okay then Booking it directly on Palisis API. (respecting the Palisis read-only-except-booking rule). 
+
+F. Disabled / placeholder items in code
+Keep it Disabled as it's not being used Now but it'll be added in Phase 2: Car-rental & hotel cross-sell widgets — hardcoded false in the itinerary route ("temporarily disabled").
+
+Issue : resolvePalisisId heuristic fallback in the planner chat — flagged as a fail-closed risk when a trip isn't in the DB. Worth hardening so the chat never books/plans against a guessed id.
+Solution : There should be no Static data which are not in Database. Trips will always be with Palisis ID no Guessing needed and Make sure that if trip is not in DB it should not be Included in any AI knowledgebase. Also if trip is into Db and is published then it should not give the error of trip isn't in DB. If Any un-necessary trips then palisis in DB then remove it totally. only palisis imported trips should be in DB and Whole site have that trips Data only.
+

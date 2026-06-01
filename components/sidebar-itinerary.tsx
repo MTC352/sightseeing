@@ -146,6 +146,8 @@ interface ItineraryStep {
     fromLabel?: string | null
     toLabel?: string | null
   }
+  /** Deterministic weather advisory for outdoor stops on a rainy day. */
+  weatherFlag?: string | null
 }
 
 interface UnavailableTrip {
@@ -1451,6 +1453,13 @@ export function ItineraryPanel({
                 </div>
               )}
 
+              {/* Deterministic weather advisory for an outdoor stop on a wet day. */}
+              {step.weatherFlag && (
+                <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-sky-200/60 bg-sky-50/60 px-3 py-2 text-[11px] leading-snug text-sky-800">
+                  <span>{step.weatherFlag}</span>
+                </div>
+              )}
+
               {/* Transit connector — rendered AFTER the break so DOM order
                   reflects: step ends → break → transit → arrival at next stop.
                   All values come from the server's Mapbox Directions call;
@@ -1481,6 +1490,19 @@ export function ItineraryPanel({
                   }
                   return "Travel time unavailable — the routing service returned an error. Check the Mapbox token's URL restrictions in your Mapbox account."
                 })()
+                const driveMin = leg?.driveMin ?? null
+                const walkMin = leg?.walkMin ?? null
+                const distanceKm = leg?.distanceKm ?? null
+                // Recommend walking for short hops (≤1.2 km) or whenever it's no
+                // slower than driving; otherwise recommend driving.
+                const recommendWalk = Boolean(has) && walkMin !== null && (
+                  (distanceKm !== null && distanceKm <= 1.2) ||
+                  (driveMin !== null && walkMin <= driveMin)
+                )
+                const recommendDrive = Boolean(has) && !recommendWalk && driveMin !== null
+                // Live = routed by the map provider this build; otherwise the
+                // numbers came from the static fallback matrix.
+                const isLive = leg?.reason === "ok"
                 return (
                   <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 px-3.5 py-2.5 text-xs">
                     <div className="mb-1.5 flex items-start justify-between gap-2">
@@ -1490,6 +1512,11 @@ export function ItineraryPanel({
                           {leg?.distanceKm !== null && leg?.distanceKm !== undefined && (
                             <span className="ml-1.5 font-normal normal-case text-foreground/70">
                               · {leg.distanceKm} km
+                            </span>
+                          )}
+                          {has && (
+                            <span className={`ml-1.5 rounded px-1 text-[9px] font-semibold normal-case ${isLive ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
+                              {isLive ? "live" : "estimated"}
                             </span>
                           )}
                         </span>
@@ -1513,6 +1540,7 @@ export function ItineraryPanel({
                         <Car className="h-3.5 w-3.5 text-primary/70" />
                         <span className="font-semibold text-foreground">{fmt(leg?.driveMin ?? null, "min")}</span>
                         <span className="text-[10px] text-muted-foreground">by car</span>
+                        {recommendDrive && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
                       </span>
                       <span className="flex items-center gap-1.5">
                         <Bus className="h-3.5 w-3.5 text-foreground/40" />
@@ -1526,6 +1554,7 @@ export function ItineraryPanel({
                         <Route className="h-3.5 w-3.5 text-primary/70" />
                         <span className="font-semibold text-foreground">{fmt(leg?.walkMin ?? null, "min")}</span>
                         <span className="text-[10px] text-muted-foreground">walking</span>
+                        {recommendWalk && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
                       </span>
                     </div>
                     {unavailableCopy && (

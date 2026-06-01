@@ -393,7 +393,7 @@ async function resolvePalisisId(tripId: string): Promise<{
         [tripId],
       )) as Array<Record<string, unknown>>
       if (rows && rows.length > 0) tripRow = rows[0]
-    } catch { /* DB miss — fall through to heuristic */ }
+    } catch { /* DB miss — trip simply isn't in our knowledgebase */ }
   }
 
   // 3) Resolve the Palisis tour_id from the row (TRIP_SELECT exposes it as
@@ -405,25 +405,12 @@ async function resolvePalisisId(tripId: string): Promise<{
     null
   if (fromRow) {
     palisisId = String(fromRow)
-  } else if (tripId.startsWith("tcms_") || /^\d+$/.test(tripId)) {
-    // Heuristic fallback: only when the trip does NOT exist in our DB at all.
-    // If the trip exists but is archived/draft, the publicOnly lookups above
-    // returned null — we must NOT silently bypass that via this heuristic.
-    const candidatePalisis = tripId.startsWith("tcms_") ? tripId.slice("tcms_".length) : tripId
-    try {
-      const { query } = await import("@/lib/db")
-      const rows = (await query(
-        `SELECT 1 FROM trips WHERE (id = $1 OR palisis_id = $2) AND status != 'published' LIMIT 1`,
-        [tripId, candidatePalisis],
-      )) as Array<Record<string, unknown>>
-      if (rows.length === 0) palisisId = candidatePalisis
-      // else: trip exists in DB but is archived/draft — block.
-    } catch {
-      // Fail-closed: if we can't verify status, refuse the heuristic rather
-      // than risk leaking archived/draft content.
-      palisisId = null
-    }
   }
+  // NO heuristic guessing. A trip's Palisis tour_id comes ONLY from its
+  // published DB row. If the trip isn't in our DB (or isn't published), it
+  // isn't in the knowledgebase — we return null rather than fabricating an id
+  // by stripping the "tcms_" prefix. Palisis is read-only upstream; every
+  // plannable trip must already have been imported with its real palisis_id.
 
   return { palisisId, tripRow }
 }

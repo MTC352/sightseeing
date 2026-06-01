@@ -240,7 +240,6 @@ const DEFAULT_DURATION_OPTIONS = [
   { value: "1-2h", label: "1-2 hours" },
   { value: "half-day", label: "Half day" },
   { value: "full-day", label: "Full day" },
-  { value: "multi-day", label: "Multi-day trip" },
 ]
 const DEFAULT_BUDGET_OPTIONS = [
   { value: "casual", label: "Keep it casual" },
@@ -342,7 +341,11 @@ function PartyStepper({
 /* ONBOARDING                              */
 /* ────────────────────────────────────── */
 function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferences) => void; formOptions: FormOptions }) {
-  const { groups: GROUP_OPTIONS, interests: INTEREST_OPTIONS, durations: DURATION_OPTIONS, budgets: BUDGET_OPTIONS, maxMultiDayDays, maxInterests, enabledSteps } = formOptions
+  const { groups: GROUP_OPTIONS, interests: INTEREST_OPTIONS, durations: DURATION_OPTIONS_RAW, budgets: BUDGET_OPTIONS, maxMultiDayDays, maxInterests, enabledSteps } = formOptions
+  // Multi-day planning is hidden for now — single-day itineraries only. Filter
+  // here so it's gone whether the options come from admin config or the static
+  // fallback, and the day-count step can never trigger.
+  const DURATION_OPTIONS = DURATION_OPTIONS_RAW.filter((o) => o.value !== "multi-day")
 
   // Step indices: 0=groups 1=interests 2=durations 3=budgets 4=dates.
   // Admin can disable any of them from /admin/ai-systems/planner-chat;
@@ -1122,7 +1125,20 @@ export default function PlannerPage() {
         return
       }
       if (!data?.steps?.length) {
-        pushFailure(data.message || "The plan came back empty for this date — try a different day.", data.alternativeDates || [])
+        const allDropped = Array.isArray((data as { unavailableTrips?: unknown }).unavailableTrips)
+          ? ((data as { unavailableTrips: ItineraryFailurePayload["unavailableTrips"] }).unavailableTrips)
+          : []
+        if (allDropped.length > 0) {
+          const dateLbl = formatYMDPretty((data as { visitDate?: string }).visitDate || visitDate)
+          const names = allDropped.slice(0, 3).map((u) => `**"${u.title}"**`).join(", ")
+          const extra = allDropped.length > 3 ? ` (+${allDropped.length - 3} more)` : ""
+          pushFailure(
+            `None of your trips have a bookable slot on **${dateLbl}** (${names}${extra}), so there's nothing to schedule for that day.`,
+            data.alternativeDates || [],
+          )
+        } else {
+          pushFailure(data.message || "The plan came back empty for this date — try a different day.", data.alternativeDates || [])
+        }
         return
       }
       setCenterItinerary(data)
@@ -1229,7 +1245,20 @@ export default function PlannerPage() {
         return
       }
       if (!data?.steps?.length) {
-        pushFailure(data.message || "The rebuild came back empty for this date — try a different day.", data.alternativeDates || [])
+        const allDropped = Array.isArray((data as { unavailableTrips?: unknown }).unavailableTrips)
+          ? ((data as { unavailableTrips: ItineraryFailurePayload["unavailableTrips"] }).unavailableTrips)
+          : []
+        if (allDropped.length > 0) {
+          const dateLbl = formatYMDPretty((data as { visitDate?: string }).visitDate || visitDate)
+          const names = allDropped.slice(0, 3).map((u) => `**"${u.title}"**`).join(", ")
+          const extra = allDropped.length > 3 ? ` (+${allDropped.length - 3} more)` : ""
+          pushFailure(
+            `None of your trips have a bookable slot on **${dateLbl}** (${names}${extra}), so there's nothing to schedule for that day.`,
+            data.alternativeDates || [],
+          )
+        } else {
+          pushFailure(data.message || "The rebuild came back empty for this date — try a different day.", data.alternativeDates || [])
+        }
         return
       }
       setCenterItinerary(data)
@@ -1324,17 +1353,19 @@ export default function PlannerPage() {
       const today = todayYMD()
       const startDate = parsed.startDate && parsed.startDate >= today ? parsed.startDate : today
       const party = defaultPartyFor(parsed.group)
+      // Multi-day is hidden — coerce any legacy persisted "multi-day" pref
+      // (old cookie/localStorage state) to a single full-day plan so the
+      // hidden mode can never be reintroduced through stale storage.
+      const duration = parsed.duration === "multi-day" ? "full-day" : parsed.duration
       return {
         group: parsed.group,
         interests: parsed.interests,
-        duration: parsed.duration,
+        duration,
         budget: parsed.budget,
         startDate,
         adults: typeof parsed.adults === "number" && parsed.adults >= 1 ? parsed.adults : party.adults,
         children: typeof parsed.children === "number" && parsed.children >= 0 ? parsed.children : party.children,
-        dayCount: typeof parsed.dayCount === "number" && parsed.dayCount >= 1
-          ? parsed.dayCount
-          : (parsed.duration === "multi-day" ? 2 : 1),
+        dayCount: 1,
       }
     }
 
@@ -1910,7 +1941,23 @@ export default function PlannerPage() {
           }
           return
         }
-        if (!data?.steps?.length) return
+        if (!data?.steps?.length) {
+          // Zero-step success: don't silently swallow it. Route through the
+          // same failure path as the other build surfaces so the visitor
+          // gets a distinct all-dropped / empty-date message with trip names
+          // and alternative dates. (Architect review.)
+          const allDropped = Array.isArray(data?.unavailableTrips) ? data.unavailableTrips : []
+          handleItineraryFailure({
+            message: allDropped.length > 0
+              ? "None of your trips have a bookable slot on this date, so there's nothing to schedule for that day."
+              : "The plan came back empty for this date — try a different day.",
+            error: "ITINERARY_EMPTY",
+            visitDate: data?.visitDate || visitDate,
+            unavailableTrips: allDropped,
+            alternativeDates: data?.alternativeDates || [],
+          })
+          return
+        }
         // Freshness check #2 (architect race-fix): a newer tool-buildItinerary
         // may have arrived during the real-build fetch. If the in-flight
         // owner has shifted, this run is stale — abort BEFORE mutating

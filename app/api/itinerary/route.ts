@@ -1,4 +1,5 @@
 import { dbGetSettings, dbGetTrip } from "@/lib/db/queries"
+import { getRainyDateSet } from "@/lib/weather"
 import { query } from "@/lib/db"
 import {
   getTourCMSConfig,
@@ -73,16 +74,10 @@ async function resolvePalisisId(tripId: string): Promise<string | null> {
     (tripRow?.palisisId as string | undefined) ??
     null
   if (fromRow) return String(fromRow)
-  if (tripId.startsWith("tcms_") || /^\d+$/.test(tripId)) {
-    const candidate = tripId.startsWith("tcms_") ? tripId.slice(5) : tripId
-    try {
-      const rows = (await query(
-        `SELECT 1 FROM trips WHERE (id = $1 OR palisis_id = $2) AND status != 'published' LIMIT 1`,
-        [tripId, candidate],
-      )) as Array<Record<string, unknown>>
-      if (rows.length === 0) return candidate
-    } catch { /* fail closed */ }
-  }
+  // NO heuristic guessing. A trip's Palisis tour_id comes ONLY from its
+  // published DB row (mirrors /api/planner). If the trip isn't in our DB or
+  // isn't published, it isn't plannable — we return null rather than
+  // fabricating an id by stripping the "tcms_" prefix.
   return null
 }
 
@@ -274,6 +269,13 @@ export async function POST(req: Request) {
     const excludeMeals =
       exclusions.some((e) => /no[-\s]?(lunch|meal|dinner|food[-\s]?break)|skip[-\s]?(lunch|meal|food)/i.test(e)) ||
       prefs.interests.some((i) => /no[-\s]?(lunch|meal)[-\s]?break|skip[-\s]?(lunch|meal)/i.test(i))
+    // OPT-IN accessibility: only when the visitor explicitly asks for step-free /
+    // low-mobility planning do we hard-drop physically demanding trips.
+    const excludeInaccessible =
+      exclusions.some((e) => /wheelchair|accessib|step[-\s]?free|low[-\s]?mobility|no[-\s]?stairs|mobility/i.test(e)) ||
+      prefs.interests.some((i) => /wheelchair|accessib|step[-\s]?free|low[-\s]?mobility/i.test(i))
+    // Party size drives availability fit only (drop slots without enough spaces).
+    const partySize = prefs.adults + prefs.children
 
     const today = localTodayYMD()
     const parsedDate = parseStrictYMD(startDate)
@@ -466,6 +468,11 @@ export async function POST(req: Request) {
     const mealBreakDuration = Number(settings.mealBreakDuration ?? 60)
     const lunchBreakTime = String(settings.lunchBreakTime ?? "12:30")
     const dinnerBreakTime = String(settings.dinnerBreakTime ?? "19:00")
+    // Admin-managed pace + map provider (see lib/itinerary/scheduler.ts).
+    const pace = (["relaxed", "balanced", "packed"].includes(String(settings.pace))
+      ? String(settings.pace)
+      : "balanced") as "relaxed" | "balanced" | "packed"
+    const mapProvider = settings.mapProvider === "google" ? "google" : "mapbox"
 
     // User-supplied meal/break windows from chat — REPLACE the admin
     // defaults entry-for-entry. Validated by the planner client; we just
@@ -682,7 +689,6 @@ ${coffeeRule}
 
     if (hasPlanConflict) {
       const overshootMin = Math.max(15, estimatedTotalMinutes - availableMinutes)
-      const minDayCount = Math.max(2, Math.ceil(estimatedTotalMinutes / Math.max(1, dayWindowMinutes)))
       const tripsSortedLongest = bookable
         .map((b) => ({
           id: b.trip.id,
@@ -762,14 +768,9 @@ ${coffeeRule}
             action: "updateDuration" as const,
             duration: "full-day",
           }] : []),
-          {
-            id: "switch-multiday",
-            label: `Spread across ${minDayCount} days`,
-            description: `Plan ${bookable.length} trips over ${minDayCount} consecutive days starting ${visitDate}.`,
-            action: "updateDuration" as const,
-            duration: "multi-day",
-            dayCount: minDayCount,
-          },
+          // Multi-day planning is hidden for now — the "spread across N days"
+          // option is intentionally omitted so visitors can't re-enable a
+          // multi-day duration through the conflict flow.
           {
             id: "drop-trips",
             label: "Drop the longest trips",
@@ -1005,6 +1006,16 @@ ${tipsInstructions}`
         process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
         (allSettings?.apiKeys as Record<string, string> | undefined)?.mapbox ||
         ""
+      // Optional Google Directions backend, selected by the admin map-provider
+      // toggle. Falls back to Mapbox per-leg when unset or when a request fails,
+      // so flipping the toggle never breaks travel times.
+      const googleRoutingKey =
+        (process.env.GOOGLE_MAPS_API_KEY ||
+          process.env.GOOGLE_DIRECTIONS_API_KEY ||
+          process.env.GOOGLE_PLACES_API_KEY ||
+          (allSettings?.apiKeys as Record<string, string> | undefined)?.googleReviews ||
+          "").trim()
+      const useGoogleRouting = mapProvider === "google" && Boolean(googleRoutingKey)
       const parseLatLng = (s: string): { lat: number; lng: number } | null => {
         if (!s) return null
         const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(s)
@@ -1039,6 +1050,51 @@ ${tipsInstructions}`
           return null
         }
       }
+      const fetchGoogleProfile = async (
+        profile: "driving" | "walking",
+        from: { lat: number; lng: number },
+        to: { lat: number; lng: number },
+      ): Promise<{ durationSec: number; distanceM: number } | null> => {
+        if (!googleRoutingKey) return null
+        try {
+          const url =
+            `https://maps.googleapis.com/maps/api/directions/json` +
+            `?origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}` +
+            `&mode=${profile}&key=${encodeURIComponent(googleRoutingKey)}`
+          const res = await fetch(url, { cache: "no-store" })
+          if (!res.ok) {
+            console.warn(`[itinerary] google ${profile} ${res.status}`)
+            return null
+          }
+          const data = await res.json() as {
+            status?: string
+            routes?: Array<{ legs?: Array<{ duration?: { value: number }; distance?: { value: number } }> }>
+          }
+          if (data.status !== "OK") {
+            console.warn(`[itinerary] google ${profile} status ${data.status}`)
+            return null
+          }
+          const leg = data.routes?.[0]?.legs?.[0]
+          if (!leg?.duration || !leg?.distance) return null
+          return { durationSec: leg.duration.value, distanceM: leg.distance.value }
+        } catch (err) {
+          console.warn(`[itinerary] google ${profile} fetch failed:`, err)
+          return null
+        }
+      }
+      // Per-leg fetch: prefer Google when the admin selected it AND a key is
+      // present, otherwise (or on Google failure) fall back to Mapbox.
+      const fetchLeg = async (
+        profile: "driving" | "walking",
+        from: { lat: number; lng: number },
+        to: { lat: number; lng: number },
+      ): Promise<{ durationSec: number; distanceM: number } | null> => {
+        if (useGoogleRouting) {
+          const g = await fetchGoogleProfile(profile, from, to)
+          if (g) return g
+        }
+        return fetchProfile(profile, from, to)
+      }
       const computeLeg: ComputeLeg = async (originGeo, destGeo, fromLabel, toLabel) => {
         const base = { fromLabel, toLabel }
         const from = parseLatLng(originGeo)
@@ -1046,15 +1102,15 @@ ${tipsInstructions}`
         if (!from || !to) {
           return { driveMin: null, walkMin: null, transitMin: null, distanceKm: null, reason: "no_geocode", ...base }
         }
-        if (!mapboxToken) {
+        if (!mapboxToken && !useGoogleRouting) {
           return { driveMin: null, walkMin: null, transitMin: null, distanceKm: null, reason: "no_token", ...base }
         }
         if (Math.abs(from.lat - to.lat) < 1e-5 && Math.abs(from.lng - to.lng) < 1e-5) {
           return { driveMin: 0, walkMin: 0, transitMin: null, distanceKm: 0, reason: "ok", ...base }
         }
         const [drive, walk] = await Promise.all([
-          fetchProfile("driving", from, to),
-          fetchProfile("walking", from, to),
+          fetchLeg("driving", from, to),
+          fetchLeg("walking", from, to),
         ])
         return {
           driveMin: drive ? Math.max(1, Math.round(drive.durationSec / 60)) : null,
@@ -1132,6 +1188,14 @@ ${tipsInstructions}`
         if (a === b) return 12
         return CITY_TRAVEL_MIN[a]?.[b] ?? CITY_TRAVEL_MIN[b]?.[a] ?? 15
       }
+      // Deterministic weather signal — flag outdoor stops if the visit date is
+      // forecast wet. Fail-soft: empty set when no key / fetch fails.
+      let rainyDay = false
+      try {
+        rainyDay = (await getRainyDateSet()).has(visitDate)
+      } catch {
+        /* ignore — no weather flagging */
+      }
       const { steps, dropped, notes: schedNotes } = await buildSchedule({
         candidates: ordered,
         config: {
@@ -1145,6 +1209,7 @@ ${tipsInstructions}`
           lunchBreakTime,
           dinnerBreakTime,
           travelMethodLabel,
+          pace,
         },
         prefs: {
           duration: prefs.duration,
@@ -1154,11 +1219,14 @@ ${tipsInstructions}`
           excludeMeals,
           interests: prefs.interests,
           userMealBreaks,
+          excludeInaccessible,
+          partySize,
         },
         visitDate,
         addDays,
         computeLeg,
         cityTravelMin,
+        weather: { rainyDay },
       })
 
       // 6) Narration. AI writes summary + tips over the LOCKED timeline;
