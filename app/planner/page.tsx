@@ -2734,8 +2734,8 @@ export default function PlannerPage() {
                 </div>
               </div>
             </div>
-            <button type="button" onClick={() => setSidebarOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary sm:hidden">
-              <PanelLeftClose className="h-4 w-4" />
+            <button type="button" onClick={() => setSidebarOpen(false)} aria-label="Show Trip Canvas" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-secondary sm:hidden">
+              <PanelLeftClose className="h-4 w-4" /> Trip Canvas
             </button>
           </div>
 
