@@ -982,8 +982,18 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
                               case "DOES_NOT_FIT_DURATION":
                                 return "Won't fit your current duration — change duration or drop a trip"
                               case "NO_SLOTS":
-                              default:
                                 return `No openings in the next ${scanDays} days`
+                              default:
+                                // Scheduler drops (the trip IS available on this
+                                // date but couldn't be timed into the plan) carry
+                                // a human-readable sentence as their reason, e.g.
+                                // "No slot fit your selected time window — …".
+                                // Show it verbatim instead of mislabelling it as
+                                // "No openings in the next 21 days" (enum codes
+                                // are ALL_CAPS with no lowercase letters).
+                                return u.reason && /[a-z]/.test(u.reason)
+                                  ? u.reason
+                                  : `No openings in the next ${scanDays} days`
                             }
                           })()}
                         </div>

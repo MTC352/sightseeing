@@ -369,9 +369,27 @@ export async function POST(req: Request) {
     const SCAN_DAYS = 21
     const windowEnd = addDays(visitDate, SCAN_DAYS)
 
+    /** Per-trip diagnostic record — the audit trail for EVERY build. Captures
+     *  whether each TourCMS endpoint was actually called and what it returned,
+     *  so /admin/logs can answer "did trip X make the API call, and what came
+     *  back?" without guesswork. */
+    type TripDiag = {
+      tripId: string
+      title: string
+      palisisId: string | null
+      checkavail: { called: boolean; ok?: boolean; components?: number; usable?: number; error?: string }
+      datesndeals: { called: boolean; ok?: boolean; dates?: number; error?: string }
+      visitSlots: number
+      suggestedDates: number
+      source: "checkavail" | "datesndeals" | "none"
+      status: string
+    }
+
     type TripWindow = TripAvailability & {
       /** All bookable slots in the window, grouped by date */
       slotsByDate: Map<string, LiveSlot[]>
+      /** Diagnostic trace persisted on every build */
+      diag: TripDiag
     }
 
     const availability: TripWindow[] = await mapWithConcurrency(
@@ -379,109 +397,170 @@ export async function POST(req: Request) {
       TOURCMS_FANOUT_CONCURRENCY,
       async (trip, i): Promise<TripWindow> => {
         const palisisId = palisisIds[i]
-        if (!palisisId) {
-          return { trip, palisisId: null, slots: [], slotsByDate: new Map(), status: "NO_PALISIS_LINK" }
+        const diag: TripDiag = {
+          tripId: trip.id,
+          title: trip.title ?? trip.id,
+          palisisId,
+          checkavail: { called: false },
+          datesndeals: { called: false },
+          visitSlots: 0,
+          suggestedDates: 0,
+          source: "none",
+          status: "PENDING",
         }
+        if (!palisisId) {
+          diag.status = "NO_PALISIS_LINK"
+          return { trip, palisisId: null, slots: [], slotsByDate: new Map(), status: "NO_PALISIS_LINK", diag }
+        }
+
+        const slotsByDate = new Map<string, LiveSlot[]>()
+
+        // ── (A) PRIMARY — datesndeals over the full 21-day window ────────────
+        // One cheap call returns every bookable DATE+timeslot in the window.
+        // This is the SAME endpoint that powers the public trip-page
+        // availability card (/api/availability), so it gives exact parity with
+        // what the customer sees on /trip/[id] — and it serves BOTH the chosen
+        // date's concrete timeslots AND the next-21-days alternative-date scan
+        // from a single response. Only the date + minimal slot fields are parsed
+        // (shapeSlotFromDeparture), keeping the payload lean.
+        let ddError: string | null = null
         try {
+          diag.datesndeals.called = true
           const res = await showTourDatesAndDeals(config, palisisId, {
             startdate_start: visitDate,
             startdate_end: windowEnd,
           })
-          if (!res.ok) {
-            return { trip, palisisId, slots: [], slotsByDate: new Map(), status: "TOURCMS_ERROR", error: res.error }
-          }
-          const shaped = res.dates
-            .map(shapeSlotFromDeparture)
-            .filter((s): s is LiveSlot => s !== null)
-          const slotsByDate = new Map<string, LiveSlot[]>()
-          for (const s of shaped) {
-            const arr = slotsByDate.get(s.date) ?? []
-            arr.push(s)
-            slotsByDate.set(s.date, arr)
-          }
-          // Date-level bookable set: includes "MULTI" tours that return
-          // bookable DATES with no concrete time. Seed these as empty slot
-          // buckets so alternative-date suggestions still surface them even
-          // though we only resolve real times for the chosen visit date.
-          for (const d of res.dates) {
-            if (isDepartureDateBookable(d)) {
-              const key = String(d.start_date)
-              if (!slotsByDate.has(key)) slotsByDate.set(key, [])
+          if (res.ok) {
+            diag.datesndeals.ok = true
+            diag.datesndeals.dates = res.dates.length
+            const shaped = res.dates
+              .map(shapeSlotFromDeparture)
+              .filter((s): s is LiveSlot => s !== null)
+            for (const s of shaped) {
+              const arr = slotsByDate.get(s.date) ?? []
+              arr.push(s)
+              slotsByDate.set(s.date, arr)
             }
-          }
-          for (const [k, arr] of slotsByDate) slotsByDate.set(k, sortSlots(arr))
-
-          let visitSlots = slotsByDate.get(visitDate) ?? []
-          // AUTHORITATIVE FALLBACK — booking-widget parity.
-          // datesndeals is a BULK listing and can under-report a given date:
-          //   • "MULTI"/recurring tours return bookable DATES with no per-date
-          //     start_time (the real times live ONLY in checkavail),
-          //   • the wide 21-day window can omit the very first day's rows, and
-          //   • a transient hiccup can yield an ok-but-incomplete payload.
-          // The public Palisis booking widget on /trip/[id] always resolves
-          // times via the real-time checkavail endpoint, so whenever the bulk
-          // feed gives us NO slots for the chosen date we re-check the same
-          // authoritative endpoint the widget uses. This closes the gap where
-          // a trip with real, bookable timeslots (visible on the trip page)
-          // was being falsely reported as "no openings in the next 21 days".
-          // Track whether the fallback itself FAILED (network/429/error) so a
-          // transient API failure is reported as TOURCMS_ERROR ("try again")
-          // rather than being silently misclassified as a definitive
-          // "no openings in the next 21 days".
-          let fallbackErrored = false
-          if (visitSlots.length === 0) {
-            try {
-              const avail = await checkAvailability(config, palisisId, {
-                date: visitDate,
-                show_pickups: "0",
-              })
-              if (avail.ok) {
-                const comp = avail.components
-                  .map((c) => shapeSlotFromComponent(c, visitDate))
-                  .filter((s): s is LiveSlot => s !== null)
-                if (comp.length > 0) {
-                  visitSlots = sortSlots(comp)
-                  slotsByDate.set(visitDate, visitSlots)
-                }
-              } else {
-                fallbackErrored = true
-              }
-            } catch {
-              fallbackErrored = true
-            }
-          }
-
-          if (visitSlots.length === 0) {
-            // A failed fallback is NOT a genuine "no availability" answer — the
-            // date IS bookable, we just couldn't resolve the concrete times.
-            // Surface it as TOURCMS_ERROR (slotsByDate is retained so the UI
-            // can still offer the bookable alternative dates we DID see).
-            if (fallbackErrored) {
-              return {
-                trip,
-                palisisId,
-                slots: [],
-                slotsByDate,
-                status: "TOURCMS_ERROR",
-                error: "checkavail fallback failed for MULTI date",
+            // Seed bookable "MULTI" dates (bookable DATE, no concrete time) as
+            // empty buckets so they still surface as alternative-date chips.
+            for (const d of res.dates) {
+              if (isDepartureDateBookable(d)) {
+                const key = String(d.start_date)
+                if (!slotsByDate.has(key)) slotsByDate.set(key, [])
               }
             }
-            return { trip, palisisId, slots: [], slotsByDate, status: "NO_SLOTS" }
+            for (const [k, arr] of slotsByDate) slotsByDate.set(k, sortSlots(arr))
+          } else {
+            diag.datesndeals.ok = false
+            diag.datesndeals.error = res.error
+            ddError = res.error ?? "datesndeals failed"
           }
-          return { trip, palisisId, slots: visitSlots, slotsByDate, status: "OK" }
-        } catch (err) {
-          return { trip, palisisId, slots: [], slotsByDate: new Map(), status: "TOURCMS_ERROR", error: String(err) }
+        } catch (e) {
+          diag.datesndeals.ok = false
+          diag.datesndeals.error = String(e)
+          ddError = String(e)
         }
+
+        let visitSlots: LiveSlot[] = slotsByDate.get(visitDate) ?? []
+        if (visitSlots.length > 0) diag.source = "datesndeals"
+
+        // ── (B) SELECTED-DATE FALLBACK — checkavail (real-time) ──────────────
+        // Only fires when the bulk feed gave NO concrete slot for the chosen
+        // date — typically a "MULTI"/recurring tour that lists the date as
+        // bookable but without a per-date start_time. checkavail is the
+        // real-time timeslot endpoint, BUT it only returns <component> rows once
+        // a rate quantity (r{rate_id}=qty) is supplied, so for ordinary
+        // fixed-departure tours it can legitimately come back empty — hence it
+        // is a best-effort SUPPLEMENT, not the primary source. The primary
+        // source is datesndeals above, which is the SAME endpoint that powers
+        // the public trip-page availability card (/api/availability), giving us
+        // exact parity with what the customer sees on /trip/[id].
+        let caError: string | null = null
+        if (visitSlots.length === 0) {
+          try {
+            diag.checkavail.called = true
+            const avail = await checkAvailability(config, palisisId, {
+              date: visitDate,
+              show_pickups: "0",
+            })
+            if (avail.ok) {
+              diag.checkavail.ok = true
+              diag.checkavail.components = avail.components.length
+              const comp = avail.components
+                .map((c) => shapeSlotFromComponent(c, visitDate))
+                .filter((s): s is LiveSlot => s !== null)
+              const usable = sortSlots(comp)
+              diag.checkavail.usable = usable.length
+              if (usable.length > 0) {
+                visitSlots = usable
+                slotsByDate.set(visitDate, visitSlots)
+                diag.source = "checkavail"
+              }
+            } else {
+              diag.checkavail.ok = false
+              diag.checkavail.error = avail.error
+              caError = avail.error ?? "checkavail failed"
+            }
+          } catch (e) {
+            diag.checkavail.ok = false
+            diag.checkavail.error = String(e)
+            caError = String(e)
+          }
+        }
+
+        diag.visitSlots = visitSlots.length
+        diag.suggestedDates = [...slotsByDate.keys()].filter(
+          (d) => d !== visitDate && d >= visitDate && d <= windowEnd,
+        ).length
+
+        // ── (D) CLASSIFY ────────────────────────────────────────────────────
+        if (visitSlots.length > 0) {
+          diag.status = "OK"
+          return { trip, palisisId, slots: visitSlots, slotsByDate, status: "OK", diag }
+        }
+        // No selected-date slots. If EITHER live call failed we cannot honestly
+        // claim "no availability" — surface a retryable TOURCMS_ERROR (keeping
+        // any datesndeals suggestions). Only when BOTH calls succeeded and the
+        // date is genuinely empty do we report a definitive NO_SLOTS.
+        if (caError || ddError) {
+          diag.status = "TOURCMS_ERROR"
+          return {
+            trip, palisisId, slots: [], slotsByDate, status: "TOURCMS_ERROR",
+            error: caError ?? ddError ?? "live availability failed", diag,
+          }
+        }
+        diag.status = "NO_SLOTS"
+        return { trip, palisisId, slots: [], slotsByDate, status: "NO_SLOTS", diag }
       },
     )
 
     const bookable = availability.filter((a) => a.status === "OK")
     const unavailable = availability.filter((a) => a.status !== "OK")
 
-    // Persist live-availability API failures so admins can review them in
-    // /admin/logs. NO_SLOTS / NO_PALISIS_LINK are legitimate "no data" states,
-    // NOT errors — only TOURCMS_ERROR (network/429/5xx/parse/fallback) is logged.
     const erroredTrips = availability.filter((a) => a.status === "TOURCMS_ERROR")
+
+    // COMPREHENSIVE BUILD LOG — persist EVERY itinerary build to /admin/logs so
+    // we have a complete audit trail for debugging "why didn't trip X get
+    // data?". The per-trip diag records, for each trip, whether checkavail and
+    // datesndeals were actually called and exactly what each returned (counts /
+    // errors), plus the final classification. Logged at warn when any live call
+    // failed, otherwise info.
+    await logError({
+      source: "itinerary",
+      level: erroredTrips.length > 0 ? "warn" : "info",
+      message: `Itinerary build ${visitDate}: ${bookable.length}/${trips.length} bookable, ${erroredTrips.length} API error(s)`,
+      context: {
+        visitDate,
+        scanDays: SCAN_DAYS,
+        tripCount: trips.length,
+        bookable: bookable.length,
+        trips: availability.map((a) => a.diag),
+      },
+    })
+
+    // Also surface each live-availability FAILURE as its own error-level row so
+    // it is easy to filter. NO_SLOTS / NO_PALISIS_LINK are legitimate "no data"
+    // states (not errors) and are captured by the build log above only.
     if (erroredTrips.length > 0) {
       await Promise.all(
         erroredTrips.map((a) =>
@@ -494,7 +573,7 @@ export async function POST(req: Request) {
               palisisId: a.palisisId,
               visitDate,
               scanDays: SCAN_DAYS,
-              tripCount: trips.length,
+              diag: a.diag,
             },
           }),
         ),

@@ -51,6 +51,32 @@ ONLY that field into `prefsRef.current` synchronously, persists prefs, and rebui
 `handleRegenerateItinerary` — no AI round-trip. `handleRegenerateItinerary` reads
 `prefsRef.current` (not closure prefs) so the immediate rebuild sees the new value.
 
+## Availability source: datesndeals is PRIMARY (trip-page parity)
+Per-trip availability in the route uses `showTourDatesAndDeals` (datesndeals) as the
+PRIMARY source for BOTH the selected date's concrete timeslots AND the next-21-days
+alternative-date scan — ONE call. This is the same feed `/api/availability` (the public
+trip-page card) uses, so it gives exact parity with what the customer sees. `checkAvailability`
+(checkavail) is a best-effort FALLBACK only when datesndeals yields no concrete slot.
+**Why:** checkavail returns 0 `<component>` rows for fixed-departure tours unless a rate
+quantity (`r{rate_id}=qty`) is supplied (needs a per-tour showTour we don't cheaply have),
+so it falsely reported "no availability" for tours that DO have slots (e.g. BBQ tcms_14,
+Insta tcms_23). Every build writes one `error_logs` row (source `itinerary`) with a per-trip
+TripDiag (called/ok/source/status); `error-log.ts` prunes opportunistically (30-day TTL +
+5000-row cap on source `itinerary`) so the audit log can't grow unbounded.
+
+## Unavailable-reason rendering: enum codes vs free-text scheduler drops
+`components/sidebar-itinerary.tsx` switches on `u.reason`. AvailABILITY reasons are
+ALL_CAPS enum codes (`NO_PALISIS_LINK`, `TOURCMS_ERROR`, `DOES_NOT_FIT_DURATION`, `NO_SLOTS`).
+SCHEDULER drops (trip IS available that date but can't be timed in) carry a HUMAN-READABLE
+sentence as the reason, e.g. "No slot fit your selected time window — try a longer day or
+another date." The switch `default` MUST render free-text reasons verbatim (heuristic: reason
+contains a lowercase letter ⇒ it's a sentence, show as-is) instead of collapsing to
+"No openings in the next N days".
+**Why:** a 4-hour 19:15–23:15 dinner tour (BBQ) is bookable but exceeds the day window, so the
+scheduler drops it with a sentence reason. The old default mislabeled it "No openings in the
+next 21 days" — the exact false message users reported. NO_SLOTS is the only code that legitimately
+maps to the "No openings" copy.
+
 ## Testing the scheduler
 Whole-project `tsc` gets OOM-killed. Transpile the single file standalone:
 `npx tsc lib/itinerary/scheduler.ts --target es2022 --module es2022 --moduleResolution bundler --skipLibCheck --outDir /tmp/x`,

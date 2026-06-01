@@ -73,6 +73,36 @@ export function describeError(err: unknown): { message: string; statusCode: numb
 }
 
 /**
+ * Bounded retention. The itinerary engine logs EVERY build (a deliberate audit
+ * trail), which would otherwise grow error_logs without limit. To keep that
+ * safe we (a) drop anything older than the retention window and (b) cap the
+ * high-volume 'itinerary' source to its most recent rows. Runs probabilistically
+ * (a few % of writes) so it adds negligible per-request cost, and is fail-soft.
+ */
+const LOG_RETENTION_DAYS = 30
+const ITINERARY_LOG_MAX_ROWS = 5000
+
+async function pruneOldLogs(): Promise<void> {
+  try {
+    await query(
+      `DELETE FROM error_logs WHERE created_at < NOW() - ($1 || ' days')::interval`,
+      [String(LOG_RETENTION_DAYS)],
+    )
+    await query(
+      `DELETE FROM error_logs
+        WHERE source = 'itinerary'
+          AND id NOT IN (
+            SELECT id FROM error_logs WHERE source = 'itinerary'
+            ORDER BY created_at DESC LIMIT $1
+          )`,
+      [ITINERARY_LOG_MAX_ROWS],
+    )
+  } catch (err) {
+    console.error("[error-log] prune failed:", err)
+  }
+}
+
+/**
  * Persist an error to the database. Never throws — on any failure it
  * falls back to console.error so it can't take down the caller.
  */
@@ -96,6 +126,9 @@ export async function logError(entry: {
         entry.context ? JSON.stringify(entry.context) : null,
       ]
     )
+    // Opportunistic, fail-soft retention so high-volume build logging can't
+    // grow the table without bound. Kept off the hot path of every write.
+    if (Math.random() < 0.03) void pruneOldLogs()
   } catch (err) {
     console.error("[error-log] failed to persist error:", err, "original:", entry)
   }
