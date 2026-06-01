@@ -20,6 +20,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 // The planner starts empty and is populated by /api/planner/trips (publicOnly).
 const staticTripsFallback: Trip[] = []
 import Image from "next/image"
+import Link from "next/link"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,
@@ -4105,9 +4106,17 @@ export default function PlannerPage() {
             itinerary panel is open in the center. The Build/View
             Itinerary CTA at the bottom controls the center panel. */}
         <div className="hidden w-80 flex-col border-l border-border bg-card xl:flex">
-          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-            <ShoppingBag className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">My Trip</span>
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="flex items-center gap-2">
+              <ShoppingBag className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold text-foreground">My Trip</span>
+            </div>
+            <Link
+              href="/my-trips"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              View Saved Trips <ChevronRight className="h-3 w-3" />
+            </Link>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} />
@@ -4136,9 +4145,17 @@ export default function PlannerPage() {
                   <ShoppingBag className="h-4 w-4 text-primary" />
                   <span className="text-sm font-semibold text-foreground">My Trip</span>
                 </div>
-                <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
-                  <X className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href="/my-trips"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    View Saved Trips <ChevronRight className="h-3 w-3" />
+                  </Link>
+                  <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} />

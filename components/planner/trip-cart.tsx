@@ -3,7 +3,7 @@
 import { useCart } from "@/lib/cart-context"
 import Image from "next/image"
 import Link from "next/link"
-import { ShoppingBag, X, Trash2, ChevronRight, Clock, Users } from "lucide-react"
+import { ShoppingBag, X, Trash2, Clock, Users } from "lucide-react"
 
 interface TripCartProps {
   /** Number of people selected during the planner preferences (adults + children).
@@ -39,21 +39,13 @@ export function TripCart({ persons }: TripCartProps = {}) {
       {/* Item list header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h3 className="text-sm font-semibold text-foreground">My Trip ({totalItems})</h3>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/my-trips"
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            View Saved Trips <ChevronRight className="h-3 w-3" />
-          </Link>
-          <button
-            type="button"
-            onClick={clearCart}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="h-3 w-3" /> Clear
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={clearCart}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
+        >
+          <Trash2 className="h-3 w-3" /> Clear
+        </button>
       </div>
 
       {/* Items */}
