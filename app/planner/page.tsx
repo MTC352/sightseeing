@@ -10,6 +10,7 @@ import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
 import { SightseeingAlbum } from "@/components/chatgpt-widgets/sightseeing-album"
 import { SidebarItinerary, ItineraryPanel, type Itinerary, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
+import { usePlannerList } from "@/lib/planner-list-context"
 import { weatherData, type Trip } from "@/lib/data"
 import { substitutePlaceholders } from "@/lib/booking-url"
 import { parseDurationHoursMin } from "@/lib/duration-parser"
@@ -21,7 +22,6 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 // The planner starts empty and is populated by /api/planner/trips (publicOnly).
 const staticTripsFallback: Trip[] = []
 import Image from "next/image"
-import Link from "next/link"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,
@@ -29,7 +29,7 @@ import {
   Users, Heart, Baby, UserRound, Minus, Plus,
   Clock, DollarSign, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
-  Maximize2, Loader2,
+  Maximize2, Loader2, Bookmark, BookmarkCheck,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -742,12 +742,18 @@ function TripCard({
   onSelect,
   isInCart,
   onAdd,
+  isBookmarked,
+  onToggleBookmark,
   availableDates,
 }: {
   trip: Trip
   onSelect: (trip: Trip) => void
+  /** Whether the trip is in the working planner ("My Trip") list. */
   isInCart: boolean
   onAdd: (trip: Trip) => void
+  /** Whether the trip is in the site-wide Saved Trips library (bookmark). */
+  isBookmarked: boolean
+  onToggleBookmark: (trip: Trip) => void
   /** When provided, render the trip's bookable dates (within the scan window)
    *  as small chips — used for the "Available on other dates" group. */
   availableDates?: string[]
@@ -766,6 +772,11 @@ function TripCard({
     if (isInCart || adding) return
     setAdding(true)
     onAdd(trip)
+  }
+  function handleBookmarkClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    e.preventDefault()
+    onToggleBookmark(trip)
   }
   function handleCardKey(e: React.KeyboardEvent) {
     if (e.key === "Enter" || e.key === " ") {
@@ -794,29 +805,43 @@ function TripCard({
         )}
       </div>
 
-      {/* Top-right corner: either persistent "Added" badge (when the trip
-          is already in My Trip) or a hover-revealed "Add" pill. Pointer
-          events are pinned so the pill is clickable as soon as it fades in. */}
-      {isInCart ? (
-        <span
-          className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
-          data-testid={`planner-trip-added-${trip.id}`}
-          aria-label="Added to My Trip"
-        >
-          <Check className="h-3 w-3" /> Added to Trip list
-        </span>
-      ) : (
+      {/* Top-right corner: two side-by-side controls so the visitor always
+          sees WHERE a trip lives — a bookmark (Saved Trips library) and an
+          "Add to planner list" toggle (the working "My Trip" list). Both
+          reflect their saved/added state. */}
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
         <button
           type="button"
-          onClick={handleAddClick}
-          disabled={adding}
-          data-testid={`planner-trip-add-${trip.id}`}
-          aria-label={`Add ${trip.title} to My Trip`}
-          className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground opacity-100 shadow-sm transition-opacity hover:bg-primary/90 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 sm:opacity-0 sm:group-hover:opacity-100"
+          onClick={handleBookmarkClick}
+          data-testid={`planner-trip-bookmark-${trip.id}`}
+          aria-pressed={isBookmarked}
+          aria-label={isBookmarked ? `Remove ${trip.title} from saved trips` : `Save ${trip.title} to saved trips`}
+          title={isBookmarked ? "Saved to your trips" : "Save to your trips"}
+          className={`flex h-7 w-7 items-center justify-center rounded-full shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${isBookmarked ? "bg-amber-500 text-white hover:bg-amber-500/90" : "bg-background/90 text-muted-foreground backdrop-blur-sm hover:text-amber-600"}`}
         >
-          <Plus className="h-3 w-3" /> Add to My Trip
+          {isBookmarked ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
         </button>
-      )}
+        {isInCart ? (
+          <span
+            className="pointer-events-none flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
+            data-testid={`planner-trip-added-${trip.id}`}
+            aria-label="Added to planner list"
+          >
+            <Check className="h-3 w-3" /> Added to list
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={handleAddClick}
+            disabled={adding}
+            data-testid={`planner-trip-add-${trip.id}`}
+            aria-label={`Add ${trip.title} to planner list`}
+            className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
+          >
+            <Plus className="h-3 w-3" /> Add to planner list
+          </button>
+        )}
+      </div>
 
       {/* Content */}
       <div className="flex flex-1 flex-col justify-between gap-2 p-3.5">
@@ -1095,7 +1120,16 @@ function EditablePrefsBar({
 export default function PlannerPage() {
   const wx = useMemo(deriveWx, [])
   const { temp, humidity, wind, condition } = weatherData.current
-  const { addItem, totalItems, items, isInCart, hydrated: cartHydrated } = useCart()
+  // Working "My Trip" list (planner-local, persists across refreshes) — the
+  // itinerary builds from THIS. Separate from the site-wide Saved Trips library.
+  const planner = usePlannerList()
+  const { addItem, totalItems, items, hydrated: cartHydrated } = planner
+  const isInCart = planner.isInList
+  // Site-wide Saved Trips library (the bookmark button) — long-lived collection.
+  const savedLibrary = useCart()
+  // Trip ids disabled in the working list (no timeslots on the planned date).
+  // Mirrored into a ref so the async build paths declared above can exclude them.
+  const plannerDisabledIdsRef = useRef<Set<string>>(new Set<string>())
 
   /* State */
   const [prefs, setPrefs] = useState<Preferences | null>(null)
@@ -1236,16 +1270,6 @@ export default function PlannerPage() {
      matches `prefs.startDate` (the onboarding date never updates when the
      sidebar mutates the visit-date cookie). Adding/removing trips from
      the cart still clears any stale itinerary. */
-  // Stable signature of the cart's trip composition. MUST stay byte-for-byte
-  // identical to `fingerprintFromItinerary` in components/sidebar-itinerary.tsx
-  // — dedupe via Set, sort, then join with "|" — otherwise the sidebar will
-  // always think the cart has drifted from the built itinerary and show
-  // "Rebuild & View" even right after a fresh build.
-  const cartFingerprint = useMemo(
-    () => [...new Set(items.map((i) => i.trip.id).filter(Boolean))].sort().join("|"),
-    [items],
-  )
-
   // Ordered list of Trip objects matching the itinerary's steps — fed to
   // the map so it can render numbered pins (1..N) and connect them with
   // a driving route polyline. Only shown while the itinerary panel is
@@ -1441,7 +1465,7 @@ export default function PlannerPage() {
       id === "lunch" || id === "dinner" || id === "coffee"
       || id.startsWith("meal_") || id.startsWith("tcms_lunch")
       || id.startsWith("tcms_dinner") || id.startsWith("tcms_coffee")
-    const cleanPlanTripIds = planTripIds.filter((id) => id && !isMealBreakId(id))
+    const cleanPlanTripIds = planTripIds.filter((id) => id && !isMealBreakId(id) && !plannerDisabledIdsRef.current.has(id))
     const cartById = new Map(items.map((i) => [i.trip.id, i.trip]))
     const tripsForApi = cleanPlanTripIds.map((id) => {
       const t = cartById.get(id)
@@ -1597,13 +1621,17 @@ export default function PlannerPage() {
       ]))
     }
     try {
-      const trips = items.map(i => ({
-        id: i.trip.id,
-        title: i.trip.title,
-        city: i.trip.city,
-        duration: i.trip.duration,
-        category: i.trip.category,
-      }))
+      // Exclude trips disabled (no timeslots on the planned date) so we never
+      // post known-unbookable trips — matches the sidebar + chat build paths.
+      const trips = items
+        .filter((i) => !plannerDisabledIdsRef.current.has(i.trip.id))
+        .map(i => ({
+          id: i.trip.id,
+          title: i.trip.title,
+          city: i.trip.city,
+          duration: i.trip.duration,
+          category: i.trip.category,
+        }))
       // Always re-read the latest prefs at call time — the dependency array
       // intentionally tracks `prefs` so onboarding changes flow through, but
       // this guards against any stale-closure edge case as well.
@@ -2945,6 +2973,77 @@ export default function PlannerPage() {
     return arr.map((m) => m.trip)
   }, [prefs, fallbackTrips, plannerAvail, hasSelectedDate])
 
+  /* ── Planner working-list availability gating ─────────────────────────────
+     Trips in the working "My Trip" list with NO bookable timeslot on the
+     visitor's planned date are disabled (greyed + overlay) so the user sees
+     what won't work before building. Derived from the live `plannerAvail` scan
+     which refetches whenever the date changes — so answering the date prompt in
+     chat re-checks automatically. Only trips we actually have availability data
+     for are disabled; trips we can't check stay enabled rather than be wrongly
+     blocked. */
+  const plannerDisabledMap = useMemo(() => {
+    const map: Record<string, { reason?: string }> = {}
+    if (!hasSelectedDate || !prefs?.startDate) return map
+    const pretty = formatYMDPretty(prefs.startDate)
+    for (const it of items) {
+      const av = plannerAvail[it.trip.id]
+      if (av && !av.availableOnSelectedDate) {
+        map[it.trip.id] = { reason: `No timeslots on ${pretty}` }
+      }
+    }
+    return map
+  }, [items, plannerAvail, hasSelectedDate, prefs?.startDate])
+  const plannerDisabledIds = useMemo(() => Object.keys(plannerDisabledMap), [plannerDisabledMap])
+  useEffect(() => { plannerDisabledIdsRef.current = new Set(plannerDisabledIds) }, [plannerDisabledIds])
+
+  // Fingerprint of the trips the itinerary ACTUALLY builds from — i.e. the
+  // working list MINUS disabled (unavailable-on-date) trips. Must match the
+  // sidebar's build-input fingerprint format (dedupe → sort → join "|"),
+  // identical to `fingerprintFromItinerary` in components/sidebar-itinerary.tsx,
+  // or the drift guard will think the plan is stale right after a fresh build.
+  const cartFingerprint = useMemo(
+    () => [...new Set(items.filter((i) => !plannerDisabledMap[i.trip.id]).map((i) => i.trip.id).filter(Boolean))].sort().join("|"),
+    [items, plannerDisabledMap],
+  )
+
+  // Bookmark toggle → Saved Trips library (separate from the working list).
+  const toggleBookmark = useCallback((trip: Trip) => {
+    if (savedLibrary.isInCart(trip.id)) savedLibrary.removeItem(trip.id)
+    else savedLibrary.addItem(trip)
+  }, [savedLibrary])
+
+  // "Load saved trips" → merge the Saved Trips library into the working list,
+  // then (reactively) gate by availability. If no date is set yet, ask in chat.
+  const awaitingDateForLoadRef = useRef(false)
+  const loadSavedIntoPlanner = useCallback(() => {
+    const saved = savedLibrary.items.map((i) => i.trip)
+    if (saved.length === 0) return
+    planner.loadFromSaved(saved)
+    const d = prefsRef.current?.startDate
+    const hasDate = !!d && /^\d{4}-\d{2}-\d{2}$/.test(d)
+    if (!hasDate) {
+      awaitingDateForLoadRef.current = true
+      setMessagesRef.current?.((prev) => ([
+        ...prev,
+        { id: `load-saved-date-${Date.now()}`, role: "assistant", parts: [{ type: "text", text: "I've added your saved trips to your planner list. Which date are you planning to visit? Once you pick a date I'll check each trip's availability and flag any that can't be booked that day." }] } as PlannerMessage,
+      ]))
+    }
+  }, [savedLibrary, planner])
+
+  // When the visitor answers the date prompt (chat or date picker), confirm the
+  // recheck in chat. The actual gating happens reactively via plannerDisabledMap.
+  useEffect(() => {
+    if (!awaitingDateForLoadRef.current) return
+    const d = prefs?.startDate
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      awaitingDateForLoadRef.current = false
+      setMessagesRef.current?.((prev) => ([
+        ...prev,
+        { id: `load-saved-checking-${Date.now()}`, role: "assistant", parts: [{ type: "text", text: `Got it — checking availability for ${formatYMDPretty(d)}. Any trips in your list without timeslots that day are now greyed out so you can swap them before building.` }] } as PlannerMessage,
+      ]))
+    }
+  }, [prefs?.startDate])
+
   // Mirror aiTrips into a ref so onToolCall (addToCart) can resolve DB-only
   // trips (tcms_*) that aren't in the static catalog. useChat's onToolCall
   // closure captures stale values, so we read latest via this ref.
@@ -4067,6 +4166,8 @@ export default function PlannerPage() {
                       onSelect={handleTripSelect}
                       isInCart={isInCart(trip.id)}
                       onAdd={addItem}
+                      isBookmarked={savedLibrary.isInCart(trip.id)}
+                      onToggleBookmark={toggleBookmark}
                       availableDates={showDates ? (plannerAvail[trip.id]?.availableDates ?? []) : undefined}
                     />
                   )
@@ -4124,15 +4225,19 @@ export default function PlannerPage() {
               <ShoppingBag className="h-4 w-4 text-primary" />
               <span className="text-sm font-semibold text-foreground">My Trip</span>
             </div>
-            <Link
-              href="/my-trips"
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            <button
+              type="button"
+              onClick={loadSavedIntoPlanner}
+              disabled={savedLibrary.items.length === 0}
+              data-testid="planner-load-saved"
+              title="Add your Saved Trips to this planner list"
+              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             >
-              View Saved Trips <ChevronRight className="h-3 w-3" />
-            </Link>
+              <Bookmark className="h-3 w-3" /> Load saved trips
+            </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} />
+            <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} disabledMap={plannerDisabledMap} />
           </div>
           <div className="shrink-0">
             <SidebarItinerary
@@ -4140,6 +4245,7 @@ export default function PlannerPage() {
               onItineraryBuilt={handleItineraryBuilt}
               existingItinerary={centerItinerary}
               cartFingerprint={cartFingerprint}
+              disabledIds={plannerDisabledIds}
               prefs={prefs}
               onUpdatePrefs={handleSidebarPrefsUpdate}
               onPlanConflict={handlePlanConflict}
@@ -4159,19 +4265,23 @@ export default function PlannerPage() {
                   <span className="text-sm font-semibold text-foreground">My Trip</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Link
-                    href="/my-trips"
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  <button
+                    type="button"
+                    onClick={loadSavedIntoPlanner}
+                    disabled={savedLibrary.items.length === 0}
+                    data-testid="planner-load-saved-mobile"
+                    title="Add your Saved Trips to this planner list"
+                    className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    View Saved Trips <ChevronRight className="h-3 w-3" />
-                  </Link>
+                    <Bookmark className="h-3 w-3" /> Load saved trips
+                  </button>
                   <button type="button" onClick={() => setCartOpen(false)} className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} />
+                <TripCart persons={(prefs?.adults ?? 1) + (prefs?.children ?? 0)} disabledMap={plannerDisabledMap} />
               </div>
               <div className="shrink-0">
                 <SidebarItinerary
@@ -4179,6 +4289,7 @@ export default function PlannerPage() {
                   onItineraryBuilt={handleItineraryBuilt}
                   existingItinerary={centerItinerary}
                   cartFingerprint={cartFingerprint}
+                  disabledIds={plannerDisabledIds}
                   prefs={prefs}
                   onUpdatePrefs={handleSidebarPrefsUpdate}
                   onPlanConflict={handlePlanConflict}

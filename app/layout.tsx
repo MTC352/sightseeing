@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next"
 import { Instrument_Sans } from "next/font/google"
 import Script from "next/script"
 import { CartProvider } from "@/lib/cart-context"
+import { PlannerListProvider } from "@/lib/planner-list-context"
 import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
 import { SitePasswordGate } from "@/components/site-password-gate"
@@ -155,6 +156,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <SiteStoreProvider>
           <SitePasswordGate>
             <CartProvider>
+              <PlannerListProvider>
               <WeatherProvider>
                 <Suspense>
                   <EditModeProvider>
@@ -168,6 +170,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   </EditModeProvider>
                 </Suspense>
               </WeatherProvider>
+              </PlannerListProvider>
             </CartProvider>
           </SitePasswordGate>
         </SiteStoreProvider>

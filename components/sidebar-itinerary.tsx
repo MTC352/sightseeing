@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { useCart } from "@/lib/cart-context"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { usePlannerList } from "@/lib/planner-list-context"
 import Link from "next/link"
 import Image from "next/image"
 import {
@@ -293,6 +293,9 @@ interface SidebarItineraryProps {
    *  now live". PLAN_CONFLICT failures are intentionally excluded —
    *  they have their own onPlanConflict path. */
   onItineraryFailure?: (payload: ItineraryFailurePayload) => void
+  /** Trip ids to exclude from the build — disabled in the working list because
+   *  they have no timeslots on the visitor's planned date. */
+  disabledIds?: string[]
 }
 
 /** Sidebar→parent payload for failed builds. The parent uses this to
@@ -546,8 +549,12 @@ function diffPrefs(prev: SidebarPrefsView | undefined | null, next: SidebarPrefs
   return out
 }
 
-export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint, prefs, onUpdatePrefs, onPlanConflict, onItineraryFailure }: SidebarItineraryProps) {
-  const { items, removeItem } = useCart()
+export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingItinerary, cartFingerprint, prefs, onUpdatePrefs, onPlanConflict, onItineraryFailure, disabledIds }: SidebarItineraryProps) {
+  const { items: allItems, removeItem } = usePlannerList()
+  // Build only from AVAILABLE working-list trips — drop any disabled (no
+  // timeslots on the planned date) so we never send known-unbookable trips.
+  const disabledSet = useMemo(() => new Set(disabledIds ?? []), [disabledIds])
+  const items = useMemo(() => allItems.filter((i) => !disabledSet.has(i.trip.id)), [allItems, disabledSet])
   // Local itinerary takes precedence (just-generated), then fall back to the
   // parent's persisted copy so the View/Build button stays in sync even
   // after the component remounts (route change, hard refresh, etc.).
