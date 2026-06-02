@@ -804,9 +804,9 @@ function TripCard({
           <span className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">{trip.badge}</span>
         )}
 
-        {/* Top-left corner ribbon: the bookmark control (Saved Trips library).
-            When bookmarked it stays solid/filled; otherwise it only appears on
-            hover. The angled fold mimics the reference corner badge. */}
+        {/* Top-left bookmark control (Saved Trips library). A clean circular
+            badge with a centered outline bookmark; it fills solid when saved,
+            and only appears on hover/focus (or always, on touch) otherwise. */}
         <button
           type="button"
           onClick={handleBookmarkClick}
@@ -814,11 +814,11 @@ function TripCard({
           aria-pressed={isBookmarked}
           aria-label={isBookmarked ? `Remove ${trip.title} from saved trips` : `Save ${trip.title} to saved trips`}
           title={isBookmarked ? "Saved Trip" : "Save to My Trips"}
-          className={`absolute left-0 top-0 z-10 flex h-10 w-10 items-start justify-start rounded-br-2xl rounded-tl-xl bg-slate-800/90 pl-1.5 pt-1.5 text-white shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-slate-900/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+          className={`absolute left-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-900/80 text-white shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-slate-900/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
             isBookmarked ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
           }`}
         >
-          <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-white" : ""}`} />
+          <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-white" : "fill-none"}`} strokeWidth={2} />
         </button>
       </div>
 
