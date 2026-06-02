@@ -6,7 +6,7 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen,
 } from "lucide-react"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
@@ -38,6 +38,7 @@ const NAV: NavItem[] = [
   { href: "/admin/help", label: "Help & FAQ", icon: HelpCircle, perm: "help" },
   { href: "/admin/tickets", label: "Support Tickets", icon: Ticket, perm: "tickets" },
   { href: "/admin/pages", label: "Pages", icon: Layout, perm: "pages" },
+  { href: "/admin/files", label: "Files", icon: FolderOpen, perm: "files" },
   { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, badge: "Experimental", perm: "ai-systems" },
   { href: "/admin/integrations", label: "Integrations", icon: Plug, perm: "integrations" },
   { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, perm: "header-footer" },

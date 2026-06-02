@@ -40,6 +40,23 @@ async function ensureUserManagementSchema() {
   console.log('✓ admin_users: username + permissions columns ensured')
 }
 
+// Idempotent migration: media library (Files) table.
+async function ensureMediaSchema() {
+  await query(`CREATE TABLE IF NOT EXISTS media_files (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    filename text NOT NULL,
+    title text,
+    url text NOT NULL,
+    mime_type text NOT NULL,
+    size_bytes bigint NOT NULL DEFAULT 0,
+    storage text NOT NULL DEFAULT 'local',
+    uploaded_by uuid REFERENCES admin_users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`)
+  await query(`CREATE INDEX IF NOT EXISTS media_files_created_idx ON media_files (created_at DESC)`)
+  console.log('✓ media_files table ensured')
+}
+
 async function seedAdminUser() {
   const existing = await query(`SELECT id, password_hash FROM admin_users WHERE email = $1`, ['admin@sightseeing.lu'])
 
@@ -265,6 +282,7 @@ async function main() {
   try {
     console.log('Seeding database...')
     await ensureUserManagementSchema()
+    await ensureMediaSchema()
     const adminId = await seedAdminUser()
     await seedTrips()
     await seedBlogPosts()

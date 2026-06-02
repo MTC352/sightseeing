@@ -21,6 +21,7 @@ export type PermissionKey =
   | "help"
   | "tickets"
   | "pages"
+  | "files"
   | "ai-systems"
   | "integrations"
   | "header-footer"
@@ -36,6 +37,7 @@ export const ADMIN_SECTIONS: { key: PermissionKey; label: string; description: s
   { key: "help", label: "Help & FAQ", description: "Help articles" },
   { key: "tickets", label: "Support Tickets", description: "Customer support tickets" },
   { key: "pages", label: "Pages", description: "CMS pages" },
+  { key: "files", label: "Files", description: "Media library — upload & share files" },
   { key: "ai-systems", label: "AI Systems", description: "AI prompts, models & planner behavior" },
   { key: "integrations", label: "Integrations", description: "API keys & third-party integrations" },
   { key: "header-footer", label: "Header / Footer", description: "Custom HTML injection blocks" },
@@ -86,6 +88,9 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   // Pages
   { prefix: "/admin/pages", keys: ["pages"] },
   { prefix: "/api/admin/pages", keys: ["pages"] },
+  // Files / media library
+  { prefix: "/admin/files", keys: ["files"] },
+  { prefix: "/api/admin/media", keys: ["files"] },
   // AI systems
   { prefix: "/admin/ai-systems", keys: ["ai-systems"] },
   { prefix: "/api/admin/planner-behavior", keys: ["ai-systems"] },

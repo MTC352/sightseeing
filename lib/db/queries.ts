@@ -1789,3 +1789,76 @@ export async function dbDeleteAdminUser(id: string): Promise<boolean> {
   )
   return !!row
 }
+
+// ── Media library (Files) ───────────────────────────────────────────────────
+
+export interface MediaFileRow {
+  id: string
+  filename: string
+  title: string | null
+  url: string
+  mime_type: string
+  size_bytes: number
+  storage: string
+  uploaded_by: string | null
+  created_at: string
+}
+
+const MEDIA_SELECT = `
+  id, filename, title, url, mime_type, size_bytes::int AS size_bytes,
+  storage, uploaded_by, created_at`
+
+export async function dbListMedia(): Promise<MediaFileRow[]> {
+  return query<MediaFileRow>(
+    `SELECT ${MEDIA_SELECT} FROM media_files ORDER BY created_at DESC`,
+    [],
+  )
+}
+
+export async function dbGetMedia(id: string): Promise<MediaFileRow | null> {
+  return queryOne<MediaFileRow>(
+    `SELECT ${MEDIA_SELECT} FROM media_files WHERE id = $1`,
+    [id],
+  )
+}
+
+export async function dbCreateMedia(input: {
+  filename: string
+  title?: string | null
+  url: string
+  mimeType: string
+  sizeBytes: number
+  storage: string
+  uploadedBy?: string | null
+}): Promise<MediaFileRow> {
+  const row = await queryOne<MediaFileRow>(
+    `INSERT INTO media_files (filename, title, url, mime_type, size_bytes, storage, uploaded_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING ${MEDIA_SELECT}`,
+    [
+      input.filename,
+      input.title ?? null,
+      input.url,
+      input.mimeType,
+      Math.round(input.sizeBytes),
+      input.storage,
+      input.uploadedBy ?? null,
+    ],
+  )
+  if (!row) throw new Error("Failed to record uploaded file")
+  return row
+}
+
+export async function dbUpdateMediaTitle(id: string, title: string | null): Promise<MediaFileRow | null> {
+  return queryOne<MediaFileRow>(
+    `UPDATE media_files SET title = $1 WHERE id = $2 RETURNING ${MEDIA_SELECT}`,
+    [title && title.trim() ? title.trim() : null, id],
+  )
+}
+
+export async function dbDeleteMedia(id: string): Promise<MediaFileRow | null> {
+  return queryOne<MediaFileRow>(
+    `DELETE FROM media_files WHERE id = $1 RETURNING ${MEDIA_SELECT}`,
+    [id],
+  )
+}
