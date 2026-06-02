@@ -29,7 +29,7 @@ import {
   Users, Heart, Baby, UserRound, Minus, Plus,
   Clock, DollarSign, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
-  Maximize2, Loader2, Bookmark, BookmarkCheck,
+  Maximize2, Loader2, Bookmark,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -801,26 +801,31 @@ function TripCard({
       <div className="relative w-36 shrink-0 overflow-hidden sm:w-44">
         <Image src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="180px" />
         {trip.badge && (
-          <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">{trip.badge}</span>
+          <span className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">{trip.badge}</span>
         )}
-      </div>
 
-      {/* Top-right corner: two side-by-side controls so the visitor always
-          sees WHERE a trip lives — a bookmark (Saved Trips library) and an
-          "Add to planner list" toggle (the working "My Trip" list). Both
-          reflect their saved/added state. */}
-      <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+        {/* Top-left corner ribbon: the bookmark control (Saved Trips library).
+            When bookmarked it stays solid/filled; otherwise it only appears on
+            hover. The angled fold mimics the reference corner badge. */}
         <button
           type="button"
           onClick={handleBookmarkClick}
           data-testid={`planner-trip-bookmark-${trip.id}`}
           aria-pressed={isBookmarked}
           aria-label={isBookmarked ? `Remove ${trip.title} from saved trips` : `Save ${trip.title} to saved trips`}
-          title={isBookmarked ? "Saved to your trips" : "Save to your trips"}
-          className={`flex h-7 w-7 items-center justify-center rounded-full shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${isBookmarked ? "bg-amber-500 text-white hover:bg-amber-500/90" : "bg-background/90 text-muted-foreground backdrop-blur-sm hover:text-amber-600"}`}
+          title={isBookmarked ? "Saved Trip" : "Save to My Trips"}
+          className={`absolute left-0 top-0 z-10 flex h-10 w-10 items-start justify-start rounded-br-2xl rounded-tl-xl bg-slate-800/90 pl-1.5 pt-1.5 text-white shadow-sm backdrop-blur-sm transition-all duration-200 hover:bg-slate-900/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+            isBookmarked ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
+          }`}
         >
-          {isBookmarked ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
+          <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-white" : ""}`} />
         </button>
+      </div>
+
+      {/* Top-right corner: the "Add to planner list" control (the working
+          "My Trip" list). Once added it shows a persistent "Added to list" tag;
+          before that the button only appears on hover. */}
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
         {isInCart ? (
           <span
             className="pointer-events-none flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
@@ -836,7 +841,7 @@ function TripCard({
             disabled={adding}
             data-testid={`planner-trip-add-${trip.id}`}
             aria-label={`Add ${trip.title} to planner list`}
-            className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
+            className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground shadow-sm transition-all duration-200 hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
           >
             <Plus className="h-3 w-3" /> Add to planner list
           </button>
