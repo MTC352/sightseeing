@@ -15,7 +15,7 @@ function LoginForm() {
   const searchParams = useSearchParams()
   const redirect = safeRedirect(searchParams.get("redirect"))
 
-  const [email, setEmail] = useState("admin@sightseeing.lu")
+  const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -36,7 +36,7 @@ function LoginForm() {
       const res = await fetch("/api/admin/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, password }),
       })
       if (res.ok) {
         router.push(redirect)
@@ -68,15 +68,15 @@ function LoginForm() {
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Email</label>
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Username or email</label>
             <input
-              type="email"
+              type="text"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="admin@sightseeing.lu"
-              autoComplete="email"
+              placeholder="username or admin@sightseeing.lu"
+              autoComplete="username"
             />
           </div>
 

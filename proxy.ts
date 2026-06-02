@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { verifySession } from "@/lib/auth"
+import { canAccessPath } from "@/lib/admin-permissions"
 
 const PUBLIC_AUTH_PATHS = [
   "/admin/login",
@@ -29,6 +30,18 @@ export async function proxy(request: NextRequest) {
         const loginUrl = new URL("/admin/login", request.url)
         loginUrl.searchParams.set("redirect", pathname)
         return NextResponse.redirect(loginUrl)
+      }
+
+      // ── Role/permission gate ──────────────────────────────────────────────
+      // Employees (non-superadmin) are limited to the sections granted on their
+      // account. The superadmin role bypasses all of these checks.
+      if (!canAccessPath(pathname, session.role, session.permissions)) {
+        if (isAdminApi) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        }
+        const home = new URL("/admin", request.url)
+        home.searchParams.set("denied", "1")
+        return NextResponse.redirect(home)
       }
     }
   }

@@ -24,6 +24,7 @@ export interface AdminSessionPayload extends JWTPayload {
   email: string
   name: string
   role: string
+  permissions?: string[]
 }
 
 export async function signSession(payload: Omit<AdminSessionPayload, keyof JWTPayload>): Promise<string> {

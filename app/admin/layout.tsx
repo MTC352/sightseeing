@@ -6,8 +6,9 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users,
 } from "lucide-react"
+import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
 type NavItem = {
   href: string
@@ -15,6 +16,8 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>
   exact?: boolean
   badge?: string
+  perm?: PermissionKey
+  superadminOnly?: boolean
   children?: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }[]
 }
 
@@ -24,22 +27,24 @@ const NAV: NavItem[] = [
     href: "/admin/trips",
     label: "Trips",
     icon: Map,
+    perm: "trips",
     children: [
       { href: "/admin/trips/archived", label: "Archived", icon: Archive },
       { href: "/admin/trip-tags", label: "Trip Tags", icon: Tag },
     ],
   },
-  { href: "/admin/blog", label: "Blog", icon: FileText },
-  { href: "/admin/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/admin/help", label: "Help & FAQ", icon: HelpCircle },
-  { href: "/admin/tickets", label: "Support Tickets", icon: Ticket },
-  { href: "/admin/pages", label: "Pages", icon: Layout },
-  { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, badge: "Experimental" },
-  { href: "/admin/integrations", label: "Integrations", icon: Plug },
-  { href: "/admin/header-footer", label: "Header / Footer", icon: Code2 },
-  { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw },
-  { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare },
-  { href: "/admin/docs", label: "Documentation", icon: BookOpen },
+  { href: "/admin/blog", label: "Blog", icon: FileText, perm: "blog" },
+  { href: "/admin/jobs", label: "Jobs", icon: Briefcase, perm: "jobs" },
+  { href: "/admin/help", label: "Help & FAQ", icon: HelpCircle, perm: "help" },
+  { href: "/admin/tickets", label: "Support Tickets", icon: Ticket, perm: "tickets" },
+  { href: "/admin/pages", label: "Pages", icon: Layout, perm: "pages" },
+  { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, badge: "Experimental", perm: "ai-systems" },
+  { href: "/admin/integrations", label: "Integrations", icon: Plug, perm: "integrations" },
+  { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, perm: "header-footer" },
+  { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw, perm: "palisis" },
+  { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare, perm: "implementation" },
+  { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
+  { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -48,6 +53,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [collapsed, setCollapsed] = useState(false)
   const [authed, setAuthed] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [role, setRole] = useState<string>("")
+  const [permissions, setPermissions] = useState<string[]>([])
 
   const isLoginPage = pathname === "/admin/login" || pathname.startsWith("/admin/login/")
 
@@ -55,8 +62,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setMounted(true)
     if (isLoginPage) return
     fetch("/api/admin/auth/me")
-      .then((res) => {
+      .then(async (res) => {
         if (res.ok) {
+          const me = await res.json().catch(() => null)
+          setRole(me?.role ?? "")
+          setPermissions(Array.isArray(me?.permissions) ? me.permissions : [])
           setAuthed(true)
         } else {
           router.replace(`/admin/login?redirect=${encodeURIComponent(pathname)}`)
@@ -66,6 +76,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         router.replace("/admin/login")
       })
   }, [pathname, router, isLoginPage])
+
+  const isSuperadmin = role === FULL_ACCESS_ROLE
+  const visibleNav = NAV.filter((item) => {
+    if (isSuperadmin) return true
+    if (item.superadminOnly) return false
+    if (!item.perm) return true // e.g. Dashboard — always visible
+    return permissions.includes(item.perm)
+  })
 
   async function handleLogout() {
     await fetch("/api/admin/auth/logout", { method: "POST" })
@@ -119,7 +137,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Nav links */}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2 py-3">
-          {NAV.map(({ href, label, icon: Icon, exact, badge, children }) => {
+          {visibleNav.map(({ href, label, icon: Icon, exact, badge, children }) => {
             const isActive = exact
               ? pathname === href
               : href !== "/admin" && pathname.startsWith(href)

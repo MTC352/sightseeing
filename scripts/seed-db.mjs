@@ -31,6 +31,15 @@ import { randomBytes } from 'crypto'
 // must be force-reset to a new random password.
 const LEGACY_KNOWN_HASH = '$2b$12$PO05akiDVS5qAVrdcDWOR.lk0XwmaoNgYO4/bPm7Qi2yQ6XTT8zrC'
 
+// Idempotent migration: employee accounts (username login + per-section RBAC).
+async function ensureUserManagementSchema() {
+  await query(`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS username text`)
+  await query(`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS permissions jsonb NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE admin_users ALTER COLUMN email DROP NOT NULL`)
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS admin_users_username_unique ON admin_users (lower(username)) WHERE username IS NOT NULL`)
+  console.log('✓ admin_users: username + permissions columns ensured')
+}
+
 async function seedAdminUser() {
   const existing = await query(`SELECT id, password_hash FROM admin_users WHERE email = $1`, ['admin@sightseeing.lu'])
 
@@ -255,6 +264,7 @@ async function seedErrorLogs() {
 async function main() {
   try {
     console.log('Seeding database...')
+    await ensureUserManagementSchema()
     const adminId = await seedAdminUser()
     await seedTrips()
     await seedBlogPosts()

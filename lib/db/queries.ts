@@ -1669,3 +1669,123 @@ export async function dbCountPalisisSyncLogs() {
   )
   return parseInt(rows[0]?.count ?? "0", 10)
 }
+
+// ── Admin / employee user management ────────────────────────────────────────
+
+import { hash as bcryptHash } from "bcryptjs"
+import { sanitizePermissions } from "@/lib/admin-permissions"
+
+export interface AdminUserRow {
+  id: string
+  email: string | null
+  username: string | null
+  name: string
+  role: string
+  permissions: string[]
+  is_active: boolean
+  last_login: string | null
+  created_at: string
+}
+
+const ADMIN_USER_SELECT = `
+  id, email, username, name, role, permissions, is_active,
+  last_login, created_at`
+
+export async function dbListAdminUsers(): Promise<AdminUserRow[]> {
+  return query<AdminUserRow>(
+    `SELECT ${ADMIN_USER_SELECT} FROM admin_users ORDER BY
+       CASE WHEN role = 'superadmin' THEN 0 ELSE 1 END, created_at ASC`,
+    [],
+  )
+}
+
+export async function dbGetAdminUser(id: string): Promise<AdminUserRow | null> {
+  return queryOne<AdminUserRow>(
+    `SELECT ${ADMIN_USER_SELECT} FROM admin_users WHERE id = $1`,
+    [id],
+  )
+}
+
+/**
+ * Create an "employee" account. Employees authenticate with a username (email is
+ * optional). Permissions are validated against the known section list.
+ */
+export async function dbCreateEmployee(input: {
+  username: string
+  name: string
+  password: string
+  permissions: unknown
+  email?: string | null
+}): Promise<AdminUserRow> {
+  const username = input.username.trim()
+  const passwordHash = await bcryptHash(input.password, 12)
+  const permissions = sanitizePermissions(input.permissions)
+  const email = input.email?.trim() ? input.email.trim() : null
+
+  const row = await queryOne<AdminUserRow>(
+    `INSERT INTO admin_users (username, email, name, password_hash, role, permissions, is_active)
+     VALUES ($1, $2, $3, $4, 'employee', $5::jsonb, true)
+     RETURNING ${ADMIN_USER_SELECT}`,
+    [username, email, input.name.trim(), passwordHash, JSON.stringify(permissions)],
+  )
+  if (!row) throw new Error("Failed to create employee account")
+  return row
+}
+
+/**
+ * Update an employee account. Only mutable fields are touched; the password is
+ * only changed when a non-empty value is supplied. The superadmin account's role
+ * is never demoted here.
+ */
+export async function dbUpdateAdminUser(
+  id: string,
+  patch: {
+    name?: string
+    username?: string
+    email?: string | null
+    permissions?: unknown
+    is_active?: boolean
+    password?: string
+  },
+): Promise<AdminUserRow | null> {
+  const sets: string[] = []
+  const vals: unknown[] = []
+  let i = 1
+
+  if (patch.name !== undefined) { sets.push(`name = $${i++}`); vals.push(patch.name.trim()) }
+  if (patch.username !== undefined) { sets.push(`username = $${i++}`); vals.push(patch.username.trim()) }
+  if (patch.email !== undefined) {
+    sets.push(`email = $${i++}`)
+    vals.push(patch.email && patch.email.trim() ? patch.email.trim() : null)
+  }
+  if (patch.permissions !== undefined) {
+    sets.push(`permissions = $${i++}::jsonb`)
+    vals.push(JSON.stringify(sanitizePermissions(patch.permissions)))
+  }
+  if (patch.is_active !== undefined) { sets.push(`is_active = $${i++}`); vals.push(patch.is_active) }
+  if (patch.password && patch.password.trim()) {
+    sets.push(`password_hash = $${i++}`)
+    vals.push(await bcryptHash(patch.password, 12))
+  }
+
+  if (sets.length === 0) return dbGetAdminUser(id)
+
+  sets.push(`updated_at = NOW()`)
+  vals.push(id)
+
+  return queryOne<AdminUserRow>(
+    `UPDATE admin_users SET ${sets.join(", ")}
+      WHERE id = $${i} AND role <> 'superadmin'
+      RETURNING ${ADMIN_USER_SELECT}`,
+    vals,
+  )
+}
+
+/** Delete an employee account. The superadmin account cannot be deleted. */
+export async function dbDeleteAdminUser(id: string): Promise<boolean> {
+  const row = await queryOne<{ id: string }>(
+    `DELETE FROM admin_users WHERE id = $1 AND role <> 'superadmin' RETURNING id`,
+    [id],
+  )
+  return !!row
+}
