@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { dbGetTrip, dbGetIntegration } from "@/lib/db/queries"
 import { notFound } from "next/navigation"
 import { TripEditForm } from "./trip-edit-form"

@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { dbGetPost } from "@/lib/db/queries"
 import { notFound } from "next/navigation"
 import { PostEditForm } from "./post-edit-form"

@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { dbGetJob } from "@/lib/db/queries"
 import { notFound } from "next/navigation"
 import { JobEditForm } from "./job-edit-form"

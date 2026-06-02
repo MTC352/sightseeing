@@ -2,6 +2,8 @@ import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
 import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun } from "lucide-react"
 
+export const dynamic = "force-dynamic"
+
 // The legacy "Trip Planner" (planner) card was removed — its DB row stays
 // because /api/planner still reads behaviour-knob defaults from there, but
 // the user-facing day-plan settings now live under "Manage Trip Planner"

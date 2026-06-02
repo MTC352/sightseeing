@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { dbGetHelpArticle } from "@/lib/db/queries"
 import { HelpEditForm } from "./help-edit-form"
 import { notFound } from "next/navigation"

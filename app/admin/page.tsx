@@ -2,6 +2,8 @@ import Link from "next/link"
 import { dbListTrips, dbListJobs, dbListPosts } from "@/lib/db/queries"
 import { Map, FileText, Briefcase, Bot, Plug, ChevronRight, Star, Code2 } from "lucide-react"
 
+export const dynamic = "force-dynamic"
+
 export default async function AdminDashboard() {
   const [trips, jobs, posts] = await Promise.all([
     dbListTrips(),
