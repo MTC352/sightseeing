@@ -70,8 +70,8 @@ export default async function Page() {
       />
       <Navbar />
       <HeroSection />
-      <TrendingSection />
       <DeparturesSoonSection />
+      <TrendingSection />
       <WeatherSection />
       <RecentlyViewed />
       <CategoriesSection />
