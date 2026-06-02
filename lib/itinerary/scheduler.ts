@@ -380,14 +380,18 @@ export async function buildSchedule(opts: {
 
   // Placement uses a single forward-only cursor (`prev`): each trip must start
   // AFTER the previously placed one ends. That makes the VISIT ORDER decide
-  // feasibility — a late-slot trip visited before daytime trips pushes the
-  // cursor past midday and evicts them all with a false "no slot fit". The AI
-  // only decides WHICH trips to include; timing is deterministic here, so we
-  // visit candidates in chronological order of their earliest feasible slot.
-  // This is what lets a full-day plan keep its daytime stops AND its evening
-  // tour (e.g. a 19:15 dinner-hopping bus) instead of dropping the day for it.
-  // Stable sort preserves the AI's relative order among trips that can start at
-  // the same time; trips with no feasible slot sort last (they'd drop anyway).
+  // feasibility, so the order is chosen to fit the MAXIMUM number of trips.
+  //
+  // We use the classic interval-scheduling result: visit candidates in order of
+  // their earliest feasible FINISH time (earliest-deadline-first). Greedily
+  // placing the trip that finishes soonest provably maximizes how many
+  // non-overlapping trips fit in the day. This fixes the case where a single
+  // long full-day tour (e.g. an 8h Nature & Castle tour starting 09:30) would,
+  // under earliest-START ordering, claim the whole day and evict several shorter
+  // daytime trips — yielding FEWER total stops than dropping the one long tour.
+  // It also preserves the evening invariant: an evening tour (e.g. a 19:15
+  // dinner-hopping bus) finishes latest, so it still sorts LAST and never evicts
+  // daytime stops. Trips with no feasible slot sort last (they'd drop anyway).
   const earliestFeasibleSlot = (t: CandidateTrip): number => {
     let best = Infinity
     for (const s of t.slots) {
@@ -400,14 +404,31 @@ export async function buildSchedule(opts: {
     }
     return best
   }
-  const orderedCandidates = [...workCandidates].sort(
-    (a, b) => earliestFeasibleSlot(a) - earliestFeasibleSlot(b),
-  )
+  // Earliest feasible finish = earliest feasible start + the trip's duration.
+  const earliestFeasibleFinish = (t: CandidateTrip): number => {
+    const st = earliestFeasibleSlot(t)
+    return st === Infinity ? Infinity : st + t.durationMin
+  }
+  const orderedCandidates = [...workCandidates].sort((a, b) => {
+    const fin = earliestFeasibleFinish(a) - earliestFeasibleFinish(b)
+    if (fin !== 0) return fin
+    // Tie-break: earlier start first (keeps a natural morning→evening arc), then
+    // title for fully-deterministic output.
+    const st = earliestFeasibleSlot(a) - earliestFeasibleSlot(b)
+    if (st !== 0) return st
+    return a.title.localeCompare(b.title)
+  })
 
   const used = new Set<string>()
   const allSteps: ScheduledStep[] = []
   const notes: string[] = []
 
+  // Trips skipped on a day purely because no in-window slot could seat the
+  // whole group. Tracked so the final dropped[] reason stays truthful (a
+  // party-capacity drop must NOT be reported as a generic "couldn't fit" /
+  // time-window conflict — the trip is fine on its own, the GROUP is too big
+  // for the remaining seats). Cleared if the trip is later placed on another day.
+  const partyCapacityBlocked = new Set<string>()
   for (let day = 0; day < dayCount; day++) {
     if (allSteps.length >= targetStops) break
     const dateForDay = addDays(visitDate, day)
@@ -468,6 +489,7 @@ export async function buildSchedule(opts: {
         const partyPool = pool.filter(fitsParty)
         if (pool.length > 0 && partyPool.length === 0) {
           notes.push(`"${trip.title}" had no slots with space for your group of ${partySize} on ${dateForDay} — try a smaller group or another date.`)
+          partyCapacityBlocked.add(trip.id)
         }
         pool = partyPool
       }
@@ -563,6 +585,7 @@ export async function buildSchedule(opts: {
       }
 
       used.add(trip.id)
+      partyCapacityBlocked.delete(trip.id)
       daySteps.push(step)
       if (firstStartMin < 0) firstStartMin = startMin
       const tripIsFood = isFoodTrip(trip)
@@ -593,15 +616,29 @@ export async function buildSchedule(opts: {
   }
 
   const dropped: DroppedTrip[] = [...accessibilityDrops]
+  // Every trip that reaches the scheduler HAS bookable slots on the visit date
+  // (genuine no-availability trips are filtered out upstream into
+  // unavailableTrips). So a scheduler drop is always a same-day *fit* conflict,
+  // never "no availability" — phrase it honestly so the visitor knows the trip
+  // is bookable, just not alongside the other stops they chose.
   for (const trip of orderedCandidates) {
     if (used.has(trip.id)) continue
-    dropped.push({
-      tripId: trip.id,
-      title: trip.title,
-      reason: allSteps.length >= targetStops
-        ? `Kept to ${targetStops} stops for a ${pace} pace — extend your trip length to include it.`
-        : "No slot fit your selected time window — try a longer day or another date.",
-    })
+    let reason: string
+    if (partyCapacityBlocked.has(trip.id)) {
+      // Truthful party-capacity reason: the trip DOES run on this date, there
+      // just aren't enough seats left on any slot for the whole group.
+      reason = `Not enough seats left for your group of ${partySize} on this date — try a smaller group or another date.`
+    } else if (allSteps.length >= targetStops) {
+      reason = `Kept to ${targetStops} stops for a ${pace} pace — extend your trip length to include it.`
+    } else if (isFullDay || prefs.isMultiDay) {
+      // The day is already full of other stops — a long tour typically needs
+      // its own day. Steer the visitor to the action that actually helps.
+      reason = "Couldn't fit alongside your other stops that day — it's bookable on its own, so give it a separate date or drop a stop to make room."
+    } else {
+      // Shorter plans: the chosen duration window is simply too tight.
+      reason = `Doesn't fit your ${prefs.duration || "selected"} time window — choose a longer day or another date.`
+    }
+    dropped.push({ tripId: trip.id, title: trip.title, reason })
   }
 
   return { steps: allSteps, dropped, notes }

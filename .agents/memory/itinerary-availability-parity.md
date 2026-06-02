@@ -52,6 +52,14 @@ rule above).
 availability when it changes (include it in the effect deps). Any new availability-count
 surface must apply the same seat filter or it will diverge from build output.
 
+## Rule (cancelled-departure parity)
+Every availability-COUNTING surface must drop cancelled departures (`d.status` matches
+`/cancel/i`), exactly like the itinerary route's `shapeSlotFromDeparture` /
+`isDepartureDateBookable`. `/api/planner/availability` once counted cancelled rows as
+bookable, so it over-reported a date the itinerary build then rejected — the same
+"chat says N open, rebuild yields fewer" mismatch as the party-size gap. **How to apply:**
+in the datesndeals loop, `continue` on a cancelled status BEFORE counting seats.
+
 ## Related resilience invariants
 - TourCMS `apiRequest` retries (backoff + jitter, honors Retry-After) **GET only** —
   POST/booking writes are never retried (double-booking risk).

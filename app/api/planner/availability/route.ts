@@ -128,6 +128,12 @@ export async function GET(req: Request) {
           const bookable = new Set<string>()
           for (const d of dates) {
             if (!d.start_time || !d.start_date) continue
+            // Parity with the itinerary route (shapeSlotFromDeparture /
+            // isDepartureDateBookable): a cancelled departure is NOT bookable.
+            // Without this the planner over-reports a date as "available" while
+            // the itinerary build drops it — exactly the "chat says N open,
+            // rebuild yields fewer" mismatch.
+            if (d.status && /cancel/i.test(d.status)) continue
             const raw = d.spaces_remaining
             const unlimited = raw === "UNLIMITED"
             const spotsLeft = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))

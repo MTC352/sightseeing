@@ -67,10 +67,10 @@ TripDiag (called/ok/source/status); `error-log.ts` prunes opportunistically (30-
 ## Unavailable-reason rendering: enum codes vs free-text scheduler drops
 `components/sidebar-itinerary.tsx` switches on `u.reason`. AvailABILITY reasons are
 ALL_CAPS enum codes (`NO_PALISIS_LINK`, `TOURCMS_ERROR`, `DOES_NOT_FIT_DURATION`, `NO_SLOTS`).
-SCHEDULER drops (trip IS available that date but can't be timed in) carry a HUMAN-READABLE
-sentence as the reason, e.g. "No slot fit your selected time window — try a longer day or
-another date." The switch `default` MUST render free-text reasons verbatim (heuristic: reason
-contains a lowercase letter ⇒ it's a sentence, show as-is) instead of collapsing to
+SCHEDULER drops (trip IS available that date but can't be timed/seated in) carry a
+HUMAN-READABLE sentence as the reason (see "Scheduler drop reasons must be TRUTHFUL" below for
+the per-cause copy). The switch `default` MUST render free-text reasons verbatim (heuristic:
+reason contains a lowercase letter ⇒ it's a sentence, show as-is) instead of collapsing to
 "No openings in the next N days".
 **Why:** a 4-hour 19:15–23:15 dinner tour (BBQ) is bookable but exceeds the day window, so the
 scheduler drops it with a sentence reason. The old default mislabeled it "No openings in the
@@ -88,16 +88,36 @@ midnight (`% 1440`) rather than clamping to 23:59, so post-24:00 finishes render
 next-day times. **Why:** before this, full-day used the ~09:00–21:00 daytime window and any
 tour ending after it was dropped with "No slot fit your selected time window".
 
-## Scheduler is a FORWARD-ONLY cursor — visit candidates in chronological slot order
+## Scheduler is a FORWARD-ONLY cursor — order candidates by earliest FINISH (max-fit)
 `buildSchedule` places trips with a single advancing `prev` cursor: each trip must start at/after
-`prev.endMin + travel + buffer + earlyArrival`. So the VISIT ORDER decides feasibility — a
-late-slot trip visited first pushes the cursor past midday and evicts every daytime trip with a
-false "no slot fit". Fix: sort candidates by `earliestFeasibleSlot` (earliest slot within
-`[dayStart,dayEnd]`, respecting `earlyCutoff` + duration) into `orderedCandidates`, used by BOTH
-the placement loop AND the drop-reporting loop. Stable sort preserves AI relative order among
-same-time trips. **Why:** the AI `selectAndOrder` can return any order; with BBQ ordered first a
-full-day cart dropped its 2 daytime trips. **Edge:** when candidates exceed the stops cap the
-chronological order (not AI rank) decides drops — accepted product tradeoff for order-invariant fit.
+`prev.endMin + travel + buffer + earlyArrival`. So the VISIT ORDER decides how many trips fit.
+Sort `orderedCandidates` by **earliest feasible FINISH time** (`earliestFeasibleSlot` start +
+`durationMin`; Infinity stays Infinity), tie-break earliest start then title — the classic
+interval-scheduling / earliest-deadline-first greedy that maximizes the COUNT of non-overlapping
+trips placed. Used by BOTH the placement loop AND the drop loop.
+**Why:** earliest-START ordering let ONE long full-day tour (e.g. 8h Nature & Castle, slot 09:30)
+claim the whole day and evict 2 shorter daytime trips → FEWER total stops than dropping the one
+long tour. Earliest-finish keeps the daytime stops and drops the single long tour instead.
+**Evening invariant still holds:** an evening tour finishes latest ⇒ sorts LAST ⇒ never evicts
+daytime stops. **Caveat:** this is a strong heuristic, NOT a proof — feasibility depends on dynamic
+travel/buffer/meal insertion + day-budget anchoring after the first start, not independent fixed
+intervals, so rare orderings can still fit fewer; accepted tradeoff for order-invariant max-fit.
+
+## Scheduler drop reasons must be TRUTHFUL per cause (3 buckets + party capacity)
+Every trip reaching the scheduler HAS bookable slots on the date (no-availability trips are
+filtered upstream into `unavailableTrips`), so a scheduler drop is ALWAYS a same-day fit/seat
+conflict — never "no availability". The drop loop picks the reason by cause:
+- **party capacity** (tracked in `partyCapacityBlocked`: in-window slots existed but none seated
+  the whole group; `delete`d if the trip is later placed on another day) → "Not enough seats left
+  for your group of N…". Take this BEFORE the fit/window branches.
+- **cap reached** (`allSteps.length >= targetStops`) → pace/length copy.
+- **full-day or multi-day fit conflict** → "Couldn't fit alongside your other stops… give it a
+  separate date or drop a stop".
+- **shorter plan, window too tight** → "Doesn't fit your {duration} time window…".
+**Why:** the old single "No slot fit your selected time window" lied for the common cases — a
+long tour that simply needs its own day, and a group-too-big-for-seats drop, both read as a
+generic timing failure. The sidebar (`sidebar-itinerary.tsx` switch `default`) renders these
+free-text reasons verbatim (lowercase-letter heuristic).
 
 ## Rate limiting is PRODUCTION-ONLY (dev/preview bypass)
 `lib/rate-limit.ts` returns `{allowed:true}` when `NODE_ENV !== "production"`. **Why:** in the
