@@ -188,6 +188,17 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             remove <AccessibilityToolbar /> below, and add:
             <Script src="https://cdn.userway.org/widget.js" data-account="YOUR_ID" strategy="lazyOnload" /> */}
         <AccessibilityToolbar />
+
+        {/* ── Userback feedback widget ──────────────────────────────────────
+            Lets testers submit feedback/bug reports from any page while the
+            site is in staging. Loads after the page is interactive. */}
+        <Script id="userback-widget" strategy="afterInteractive">
+          {`window.Userback = window.Userback || {};
+Userback.access_token = "A-BKTgSB2GkdORqgFBBqlxgTjZI";
+(function(d) {
+  var s = d.createElement('script');s.async = true;s.src = 'https://static.userback.io/widget/v1.js';(d.head || d.body).appendChild(s);
+})(document);`}
+        </Script>
       </body>
     </html>
   )
