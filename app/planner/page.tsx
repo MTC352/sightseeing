@@ -795,11 +795,11 @@ function TripCard({
       onKeyDown={handleCardKey}
       data-testid={`planner-trip-card-${trip.id}`}
       data-in-cart={isInCart ? "true" : "false"}
-      className="group relative flex flex-col items-stretch gap-0 overflow-hidden rounded-xl border border-border bg-card text-left transition-all hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 lg:flex-row"
+      className="group relative flex flex-col items-stretch gap-0 overflow-hidden rounded-xl border border-border bg-card text-left transition-all hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 md:flex-row"
     >
-      {/* Thumbnail — full-width on top for mobile/tablet (stacked), side column on desktop */}
-      <div className="relative h-44 w-full shrink-0 overflow-hidden lg:h-auto lg:w-44">
-        <Image src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(min-width: 1024px) 180px, 100vw" />
+      {/* Thumbnail — full-width on top for mobile (stacked), side column on tablet/desktop */}
+      <div className="relative h-44 w-full shrink-0 overflow-hidden md:h-auto md:w-44">
+        <Image src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(min-width: 768px) 180px, 100vw" />
         {trip.badge && (
           <span className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">{trip.badge}</span>
         )}
@@ -822,10 +822,10 @@ function TripCard({
         </button>
       </div>
 
-      {/* Desktop (lg+): top-right hover overlay for the "Add to planner list"
-          control (the working "My Trip" list). On mobile/tablet this is hidden
-          in favour of a permanent full-width button below the content. */}
-      <div className="absolute right-2 top-2 z-10 hidden items-center gap-1.5 lg:flex">
+      {/* Tablet/desktop (md+): top-right hover overlay for the "Add to planner list"
+          control (the working "My Trip" list). On mobile this is hidden in favour
+          of a permanent full-width button below the content. */}
+      <div className="absolute right-2 top-2 z-10 hidden items-center gap-1.5 md:flex">
         {isInCart ? (
           <span
             className="pointer-events-none flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
@@ -880,10 +880,10 @@ function TripCard({
           </div>
         )}
 
-        {/* Mobile/tablet: permanent, full-width "Add to planner list" action so no
-            hover is needed and it never overlaps the title. Hidden on desktop,
+        {/* Mobile: permanent, full-width "Add to planner list" action so no hover
+            is needed and it never overlaps the title. Hidden on tablet/desktop,
             where the top-right hover overlay is used instead. */}
-        <div className="lg:hidden">
+        <div className="md:hidden">
           {isInCart ? (
             <span
               className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700"
