@@ -7,7 +7,7 @@ import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bus, Car, Building2, ArrowRight,
   Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
-  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin,
+  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin, Plus,
 } from "lucide-react"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"
 
@@ -767,6 +767,9 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
   }, [items, onOpenItinerary, onItineraryBuilt, onPlanConflict, onItineraryFailure, prefs])
 
   const handleBuildClick = useCallback(() => {
+    // Validate there are enough bookable trips before building. The button is
+    // already swapped for a message when this fails, so this is a safety net.
+    if (items.length < 2) return
     const existing = readVisitDate()
     if (existing) {
       setVisitDate(existing)
@@ -776,7 +779,7 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       setPendingDate("")
       setShowDatePrompt(true)
     }
-  }, [runGenerate])
+  }, [runGenerate, items.length])
 
   const handleConfirmDate = useCallback((dateValue: string) => {
     if (!dateValue || dateValue < todayYMD()) return
@@ -792,14 +795,14 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
     void runGenerate(dateValue)
   }, [runGenerate, onUpdatePrefs])
 
-  // Visibility is gated on the RAW working list, not the disabled-filtered
-  // `items`. Otherwise, when enough trips are date-disabled (no timeslots on
-  // the chosen day) the buildable count drops below 2 and the entire Smart
-  // Itinerary block — header, date picker, and Build button — would vanish
-  // even though the visitor still has trips in "My Trip". The disabled
-  // filtering still applies to the actual build payload below.
-  if (allItems.length < 2) return null
+  // Only hide the block when the working list is completely empty. With 1+
+  // trips we always render the Smart Itinerary panel; when there aren't enough
+  // BOOKABLE trips to build (fewer than 2 after date-availability filtering)
+  // we swap the Build button for an inline message instead of hiding. The
+  // disabled filtering still applies to the actual build payload (`items`).
+  if (allItems.length < 1) return null
   const buildableCount = items.length
+  const canBuild = buildableCount >= 2
 
   return (
     <>
@@ -820,13 +823,11 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
         )}
       </div>
 
-      {!itinerary && !loading && !showDatePrompt && (
+      {!itinerary && !loading && !showDatePrompt && canBuild && (
         <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground">
-          {buildableCount < 2
-            ? `Only ${buildableCount} of your ${allItems.length} trips ${buildableCount === 1 ? "is" : "are"} bookable${visitDate ? ` on ${formatYMDPretty(visitDate)}` : ""} — add more or pick another date to build an itinerary.`
-            : visitDate
-              ? `Planned for ${formatYMDPretty(visitDate)} — we'll optimise your ${buildableCount} saved trips into a day plan with transit times.`
-              : `Optimise your ${buildableCount} saved trips into a day plan with transit times.`}
+          {visitDate
+            ? `Planned for ${formatYMDPretty(visitDate)} — we'll optimise your ${buildableCount} saved trips into a day plan with transit times.`
+            : `Optimise your ${buildableCount} saved trips into a day plan with transit times.`}
         </p>
       )}
 
@@ -1065,24 +1066,35 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
       <div className="flex gap-1.5">
         {/* Primary action: build OR open */}
         {!itinerary ? (
-          <button
-            type="button"
-            onClick={handleBuildClick}
-            disabled={loading || showDatePrompt || buildableCount < 2}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Building...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-3 w-3" />
-                Build Itinerary
-              </>
-            )}
-          </button>
+          canBuild ? (
+            <button
+              type="button"
+              onClick={handleBuildClick}
+              disabled={loading || showDatePrompt}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Building...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3 w-3" />
+                  Build Itinerary
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-dashed border-border bg-muted/40 px-2.5 py-2 text-center text-[11px] font-medium leading-snug text-muted-foreground">
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {allItems.length < 2
+                  ? "Add more trips to build an itinerary"
+                  : `Only ${buildableCount} trip${buildableCount === 1 ? "" : "s"} ${buildableCount === 1 ? "is" : "are"} bookable${visitDate ? ` on ${formatYMDPretty(visitDate)}` : ""} — add more trips or pick another date`}
+              </span>
+            </div>
+          )
         ) : (
           <>
             {(() => {
