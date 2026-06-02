@@ -1440,6 +1440,44 @@ export default function PlannerPage() {
      an effect just after useChat below. */
   const setMessagesRef = useRef<((updater: (prev: PlannerMessage[]) => PlannerMessage[]) => void) | null>(null)
 
+  /* Push a concise assistant "note" into the chat so MANUAL interactions
+     (adding a trip from the canvas/modal, changing the date or a preference
+     in the filter bar) are mirrored in the conversation — the same way an
+     AI-driven change leaves a trace. These notes also become part of the
+     message history sent to /api/planner on the next turn, reinforcing the
+     model's awareness of the current trip list + preferences. De-dupes an
+     identical back-to-back note so rapid clicks don't stack copies. */
+  const notifyChat = useCallback((text: string, idPrefix: string) => {
+    setMessagesRef.current?.((prev) => {
+      const last = prev[prev.length - 1]
+      const lastText =
+        last && last.role === "assistant" && last.parts?.[0]?.type === "text"
+          ? (last.parts[0] as { text?: string }).text
+          : undefined
+      if (lastText === text) return prev
+      return [
+        ...prev,
+        { id: `${idPrefix}-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
+      ]
+    })
+  }, [])
+
+  /* Manual "add to My Trip list" from a canvas card or the trip-detail
+     modal. Wraps the raw `addItem` so the chat gets a note — but ONLY for
+     genuinely new additions (skips re-adds) so the AI knows the trip list
+     grew. AI-driven adds (onToolCall / chat build) keep using raw addItem
+     so they don't double-announce. */
+  const handleManualAddTrip = useCallback((trip: Trip) => {
+    const already = planner.isInList(trip.id)
+    addItem(trip)
+    if (!already) {
+      // Sync the transport ref synchronously so a chat send fired in the same
+      // tick as the click already carries the newly added trip.
+      cartSummaryForApiRef.current = [...cartSummaryForApiRef.current, { id: trip.id, title: trip.title }]
+      notifyChat(`Added **${trip.title}** to your trip list.`, "manual-add")
+    }
+  }, [addItem, notifyChat, planner])
+
   /* Called from the "View Itinerary on Trip Canvas" button on the inline
      chat itinerary card. If we already have a real itinerary loaded for
      these exact trips, just open the Canvas. Otherwise (or if the cart
@@ -1755,13 +1793,42 @@ export default function PlannerPage() {
     if (unchanged) return
 
     prefsRef.current = next
+    // Sync the transport ref synchronously (not just via the useEffect) so a
+    // chat send fired in the same tick as the click can't transmit the
+    // pre-change preferences.
+    prefsForApiRef.current = next
     setPrefs(next)
     try { setCookie(PREFS_COOKIE, JSON.stringify(next)) } catch { /* ignore */ }
+
+    // Mirror the manual preference change into the chat so the conversation
+    // reflects what the visitor did in the filter bar / suggestion chips —
+    // and so the next /api/planner turn carries it in history. Describe ONLY
+    // the field(s) that actually changed.
+    const changed: string[] = []
+    if (next.startDate !== base.startDate && next.startDate) {
+      changed.push(`visit date to **${formatYMDPretty(next.startDate)}**`)
+    }
+    if (next.adults !== base.adults || next.children !== base.children) {
+      const total = next.adults + next.children
+      changed.push(`group to **${total} ${total === 1 ? "person" : "people"}**`)
+    }
+    if (next.group !== base.group && next.group) changed.push(`group type to **${next.group}**`)
+    if (next.duration !== base.duration && next.duration) changed.push(`trip length to **${next.duration}**`)
+    if (next.budget !== base.budget && next.budget) changed.push(`budget to **${next.budget}**`)
+    if (arrKey(next.interests) !== arrKey(base.interests)) changed.push("your interests")
+    if (changed.length > 0) {
+      const list =
+        changed.length === 1
+          ? changed[0]
+          : `${changed.slice(0, -1).join(", ")} and ${changed[changed.length - 1]}`
+      const tail = centerItinerary ? " — rebuilding your itinerary now." : "."
+      notifyChat(`Updated ${list}${tail}`, "manual-pref")
+    }
 
     // Only rebuild if a plan is already on the canvas; otherwise just keep
     // the updated prefs for the next build the user triggers.
     if (centerItinerary) void handleRegenerateItinerary()
-  }, [centerItinerary, handleRegenerateItinerary])
+  }, [centerItinerary, handleRegenerateItinerary, notifyChat])
 
   const sendFeedback = useCallback(async (messageId: string, vote: "up" | "down") => {
     setFeedbackGiven((prev) => ({ ...prev, [messageId]: vote }))
@@ -1939,6 +2006,17 @@ export default function PlannerPage() {
   // — recreating the transport mid-conversation breaks the useChat stream.
   const itineraryForApiRef = useRef<Itinerary | null>(null)
   useEffect(() => { itineraryForApiRef.current = centerItinerary }, [centerItinerary])
+  // Mirror the live preferences + working "My Trip" list into refs for the
+  // SAME reason as itineraryForApiRef above: the transport's prepare callback
+  // is captured ONCE (the transport is created with empty deps so we never
+  // recreate it mid-conversation — that breaks the useChat stream). Without
+  // these refs the chat would send whatever prefs/cart existed when the
+  // transport was first built (often an empty cart) — which is exactly why
+  // the AI thought "your cart is empty" after the user manually added trips.
+  const prefsForApiRef = useRef<Preferences | null>(prefs)
+  useEffect(() => { prefsForApiRef.current = prefs }, [prefs])
+  const cartSummaryForApiRef = useRef<{ id: string; title: string }[]>(cartSummary)
+  useEffect(() => { cartSummaryForApiRef.current = cartSummary }, [cartSummary])
 
   const transport = useMemo(
     () => new DefaultChatTransport({
@@ -1956,11 +2034,19 @@ export default function PlannerPage() {
           })),
         } : null
         return {
-          body: { id, messages: msgs, preferences: prefs, cartItems: cartSummary, itinerarySummary },
+          body: {
+            id,
+            messages: msgs,
+            // Read from refs so every turn sends the CURRENT prefs + My Trip
+            // list, even though the transport is created only once.
+            preferences: prefsForApiRef.current,
+            cartItems: cartSummaryForApiRef.current,
+            itinerarySummary,
+          },
         }
       },
     }),
-    [prefs, cartSummary]
+    []
   )
 
   // ── Chat persistence ──
@@ -4080,7 +4166,7 @@ export default function PlannerPage() {
               </div>
               <SightseeingAlbum
                 trip={selectedTrip}
-                onBook={() => { addItem(selectedTrip) }}
+                onBook={() => { handleManualAddTrip(selectedTrip) }}
               />
               {/* Booking iframe — same dynamic per-trip form as the single-trip page */}
               <div className="border-t border-border px-4 py-5">
@@ -4219,7 +4305,7 @@ export default function PlannerPage() {
                       trip={trip}
                       onSelect={handleTripSelect}
                       isInCart={isInCart(trip.id)}
-                      onAdd={addItem}
+                      onAdd={handleManualAddTrip}
                       isBookmarked={savedLibrary.isInCart(trip.id)}
                       onToggleBookmark={toggleBookmark}
                       availableDates={showDates ? (plannerAvail[trip.id]?.availableDates ?? []) : undefined}

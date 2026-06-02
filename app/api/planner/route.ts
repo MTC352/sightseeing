@@ -912,8 +912,8 @@ export async function POST(req: Request) {
     const defaultTags = preferences?.interests?.length ? preferences.interests.join(", ") : "popular"
 
     const cartSection = cartItems?.length
-      ? `\nSAVED TRIPS (${cartItems.length}): ${cartItems.map(c => `${c.title} [${c.id}]`).join(", ")}`
-      : ""
+      ? `\nMY TRIP LIST — the visitor currently has ${cartItems.length} trip${cartItems.length === 1 ? "" : "s"} selected in their list (right sidebar). The Day Itinerary is built from EXACTLY these: ${cartItems.map(c => `${c.title} [${c.id}]`).join(", ")}`
+      : `\nMY TRIP LIST: empty — the visitor has not added any trips to their list yet.`
 
     // ── Live Trip Canvas state ────────────────────────────────────────────────
     // The chat is "aware" of what's currently rendered in the center panel.
@@ -1106,6 +1106,11 @@ export async function POST(req: Request) {
       "   - After the user's 2nd or 3rd message when they show interest",
       "   - When recommending your top pick",
       "   - NEVER offer a coupon on the very first message. Build rapport first.",
+      "11. MY TRIP LIST & VISIT DATE ARE AUTHORITATIVE (CRITICAL — read carefully):",
+      "    - The MY TRIP LIST and PROFILE/VISIT DATE blocks above reflect the visitor's CURRENT state on EVERY turn (they may have changed trips, the date, or preferences manually via the sidebar/filter bar since the last message). ALWAYS trust those latest values over anything said earlier in the conversation.",
+      "    - When the visitor asks for \"a plan\", \"my plan\", \"an itinerary\", \"a schedule\", or \"my route\", build from EXACTLY the trips in MY TRIP LIST on the VISIT DATE — pass those trips to buildItinerary. Do NOT introduce trips that are not in MY TRIP LIST, and do NOT switch to a different date, unless the visitor explicitly asks you to.",
+      "    - NEVER claim the trip list is empty when MY TRIP LIST above shows trips, and NEVER invent a single random trip on an arbitrary date. If MY TRIP LIST really is empty, recommend trips via searchTrips or ask what they'd like to add so they can build their list first — do not fabricate a plan.",
+      "    - If a Day Itinerary is already open (see the TRIP CANVAS block) and the visitor's request would CHANGE which trips are in it or CHANGE the date, do NOT silently overwrite it. Ask the visitor to confirm in one short sentence first, then act on their answer. Adding/removing/swapping a stop they explicitly named is fine to do directly.",
       "12. ITINERARY: When user has 3+ saved trips and asks for a plan/route/schedule/itinerary, call buildItinerary with optimized steps. Sequence by proximity, suggest realistic times starting at 09:00. The server overwrites travel times with real Mapbox driving/walking data — do NOT invent or recite minutes/distances in chat; the panel shows them.",
       "12a. AFTER buildItinerary — NEVER PRE-ANNOUNCE SUCCESS: the moment you call buildItinerary the client runs an availability + duration-vs-time-budget preflight on the real /api/itinerary endpoint. That preflight can come back with a CONFLICT (too many trips for the chosen duration, or unavailable on the date) AFTER your text has already been shown. So in the SAME turn as a buildItinerary tool call you MUST NOT claim the itinerary is 'ready', 'built', 'live', or 'on the Trip Canvas', and MUST NOT describe its stops, times, route, or window (no '09:30–22:30 from e-bike to dinner hopping'). Reply with ONE short neutral sentence such as \"Putting the day together — checking live availability now.\" or \"Building your day on the Trip Canvas — one moment.\". The inline card in chat will flip itself to either the full 'View Itinerary' state OR a 'Decision needed' state based on the preflight result, and any conflict question will be added to chat for you. Recap the schedule only AFTER the visitor confirms the plan or asks about a specific stop.",
       "12b. CANVAS AWARENESS: When the 'TRIP CANVAS — DAY ITINERARY IS OPEN' block above is present, the visitor is already looking at that exact plan. Treat it as ground truth — answer questions about order, timing, or contents from that block directly. If they ask to add/remove/swap a stop, acknowledge the change and call buildItinerary again with the updated sequence; the canvas will refresh automatically.",
