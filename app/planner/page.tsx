@@ -798,7 +798,7 @@ function TripCard({
       className="group relative flex items-stretch gap-0 overflow-hidden rounded-xl border border-border bg-card text-left transition-all hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
     >
       {/* Thumbnail */}
-      <div className="relative w-28 shrink-0 overflow-hidden sm:w-44">
+      <div className="relative w-36 shrink-0 overflow-hidden sm:w-44">
         <Image src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="180px" />
         {trip.badge && (
           <span className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">{trip.badge}</span>
@@ -825,13 +825,7 @@ function TripCard({
       {/* Top-right corner: the "Add to planner list" control (the working
           "My Trip" list). Once added it shows a persistent "Added to list" tag;
           before that the button only appears on hover. */}
-      {/* Fine-pointer devices (mouse/desktop): the action lives as a top-right
-          overlay that fades in on hover/focus. On touch devices (phones/tablets)
-          it's hidden — replaced by a permanent in-flow button at the bottom of
-          the content (see below) so it never overlaps the title and stays easily
-          tappable. Gating on pointer capability (not width) keeps large touch
-          tablets on the permanent button. */}
-      <div className="absolute right-2 top-2 z-10 hidden items-center gap-1.5 pointer-fine:flex">
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
         {isInCart ? (
           <span
             className="pointer-events-none flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm"
@@ -847,7 +841,7 @@ function TripCard({
             disabled={adding}
             data-testid={`planner-trip-add-${trip.id}`}
             aria-label={`Add ${trip.title} to planner list`}
-            className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground shadow-sm transition-all duration-200 hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground shadow-sm transition-all duration-200 hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
           >
             <Plus className="h-3 w-3" /> Add to planner list
           </button>
@@ -885,32 +879,6 @@ function TripCard({
             )}
           </div>
         )}
-
-        {/* Touch devices (phones/tablets): permanent in-flow action so no hover
-            is needed. Hidden on fine-pointer devices, where the top-right hover
-            overlay is used instead. */}
-        <div className="hidden pointer-coarse:block">
-          {isInCart ? (
-            <span
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700"
-              data-testid={`planner-trip-added-mobile-${trip.id}`}
-              aria-label="Added to planner list"
-            >
-              <Check className="h-3.5 w-3.5" /> Added to list
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={handleAddClick}
-              disabled={adding}
-              data-testid={`planner-trip-add-mobile-${trip.id}`}
-              aria-label={`Add ${trip.title} to planner list`}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 active:bg-primary/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
-            >
-              <Plus className="h-3.5 w-3.5" /> Add to planner list
-            </button>
-          )}
-        </div>
       </div>
     </div>
   )
