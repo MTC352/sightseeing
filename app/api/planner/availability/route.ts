@@ -63,6 +63,13 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const dateParam = (searchParams.get("date") ?? "").trim()
   const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : null
+  // Party size (adults + children). A slot with fewer seats than the group
+  // cannot actually be booked together, so it must NOT count as "available"
+  // here — otherwise the My Trip disabled map + recommendations over-report
+  // vs the itinerary scheduler (which filters slots by party size). Clamp to
+  // a sane range; default 1.
+  const partyRaw = parseInt((searchParams.get("party") ?? "1").trim(), 10)
+  const partySize = Number.isFinite(partyRaw) ? Math.min(20, Math.max(1, partyRaw)) : 1
 
   const windowDays = await getWindowDays()
   const half = Math.floor(windowDays / 2)
@@ -93,7 +100,7 @@ export async function GET(req: Request) {
     if (windowStart < todayStr) windowStart = todayStr
   }
 
-  const cacheKey = `${windowStart}|${windowEnd}|${selectedDate ?? ""}`
+  const cacheKey = `${windowStart}|${windowEnd}|${selectedDate ?? ""}|p${partySize}`
   const cached = _cache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json(cached.data)
@@ -124,7 +131,11 @@ export async function GET(req: Request) {
             const raw = d.spaces_remaining
             const unlimited = raw === "UNLIMITED"
             const spotsLeft = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
-            if (unlimited || spotsLeft > 0) bookable.add(d.start_date)
+            // Party-size parity with the itinerary scheduler: a slot must hold
+            // the whole group to count as bookable. "UNLIMITED" or unparseable
+            // seat counts pass (mirrors scheduler.fitsParty).
+            const seatsOk = unlimited || Number.isNaN(parseInt(raw ?? "", 10)) || spotsLeft >= partySize
+            if (seatsOk) bookable.add(d.start_date)
           }
 
           const availableDates = Array.from(bookable).sort()

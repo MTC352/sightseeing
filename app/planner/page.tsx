@@ -1453,7 +1453,15 @@ export default function PlannerPage() {
     const sameSet = existing
       && existingIds.size === wanted.size
       && [...wanted].every((id) => existingIds.has(id))
-    if (sameSet && existing) {
+    // Date-drift guard: only shortcut to "just open" when the loaded plan was
+    // built for the SAME date the visitor currently has selected. If the date
+    // changed since the last build, the loaded plan is stale (timeslots,
+    // weather, day-of-week logic all hinge on the date) — fall through to a
+    // fresh rebuild so the Canvas reflects real availability for the new date
+    // instead of silently re-opening yesterday's plan.
+    const currentDate = prefsRef.current?.startDate || todayYMD()
+    const dateMatches = !existing?.visitDate || existing.visitDate === currentDate
+    if (sameSet && existing && dateMatches) {
       handleOpenItinerary(existing)
       return
     }
@@ -2711,6 +2719,11 @@ export default function PlannerPage() {
             input: undefined,
             output: {
               summary,
+              // Carry the build date so the chat card's date-staleness check
+              // (cardStale) can fire for manual sidebar builds too — without
+              // it the card could never detect a later date change and would
+              // keep offering a plain "View"/"Loaded" for a stale plan.
+              visitDate: built.visitDate,
               steps: built.steps.map((s) => ({
                 time: s.time,
                 tripTitle: s.tripTitle,
@@ -2928,6 +2941,10 @@ export default function PlannerPage() {
      chat remains a separate helper (it can still adjust prefs, which flows
      back into this list). Window length is admin-configurable. */
   const selectedDateForAvail = prefs?.startDate ?? ""
+  // Party size feeds the availability scan so a slot that can't seat the whole
+  // group is NOT counted as bookable here — keeping the disabled map +
+  // recommendations honest against the itinerary scheduler's party filter.
+  const partyForAvail = Math.max(1, prefs?.adults ?? 1) + Math.max(0, prefs?.children ?? 0)
   const [plannerAvail, setPlannerAvail] = useState<Record<string, { availableOnSelectedDate: boolean; availableDates: string[] }>>({})
   const [availLoading, setAvailLoading] = useState(false)
   useEffect(() => {
@@ -2936,7 +2953,10 @@ export default function PlannerPage() {
     // Clear stale availability for the PREVIOUS date so grouping never reflects
     // an old selection while the new window scan is in flight (or if it fails).
     setPlannerAvail({})
-    const qs = selectedDateForAvail ? `?date=${encodeURIComponent(selectedDateForAvail)}` : ""
+    const params = new URLSearchParams()
+    if (selectedDateForAvail) params.set("date", selectedDateForAvail)
+    params.set("party", String(partyForAvail))
+    const qs = params.toString() ? `?${params.toString()}` : ""
     fetch(`/api/planner/availability${qs}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { trips?: Record<string, { availableOnSelectedDate: boolean; availableDates: string[] }> } | null) => {
@@ -2948,7 +2968,7 @@ export default function PlannerPage() {
       .catch(() => { if (!cancelled) setPlannerAvail({}) /* fail-soft: no date chips */ })
       .finally(() => { if (!cancelled) setAvailLoading(false) })
     return () => { cancelled = true }
-  }, [selectedDateForAvail])
+  }, [selectedDateForAvail, partyForAvail])
 
   /* Full preference-matched recommendation list, sorted by availability then
      match score. `fallbackTrips` already returns ALL trips whose tags match
@@ -3612,12 +3632,6 @@ export default function PlannerPage() {
                                       · {formatYMDPretty(itinerary.visitDate)}
                                     </span>
                                   )}
-                                  {itineraryRegenerating && (
-                                    <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                      Loading live times…
-                                    </span>
-                                  )}
                                 </div>
                                 <div className="px-3 py-2.5">
                                   <p className="mb-3 text-xs text-muted-foreground">{itinerary.summary}</p>
@@ -3640,16 +3654,29 @@ export default function PlannerPage() {
                                     ))}
                                   </div>
                                   {(() => {
+                                    // Date-staleness: the visitor changed the date since this
+                                    // plan card was built. Its timeslots no longer reflect the
+                                    // selected day, so we MUST NOT offer a plain "View" (which
+                                    // would re-open the old-date plan). Force a rebuild instead.
+                                    // Prefer the card's own build date; fall back to the
+                                    // loaded centerItinerary's date for any legacy card that
+                                    // didn't record visitDate, so a stale plan can't slip
+                                    // through as "Loaded on Trip Canvas".
+                                    const cardBuildDate = itinerary.visitDate || centerItinerary?.visitDate
+                                    const cardStale = !!cardBuildDate
+                                      && !!prefs?.startDate
+                                      && cardBuildDate !== prefs.startDate
                                     // If centerItinerary already represents this exact plan and the
                                     // panel is open, we show a confirmation badge instead of the View
                                     // button — clicking would be a no-op anyway and the badge makes
                                     // it crystal-clear the day is already loaded on the canvas.
+                                    // (Suppressed when the date drifted — the loaded plan is stale.)
                                     const planSet = new Set(planTripIds)
                                     const builtSet = new Set(centerItinerary?.steps.map((s) => s.tripId) ?? [])
                                     const sameSet = centerItinerary
                                       && builtSet.size === planSet.size
                                       && [...planSet].every((id) => builtSet.has(id))
-                                    if (sameSet && centerItineraryOpen) {
+                                    if (sameSet && centerItineraryOpen && !cardStale) {
                                       return (
                                         <div className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary/10 py-1.5 text-[11px] font-semibold text-primary">
                                           <Check className="h-3 w-3" />
@@ -3658,15 +3685,34 @@ export default function PlannerPage() {
                                       )
                                     }
                                     return (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenOrRebuildFromChat(planTripIds)}
-                                        disabled={itineraryRegenerating}
-                                        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-                                      >
-                                        <Maximize2 className="h-3 w-3" />
-                                        View Itinerary on Trip Canvas
-                                      </button>
+                                      <>
+                                        {cardStale && (
+                                          <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-1.5 text-[10px] leading-snug text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/40 dark:text-amber-200">
+                                            <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
+                                            <span>
+                                              Your date changed to <strong>{prefs?.startDate ? formatYMDPretty(prefs.startDate) : "a new day"}</strong>. Rebuild to refresh times &amp; availability for that day.
+                                            </span>
+                                          </div>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenOrRebuildFromChat(planTripIds)}
+                                          disabled={itineraryRegenerating}
+                                          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                        >
+                                          {cardStale ? (
+                                            <>
+                                              <Sparkles className="h-3 w-3" />
+                                              Rebuild for {prefs?.startDate ? formatYMDPretty(prefs.startDate) : "new date"}
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Maximize2 className="h-3 w-3" />
+                                              View Itinerary on Trip Canvas
+                                            </>
+                                          )}
+                                        </button>
+                                      </>
                                     )
                                   })()}
                                 </div>
@@ -3822,14 +3868,17 @@ export default function PlannerPage() {
                   the visitor never wonders whether the response is
                   done. (Same user complaint as above.) */}
               <div className="border-t border-border px-4 py-3">
-                {(isStreaming || itineraryRegenerating) && (
+                {/* Single post-stream loader. While the AI is streaming, the
+                    thinking dots above the input ARE the loader — showing a
+                    second "Generating response…" banner here at the same time
+                    is the "multiple simultaneous loaders" the visitor flagged.
+                    So this banner only appears for the post-stream itinerary
+                    build (when streaming has ended but the live /api/itinerary
+                    fetch is still in flight). */}
+                {itineraryRegenerating && !isStreaming && (
                   <div className="mb-2 flex items-center justify-center gap-2 rounded-lg bg-primary/5 px-3 py-1.5 text-[11px] font-medium text-primary">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    <span>
-                      {itineraryRegenerating && !isStreaming
-                        ? "Still finalizing your itinerary…"
-                        : "Generating response…"}
-                    </span>
+                    <span>Finalizing your itinerary…</span>
                   </div>
                 )}
                 <form onSubmit={(e) => { e.preventDefault(); if (!isStreaming && !itineraryRegenerating) handleSend(input) }}

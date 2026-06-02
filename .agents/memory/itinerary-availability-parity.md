@@ -34,6 +34,24 @@ listed the date, so missing dates were stamped NO_SLOTS.
 fallback error → TOURCMS_ERROR, never a false NO_SLOTS). Cost is ≤1 extra checkavail
 per zero-slot trip, bounded by the fan-out concurrency cap.
 
+## Rule (party-size parity)
+Every surface that *counts* availability must filter slots by the **whole group size**,
+exactly like the scheduler's `fitsParty` (`spacesRemaining >= partySize`; UNLIMITED /
+empty / unparseable spaces always pass). Counting "≥1 seat" over-reports and a later
+rebuild then drops trips the chat/alt-dates promised.
+
+**Why:** chat & alternative-date counts said "N trips open" on a date, but building for
+that date yielded fewer stops — a 1-seat slot looks open to a couple yet the scheduler
+drops it. Three surfaces must agree: `lib/itinerary/scheduler.ts` (fitsParty, the source
+of truth), `/api/planner/availability` (takes a `party` query param; cache key includes
+party), and `alternativeDates` in `/api/itinerary` (counts only trips with a
+party-fitting slot per date; empty MULTI buckets still pass, mirroring the date-source
+rule above).
+
+**How to apply:** the frontend passes `party = adults + children` and must refetch
+availability when it changes (include it in the effect deps). Any new availability-count
+surface must apply the same seat filter or it will diverge from build output.
+
 ## Related resilience invariants
 - TourCMS `apiRequest` retries (backoff + jitter, honors Retry-After) **GET only** —
   POST/booking writes are never retried (double-booking risk).

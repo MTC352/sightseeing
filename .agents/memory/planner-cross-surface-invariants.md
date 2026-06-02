@@ -56,3 +56,25 @@ missed, so without `onError` the spinner never clears.
 **How to apply:** Don't assume the planner degrades gracefully just because the itinerary
 engine does — they're separate. Any change to chat error handling must keep the first-turn
 gate getting flipped on failure.
+
+# Chat itinerary cards must carry `visitDate` for staleness detection
+
+The chat "Your Day Itinerary" card decides whether to offer a plain "View on Trip Canvas"
+(or "Loaded on Trip Canvas" badge) vs. force a "Rebuild for {date}" by comparing the
+card's build date to the current `prefs.startDate` (`cardStale`). A card with no
+`visitDate` can never be flagged stale and will re-open an OLD-date plan after the user
+changes the date.
+
+**Rule:** EVERY build path that emits a `tool-buildItinerary` card must include
+`visitDate` in its output. There are two: the AI-built card (reconciled from the
+`/api/itinerary` result) and the synthetic manual-build card (`handleItineraryBuilt`
+after a sidebar build). The open handler (`handleOpenOrRebuildFromChat`) must likewise
+only short-circuit to "just open" when BOTH the trip-id set AND the build date match
+current prefs — `sameSet` alone is not enough.
+
+**Why:** a date change drifts the plan's real timeslots; re-opening by trip-set match
+alone silently shows the stale old-date plan. Manual-build cards originally omitted
+`visitDate`, so they bypassed the staleness check entirely.
+
+**How to apply:** when adding a new way to surface an itinerary card, set `visitDate`;
+when changing date/staleness logic, keep the card UI gate and the open handler in sync.

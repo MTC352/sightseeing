@@ -601,10 +601,24 @@ export async function POST(req: Request) {
        slotsByDate map in memory). */
     let alternativeDates: Array<{ date: string; tripCount: number; totalTrips: number }> = []
     if (unavailable.length > 0) {
+      // Party-size parity with the scheduler: a date only counts a trip when it
+      // has at least one slot that can seat the whole group. A MULTI/empty
+      // bucket (bookable date, no concrete per-time seat data) counts as
+      // available — we can't disprove it (mirrors scheduler.fitsParty's
+      // unparseable→pass). Without this filter the chips over-report
+      // ("3 trips open") vs what a rebuild can actually schedule.
+      const slotFitsParty = (s: { spacesRemaining: string | null }) => {
+        const r = (s.spacesRemaining ?? "").toString().trim().toUpperCase()
+        if (r === "" || r === "UNLIMITED") return true
+        const n = parseInt(r, 10)
+        return Number.isNaN(n) ? true : n >= partySize
+      }
       const dateCounts = new Map<string, number>()
       for (const a of availability) {
-        for (const d of a.slotsByDate.keys()) {
+        for (const [d, slots] of a.slotsByDate) {
           if (d <= visitDate || d > windowEnd) continue
+          const fits = slots.length === 0 || slots.some(slotFitsParty)
+          if (!fits) continue
           dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1)
         }
       }
