@@ -2074,7 +2074,7 @@ export default function PlannerPage() {
         return
       }
       if (toolCall.toolName === "addToCart") {
-        const { tripId } = toolCall.input as { tripId: string; tripTitle: string }
+        const { tripId, tripTitle } = toolCall.input as { tripId: string; tripTitle: string }
         // Resolve from static catalog first, then from the most recent searchTrips
         // tool output (covers DB-only trips with tcms_* ids).
         // Read from refs — useChat captures onToolCall's closure on mount, so
@@ -2083,10 +2083,13 @@ export default function PlannerPage() {
         let trip: Trip | undefined = allTripsRef.current.find((t) => t.id === tripId)
         if (!trip) trip = aiTripsRef.current.find((t) => t.id === tripId)
         if (trip) addItem(trip)
+        // Give each success checkmark a descriptive label naming the saved trip,
+        // so the chat shows "Saved <title> to your trip list" instead of a bare check.
+        const savedTitle = trip?.title ?? tripTitle ?? "trip"
         addToolOutput({
           tool: "addToCart",
           toolCallId: toolCall.toolCallId,
-          output: undefined as never,
+          output: `Saved “${savedTitle}” to your trip list` as never,
         })
       }
     },
@@ -3579,7 +3582,7 @@ export default function PlannerPage() {
                           if (part.state === "output-available") {
                             textParts.push(
                               <div key={idx} className="mt-2 flex items-center gap-2 rounded-lg bg-primary/5 p-2 text-xs font-medium text-primary">
-                                <Check className="h-3.5 w-3.5" /><span>{part.output as string}</span>
+                                <Check className="h-3.5 w-3.5 shrink-0" /><span>{(part.output as string) || "Saved to your trip list"}</span>
                               </div>
                             )
                           } else if (part.state === "input-available") {
