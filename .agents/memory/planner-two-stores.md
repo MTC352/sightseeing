@@ -19,3 +19,13 @@ Working-list trips with no timeslots on the planned date are *disabled* (greyed 
 - `cartFingerprint` (drift guard) **must be computed from the SAME active set** (working list minus disabled). If it isn't, a disabled trip left in the list makes the fingerprint disagree with the sidebar's build-input fingerprint forever → permanent false "Rebuild & View".
 
 **How to apply:** any new path that sends trips to `/api/itinerary`, or any new fingerprint, must exclude the disabled set the same way. The disabled map derives from the existing per-date `plannerAvail` scan, so it updates reactively when the date changes.
+
+## Visibility gate ≠ build filter (Smart Itinerary block)
+`SidebarItinerary`'s top-level early-return that decides whether the whole Smart
+Itinerary block (header + date picker + Build button) renders must gate on the
+**raw working list** (`allItems.length`), NOT the disabled-filtered `items`. If it
+gates on the filtered list, having enough date-disabled trips drops the buildable
+count below 2 and the entire block vanishes while TripCart still shows the trips —
+the reported "Smart Itinerary block removed" regression. Keep disabled-filtering
+ONLY for the build payload (`buildableCount = items.length`); disable the Build
+button + show an explanatory note when `buildableCount < 2`.

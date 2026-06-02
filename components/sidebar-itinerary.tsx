@@ -792,7 +792,14 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
     void runGenerate(dateValue)
   }, [runGenerate, onUpdatePrefs])
 
-  if (items.length < 2) return null
+  // Visibility is gated on the RAW working list, not the disabled-filtered
+  // `items`. Otherwise, when enough trips are date-disabled (no timeslots on
+  // the chosen day) the buildable count drops below 2 and the entire Smart
+  // Itinerary block — header, date picker, and Build button — would vanish
+  // even though the visitor still has trips in "My Trip". The disabled
+  // filtering still applies to the actual build payload below.
+  if (allItems.length < 2) return null
+  const buildableCount = items.length
 
   return (
     <>
@@ -815,9 +822,11 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
 
       {!itinerary && !loading && !showDatePrompt && (
         <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground">
-          {visitDate
-            ? `Planned for ${formatYMDPretty(visitDate)} — we'll optimise your ${items.length} saved trips into a day plan with transit times.`
-            : `Optimise your ${items.length} saved trips into a day plan with transit times.`}
+          {buildableCount < 2
+            ? `Only ${buildableCount} of your ${allItems.length} trips ${buildableCount === 1 ? "is" : "are"} bookable${visitDate ? ` on ${formatYMDPretty(visitDate)}` : ""} — add more or pick another date to build an itinerary.`
+            : visitDate
+              ? `Planned for ${formatYMDPretty(visitDate)} — we'll optimise your ${buildableCount} saved trips into a day plan with transit times.`
+              : `Optimise your ${buildableCount} saved trips into a day plan with transit times.`}
         </p>
       )}
 
@@ -1059,8 +1068,8 @@ export function SidebarItinerary({ onOpenItinerary, onItineraryBuilt, existingIt
           <button
             type="button"
             onClick={handleBuildClick}
-            disabled={loading || showDatePrompt}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            disabled={loading || showDatePrompt || buildableCount < 2}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? (
               <>
