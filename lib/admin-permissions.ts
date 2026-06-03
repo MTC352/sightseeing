@@ -91,6 +91,7 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   // Files / media library
   { prefix: "/admin/files", keys: ["files"] },
   { prefix: "/api/admin/media", keys: ["files"] },
+  { prefix: "/api/admin/site-documents", keys: ["files"] },
   // AI systems
   { prefix: "/admin/ai-systems", keys: ["ai-systems"] },
   { prefix: "/api/admin/planner-behavior", keys: ["ai-systems"] },

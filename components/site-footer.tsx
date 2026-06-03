@@ -1,10 +1,13 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { MapPin, Mail, Phone } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import { CookieSettingsButton } from "@/components/cookie-banner"
+
+const TERMS_LABEL = "Terms & Conditions"
 
 const LINKS = {
   "About sightseeing.lu": [
@@ -44,6 +47,17 @@ const LINKS = {
 }
 
 export function SiteFooter() {
+  const [termsUrl, setTermsUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch("/api/legal-documents")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (active && data) setTermsUrl(data.termsOfService ?? null) })
+      .catch(() => {})
+    return () => { active = false }
+  }, [])
+
   return (
     <footer className="border-t border-border bg-card">
       <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
@@ -65,9 +79,16 @@ export function SiteFooter() {
             <nav key={title} aria-label={title}>
               <h4 className="text-sm font-semibold text-foreground">{title}</h4>
               <ul className="mt-3 flex flex-col gap-2">
-                {links.map((l) => (
-                  <li key={l.label}><Link href={l.href} className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</Link></li>
-                ))}
+                {links.map((l) => {
+                  if (l.label === TERMS_LABEL && termsUrl) {
+                    return (
+                      <li key={l.label}>
+                        <a href={termsUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</a>
+                      </li>
+                    )
+                  }
+                  return <li key={l.label}><Link href={l.href} className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</Link></li>
+                })}
               </ul>
             </nav>
           ))}
