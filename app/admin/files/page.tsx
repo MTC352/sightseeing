@@ -14,7 +14,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  Dialog, DialogContent,
+  Dialog, DialogContent, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog"
 
 type MediaFile = {
@@ -529,6 +529,9 @@ function FilePreviewModal({
   return (
     <Dialog open={!!file} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="max-w-5xl gap-0 overflow-hidden p-0 sm:max-w-5xl [&>button]:hidden">
+        <DialogDescription className="sr-only">
+          Preview and details for {file.title ?? file.filename}
+        </DialogDescription>
         <div className="flex max-h-[85vh] flex-col md:flex-row">
           {/* Left — preview */}
           <div className="flex min-h-[260px] flex-1 items-center justify-center overflow-auto bg-neutral-900 p-4 md:w-[72%]">
@@ -565,9 +568,9 @@ function FilePreviewModal({
           <div className="flex w-full flex-col overflow-y-auto border-t border-border bg-card md:w-[28%] md:border-l md:border-t-0">
             <div className="flex items-start justify-between gap-2 border-b border-border p-4">
               <div className="min-w-0">
-                <h2 className="truncate text-sm font-bold text-foreground" title={file.filename}>
+                <DialogTitle className="truncate text-sm font-bold text-foreground" title={file.filename}>
                   {file.title ?? file.filename}
-                </h2>
+                </DialogTitle>
                 <p className="truncate text-xs text-muted-foreground">{file.filename}</p>
               </div>
               <button
