@@ -2,11 +2,11 @@
  * lib/file-rules.ts
  * Shared, framework-agnostic logic for file-upload validation rules.
  *
- * Two layers of rules exist:
- *  - Global default rules — stored in the `integrations` table (key
- *    `file_upload_rules`, meta `{maxSizeMb, allowedExtensions}`).
- *  - Per-user overrides — stored on `admin_users.file_rules` (nullable). When
- *    null, the user inherits the global default.
+ * Two layers of rules exist, both stored in the `integrations` table under the
+ * single row key `file_upload_rules`:
+ *  - Global default rules — meta `{maxSizeMb, allowedExtensions}`.
+ *  - Per-role overrides — meta `roles[role]` (nullable per role). When a role
+ *    has no entry, everyone with that role inherits the global default.
  *
  * SECURITY: the *configurable* allow-list is always intersected with a fixed,
  * server-side SAFE set. An admin can never widen uploads to active-content types

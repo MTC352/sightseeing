@@ -2,15 +2,22 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { ShieldCheck, Loader2, Check, AlertCircle, RotateCcw, Save, ShieldAlert, UserCog } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type Rules = { maxSizeMb: number; allowedExtensions: string[] }
 
-type UserRow = {
-  id: string
-  name: string
-  username: string | null
-  email: string | null
+type RoleRow = {
   role: string
+  label: string
   fileRules: Rules | null
   effective: Rules
 }
@@ -20,7 +27,7 @@ type Payload = {
   defaults: Rules
   hardMaxMb: number
   safeExtensions: string[]
-  users: UserRow[]
+  roles: RoleRow[]
 }
 
 export function FileRulesPanel() {
@@ -53,7 +60,7 @@ export function FileRulesPanel() {
         <div>
           <h2 className="text-xl font-bold text-foreground">File Upload Rules</h2>
           <p className="text-sm text-muted-foreground">
-            Control the maximum file size and allowed formats for uploads — globally, or per user.
+            Control the maximum file size and allowed formats for uploads — globally, or per role.
           </p>
         </div>
       </div>
@@ -72,15 +79,15 @@ export function FileRulesPanel() {
 
           <section>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Per-user overrides
+              Per-role rules
             </h3>
             <p className="mb-3 text-xs text-muted-foreground">
-              Leave a user on the global default, or set a stricter (or different) rule just for them. Overrides are still
-              clamped to a {data.hardMaxMb} MB hard ceiling and the platform&apos;s safe format list.
+              Leave a role on the global default, or set a stricter (or different) rule for everyone with that role.
+              Overrides are still clamped to a {data.hardMaxMb} MB hard ceiling and the platform&apos;s safe format list.
             </p>
             <div className="space-y-2">
-              {data.users.map((u) => (
-                <UserEditor key={u.id} user={u} safeExtensions={data.safeExtensions} hardMaxMb={data.hardMaxMb} global={data.global} onSaved={load} />
+              {data.roles.map((r) => (
+                <RoleEditor key={r.role} row={r} safeExtensions={data.safeExtensions} hardMaxMb={data.hardMaxMb} global={data.global} onSaved={load} />
               ))}
             </div>
           </section>
@@ -124,6 +131,7 @@ function GlobalEditor({ data, onSaved }: { data: Payload; onSaved: () => void })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState("")
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   function toggle(ext: string) {
     setExts((list) => (list.includes(ext) ? list.filter((e) => e !== ext) : [...list, ext]))
@@ -155,7 +163,7 @@ function GlobalEditor({ data, onSaved }: { data: Payload; onSaved: () => void })
         <h3 className="text-sm font-semibold text-foreground">Global default</h3>
       </div>
       <p className="mb-4 text-xs text-muted-foreground">
-        Applies to every user who doesn&apos;t have a personal override.
+        Applies to every role that doesn&apos;t have its own override.
       </p>
 
       {err && <p className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{err}</p>}
@@ -181,7 +189,7 @@ function GlobalEditor({ data, onSaved }: { data: Payload; onSaved: () => void })
 
       <button
         type="button"
-        onClick={save}
+        onClick={() => setConfirmOpen(true)}
         disabled={saving || exts.length === 0}
         className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
       >
@@ -191,24 +199,41 @@ function GlobalEditor({ data, onSaved }: { data: Payload; onSaved: () => void })
       {exts.length === 0 && (
         <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-600"><AlertCircle className="h-3.5 w-3.5" /> Pick at least one format.</p>
       )}
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Update global file upload rules?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This changes the default for <strong>every role</strong> that doesn&apos;t have its own override
+              ({maxSizeMb} MB · {exts.map((e) => `.${e}`).join(", ") || "no formats"}). Roles with a custom rule
+              are unaffected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={save}>Yes, update global rules</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }
 
-function UserEditor({
-  user, safeExtensions, hardMaxMb, global, onSaved,
+function RoleEditor({
+  row, safeExtensions, hardMaxMb, global, onSaved,
 }: {
-  user: UserRow
+  row: RoleRow
   safeExtensions: string[]
   hardMaxMb: number
   global: Rules
   onSaved: () => void
 }) {
-  const hasOverride = user.fileRules != null
+  const hasOverride = row.fileRules != null
   const [editing, setEditing] = useState(false)
   const [override, setOverride] = useState(hasOverride)
-  const [maxSizeMb, setMaxSizeMb] = useState((user.fileRules ?? user.effective).maxSizeMb)
-  const [exts, setExts] = useState<string[]>((user.fileRules ?? user.effective).allowedExtensions)
+  const [maxSizeMb, setMaxSizeMb] = useState((row.fileRules ?? row.effective).maxSizeMb)
+  const [exts, setExts] = useState<string[]>((row.fileRules ?? row.effective).allowedExtensions)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState("")
 
@@ -223,7 +248,7 @@ function UserEditor({
       const res = await fetch("/api/admin/file-rules", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "user", userId: user.id, rules }),
+        body: JSON.stringify({ scope: "role", role: row.role, rules }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Save failed")
       setEditing(false)
@@ -243,16 +268,14 @@ function UserEditor({
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-foreground">
-            {user.name}{" "}
-            <span className="font-normal text-muted-foreground">
-              {user.username ? `@${user.username}` : user.email} · {user.role === "superadmin" ? "Admin" : "Employee"}
-            </span>
+            {row.label}{" "}
+            <span className="font-normal text-muted-foreground">role</span>
           </p>
           <p className="truncate text-xs text-muted-foreground">
             {hasOverride ? (
-              <span className="font-medium text-primary">Custom: {user.effective.maxSizeMb} MB · {user.effective.allowedExtensions.map((e) => `.${e}`).join(", ")}</span>
+              <span className="font-medium text-primary">Custom: {row.effective.maxSizeMb} MB · {row.effective.allowedExtensions.map((e) => `.${e}`).join(", ")}</span>
             ) : (
-              <>Inherits global ({user.effective.maxSizeMb} MB · {user.effective.allowedExtensions.map((e) => `.${e}`).join(", ")})</>
+              <>Inherits global ({row.effective.maxSizeMb} MB · {row.effective.allowedExtensions.map((e) => `.${e}`).join(", ")})</>
             )}
           </p>
         </div>
@@ -278,7 +301,7 @@ function UserEditor({
               onChange={(e) => setOverride(e.target.checked)}
               className="h-4 w-4 rounded border-border accent-primary"
             />
-            <span className="text-sm font-medium text-foreground">Use a custom rule for this user</span>
+            <span className="text-sm font-medium text-foreground">Use a custom rule for this role</span>
             <span className="text-xs text-muted-foreground">{override ? "Custom" : "Inherits global default"}</span>
           </label>
 
@@ -317,8 +340,8 @@ function UserEditor({
               onClick={() => {
                 setEditing(false)
                 setOverride(hasOverride)
-                setMaxSizeMb((user.fileRules ?? user.effective).maxSizeMb)
-                setExts((user.fileRules ?? user.effective).allowedExtensions)
+                setMaxSizeMb((row.fileRules ?? row.effective).maxSizeMb)
+                setExts((row.fileRules ?? row.effective).allowedExtensions)
                 setErr("")
               }}
               className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary"

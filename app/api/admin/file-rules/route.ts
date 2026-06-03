@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
 import {
-  dbListAdminUsers,
   dbGetGlobalFileRules,
   dbSetGlobalFileRules,
-  dbSetUserFileRules,
+  dbGetAllRoleFileRules,
+  dbSetRoleFileRules,
 } from "@/lib/db/queries"
 import {
   sanitizeRules,
@@ -18,6 +18,14 @@ import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
+// The roles that can carry a file-upload override, in display order. Keep in
+// sync with the admin role model (superadmin → "Admin", employee → "Employee").
+const FILE_RULE_ROLES: { role: string; label: string }[] = [
+  { role: FULL_ACCESS_ROLE, label: "Admin" },
+  { role: "employee", label: "Employee" },
+]
+const VALID_RULE_ROLES = new Set(FILE_RULE_ROLES.map((r) => r.role))
+
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
@@ -29,9 +37,9 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    const [global, users] = await Promise.all([
+    const [global, roleRules] = await Promise.all([
       dbGetGlobalFileRules(),
-      dbListAdminUsers(),
+      dbGetAllRoleFileRules(),
     ])
 
     return NextResponse.json({
@@ -39,14 +47,11 @@ export async function GET() {
       defaults: DEFAULT_RULES,
       hardMaxMb: HARD_MAX_MB,
       safeExtensions: ALL_SAFE_EXTENSIONS,
-      users: users.map((u) => ({
-        id: u.id,
-        name: u.name,
-        username: u.username,
-        email: u.email,
-        role: u.role,
-        fileRules: sanitizeRules(u.file_rules), // null = inherits global
-        effective: resolveEffectiveRules(global, u.file_rules),
+      roles: FILE_RULE_ROLES.map(({ role, label }) => ({
+        role,
+        label,
+        fileRules: sanitizeRules(roleRules[role]), // null = inherits global
+        effective: resolveEffectiveRules(global, roleRules[role]),
       })),
     })
   } catch (err) {
@@ -85,10 +90,10 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: true, global: rules })
     }
 
-    if (scope === "user") {
-      const userId = typeof body.userId === "string" ? body.userId : ""
-      if (!userId) {
-        return NextResponse.json({ error: "userId is required" }, { status: 400 })
+    if (scope === "role") {
+      const role = typeof body.role === "string" ? body.role : ""
+      if (!VALID_RULE_ROLES.has(role)) {
+        return NextResponse.json({ error: "Invalid role" }, { status: 400 })
       }
       // null rules → clear the override (inherit global). Otherwise sanitize.
       const rules = body.rules == null ? null : sanitizeRules(body.rules)
@@ -98,19 +103,18 @@ export async function PATCH(req: Request) {
           { status: 400 },
         )
       }
-      const updated = await dbSetUserFileRules(userId, rules)
-      if (!updated) return NextResponse.json({ error: "User not found" }, { status: 404 })
+      await dbSetRoleFileRules(role, rules)
       void logActivity({
         actor: session,
         action: "file_rule.update",
         entityType: "file_rule",
-        entityId: userId,
+        entityId: `role:${role}`,
         summary: rules == null
-          ? `Cleared file upload rules override for user ${userId}`
-          : `Updated file upload rules for user ${userId}`,
-        context: { targetUserId: userId },
+          ? `Cleared file upload rules override for role ${role}`
+          : `Updated file upload rules for role ${role}`,
+        context: { role },
       })
-      return NextResponse.json({ ok: true, userId, rules })
+      return NextResponse.json({ ok: true, role, rules })
     }
 
     return NextResponse.json({ error: "Invalid scope" }, { status: 400 })

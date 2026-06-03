@@ -49,10 +49,10 @@ export async function processUpload(request: Request, userId: string): Promise<U
     return { status: 400, body: { error: "No file provided" } }
   }
 
-  // Configurable validation: resolve this user's effective rules (per-user
+  // Configurable validation: resolve this user's effective rules (per-role
   // override → global default → fallback) and enforce extension + size.
   const sources = await dbGetFileRuleSources(userId)
-  const rules = resolveEffectiveRules(sources.global, sources.user)
+  const rules = resolveEffectiveRules(sources.global, sources.override)
   const verdict = validateFile({ name: file.name, type: file.type, size: file.size }, rules)
   if (!verdict.ok) {
     return { status: 400, body: { error: verdict.error } }

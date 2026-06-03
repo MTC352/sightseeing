@@ -1796,65 +1796,105 @@ export async function dbDeleteAdminUser(id: string): Promise<boolean> {
   return !!row
 }
 
-/**
- * Set (or clear, with null) a single user's file-upload rule override. Unlike
- * dbUpdateAdminUser this is allowed for the superadmin account too — the
- * superadmin can constrain its own uploads.
- */
-export async function dbSetUserFileRules(
-  id: string,
-  rules: { maxSizeMb: number; allowedExtensions: string[] } | null,
-): Promise<AdminUserRow | null> {
-  return queryOne<AdminUserRow>(
-    `UPDATE admin_users SET file_rules = $2::jsonb, updated_at = NOW()
-       WHERE id = $1 RETURNING ${ADMIN_USER_SELECT}`,
-    [id, rules ? JSON.stringify(rules) : null],
-  )
+// ── File-upload rules (global default + per-role) ────────────────────────────
+// All file-rule config lives in a single integrations row (key
+// `file_upload_rules`). The global default sits at meta.{maxSizeMb,
+// allowedExtensions}; per-role overrides sit at meta.roles[role]. Keeping it in
+// one row avoids polluting the integrations listing with extra keys.
+
+type RuleObj = { maxSizeMb: number; allowedExtensions: string[] }
+type RulesMeta = {
+  maxSizeMb?: number
+  allowedExtensions?: string[]
+  roles?: Record<string, RuleObj>
 }
 
-// ── File-upload rules (global default + per-user) ────────────────────────────
+/** Read the raw file-rules meta object (global + roles) from the one row. */
+async function dbReadFileRulesMeta(): Promise<RulesMeta> {
+  const row = await queryOne<{ meta: unknown }>(
+    `SELECT meta FROM integrations WHERE key = 'file_upload_rules'`,
+    [],
+  )
+  return (row?.meta as RulesMeta) ?? {}
+}
+
+/** Upsert the full file-rules meta object back into the one row. */
+async function dbWriteFileRulesMeta(meta: RulesMeta): Promise<void> {
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('file_upload_rules', 'File Upload Rules', '', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
+    [JSON.stringify(meta)],
+  )
+}
 
 /** Read the global default file-upload rules from the integrations table. */
 export async function dbGetGlobalFileRules(): Promise<{
   maxSizeMb?: number
   allowedExtensions?: string[]
 } | null> {
-  const row = await queryOne<{ meta: unknown }>(
-    `SELECT meta FROM integrations WHERE key = 'file_upload_rules'`,
-    [],
-  )
-  return (row?.meta as { maxSizeMb?: number; allowedExtensions?: string[] }) ?? null
+  const meta = await dbReadFileRulesMeta()
+  if (meta.maxSizeMb == null && meta.allowedExtensions == null) return null
+  return { maxSizeMb: meta.maxSizeMb, allowedExtensions: meta.allowedExtensions }
 }
 
-/** Upsert the global default file-upload rules into the integrations table. */
+/** Upsert the global default file-upload rules (preserving per-role overrides). */
 export async function dbSetGlobalFileRules(rules: {
   maxSizeMb: number
   allowedExtensions: string[]
 }): Promise<void> {
-  await query(
-    `INSERT INTO integrations (key, label, value, meta)
-     VALUES ('file_upload_rules', 'File Upload Rules', '', $1::jsonb)
-     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
-    [JSON.stringify(rules)],
-  )
+  const meta = await dbReadFileRulesMeta()
+  await dbWriteFileRulesMeta({
+    ...meta,
+    maxSizeMb: rules.maxSizeMb,
+    allowedExtensions: rules.allowedExtensions,
+  })
+}
+
+/** Read the per-role file-upload override (null = role inherits global). */
+export async function dbGetRoleFileRules(role: string): Promise<RuleObj | null> {
+  const meta = await dbReadFileRulesMeta()
+  return meta.roles?.[role] ?? null
+}
+
+/** Read all per-role file-upload overrides as a { role: rules } map. */
+export async function dbGetAllRoleFileRules(): Promise<Record<string, RuleObj>> {
+  const meta = await dbReadFileRulesMeta()
+  return meta.roles ?? {}
+}
+
+/** Set (or clear, when rules is null) the per-role file-upload override. */
+export async function dbSetRoleFileRules(
+  role: string,
+  rules: RuleObj | null,
+): Promise<void> {
+  const meta = await dbReadFileRulesMeta()
+  const roles = { ...(meta.roles ?? {}) }
+  if (rules == null) delete roles[role]
+  else roles[role] = rules
+  await dbWriteFileRulesMeta({ ...meta, roles })
 }
 
 /**
- * Return the raw (unresolved) global + user rule objects for a given user. The
- * caller resolves them with lib/file-rules resolveEffectiveRules().
+ * Return the raw (unresolved) global + role-override rule objects for a given
+ * user, resolved by the user's role. The caller resolves them with
+ * lib/file-rules resolveEffectiveRules().
  */
 export async function dbGetFileRuleSources(userId: string): Promise<{
   global: unknown
-  user: unknown
+  override: unknown
 }> {
-  const [global, user] = await Promise.all([
-    dbGetGlobalFileRules(),
-    queryOne<{ file_rules: unknown }>(
-      `SELECT file_rules FROM admin_users WHERE id = $1`,
-      [userId],
-    ),
-  ])
-  return { global, user: user?.file_rules ?? null }
+  const user = await queryOne<{ role: string }>(
+    `SELECT role FROM admin_users WHERE id = $1`,
+    [userId],
+  )
+  const meta = await dbReadFileRulesMeta()
+  const global =
+    meta.maxSizeMb == null && meta.allowedExtensions == null
+      ? null
+      : { maxSizeMb: meta.maxSizeMb, allowedExtensions: meta.allowedExtensions }
+  const override = user?.role ? meta.roles?.[user.role] ?? null : null
+  return { global, override }
 }
 
 // ── Media library (Files) ───────────────────────────────────────────────────
