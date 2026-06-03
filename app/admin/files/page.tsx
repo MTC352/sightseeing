@@ -192,7 +192,7 @@ export default function FilesPage() {
   })
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-6">
+    <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
           <FolderOpen className="h-5 w-5 text-primary" />

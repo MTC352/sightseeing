@@ -24,3 +24,4 @@
 - [Activity audit log](activity-audit-log.md) — admin mutations call fire-and-forget logActivity(actor=session) after write; DELETE & non-CRUD handlers easily missed; activity surface superadmin-only; e2e via minted jose JWT cookie.
 - [Admin RBAC](admin-rbac.md) — employee accounts w/ per-section perms; proxy gates via STALE JWT (edge), requireAdminSession is DB-fresh; every new /api/admin/* endpoint MUST be added to ROUTE_RULES or employees get false 403.
 - [Planner chat transport context](planner-chat-transport-context.md) — transport created once ([] deps); prefs + My Trip list MUST be ref-backed (synced in effect + at mutation time) or AI sees stale/empty cart; route RULE 11 makes list+date authoritative.
+- [Admin mobile drawer](admin-mobile-drawer.md) — admin sidebar is an overlay drawer on mobile; gate collapse via effectiveCollapsed=isDesktop&&collapsed so desktop collapse never leaks into the mobile drawer.

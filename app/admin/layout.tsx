@@ -6,9 +6,10 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity, Menu, X,
 } from "lucide-react"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
+import { cn } from "@/lib/utils"
 
 type NavItem = {
   href: string
@@ -53,6 +54,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter()
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(true)
   const [authed, setAuthed] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [role, setRole] = useState<string>("")
@@ -79,6 +82,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       })
   }, [pathname, router, isLoginPage])
 
+  useEffect(() => { setMobileOpen(false) }, [pathname])
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)")
+    const update = () => setIsDesktop(mq.matches)
+    update()
+    mq.addEventListener("change", update)
+    return () => mq.removeEventListener("change", update)
+  }, [])
+
+  // The collapse rail only applies on desktop; on mobile the drawer always
+  // renders full labels regardless of the persisted desktop collapse state.
+  const effectiveCollapsed = isDesktop && collapsed
+
   const isSuperadmin = role === FULL_ACCESS_ROLE
   const visibleNav = NAV.filter((item) => {
     if (isSuperadmin) return true
@@ -100,19 +117,30 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <AdminStoreProvider>
     <div className="fixed inset-0 flex h-screen overflow-hidden bg-background">
-      {/* Sidebar */}
+      {/* Mobile drawer backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {/* Sidebar — overlay drawer on mobile, static push column on desktop */}
       <aside
-        className={`flex shrink-0 flex-col border-r border-border bg-card transition-all duration-200 ${
-          collapsed ? "w-14" : "w-56"
-        }`}
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-64 max-w-[82vw] shrink-0 flex-col border-r border-border bg-card transition-transform duration-200",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          "md:static md:z-auto md:max-w-none md:translate-x-0 md:transition-all",
+          effectiveCollapsed ? "md:w-14" : "md:w-56",
+        )}
       >
         {/* Logo */}
         <div
           className={`flex h-14 items-center gap-2 border-b border-border px-4 ${
-            collapsed ? "justify-center" : ""
+            effectiveCollapsed ? "md:justify-center" : ""
           }`}
         >
-          {!collapsed && (
+          {!effectiveCollapsed && (
             <>
               <span className="text-sm font-bold text-foreground">sightseeing.lu</span>
               <span
@@ -124,20 +152,28 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </span>
             </>
           )}
-          {collapsed && <LayoutDashboard className="h-4 w-4 text-muted-foreground" />}
+          {effectiveCollapsed && <LayoutDashboard className="hidden h-4 w-4 text-muted-foreground md:block" />}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            aria-label="Close menu"
+            className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         {/* Visit Site — opens public homepage in the same tab */}
         <div className="border-b border-border p-2">
           <Link
             href="/"
-            title={collapsed ? "Visit Site" : undefined}
+            title={effectiveCollapsed ? "Visit Site" : undefined}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 ${
-              collapsed ? "justify-center" : ""
+              effectiveCollapsed ? "justify-center" : ""
             }`}
           >
             <ExternalLink className="h-4 w-4 shrink-0" />
-            {!collapsed && <span className="flex-1">Visit Site</span>}
+            {!effectiveCollapsed && <span className="flex-1">Visit Site</span>}
           </Link>
         </div>
 
@@ -155,15 +191,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <div key={href}>
                 <Link
                   href={href}
-                  title={collapsed ? label : undefined}
+                  title={effectiveCollapsed ? label : undefined}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                     isActive || childIsActive
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  } ${collapsed ? "justify-center" : ""}`}
+                  } ${effectiveCollapsed ? "justify-center" : ""}`}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  {!collapsed && (
+                  {!effectiveCollapsed && (
                     <>
                       <span className="flex-1">{label}</span>
                       {badge && (
@@ -176,7 +212,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </Link>
 
                 {/* Submenu */}
-                {hasChildren && !collapsed && isExpanded && (
+                {hasChildren && !effectiveCollapsed && isExpanded && (
                   <div className="ml-3 mt-0.5 space-y-0.5 border-l border-border pl-3">
                     {children.map(({ href: childHref, label: childLabel, icon: ChildIcon }) => {
                       const childActive = pathname.startsWith(childHref)
@@ -207,7 +243,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground ${
+            className={`hidden w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:flex ${
               collapsed ? "justify-center" : ""
             }`}
           >
@@ -224,17 +260,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             type="button"
             onClick={handleLogout}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive ${
-              collapsed ? "justify-center" : ""
+              effectiveCollapsed ? "justify-center" : ""
             }`}
           >
             <LogOut className="h-4 w-4" />
-            {!collapsed && <span>Log out</span>}
+            {!effectiveCollapsed && <span>Log out</span>}
           </button>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-auto">{children}</main>
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Mobile top bar with hamburger */}
+        <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+            className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <span className="text-sm font-bold text-foreground">sightseeing.lu</span>
+        </div>
+        <div className="flex-1 overflow-auto">{children}</div>
+      </main>
     </div>
     </AdminStoreProvider>
   )
