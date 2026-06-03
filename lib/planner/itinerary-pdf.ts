@@ -221,6 +221,25 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
     }
   }
 
+  // The standard PDF Helvetica (WinAnsi) cannot render the "→" glyph (it prints
+  // as garbage like "!'"), so we DRAW arrows instead of typing them.
+  const drawArrow = (x: number, yMid: number, size: number, color: string) => {
+    doc.setDrawColor(color)
+    doc.setFillColor(color)
+    doc.setLineWidth(Math.max(0.6, size * 0.16))
+    doc.line(x, yMid, x + size, yMid)
+    const hh = size * 0.34
+    doc.triangle(x + size - 0.2, yMid - hh, x + size - 0.2, yMid + hh, x + size + size * 0.5, yMid, "F")
+  }
+  // Truncate text with an ellipsis so it fits maxW at the current font size.
+  const ellipsize = (txt: string, maxW: number): string => {
+    if (!txt) return ""
+    if (doc.getTextWidth(txt) <= maxW) return txt
+    let t = txt
+    while (t.length > 1 && doc.getTextWidth(t + "…") > maxW) t = t.slice(0, -1)
+    return t + "…"
+  }
+
   // ---- Header ------------------------------------------------------------
   doc.setFont("helvetica", "bold")
   doc.setFontSize(11)
@@ -297,8 +316,9 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9.5)
         doc.setTextColor(GREEN)
-        const label = drewMap ? "→  Open route in your maps app" : "→  Open the full route in your maps app"
-        doc.textWithLink(label, margin, y + 10, { url: mapsLink })
+        const label = drewMap ? "Open route in your maps app" : "Open the full route in your maps app"
+        drawArrow(margin, y + 7, 8, GREEN)
+        doc.textWithLink(label, margin + 14, y + 10, { url: mapsLink })
         y += 22
       }
     }
@@ -352,8 +372,24 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
       doc.setFontSize(9.5)
       const hlWrapped = highlights.map((h) => doc.splitTextToSize(h, innerW - 10) as string[])
 
-      const noteRaw = step.tripNotes ? decodeEntities(step.tripNotes).replace(/\s+/g, " ").trim() : ""
-      const noteLines = noteRaw ? (doc.splitTextToSize(noteRaw, innerW - 22) as string[]) : []
+      // Notes use "* " (or bullet) separators upstream — split them so the PDF
+      // shows the same bulleted list the canvas does (not one run-on paragraph).
+      const noteBullets = step.tripNotes
+        ? decodeEntities(step.tripNotes)
+            .split(/\s*[*•·]\s+/)
+            .map((s) => s.replace(/\s+/g, " ").trim())
+            .filter(Boolean)
+        : []
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(9)
+      const noteLineH = 12
+      const noteWrapped = noteBullets.map((b) => doc.splitTextToSize(b, innerW - 34) as string[])
+      // Single source of truth for the amber note-box height so measurement and
+      // draw can never diverge — must be recomputed whenever noteWrapped changes
+      // (e.g. after the clamp loop below drops trailing bullets).
+      const computeNoteBoxH = (rows: string[][]) =>
+        rows.length ? rows.reduce((a, w) => a + w.length * noteLineH, 0) + (rows.length - 1) * 3 + 16 : 0
+      let noteBoxH = computeNoteBoxH(noteWrapped)
 
       // --- measure card height (mirror of the draw increments below) ---
       let m = pad + 6
@@ -365,24 +401,22 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         m += 4 + 12
         hlWrapped.forEach((w) => { m += w.length * 12 + 2 })
       }
-      if (noteRaw) m += 4 + (noteLines.length * 12 + 14)
+      if (noteWrapped.length) m += 6 + noteBoxH
       m += pad
       let cardH = m
 
       // A single card is drawn as one indivisible block, so it must fit within
       // one printable page. The only field that can grow unbounded is the note
-      // box — clamp it (with an ellipsis) so an extreme tripNotes never spills
-      // past the bottom margin / clips.
+      // list — drop trailing bullets so an extreme tripNotes never spills past
+      // the bottom margin / clips.
       const maxCardH = pageH - margin * 2
-      if (cardH > maxCardH && noteLines.length > 1) {
-        const removable = Math.min(noteLines.length - 1, Math.ceil((cardH - maxCardH) / 12))
-        if (removable > 0) {
-          noteLines.splice(noteLines.length - removable, removable)
-          const last = noteLines.length - 1
-          noteLines[last] = (noteLines[last] || "").replace(/\s*…?$/, "") + " …"
-          cardH -= removable * 12
-        }
+      while (cardH > maxCardH && noteWrapped.length > 1) {
+        const dropped = noteWrapped.pop()
+        if (!dropped) break
+        cardH -= dropped.length * noteLineH + 3
       }
+      // Keep the drawn box height in sync with the (possibly clamped) bullet list.
+      noteBoxH = computeNoteBoxH(noteWrapped)
 
       ensure(cardH + 8)
       const cardTop = y
@@ -415,31 +449,42 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         doc.text(` – ${step.endTime}`, cardX + pad + prefixW + tw, cy + 0.5)
       }
 
-      // Book Now (right-aligned link)
+      // Book Now — solid green pill with white label + arrow (matches canvas).
       doc.setFont("helvetica", "bold")
-      doc.setFontSize(9.5)
-      const bn = "Book Now →"
-      const bnW = doc.getTextWidth(bn)
+      doc.setFontSize(8.5)
+      const bnTxt = "Book Now"
+      const bnTextW = doc.getTextWidth(bnTxt)
+      const bnArrowW = 7
+      const bnPadX = 9
+      const bnW = bnPadX * 2 + bnTextW + 5 + bnArrowW
+      const bnH = 16
       const bnX = cardX + cardW - pad - bnW
-      doc.setTextColor(GREEN)
+      const bnY = cy - 9
+      doc.setFillColor(GREEN)
+      doc.roundedRect(bnX, bnY, bnW, bnH, bnH / 2, bnH / 2, "F")
+      doc.setTextColor("#ffffff")
+      doc.text(bnTxt, bnX + bnPadX, bnY + 10.5)
+      drawArrow(bnX + bnPadX + bnTextW + 5, bnY + bnH / 2, bnArrowW, "#ffffff")
       if (step.tripId && origin) {
-        doc.textWithLink(bn, bnX, cy + 0.5, { url: bookingHref(step, origin, itinerary.visitDate) })
-      } else {
-        doc.text(bn, bnX, cy + 0.5)
+        doc.link(bnX, bnY, bnW, bnH, { url: bookingHref(step, origin, itinerary.visitDate) })
       }
-      // duration badge to the left of Book Now
+      // duration pill (with a small clock mark) to the left of Book Now
       if (step.durationMinutes) {
         doc.setFont("helvetica", "bold")
         doc.setFontSize(8.5)
         const dt = `${step.durationMinutes} min`
-        const dtW = doc.getTextWidth(dt)
-        const bw = dtW + 12
-        const bx = bnX - 10 - bw
-        const by = cy - 8
+        const dtW = doc.getTextWidth(dt) + 18
+        const dx = bnX - 8 - dtW
+        const dy = cy - 9
         doc.setFillColor(BADGE_BG)
-        doc.roundedRect(bx, by, bw, 13, 6, 6, "F")
+        doc.roundedRect(dx, dy, dtW, bnH, bnH / 2, bnH / 2, "F")
+        doc.setDrawColor(MUTE)
+        doc.setLineWidth(0.7)
+        doc.circle(dx + 8, dy + 8, 2.6, "S")
+        doc.line(dx + 8, dy + 8, dx + 8, dy + 6.2)
+        doc.line(dx + 8, dy + 8, dx + 9.3, dy + 8)
         doc.setTextColor(INK)
-        doc.text(dt, bx + 6, by + 9)
+        doc.text(dt, dx + 14, dy + 10.5)
       }
       cy += 16
 
@@ -502,19 +547,33 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         })
       }
 
-      // --- important note (amber box) ---
-      if (noteRaw) {
-        cy += 4
-        const boxH = noteLines.length * 12 + 14
+      // --- important note (amber box, bulleted to match the canvas) ---
+      if (noteWrapped.length) {
+        cy += 6
+        const boxTop = cy
         doc.setFillColor(AMBER_BG)
         doc.setDrawColor(AMBER_BORDER)
         doc.setLineWidth(1)
-        doc.roundedRect(cardX + pad, cy, innerW, boxH, 5, 5, "FD")
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(9.5)
-        doc.setTextColor(AMBER_TX)
-        doc.text(noteLines, cardX + pad + 8, cy + 12)
-        cy += boxH
+        doc.roundedRect(cardX + pad, boxTop, innerW, noteBoxH, 6, 6, "FD")
+        // (!) indicator circle
+        doc.setFillColor("#f59e0b")
+        doc.circle(cardX + pad + 11, boxTop + 11, 5.2, "F")
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(8)
+        doc.setTextColor("#ffffff")
+        doc.text("!", cardX + pad + 11, boxTop + 14, { align: "center" })
+        // bullet list (hanging indent)
+        let ny = boxTop + 10
+        doc.setFontSize(9)
+        noteWrapped.forEach((w) => {
+          doc.setFillColor(AMBER_TX)
+          doc.circle(cardX + pad + 24, ny + 2.5, 1, "F")
+          doc.setFont("helvetica", "normal")
+          doc.setTextColor(AMBER_TX)
+          doc.text(w, cardX + pad + 30, ny + 4)
+          ny += w.length * noteLineH + 3
+        })
+        cy = boxTop + noteBoxH
       }
 
       // --- numbered circle + time label on the rail ---
@@ -540,8 +599,8 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         const label = decodeEntities(brk.label) || (isCoffee ? "Coffee break" : "Meal break")
         const nearLine = `Near ${decodeEntities(brk.location)}`
         const linkTxt = isCoffee
-          ? `Find cafes in ${decodeEntities(brk.location)} on TripAdvisor →`
-          : `Find restaurants in ${decodeEntities(brk.location)} on TripAdvisor →`
+          ? `Find cafes in ${decodeEntities(brk.location)} on TripAdvisor`
+          : `Find restaurants in ${decodeEntities(brk.location)} on TripAdvisor`
         const tripAdvisor = `https://www.tripadvisor.com/Search?q=${encodeURIComponent(
           (isCoffee ? "cafes in " : "restaurants in ") + brk.location,
         )}`
@@ -574,7 +633,8 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         doc.setFont("helvetica", "bold")
         doc.setFontSize(9)
         doc.setTextColor(tx)
-        doc.textWithLink(linkTxt, cardX + pad, by, { url: tripAdvisor })
+        drawArrow(cardX + pad, by - 2.5, 7, tx)
+        doc.textWithLink(linkTxt, cardX + pad + 12, by, { url: tripAdvisor })
 
         // small break marker on the rail + start-time label
         doc.setDrawColor(tx)
@@ -647,7 +707,7 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         }
 
         const fallbackTravel = !has && step.travelToNext ? decodeEntities(step.travelToNext) : ""
-        const fbLines = fallbackTravel ? (doc.splitTextToSize(`→ ${fallbackTravel}`, cardW - pad * 2) as string[]) : []
+        const fbLines = fallbackTravel ? (doc.splitTextToSize(fallbackTravel, cardW - pad * 2) as string[]) : []
         // height: header(14) + from→to(12) + 3 mode lines(13 each) OR fallback lines
         const boxH = has
           ? 14 + 12 + 3 * 13 + pad
@@ -689,12 +749,18 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         }
         by += 14
 
-        // from → to
+        // from [arrow] to (drawn arrow — "→" doesn't render in WinAnsi Helvetica)
         doc.setFont("helvetica", "normal")
         doc.setFontSize(8.5)
         doc.setTextColor(MUTE)
-        const route = doc.splitTextToSize(`${fromLabel}  →  ${toLabel}`, cardW - pad * 2) as string[]
-        doc.text(route[0] || "", cardX + pad, by)
+        const arrowGap = 16
+        const halfW = (cardW - pad * 2 - arrowGap) / 2
+        const fromT = ellipsize(fromLabel, halfW)
+        const toT = ellipsize(toLabel, halfW)
+        doc.text(fromT, cardX + pad, by)
+        const fW = doc.getTextWidth(fromT)
+        drawArrow(cardX + pad + fW + 5, by - 2.5, 7, MUTE)
+        doc.text(toT, cardX + pad + fW + arrowGap, by)
         by += 12
 
         if (has) {
