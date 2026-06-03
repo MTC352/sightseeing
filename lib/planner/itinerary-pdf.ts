@@ -239,6 +239,31 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
     while (t.length > 1 && doc.getTextWidth(t + "…") > maxW) t = t.slice(0, -1)
     return t + "…"
   }
+  // Small vector glyphs for the break cards. Helvetica can't render the lucide
+  // icons (UtensilsCrossed / Coffee) used on the canvas, so we draw them.
+  const drawUtensils = (cx: number, yMid: number, s: number, color: string) => {
+    doc.setDrawColor(color)
+    doc.setLineWidth(Math.max(0.6, s * 0.16))
+    // fork (left): stem + three tines + crossbar
+    const fx = cx - s * 0.5
+    doc.line(fx, yMid - s * 0.25, fx, yMid + s)
+    doc.line(fx - s * 0.3, yMid - s, fx - s * 0.3, yMid - s * 0.25)
+    doc.line(fx, yMid - s, fx, yMid - s * 0.25)
+    doc.line(fx + s * 0.3, yMid - s, fx + s * 0.3, yMid - s * 0.25)
+    doc.line(fx - s * 0.3, yMid - s * 0.25, fx + s * 0.3, yMid - s * 0.25)
+    // knife (right): spine + angled blade edge
+    const kx = cx + s * 0.6
+    doc.line(kx, yMid - s, kx, yMid + s)
+    doc.line(kx, yMid - s, kx - s * 0.34, yMid - s * 0.1)
+  }
+  const drawCoffeeCup = (cx: number, yMid: number, s: number, color: string) => {
+    doc.setDrawColor(color)
+    doc.setLineWidth(Math.max(0.6, s * 0.16))
+    doc.roundedRect(cx - s * 0.7, yMid - s * 0.45, s * 1.15, s * 1.25, s * 0.2, s * 0.2, "S")
+    doc.circle(cx + s * 0.72, yMid + s * 0.15, s * 0.28, "S")
+    doc.line(cx - s * 0.15, yMid - s * 0.95, cx - s * 0.15, yMid - s * 0.6)
+    doc.line(cx + s * 0.25, yMid - s * 0.95, cx + s * 0.25, yMid - s * 0.6)
+  }
 
   // ---- Header ------------------------------------------------------------
   doc.setFont("helvetica", "bold")
@@ -342,9 +367,9 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
   const pad = 11
   const innerW = cardW - pad * 2
 
-  // Track each numbered circle so we can connect them with a rail line that
-  // never spans a page boundary.
-  const circleMarks: { page: number; x: number; y: number }[] = []
+  // Track every rail node (numbered stop circles AND break markers) so we can
+  // connect them with a single continuous timeline that carries across pages.
+  const circleMarks: { page: number; x: number; y: number; r: number }[] = []
 
   // ---- Steps -------------------------------------------------------------
   steps.forEach((step, i) => {
@@ -586,7 +611,7 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
       doc.setTextColor(GREEN)
       doc.text(String(i + 1), railX, cardTop + 15.5, { align: "center" })
       doc.text(step.time || "", margin + gutterTimeW, cardTop + 15.5, { align: "right" })
-      circleMarks.push({ page: doc.getCurrentPageInfo().pageNumber, x: railX, y: cardTop + 12 })
+      circleMarks.push({ page: doc.getCurrentPageInfo().pageNumber, x: railX, y: cardTop + 12, r: 9 })
 
       y = cardTop + cardH + 6
 
@@ -612,18 +637,29 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         doc.setLineWidth(1.2)
         doc.roundedRect(cardX, top, cardW, boxH, 8, 8, "FD")
         let by = top + pad + 4
+        // meal / coffee icon (mirrors the canvas UtensilsCrossed / Coffee)
+        if (isCoffee) drawCoffeeCup(cardX + pad + 4, by - 3, 5, tx)
+        else drawUtensils(cardX + pad + 4, by - 3, 5, tx)
         doc.setFont("helvetica", "bold")
         doc.setFontSize(10.5)
         doc.setTextColor(tx)
-        doc.text(label, cardX + pad, by)
-        // duration badge (right)
+        doc.text(label, cardX + pad + 16, by)
+        // duration badge (right) with a small clock mark — matches canvas
         const dt = `${brk.durationMinutes} min`
+        doc.setFont("helvetica", "bold")
         doc.setFontSize(8.5)
-        const dtW = doc.getTextWidth(dt) + 12
+        const dtW = doc.getTextWidth(dt) + 20
+        const dbx = cardX + cardW - pad - dtW
+        const dby = by - 10
         doc.setFillColor("#ffffff")
-        doc.roundedRect(cardX + cardW - pad - dtW, by - 9, dtW, 13, 6, 6, "F")
+        doc.roundedRect(dbx, dby, dtW, 14, 7, 7, "F")
+        doc.setDrawColor(MUTE)
+        doc.setLineWidth(0.7)
+        doc.circle(dbx + 8, dby + 7, 2.6, "S")
+        doc.line(dbx + 8, dby + 7, dbx + 8, dby + 5.2)
+        doc.line(dbx + 8, dby + 7, dbx + 9.3, dby + 7)
         doc.setTextColor(INK)
-        doc.text(dt, cardX + cardW - pad - dtW + 6, by)
+        doc.text(dt, dbx + 14, by)
         by += 14
         doc.setFont("helvetica", "normal")
         doc.setFontSize(9)
@@ -636,11 +672,14 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
         drawArrow(cardX + pad, by - 2.5, 7, tx)
         doc.textWithLink(linkTxt, cardX + pad + 12, by, { url: tripAdvisor })
 
-        // small break marker on the rail + start-time label
+        // break marker on the rail (icon bubble) + start-time label
         doc.setDrawColor(tx)
         doc.setFillColor("#ffffff")
         doc.setLineWidth(1.5)
         doc.circle(railX, top + 12, 7, "FD")
+        if (isCoffee) drawCoffeeCup(railX, top + 11, 3.4, tx)
+        else drawUtensils(railX, top + 11, 3.4, tx)
+        circleMarks.push({ page: doc.getCurrentPageInfo().pageNumber, x: railX, y: top + 12, r: 7 })
         if (step.endTime) {
           doc.setFont("helvetica", "bold")
           doc.setFontSize(9.5)
@@ -821,15 +860,27 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
     }
   })
 
-  // ---- Rail connectors (between consecutive circles on the same page) -----
+  // ---- Rail connectors — one continuous green timeline through every node
+  // (numbered stops AND break markers), carried across page boundaries. ------
+  doc.setDrawColor(GREEN_RAIL)
+  doc.setLineWidth(1.5)
   for (let k = 0; k < circleMarks.length - 1; k++) {
     const a = circleMarks[k]
     const b = circleMarks[k + 1]
     if (a.page === b.page) {
       doc.setPage(a.page)
-      doc.setDrawColor(GREEN_RAIL)
-      doc.setLineWidth(1.5)
-      doc.line(a.x, a.y + 9, b.x, b.y - 9)
+      doc.line(a.x, a.y + a.r, b.x, b.y - b.r)
+    } else {
+      // span the page break: down to the bottom margin on a's page, full
+      // segments on any pages in between, then top margin → b on b's page.
+      doc.setPage(a.page)
+      doc.line(a.x, a.y + a.r, a.x, pageH - margin)
+      for (let p = a.page + 1; p < b.page; p++) {
+        doc.setPage(p)
+        doc.line(b.x, margin, b.x, pageH - margin)
+      }
+      doc.setPage(b.page)
+      doc.line(b.x, margin, b.x, b.y - b.r)
     }
   }
   doc.setPage(doc.getNumberOfPages())
