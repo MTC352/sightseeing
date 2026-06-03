@@ -1924,13 +1924,17 @@ export interface MediaFileRow {
   mime_type: string
   size_bytes: number
   storage: string
+  content_hash: string | null
   uploaded_by: string | null
+  uploader_name: string | null
   created_at: string
 }
 
 const MEDIA_SELECT = `
   id, filename, title, url, mime_type, size_bytes::int AS size_bytes,
-  storage, uploaded_by, created_at`
+  storage, content_hash, uploaded_by,
+  (SELECT name FROM admin_users WHERE id = media_files.uploaded_by) AS uploader_name,
+  created_at`
 
 export async function dbListMedia(): Promise<MediaFileRow[]> {
   return query<MediaFileRow>(
@@ -1946,6 +1950,20 @@ export async function dbGetMedia(id: string): Promise<MediaFileRow | null> {
   )
 }
 
+// Deduplication lookup: find an existing media row by its content hash so the
+// same bytes are never stored (or recorded) twice.
+export async function dbFindMediaByHash(hash: string): Promise<MediaFileRow | null> {
+  if (!hash) return null
+  return queryOne<MediaFileRow>(
+    `SELECT ${MEDIA_SELECT} FROM media_files WHERE content_hash = $1 ORDER BY created_at ASC LIMIT 1`,
+    [hash],
+  )
+}
+
+// Inserts a media row, deduplicating atomically on content_hash via the unique
+// partial index (race-safe — two concurrent identical uploads can't both win).
+// Returns `created: false` when an identical row already existed so the caller
+// can clean up the just-stored orphan file.
 export async function dbCreateMedia(input: {
   filename: string
   title?: string | null
@@ -1953,24 +1971,91 @@ export async function dbCreateMedia(input: {
   mimeType: string
   sizeBytes: number
   storage: string
+  contentHash?: string | null
   uploadedBy?: string | null
-}): Promise<MediaFileRow> {
-  const row = await queryOne<MediaFileRow>(
-    `INSERT INTO media_files (filename, title, url, mime_type, size_bytes, storage, uploaded_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+}): Promise<{ row: MediaFileRow; created: boolean }> {
+  const params = [
+    input.filename,
+    input.title ?? null,
+    input.url,
+    input.mimeType,
+    Math.round(input.sizeBytes),
+    input.storage,
+    input.contentHash ?? null,
+    input.uploadedBy ?? null,
+  ]
+  // ON CONFLICT targets the partial unique index; a NULL hash never conflicts
+  // (NULLs are distinct) so hashless inserts always succeed.
+  const inserted = await queryOne<MediaFileRow>(
+    `INSERT INTO media_files (filename, title, url, mime_type, size_bytes, storage, content_hash, uploaded_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (content_hash) WHERE content_hash IS NOT NULL DO NOTHING
      RETURNING ${MEDIA_SELECT}`,
-    [
-      input.filename,
-      input.title ?? null,
-      input.url,
-      input.mimeType,
-      Math.round(input.sizeBytes),
-      input.storage,
-      input.uploadedBy ?? null,
-    ],
+    params,
   )
-  if (!row) throw new Error("Failed to record uploaded file")
-  return row
+  if (inserted) return { row: inserted, created: true }
+
+  // Conflict (lost a race) — return the winning existing row.
+  const existing = input.contentHash ? await dbFindMediaByHash(input.contentHash) : null
+  if (existing) return { row: existing, created: false }
+  throw new Error("Failed to record uploaded file")
+}
+
+export interface MediaUsageRef {
+  type: string
+  label: string
+  id: string
+  title: string
+  href: string | null
+}
+
+// Finds everywhere a media file's URL is referenced across the CMS so the Files
+// preview can show what a file is "linked with". Matches both the relative URL
+// and any absolute form (we only have the stored URL, so we match the stored
+// value as a substring — robust to relative/absolute storage).
+export async function dbFindMediaUsage(url: string): Promise<MediaUsageRef[]> {
+  if (!url) return []
+  const like = `%${url}%`
+  const out: MediaUsageRef[] = []
+
+  const blog = await query<{ id: string; title: string }>(
+    `SELECT id, COALESCE(NULLIF(title,''), slug, 'Untitled post') AS title
+       FROM blog_posts WHERE image = $1 OR body LIKE $2`,
+    [url, like],
+  )
+  for (const r of blog) out.push({ type: "blog", label: "Blog post", id: r.id, title: r.title, href: `/admin/blog/${r.id}` })
+
+  const trips = await query<{ id: string; title: string }>(
+    `SELECT id, COALESCE(NULLIF(title,''), 'Untitled trip') AS title
+       FROM trips
+      WHERE image = $1 OR pdf_url = $1 OR video_url = $1
+         OR $1 = ANY(COALESCE(gallery, '{}'))`,
+    [url],
+  )
+  for (const r of trips) out.push({ type: "trip", label: "Trip", id: r.id, title: r.title, href: `/admin/trips/${r.id}` })
+
+  const help = await query<{ id: string; title: string }>(
+    `SELECT id, COALESCE(NULLIF(question,''), 'Help article') AS title
+       FROM help_articles WHERE answer LIKE $1 OR attachments::text LIKE $1`,
+    [like],
+  )
+  for (const r of help) out.push({ type: "help", label: "Help article", id: r.id, title: r.title, href: `/admin/help/${r.id}` })
+
+  const pages = await query<{ id: string; title: string }>(
+    `SELECT id, COALESCE(NULLIF(title,''), 'Page') AS title
+       FROM pages WHERE og_image = $1 OR content::text LIKE $2`,
+    [url, like],
+  )
+  for (const r of pages) out.push({ type: "page", label: "Page", id: r.id, title: r.title, href: `/admin/pages` })
+
+  const hf = await query<{ id: string; title: string }>(
+    `SELECT id, COALESCE(NULLIF(name,''), 'Header/Footer block') AS title
+       FROM header_footer_blocks WHERE html LIKE $1`,
+    [like],
+  )
+  for (const r of hf) out.push({ type: "header_footer", label: "Header/Footer", id: r.id, title: r.title, href: `/admin/header-footer` })
+
+  return out
 }
 
 export async function dbUpdateMediaTitle(id: string, title: string | null): Promise<MediaFileRow | null> {

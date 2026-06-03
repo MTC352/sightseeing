@@ -65,10 +65,15 @@ async function ensureMediaSchema() {
     mime_type text NOT NULL,
     size_bytes bigint NOT NULL DEFAULT 0,
     storage text NOT NULL DEFAULT 'local',
+    content_hash text,
     uploaded_by uuid REFERENCES admin_users(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT now()
   )`)
+  await query(`ALTER TABLE media_files ADD COLUMN IF NOT EXISTS content_hash text`)
   await query(`CREATE INDEX IF NOT EXISTS media_files_created_idx ON media_files (created_at DESC)`)
+  // Unique partial index enforces dedup atomically (race-safe). NULL hashes are
+  // allowed to coexist (legacy rows without a computed hash).
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS media_files_hash_uniq ON media_files (content_hash) WHERE content_hash IS NOT NULL`)
   console.log('✓ media_files table ensured')
 }
 
