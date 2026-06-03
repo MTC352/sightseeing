@@ -10,6 +10,7 @@ import {
   effectiveProvider,
   selectedProvider,
   equivalentModel,
+  providerOf,
 } from "@/lib/ai/models"
 
 // ── Trips ──────────────────────────────────────────────────────────────────
@@ -1296,21 +1297,48 @@ export async function dbUpdateApiKeys(data: Record<string, string>) {
 }
 
 /**
- * Task #15 — re-point every AI System's stored model id to the equivalent tier
- * of `provider` (Haiku⇄gpt-4o-mini, Sonnet⇄gpt-4o, Opus⇄gpt-4.1). Called when the
- * admin switches the active provider so saved configs never reference a model id
- * from the wrong provider.
+ * Task #15/#16 — re-point every AI System's stored model id to `provider` when
+ * the admin switches the active provider, so saved configs never reference a
+ * model id from the wrong provider.
+ *
+ * Task #16: per-provider model choices are remembered. Before switching a row we
+ * stash its current (pre-switch) model under its own provider in
+ * `extra_config.providerModels`. When switching to a provider the admin has
+ * previously hand-picked a model for, we RESTORE that exact choice instead of
+ * re-deriving it from tier. Tier-based equivalence (Haiku⇄gpt-4o-mini,
+ * Sonnet⇄gpt-4o, Opus⇄gpt-4.1) remains the default for first-time switches.
  */
 export async function dbRemapAiModelsForProvider(provider: AiProvider) {
-  const rows = await query<{ system_key: string; model: string | null }>(
-    `SELECT system_key, model FROM ai_system_configs`,
+  const rows = await query<{ system_key: string; model: string | null; extra_config: unknown }>(
+    `SELECT system_key, model, extra_config FROM ai_system_configs`,
   )
   for (const row of rows) {
-    const next = equivalentModel(row.model ?? '', provider)
-    if (next === row.model) continue
+    const extra: Record<string, unknown> =
+      row.extra_config && typeof row.extra_config === 'object'
+        ? { ...(row.extra_config as Record<string, unknown>) }
+        : {}
+    const providerModels: Record<string, string> =
+      extra.providerModels && typeof extra.providerModels === 'object'
+        ? { ...(extra.providerModels as Record<string, string>) }
+        : {}
+
+    // Remember the current model under its own provider so a later switch back
+    // restores the admin's hand-picked choice rather than re-deriving from tier.
+    const current = row.model ?? ''
+    const currentProvider = current ? providerOf(current) : null
+    if (currentProvider && current) providerModels[currentProvider] = current
+
+    // Restore a previously saved choice for the target provider when present
+    // (and still valid for it); otherwise fall back to the tier equivalent.
+    const saved = providerModels[provider]
+    const next =
+      saved && providerOf(saved) === provider ? saved : equivalentModel(current, provider)
+
+    const nextExtra = JSON.stringify({ ...extra, providerModels })
+    if (next === row.model && nextExtra === JSON.stringify(extra)) continue
     await query(
-      `UPDATE ai_system_configs SET model = $1, updated_at = NOW() WHERE system_key = $2`,
-      [next, row.system_key],
+      `UPDATE ai_system_configs SET model = $1, extra_config = $2::jsonb, updated_at = NOW() WHERE system_key = $3`,
+      [next, nextExtra, row.system_key],
     )
   }
 }
@@ -1368,11 +1396,25 @@ export async function dbUpdateAiSystemExtra(systemKey: string, extra: Record<str
 }
 
 export async function dbUpdatePlannerBehavior(data: Record<string, unknown>) {
+  // Preserve the per-provider model memory (Task #16) — it lives in
+  // extra_config.providerModels and must survive this wholesale rewrite of the
+  // planner's behavior config.
+  const existing = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'planner'`,
+  )
+  const existingExtra =
+    existing?.extra_config && typeof existing.extra_config === 'object'
+      ? (existing.extra_config as Record<string, unknown>)
+      : {}
+  const next: Record<string, unknown> = { ...data }
+  if (existingExtra.providerModels && next.providerModels === undefined) {
+    next.providerModels = existingExtra.providerModels
+  }
   await query(`
     UPDATE ai_system_configs 
     SET extra_config = $1, updated_at = NOW()
     WHERE system_key = 'planner'
-  `, [JSON.stringify(data)])
+  `, [JSON.stringify(next)])
 }
 
 // Returns the merged, enabled custom HTML for public-site injection.
