@@ -19,6 +19,21 @@ export default function PrivacyPage() {
           Last updated: 29 May 2026 · Effective from first publication
         </p>
 
+        <a
+          href="https://www.slg.lu/politique-de-confidentialite/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-8 flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 px-6 py-5 transition-colors hover:bg-primary/15 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <p className="text-base font-semibold text-foreground">View our official Privacy Policy</p>
+            <p className="mt-1 text-sm text-muted-foreground">Read the full, legally binding privacy policy on slg.lu</p>
+          </div>
+          <span className="inline-flex shrink-0 items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90">
+            Open Privacy Policy →
+          </span>
+        </a>
+
         <div className="mt-8 rounded-xl border border-border bg-secondary/30 px-5 py-4 text-sm text-muted-foreground">
           This policy explains which personal data sightseeing.lu collects, why, who we share it with, and what rights you have under the EU General Data Protection Regulation (GDPR — Regulation 2016/679) and Luxembourg data protection law as supervised by the <strong>CNPD</strong>.
         </div>

@@ -38,7 +38,7 @@ const LINKS = {
     { label: "Emergency & 24/7 Support", href: "/emergency" },
     { label: "Sitemap", href: "/sitemap.xml" },
     { label: "Terms & Conditions", href: "#" },
-    { label: "Privacy Policy", href: "/privacy" },
+    { label: "Privacy Policy", href: "https://www.slg.lu/politique-de-confidentialite/", external: true },
     { label: "Legal Notice", href: "/impressum" },
     { label: "Whistleblower", href: "https://whistleblowersoftware.com/secure/SLG", external: true },
   ],
@@ -86,7 +86,7 @@ export function SiteFooter() {
               &copy; {new Date().getFullYear()} sightseeing.lu S.à r.l. — All rights reserved.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
-              <Link href="/privacy" className="text-xs text-muted-foreground transition-colors hover:text-primary">Privacy Policy</Link>
+              <a href="https://www.slg.lu/politique-de-confidentialite/" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-primary">Privacy Policy</a>
               <Link href="/impressum" className="text-xs text-muted-foreground transition-colors hover:text-primary">Legal Notice</Link>
               <CookieSettingsButton />
             </div>
