@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { dbGetPost, dbUpdatePost, dbDeletePost } from "@/lib/db/queries"
 import { revalidatePath } from "next/cache"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -25,7 +26,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const data = await req.json()
     const updated = await dbUpdatePost(id, data)
@@ -35,6 +36,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     revalidatePath(`/admin/blog/${id}`)
     if (slug) revalidatePath(`/blog/${slug}`)
     revalidatePath("/blog")
+    void logActivity({
+      actor: session,
+      action: "post.update",
+      entityType: "post",
+      entityId: id,
+      summary: `Updated post "${(updated as { title?: string }).title ?? id}"`,
+    })
     return NextResponse.json(updated)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -45,13 +53,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
-    const post = await dbGetPost(id) as { slug?: string } | null
+    const post = await dbGetPost(id) as { slug?: string; title?: string } | null
     await dbDeletePost(id)
     revalidatePath("/admin/blog")
     revalidatePath("/blog")
     if (post?.slug) revalidatePath(`/blog/${post.slug}`)
+    void logActivity({
+      actor: session,
+      action: "post.delete",
+      entityType: "post",
+      entityId: id,
+      summary: `Deleted post "${post?.title ?? id}"`,
+    })
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

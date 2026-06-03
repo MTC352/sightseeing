@@ -163,6 +163,11 @@ export function canAccessPath(
     return false
   }
 
+  // Recent Activity (audit trail) is a superadmin-only review surface.
+  if (matchPath(pathname, "/admin/activity") || matchPath(pathname, "/api/admin/activity")) {
+    return false
+  }
+
   const perms = sanitizePermissions(permissions)
 
   // Longest-prefix match wins.

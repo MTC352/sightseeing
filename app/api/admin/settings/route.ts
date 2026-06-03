@@ -8,6 +8,7 @@ import {
   dbUpdateHeaderFooter,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -28,7 +29,7 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const body = await req.json()
     const { section, data } = body as {
       section: "apiKeys" | "ai" | "weglot" | "header" | "footer"
@@ -52,6 +53,14 @@ export async function PATCH(req: Request) {
     } else {
       return NextResponse.json({ error: "Unknown section" }, { status: 400 })
     }
+
+    void logActivity({
+      actor: session,
+      action: "settings.update",
+      entityType: "settings",
+      entityId: section,
+      summary: `Updated ${section} settings`,
+    })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

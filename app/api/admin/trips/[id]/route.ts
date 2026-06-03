@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache"
 import { dbGetTrip, dbUpdateTrip, dbDeleteTrip, dbGetIntegration } from "@/lib/db/queries"
 import { resolvePolicy, isFieldEditable, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -52,7 +53,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const data = await req.json()
     const { filtered, stripped } = await filterByPolicy(data as Record<string, unknown>)
@@ -63,6 +64,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
     revalidatePath("/admin/trips")
     revalidatePath("/")
+    void logActivity({
+      actor: session,
+      action: "trip.update",
+      entityType: "trip",
+      entityId: id,
+      summary: `Updated trip "${(updated as { title?: string }).title ?? id}"`,
+    })
     return NextResponse.json({ ...updated, _strippedReadOnly: stripped.length ? stripped : undefined })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -73,11 +81,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     await dbDeleteTrip(id)
     revalidatePath("/admin/trips")
     revalidatePath("/")
+    void logActivity({
+      actor: session,
+      action: "trip.delete",
+      entityType: "trip",
+      entityId: id,
+      summary: `Deleted trip ${id}`,
+    })
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

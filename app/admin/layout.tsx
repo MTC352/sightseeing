@@ -6,7 +6,7 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, ShieldCheck,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, ShieldCheck, Activity,
 } from "lucide-react"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
@@ -45,6 +45,7 @@ const NAV: NavItem[] = [
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw, perm: "palisis" },
   { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare, perm: "implementation" },
   { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
+  { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
   { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
   { href: "/admin/file-rules", label: "File Upload Rules", icon: ShieldCheck, superadminOnly: true },
 ]
@@ -115,8 +116,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {!collapsed && (
             <>
               <span className="text-sm font-bold text-foreground">sightseeing.lu</span>
-              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary">
-                Admin
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                  isSuperadmin ? "bg-primary/10 text-primary" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                }`}
+              >
+                {isSuperadmin ? "Admin" : "Employee"}
               </span>
             </>
           )}

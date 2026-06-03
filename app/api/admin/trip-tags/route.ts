@@ -6,6 +6,7 @@ import {
   dbListTripTagsWithCounts,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -52,7 +53,7 @@ function slugify(s: string): string {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const body = await req.json()
     const label = String(body?.label ?? "").trim()
     if (!label) {
@@ -71,6 +72,13 @@ export async function POST(req: Request) {
     if (!tag) {
       return NextResponse.json({ error: "Tag already exists" }, { status: 409 })
     }
+    void logActivity({
+      actor: session,
+      action: "trip_tag.create",
+      entityType: "trip_tag",
+      entityId: slug,
+      summary: `Created trip tag "${label}"`,
+    })
     revalidatePath("/")
     revalidatePath("/admin/trip-tags")
     return NextResponse.json(tag, { status: 201 })

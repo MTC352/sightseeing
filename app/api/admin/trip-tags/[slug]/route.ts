@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbUpdateTripTag, dbDeleteTripTag } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -14,7 +15,7 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { slug } = await params
     const body = await req.json()
     const patch: Record<string, unknown> = {}
@@ -23,6 +24,13 @@ export async function PATCH(
     if (Number.isFinite(body?.sort_order)) patch.sort_order = Number(body.sort_order)
     const tag = await dbUpdateTripTag(slug, patch)
     if (!tag) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    void logActivity({
+      actor: session,
+      action: "trip_tag.update",
+      entityType: "trip_tag",
+      entityId: slug,
+      summary: `Updated trip tag "${(tag as { label?: string }).label ?? slug}"`,
+    })
     revalidatePath("/")
     revalidatePath("/admin/trip-tags")
     return NextResponse.json(tag)
@@ -38,9 +46,16 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { slug } = await params
     await dbDeleteTripTag(slug)
+    void logActivity({
+      actor: session,
+      action: "trip_tag.delete",
+      entityType: "trip_tag",
+      entityId: slug,
+      summary: `Deleted trip tag "${slug}"`,
+    })
     revalidatePath("/")
     revalidatePath("/admin/trip-tags")
     return NextResponse.json({ success: true })

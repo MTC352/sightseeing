@@ -4,6 +4,7 @@ import path from "path"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbDeleteMedia, dbUpdateMediaTitle } from "@/lib/db/queries"
 import { logError } from "@/lib/error-log"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -13,11 +14,18 @@ function isUnauthorized(err: unknown): boolean {
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const body = await req.json().catch(() => ({}))
     const updated = await dbUpdateMediaTitle(id, typeof body.title === "string" ? body.title : null)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    void logActivity({
+      actor: session,
+      action: "file.update",
+      entityType: "file",
+      entityId: updated.id,
+      summary: `Renamed file to "${updated.title ?? updated.filename}"`,
+    })
     return NextResponse.json(updated)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -46,6 +54,14 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
         sizeBytes: removed.size_bytes,
         deletedBy: { id: session.id, name: session.name, email: session.email },
       },
+    })
+    void logActivity({
+      actor: session,
+      action: "file.delete",
+      entityType: "file",
+      entityId: removed.id,
+      summary: `Deleted file "${removed.title ?? removed.filename}"`,
+      context: { filename: removed.filename, url: removed.url },
     })
 
     // Best-effort cleanup of the underlying stored object.

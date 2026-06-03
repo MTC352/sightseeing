@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbGetPageRevisions, dbCreatePageRevision } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -23,10 +24,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const data = await req.json()
     const revision = await dbCreatePageRevision(id, data, data.label)
+    void logActivity({
+      actor: session,
+      action: "page_revision.create",
+      entityType: "page_revision",
+      entityId: String((revision as { id?: string | number } | null)?.id ?? id),
+      summary: `Created revision for page ${id}`,
+      context: { pageId: id },
+    })
     return NextResponse.json(revision, { status: 201 })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

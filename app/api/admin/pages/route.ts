@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbListPages, dbCreatePage } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -21,12 +22,19 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const data = await req.json()
     if (!data.slug || !data.title) {
       return NextResponse.json({ error: "slug and title are required" }, { status: 400 })
     }
     const page = await dbCreatePage(data)
+    void logActivity({
+      actor: session,
+      action: "page.create",
+      entityType: "page",
+      entityId: (page as { id?: string | number } | null)?.id,
+      summary: `Created page "${data.title}"`,
+    })
     return NextResponse.json(page, { status: 201 })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

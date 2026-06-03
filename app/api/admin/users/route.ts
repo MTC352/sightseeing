@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
 import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
 import { dbListAdminUsers, dbCreateEmployee } from "@/lib/db/queries"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -54,6 +55,16 @@ export async function POST(req: Request) {
       permissions: body.permissions,
       email: typeof body.email === "string" ? body.email : null,
     })
+
+    void logActivity({
+      actor: session,
+      action: "user.create",
+      entityType: "user",
+      entityId: user.id,
+      summary: `Created user "${user.name ?? user.username ?? username}"`,
+      context: { targetUserId: user.id },
+    })
+
     return NextResponse.json(user, { status: 201 })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

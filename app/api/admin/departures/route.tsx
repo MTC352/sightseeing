@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListDepartures, dbCreateDeparture, dbUpdateDeparture, dbDeleteDeparture } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -22,9 +23,16 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const data = await req.json()
     const dep = await dbCreateDeparture(data)
+    void logActivity({
+      actor: session,
+      action: "departure.create",
+      entityType: "departure",
+      entityId: (dep as { id?: string | number } | null)?.id,
+      summary: `Created departure "${(dep as { title?: string } | null)?.title ?? data.title ?? (dep as { id?: string | number } | null)?.id ?? ""}"`,
+    })
     revalidatePath("/admin/departures")
     revalidatePath("/departures")
     return NextResponse.json(dep, { status: 201 })
@@ -37,10 +45,17 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id, ...data } = await req.json()
     const updated = await dbUpdateDeparture(id, data)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    void logActivity({
+      actor: session,
+      action: "departure.update",
+      entityType: "departure",
+      entityId: id,
+      summary: `Updated departure "${(updated as { title?: string } | null)?.title ?? id}"`,
+    })
     revalidatePath("/admin/departures")
     revalidatePath("/departures")
     return NextResponse.json(updated)
@@ -53,10 +68,17 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const id = req.nextUrl.searchParams.get("id")
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
     await dbDeleteDeparture(id)
+    void logActivity({
+      actor: session,
+      action: "departure.delete",
+      entityType: "departure",
+      entityId: id,
+      summary: `Deleted departure ${id}`,
+    })
     revalidatePath("/admin/departures")
     revalidatePath("/departures")
     return NextResponse.json({ ok: true })

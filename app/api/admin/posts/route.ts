@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { dbListPosts, dbCreatePost } from "@/lib/db/queries"
 import { revalidatePath } from "next/cache"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +23,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const data = await req.json()
     if (!data.title?.trim()) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 })
@@ -30,6 +31,13 @@ export async function POST(req: Request) {
     const post = await dbCreatePost(data)
     revalidatePath("/admin/blog")
     revalidatePath("/blog")
+    void logActivity({
+      actor: session,
+      action: "post.create",
+      entityType: "post",
+      entityId: (post as { id?: string }).id,
+      summary: `Created post "${(post as { title?: string }).title ?? data.title}"`,
+    })
     return NextResponse.json(post, { status: 201 })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

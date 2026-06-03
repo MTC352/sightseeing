@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbDeleteTaxonomy, dbGetTaxonomy } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -24,9 +25,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ key: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { key } = await params
     await dbDeleteTaxonomy(key)
+    void logActivity({
+      actor: session,
+      action: "taxonomy.delete",
+      entityType: "taxonomy",
+      entityId: key,
+      summary: `Deleted taxonomy "${key}"`,
+    })
     return NextResponse.json({ deleted: key })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

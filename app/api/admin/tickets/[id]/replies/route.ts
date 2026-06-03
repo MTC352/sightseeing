@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
 import { dbGetTicket, dbAddTicketReply } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const ticket = await dbGetTicket(id)
     if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
@@ -16,6 +17,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       authorName: data.authorName ?? "Admin User",
       authorRole: data.authorRole ?? "admin",
       message: data.message,
+    })
+
+    void logActivity({
+      actor: session,
+      action: "ticket_reply.create",
+      entityType: "ticket_reply",
+      entityId: id,
+      summary: `Added reply to ticket "${(ticket as { subject?: string }).subject ?? id}"`,
     })
 
     return NextResponse.json(reply, { status: 201 })

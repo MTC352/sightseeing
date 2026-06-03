@@ -4,12 +4,14 @@ import type { TourSummary } from "@/lib/tourcms"
 import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper"
 import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
 // ── POST /api/admin/palisis-import ────────────────────────────────────────────
 export async function POST(req: Request) {
-  try { await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+  let session
+  try { session = await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   const startedAt = Date.now()
   const body = await req.json().catch(() => ({})) as { override?: boolean }
   const overrideAll = body.override === true
@@ -238,6 +240,22 @@ export async function POST(req: Request) {
       duration_ms: durationMs,
       tours: tourResults,
       log: logs,
+    },
+  })
+
+  void logActivity({
+    actor: session,
+    action: "palisis.import",
+    entityType: "palisis",
+    summary: `Ran Palisis catalog import (${importMode}): ${imported} imported, ${updated} updated, ${skipped} skipped of ${tourList.length} tours`,
+    context: {
+      import_mode: importMode,
+      total: tourList.length,
+      imported,
+      updated,
+      skipped,
+      api_errors: apiErrors,
+      override_mode: overrideAll,
     },
   })
 

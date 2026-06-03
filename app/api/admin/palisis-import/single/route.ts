@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { syncSingleTripFromPalisis } from "@/lib/palisis-sync"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic"
 // Never pushes data back to Palisis.
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const body = await req.json().catch(() => ({})) as {
       palisisId?: string
       channelId?: number
@@ -24,6 +25,17 @@ export async function POST(req: Request) {
     }
 
     const result = await syncSingleTripFromPalisis(palisisId, "manual", channelId)
+
+    if (result.ok) {
+      void logActivity({
+        actor: session,
+        action: "palisis.import_single",
+        entityType: "palisis",
+        entityId: palisisId,
+        summary: `Re-imported Palisis tour ${palisisId}`,
+        context: { palisisId, channelId },
+      })
+    }
 
     return NextResponse.json(result, { status: result.ok ? 200 : 502 })
   } catch (err) {

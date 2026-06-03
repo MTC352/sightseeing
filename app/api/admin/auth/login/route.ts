@@ -4,6 +4,7 @@ import { queryOne } from "@/lib/db"
 import { signSession, sessionCookieOptions } from "@/lib/auth"
 import { sanitizePermissions } from "@/lib/admin-permissions"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { logActivity } from "@/lib/activity-log"
 
 export async function POST(req: Request) {
   const limit = rateLimit(req, { limit: 10, windowMs: 15 * 60 * 1000 })
@@ -50,6 +51,14 @@ export async function POST(req: Request) {
       permissions,
     })
     const opts = sessionCookieOptions(token)
+
+    void logActivity({
+      actor: { id: user.id, name: user.name, email: user.email, role: user.role },
+      action: "auth.login",
+      entityType: "session",
+      entityId: user.id,
+      summary: `${user.name} signed in`,
+    })
 
     const res = NextResponse.json({
       ok: true,

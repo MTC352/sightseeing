@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbGetJob, dbUpdateJob, dbDeleteJob } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -23,12 +24,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const data = await req.json()
     const updated = await dbUpdateJob(id, data)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
     revalidatePath("/admin/jobs")
+    void logActivity({
+      actor: session,
+      action: "job.update",
+      entityType: "job",
+      entityId: id,
+      summary: `Updated job "${(updated as { title?: string }).title ?? id}"`,
+    })
     return NextResponse.json(updated)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -39,10 +47,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     await dbDeleteJob(id)
     revalidatePath("/admin/jobs")
+    void logActivity({
+      actor: session,
+      action: "job.delete",
+      entityType: "job",
+      entityId: id,
+      summary: `Deleted job ${id}`,
+    })
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListJobs, dbCreateJob } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -22,11 +23,18 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const data = await req.json()
     if (!data.title?.trim()) return NextResponse.json({ error: "Job title is required" }, { status: 400 })
     const job = await dbCreateJob(data)
     revalidatePath("/admin/jobs")
+    void logActivity({
+      actor: session,
+      action: "job.create",
+      entityType: "job",
+      entityId: (job as { id?: string }).id,
+      summary: `Created job "${(job as { title?: string }).title ?? data.title}"`,
+    })
     return NextResponse.json(job, { status: 201 })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

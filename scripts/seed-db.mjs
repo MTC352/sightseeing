@@ -293,6 +293,27 @@ async function seedErrorLogs() {
   await query(`CREATE INDEX IF NOT EXISTS idx_error_logs_source ON error_logs (source, created_at DESC)`)
 }
 
+async function seedActivityLog() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id BIGSERIAL PRIMARY KEY,
+      user_id UUID,
+      user_name TEXT,
+      user_email TEXT,
+      user_role TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      summary TEXT NOT NULL,
+      context JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log (created_at DESC)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log (user_id, created_at DESC)`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_activity_log_action ON activity_log (action, created_at DESC)`)
+}
+
 async function main() {
   try {
     console.log('Seeding database...')
@@ -306,6 +327,7 @@ async function main() {
     await seedHelpArticles()
     await seedTripTags()
     await seedErrorLogs()
+    await seedActivityLog()
 
     // Verify final counts
     const { rows } = await query(`

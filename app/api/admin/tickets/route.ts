@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbListTickets, dbCreateTicket } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -21,7 +22,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const data = await req.json()
     if (!data.subject || !data.description || !data.category || !data.priority) {
       return NextResponse.json({ error: "Missing required fields: subject, description, category, priority" }, { status: 400 })
@@ -36,6 +37,13 @@ export async function POST(req: Request) {
       authorEmail: data.authorEmail ?? "admin@sightseeing.lu",
       authorRole: data.authorRole ?? "admin",
       assignedTo: data.assignedTo ?? null,
+    })
+    void logActivity({
+      actor: session,
+      action: "ticket.create",
+      entityType: "ticket",
+      entityId: (ticket as { id?: string | number } | null)?.id,
+      summary: `Created ticket "${data.subject}"`,
     })
     return NextResponse.json(ticket, { status: 201 })
   } catch (err) {

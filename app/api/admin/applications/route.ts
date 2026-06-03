@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbListApplications, dbUpdateApplication, dbDeleteApplication } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -24,12 +25,20 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const body = await req.json()
     const { id, ...data } = body
     if (!id) return NextResponse.json({ error: "Missing application id" }, { status: 400 })
     const updated = await dbUpdateApplication(id, data)
     if (!updated) return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    void logActivity({
+      actor: session,
+      action: "application.update",
+      entityType: "application",
+      entityId: String(id),
+      summary: `Updated job application ${id}`,
+      context: data?.status ? { status: data.status } : undefined,
+    })
     return NextResponse.json(updated)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -40,11 +49,18 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
     if (!id) return NextResponse.json({ error: "Missing application id" }, { status: 400 })
     await dbDeleteApplication(id)
+    void logActivity({
+      actor: session,
+      action: "application.delete",
+      entityType: "application",
+      entityId: id,
+      summary: `Deleted job application ${id}`,
+    })
     return NextResponse.json({ success: true })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

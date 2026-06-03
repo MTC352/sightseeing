@@ -1,14 +1,35 @@
 import Link from "next/link"
 import { dbListTrips, dbListJobs, dbListPosts } from "@/lib/db/queries"
 import { Map, FileText, Briefcase, Bot, Plug, ChevronRight, Star, Code2 } from "lucide-react"
+import { requireAdminSession } from "@/lib/auth-server"
+import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
 export const dynamic = "force-dynamic"
 
 export default async function AdminDashboard() {
+  // Gate every dashboard widget by the signed-in user's permissions so an
+  // employee never sees data (or shortcuts) for sections they can't access.
+  let role = ""
+  let permissions: PermissionKey[] = []
+  try {
+    const session = await requireAdminSession()
+    role = session.role
+    permissions = (session.permissions ?? []) as PermissionKey[]
+  } catch {
+    // The proxy already guards /admin; if we get here unauthenticated the
+    // client layout will redirect to login. Render an empty dashboard.
+  }
+  const isSuperadmin = role === FULL_ACCESS_ROLE
+  const can = (perm: PermissionKey) => isSuperadmin || permissions.includes(perm)
+
+  const canTrips = can("trips")
+  const canBlog = can("blog")
+  const canJobs = can("jobs")
+
   const [trips, jobs, posts] = await Promise.all([
-    dbListTrips(),
-    dbListJobs(),
-    dbListPosts(),
+    canTrips ? dbListTrips() : Promise.resolve([]),
+    canJobs ? dbListJobs() : Promise.resolve([]),
+    canBlog ? dbListPosts() : Promise.resolve([]),
   ])
 
   const publishedTrips = (trips as { status: string }[]).filter((t) => t.status === "published").length
@@ -17,20 +38,20 @@ export default async function AdminDashboard() {
   const featuredTrips = (trips as { featured: boolean }[]).filter((t) => t.featured).length
 
   const stats = [
-    { label: "Total Trips", value: trips.length, sub: `${publishedTrips} published`, icon: Map, href: "/admin/trips" },
-    { label: "Blog Posts", value: posts.length, sub: `${publishedPosts} published`, icon: FileText, href: "/admin/blog" },
-    { label: "Open Jobs", value: openJobs, sub: `${jobs.length} total listings`, icon: Briefcase, href: "/admin/jobs" },
-    { label: "Featured Trips", value: featuredTrips, sub: "Shown on homepage", icon: Star, href: "/admin/trips" },
-  ]
+    canTrips && { label: "Total Trips", value: trips.length, sub: `${publishedTrips} published`, icon: Map, href: "/admin/trips" },
+    canBlog && { label: "Blog Posts", value: posts.length, sub: `${publishedPosts} published`, icon: FileText, href: "/admin/blog" },
+    canJobs && { label: "Open Jobs", value: openJobs, sub: `${jobs.length} total listings`, icon: Briefcase, href: "/admin/jobs" },
+    canTrips && { label: "Featured Trips", value: featuredTrips, sub: "Shown on homepage", icon: Star, href: "/admin/trips" },
+  ].filter(Boolean) as { label: string; value: number; sub: string; icon: typeof Map; href: string }[]
 
   const quickActions = [
-    { label: "Manage Trips", description: "Edit prices, images, and availability", href: "/admin/trips", icon: Map },
-    { label: "Write a Blog Post", description: "Create or edit blog content", href: "/admin/blog", icon: FileText },
-    { label: "Post a Job", description: "Add a new open position", href: "/admin/jobs", icon: Briefcase },
-    { label: "AI Systems", description: "Configure prompts and models", href: "/admin/ai-systems", icon: Bot },
-    { label: "Integrations", description: "Manage API keys and third-party services", href: "/admin/integrations", icon: Plug },
-    { label: "Header / Footer", description: "Edit global header and footer HTML", href: "/admin/header-footer", icon: Code2 },
-  ]
+    canTrips && { label: "Manage Trips", description: "Edit prices, images, and availability", href: "/admin/trips", icon: Map },
+    canBlog && { label: "Write a Blog Post", description: "Create or edit blog content", href: "/admin/blog", icon: FileText },
+    canJobs && { label: "Post a Job", description: "Add a new open position", href: "/admin/jobs", icon: Briefcase },
+    can("ai-systems") && { label: "AI Systems", description: "Configure prompts and models", href: "/admin/ai-systems", icon: Bot },
+    can("integrations") && { label: "Integrations", description: "Manage API keys and third-party services", href: "/admin/integrations", icon: Plug },
+    can("header-footer") && { label: "Header / Footer", description: "Edit global header and footer HTML", href: "/admin/header-footer", icon: Code2 },
+  ].filter(Boolean) as { label: string; description: string; href: string; icon: typeof Map }[]
 
   return (
     <div className="p-6 lg:p-10">
@@ -84,6 +105,7 @@ export default async function AdminDashboard() {
       </div>
 
       {/* Recent trips */}
+      {canTrips && (
       <div className="mt-10">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">Recent Trips</h2>
@@ -124,6 +146,7 @@ export default async function AdminDashboard() {
           </table>
         </div>
       </div>
+      )}
     </div>
   )
 }

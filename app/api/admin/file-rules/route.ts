@@ -14,6 +14,7 @@ import {
   HARD_MAX_MB,
 } from "@/lib/file-rules"
 import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -74,6 +75,13 @@ export async function PATCH(req: Request) {
         )
       }
       await dbSetGlobalFileRules(rules)
+      void logActivity({
+        actor: session,
+        action: "file_rule.update",
+        entityType: "file_rule",
+        entityId: "global",
+        summary: "Updated global file upload rules",
+      })
       return NextResponse.json({ ok: true, global: rules })
     }
 
@@ -92,6 +100,16 @@ export async function PATCH(req: Request) {
       }
       const updated = await dbSetUserFileRules(userId, rules)
       if (!updated) return NextResponse.json({ error: "User not found" }, { status: 404 })
+      void logActivity({
+        actor: session,
+        action: "file_rule.update",
+        entityType: "file_rule",
+        entityId: userId,
+        summary: rules == null
+          ? `Cleared file upload rules override for user ${userId}`
+          : `Updated file upload rules for user ${userId}`,
+        context: { targetUserId: userId },
+      })
       return NextResponse.json({ ok: true, userId, rules })
     }
 

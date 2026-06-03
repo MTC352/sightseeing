@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
 import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
 import { dbGetAdminUser, dbUpdateAdminUser, dbDeleteAdminUser } from "@/lib/db/queries"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -54,6 +55,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!updated) {
       return NextResponse.json({ error: "Account not found or not editable" }, { status: 404 })
     }
+
+    void logActivity({
+      actor: session,
+      action: "user.update",
+      entityType: "user",
+      entityId: id,
+      summary: `Updated user "${updated.name ?? updated.username ?? id}"`,
+      context: { targetUserId: id },
+    })
+
     return NextResponse.json(updated)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -76,6 +87,16 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!ok) {
       return NextResponse.json({ error: "Account not found or not deletable" }, { status: 404 })
     }
+
+    void logActivity({
+      actor: session,
+      action: "user.delete",
+      entityType: "user",
+      entityId: id,
+      summary: `Deleted user ${id}`,
+      context: { targetUserId: id },
+    })
+
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

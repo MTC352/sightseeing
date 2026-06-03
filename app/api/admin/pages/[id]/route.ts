@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbGetPage, dbUpdatePage, dbDeletePage } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
@@ -24,11 +25,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const data = await req.json()
     const updated = await dbUpdatePage(id, data)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    void logActivity({
+      actor: session,
+      action: "page.update",
+      entityType: "page",
+      entityId: id,
+      summary: `Updated page "${(updated as { title?: string }).title ?? id}"`,
+    })
     return NextResponse.json(updated)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -39,7 +47,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const page = await dbGetPage(id)
     if (!page) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -47,6 +55,13 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Cannot delete a system page" }, { status: 403 })
     }
     await dbDeletePage(id)
+    void logActivity({
+      actor: session,
+      action: "page.delete",
+      entityType: "page",
+      entityId: id,
+      summary: `Deleted page "${(page as { title?: string }).title ?? id}"`,
+    })
     return NextResponse.json({ deleted: id })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

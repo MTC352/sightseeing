@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbListMedia } from "@/lib/db/queries"
 import { processUpload } from "@/lib/media-upload"
+import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 // Allow large uploads (video etc.) to stream through the route handler.
@@ -27,6 +28,17 @@ export async function POST(request: Request) {
   try {
     const session = await requireAdminSession()
     const { status, body } = await processUpload(request, session.id)
+    if (status >= 200 && status < 300) {
+      const file = body as { id?: string; title?: string; filename?: string; url?: string }
+      void logActivity({
+        actor: session,
+        action: "file.upload",
+        entityType: "file",
+        entityId: file?.id ?? null,
+        summary: `Uploaded file "${file?.title ?? file?.filename ?? "file"}"`,
+        context: file?.url ? { url: file.url } : null,
+      })
+    }
     return NextResponse.json(body, { status })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
