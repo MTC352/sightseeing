@@ -6,9 +6,11 @@ import {
   Save, Check, Eye, EyeOff, ExternalLink, AlertCircle,
   Cloud, Map, Bot, Zap, Globe, Star, RefreshCw, Calendar,
   KeyRound, Settings2, ChevronDown, Info, Sliders, SlidersHorizontal,
-  CheckCircle2, XCircle, Loader2,
+  CheckCircle2, XCircle, Loader2, ShieldCheck,
 } from "lucide-react"
 import TripFieldsPanel from "@/components/admin/trip-fields-panel"
+import { FileRulesPanel } from "@/components/admin/file-rules-panel"
+import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog"
@@ -158,7 +160,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
 ]
 
 type ApiKeys = Record<string, string>
-type Tab = "keys" | "settings" | "trip-fields"
+type Tab = "keys" | "settings" | "trip-fields" | "file-rules"
 
 interface TestKeyResponse {
   ok: boolean
@@ -173,6 +175,7 @@ const inputBase =
 
 export default function IntegrationsPage() {
   const [tab, setTab] = useState<Tab>("keys")
+  const [isSuperadmin, setIsSuperadmin] = useState(false)
   const [keys, setKeys] = useState<ApiKeys>({})
   const [shown, setShown] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
@@ -216,6 +219,10 @@ export default function IntegrationsPage() {
         const apiKeys = (s?.apiKeys ?? {}) as ApiKeys
         setKeys(apiKeys)
       })
+      .catch(() => {})
+    fetch("/api/admin/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => setIsSuperadmin(me?.role === FULL_ACCESS_ROLE))
       .catch(() => {})
     refreshDsStatus()
   }, [])
@@ -473,10 +480,10 @@ export default function IntegrationsPage() {
       {/* Header */}
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Settings</p>
-          <h1 className="mt-1 text-2xl font-bold text-foreground">Integrations</h1>
+          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Admin</p>
+          <h1 className="mt-1 text-2xl font-bold text-foreground">Admin Settings</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Manage API keys and third-party service connections.
+            Manage API keys, third-party service connections, and platform settings.
           </p>
         </div>
         {tab === "keys" && (
@@ -528,6 +535,20 @@ export default function IntegrationsPage() {
           <Settings2 className="h-3.5 w-3.5" />
           Settings
         </button>
+        {isSuperadmin && (
+          <button
+            type="button"
+            onClick={() => setTab("file-rules")}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              tab === "file-rules"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Set File upload Rules
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setTab("trip-fields")}
@@ -543,6 +564,8 @@ export default function IntegrationsPage() {
       </div>
 
       {tab === "trip-fields" && <TripFieldsPanel />}
+
+      {tab === "file-rules" && isSuperadmin && <FileRulesPanel />}
 
       {/* ── API KEYS TAB ─────────────────────────────────────────── */}
       {tab === "keys" && (

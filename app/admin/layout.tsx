@@ -6,7 +6,7 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, ShieldCheck, Activity,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity,
 } from "lucide-react"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
@@ -40,14 +40,13 @@ const NAV: NavItem[] = [
   { href: "/admin/pages", label: "Pages", icon: Layout, perm: "pages" },
   { href: "/admin/files", label: "Files", icon: FolderOpen, perm: "files" },
   { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, badge: "Experimental", perm: "ai-systems" },
-  { href: "/admin/integrations", label: "Integrations", icon: Plug, perm: "integrations" },
+  { href: "/admin/integrations", label: "Admin Settings", icon: Plug, perm: "integrations" },
   { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, perm: "header-footer" },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw, perm: "palisis" },
   { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare, perm: "implementation" },
   { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
   { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
   { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
-  { href: "/admin/file-rules", label: "File Upload Rules", icon: ShieldCheck, superadminOnly: true },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
