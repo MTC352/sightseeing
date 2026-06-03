@@ -37,16 +37,16 @@ const NAV: NavItem[] = [
   { href: "/admin/blog", label: "Blog", icon: FileText, perm: "blog" },
   { href: "/admin/jobs", label: "Jobs", icon: Briefcase, perm: "jobs" },
   { href: "/admin/help", label: "Help & FAQ", icon: HelpCircle, perm: "help" },
-  { href: "/admin/tickets", label: "Support Tickets", icon: Ticket, perm: "tickets" },
   { href: "/admin/pages", label: "Pages", icon: Layout, perm: "pages" },
   { href: "/admin/files", label: "Files", icon: FolderOpen, perm: "files" },
+  { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, perm: "header-footer" },
   { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, badge: "Experimental", perm: "ai-systems" },
   { href: "/admin/integrations", label: "Admin Settings", icon: Plug, perm: "integrations" },
-  { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, perm: "header-footer" },
+  { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
+  { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw, perm: "palisis" },
   { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
-  { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
-  { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
+  { href: "/admin/tickets", label: "Support Tickets", icon: Ticket, perm: "tickets" },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
