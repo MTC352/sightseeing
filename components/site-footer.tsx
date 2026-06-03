@@ -40,6 +40,7 @@ const LINKS = {
     { label: "Terms & Conditions", href: "#" },
     { label: "Privacy Policy", href: "/privacy" },
     { label: "Legal Notice", href: "/impressum" },
+    { label: "Whistleblower", href: "https://whistleblowersoftware.com/secure/SLG", external: true },
   ],
 }
 
@@ -66,7 +67,13 @@ export function SiteFooter() {
               <h4 className="text-sm font-semibold text-foreground">{title}</h4>
               <ul className="mt-3 flex flex-col gap-2">
                 {links.map((l) => (
-                  <li key={l.label}><Link href={l.href} className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</Link></li>
+                  <li key={l.label}>
+                    {"external" in l && l.external ? (
+                      <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</a>
+                    ) : (
+                      <Link href={l.href} className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</Link>
+                    )}
+                  </li>
                 ))}
               </ul>
             </nav>
