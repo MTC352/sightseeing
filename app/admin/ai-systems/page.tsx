@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic"
 // the user-facing day-plan settings now live under "Manage Trip Planner"
 // (the renamed itinerary card) and the chat conversation settings live
 // under "Trip Chat".
-const SYSTEM_META: Record<string, { label: string; description: string; icon: typeof Bot; href: string }> = {
+const SYSTEM_META: Record<string, { label: string; description: string; icon: typeof Bot; href: string; configKey?: string }> = {
   blog: {
     label: "Blog Content Generator",
     description: "Generates SEO & AEO optimised articles and DALL-E 2 cover images from a topic prompt. Used on the blog edit page.",
@@ -34,6 +34,10 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
     description: "Conversational planner on /planner — admin prompt overrides plus the onboarding form options (groups, interests, durations, budgets, multi-day cap).",
     icon: Bot,
     href: "/admin/ai-systems/planner-chat",
+    // The conversational planner's model/temp/maxTokens live under the
+    // `planner` DB row (read by /api/planner), so the card must look there —
+    // there is no `planner-chat` row.
+    configKey: "planner",
   },
   help: {
     label: "Help & FAQ Chat",
@@ -76,7 +80,7 @@ export default async function AiSystemsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {Object.entries(SYSTEM_META).map(([key, meta]) => {
-          const config = (settings.ai as Record<string, { model: string; temperature: number; maxTokens: number }>)[key]
+          const config = (settings.ai as Record<string, { model: string; temperature: number; maxTokens: number }>)[meta.configKey ?? key]
           return (
             <Link
               key={key}

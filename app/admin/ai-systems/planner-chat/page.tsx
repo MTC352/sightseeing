@@ -20,8 +20,9 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Check, Bot, AlertCircle, Plus, Trash2, RotateCcw, Wand2 } from "lucide-react"
+import { ArrowLeft, Save, Check, Bot, AlertCircle, Plus, Trash2, RotateCcw, Wand2, ChevronDown } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
+import { PLANNER_PROMPT_STATIC_PREVIEW } from "@/lib/planner/system-prompt"
 
 const PLANNER_PROMPT_SUGGESTION = `You are the dedicated trip-planning assistant for sightseeing.lu. Keep replies short, warm, and conversational (1–2 sentences). Surface real, bookable trips from the catalog. Never invent prices, durations, or availability — call the right tool instead. When the user is ready, propose an itinerary; otherwise keep narrowing options with one focused follow-up question.`
 
@@ -77,7 +78,12 @@ export default function TripPlannerChatAdminPage() {
 
   const [plannerPrompt, setPlannerPrompt] = useState("")
   const [plannerForm, setPlannerForm] = useState<PlannerForm>(DEFAULT_PLANNER_FORM)
-  const [initialPrompt, setInitialPrompt] = useState<string>(PLANNER_PROMPT_SUGGESTION)
+  // Default to empty (not the suggestion) so the textarea honestly reflects
+  // reality: when nothing is saved, NO override is appended and the planner
+  // runs the hardcoded base prompt alone. The suggestion is only loaded on
+  // demand via the "Load default suggestion" button.
+  const [initialPrompt, setInitialPrompt] = useState<string>("")
+  const [showBasePrompt, setShowBasePrompt] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -94,7 +100,7 @@ export default function TripPlannerChatAdminPage() {
       .catch(() => null)
       .then((planner) => {
         if (cancelled) return
-        let nextPrompt = PLANNER_PROMPT_SUGGESTION
+        let nextPrompt = ""
         if (planner) {
           if (typeof planner.plannerSystemPrompt === "string" && planner.plannerSystemPrompt.trim().length > 0) {
             nextPrompt = planner.plannerSystemPrompt
@@ -241,6 +247,37 @@ export default function TripPlannerChatAdminPage() {
             <p className="mt-1.5 text-[11px] text-muted-foreground/60">
               {plannerPrompt.length} chars · Appended after the hardcoded planner prompt. Dynamic context (weather, cart, group, behaviour) stays managed in code.
             </p>
+
+            {/* Read-only view of the actual built-in base prompt so operators
+                see exactly what drives the frontend planner. Their override
+                above is appended AFTER this as "CUSTOM INSTRUCTIONS FROM
+                ADMIN". Sourced from the same module /api/planner uses, so it
+                can never drift from the live prompt. */}
+            <div className="mt-4 border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={() => setShowBasePrompt((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 text-left"
+                aria-expanded={showBasePrompt}
+                data-testid="toggle-base-prompt"
+              >
+                <span className="text-xs font-medium text-foreground">
+                  Built-in base prompt (read-only) — what the planner actually runs
+                </span>
+                <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${showBasePrompt ? "rotate-180" : ""}`} />
+              </button>
+              <p className="mt-1 text-[11px] text-muted-foreground/60">
+                The frontend planner always runs this base prompt first; your instructions above are appended to the end. Runtime context (live weather, dates, catalog size, cart/group state) is shown as <code className="rounded bg-secondary px-1 py-0.5">[bracketed]</code> placeholders.
+              </p>
+              {showBasePrompt && (
+                <pre
+                  data-testid="base-prompt-preview"
+                  className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/30 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground"
+                >
+                  {PLANNER_PROMPT_STATIC_PREVIEW}
+                </pre>
+              )}
+            </div>
           </div>
         </section>
 
