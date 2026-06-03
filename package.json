@@ -65,6 +65,7 @@
     "fast-xml-parser": "^5.8.0",
     "input-otp": "1.4.1",
     "jose": "^6.2.2",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.544.0",
     "mapbox-gl": "^3.9.4",
     "next": "16.2.6",

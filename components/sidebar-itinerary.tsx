@@ -7,8 +7,9 @@ import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bus, Car, Building2, ArrowRight,
   Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
-  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin, Plus,
+  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin, Plus, Download,
 } from "lucide-react"
+import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"
 
 /* ─── Visit-date helpers — must match the planner page so cookies are shared ─── */
@@ -1440,6 +1441,18 @@ export function ItineraryPanel({
 }) {
   const showCarWidget = itinerary.widgets?.showCarWidget !== false
   const showHotelWidget = itinerary.widgets?.showHotelWidget !== false
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const handleDownloadPdf = useCallback(async () => {
+    if (downloadingPdf) return
+    setDownloadingPdf(true)
+    try {
+      await downloadItineraryPdf(itinerary)
+    } catch {
+      /* swallow — a failed export should never break the panel */
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }, [downloadingPdf, itinerary])
   // Per-step DOM refs so a map click can scroll the matching card into view.
   const stepRefs = useRef<(HTMLDivElement | null)[]>([])
   useEffect(() => {
@@ -1469,7 +1482,21 @@ export function ItineraryPanel({
           </div>
         </div>
         <div className="flex items-center gap-2">
-
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={downloadingPdf}
+            className="flex h-8 items-center justify-center gap-1.5 rounded-full border border-border px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-60"
+            aria-label="Download itinerary as PDF"
+            title="Download itinerary as PDF"
+          >
+            {downloadingPdf ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            <span className="hidden sm:inline">PDF</span>
+          </button>
           <button
             type="button"
             onClick={onClose}

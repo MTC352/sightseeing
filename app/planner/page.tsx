@@ -29,8 +29,9 @@ import {
   Users, Heart, Baby, UserRound, Minus, Plus,
   Clock, DollarSign, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, RotateCcw, Check, Ticket, Copy, Calendar,
   CloudLightning, Umbrella, Camera, Share2, UserPlus, Route, ThumbsUp, ThumbsDown,
-  Maximize2, Loader2, Bookmark,
+  Maximize2, Loader2, Bookmark, Download,
 } from "lucide-react"
+import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
 import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
@@ -1208,6 +1209,24 @@ export default function PlannerPage() {
   const [mapExpanded, setMapExpanded] = useState(false)
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "up" | "down">>({})
   const [centerItinerary, setCenterItinerary] = useState<Itinerary | null>(null)
+  // PDF export of the active/latest day itinerary (canvas + chat-card buttons).
+  // Always prefers the full plan loaded on the Trip Canvas (it carries map
+  // coords, tips, prices); falls back to a chat card's lighter plan only when
+  // nothing is loaded yet.
+  const [downloadingItineraryPdf, setDownloadingItineraryPdf] = useState(false)
+  const handleDownloadItineraryPdf = useCallback(async (fallback?: Itinerary | null) => {
+    if (downloadingItineraryPdf) return
+    const target = centerItinerary ?? fallback ?? null
+    if (!target) return
+    setDownloadingItineraryPdf(true)
+    try {
+      await downloadItineraryPdf(target)
+    } catch {
+      /* swallow — a failed export must never break the planner */
+    } finally {
+      setDownloadingItineraryPdf(false)
+    }
+  }, [downloadingItineraryPdf, centerItinerary])
   // Visibility of the full-screen modal is now decoupled from the
   // itinerary DATA. Closing the modal previously cleared centerItinerary,
   // which (a) wiped localStorage and (b) flipped the sidebar back to
@@ -3827,6 +3846,19 @@ export default function PlannerPage() {
                                       </>
                                     )
                                   })()}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadItineraryPdf(itinerary as unknown as Itinerary)}
+                                    disabled={downloadingItineraryPdf}
+                                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                                  >
+                                    {downloadingItineraryPdf ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Download className="h-3 w-3" />
+                                    )}
+                                    Download your day itinerary
+                                  </button>
                                 </div>
                               </div>
                             )
