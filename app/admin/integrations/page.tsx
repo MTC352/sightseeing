@@ -23,7 +23,7 @@ import {
   AI_PROVIDERS,
   PROVIDER_LABELS,
   type AiProvider,
-  selectedProvider,
+  effectiveProvider,
 } from "@/lib/ai/models"
 
 interface ApiKeyField {
@@ -707,7 +707,12 @@ export default function IntegrationsPage() {
                         </p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {AI_PROVIDERS.map((p) => {
-                            const active = selectedProvider(keys) === p
+                            // Reflect the provider actually used at runtime: if only
+                            // one provider has a key it is auto-selected, even when
+                            // `ai_provider` still holds the default. Env is unknown
+                            // client-side, so the active marker is derived from the
+                            // saved DB keys (the source of truth the admin edits here).
+                            const active = effectiveProvider(keys, {}) === p
                             const hasKey = !!(keys[p] ?? "").trim()
                             return (
                               <button

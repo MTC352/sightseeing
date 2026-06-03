@@ -16,6 +16,12 @@ usingGateway }`. `model === null` means no usable key → caller MUST fail-soft
 client+server safe). Tier equivalence is fixed:
 fast = Haiku ⇄ gpt-4o-mini, balanced = Sonnet ⇄ gpt-4o, best = Opus ⇄ gpt-4.1.
 
+**Precedence contract (must stay in lockstep across `resolveAi`, `providerUsable`,
+and the admin selector):** direct provider key FIRST — DB integration key
+(`directKeyFor`, i.e. `apiKeys[provider]`) then env provider key — and the shared
+`AI_GATEWAY_API_KEY` only as a LAST fallback. Never check the gateway before the
+direct key: a stale/invalid gateway key must not override a valid direct key.
+
 **Rule — provider switch auto-remaps stored models.** When the admin changes the
 active provider (`integrations.ai_provider`), `dbUpdateApiKeys` detects the change
 and calls `dbRemapAiModelsForProvider`, which rewrites every

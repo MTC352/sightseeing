@@ -83,6 +83,29 @@ export async function resolveAi(opts: ResolveAiOptions = {}): Promise<AiResoluti
   const modelId = TIER_MODELS[provider][tier]
   const prefixedModelId = `${provider}/${modelId}`
 
+  // Resolution waterfall (must match `providerUsable`): direct provider key
+  // first — DB integration key, then env provider key — and only fall back to
+  // the shared gateway when no direct key exists. A stale/invalid gateway key
+  // must never override a valid direct provider key.
+  const key = directKeyFor(provider, apiKeys, env)
+  if (key) {
+    const model: LanguageModel =
+      provider === "anthropic"
+        ? createAnthropic({ apiKey: key })(modelId)
+        : createOpenAI({ apiKey: key })(modelId)
+
+    return {
+      provider,
+      model,
+      modelId,
+      prefixedModelId,
+      temperature,
+      maxTokens,
+      available: true,
+      usingGateway: false,
+    }
+  }
+
   const gateway = (env.gateway ?? "").trim()
   if (gateway) {
     // Gateway accepts the prefixed string id and bills both providers.
@@ -98,33 +121,14 @@ export async function resolveAi(opts: ResolveAiOptions = {}): Promise<AiResoluti
     }
   }
 
-  const key = directKeyFor(provider, apiKeys, env)
-  if (!key) {
-    return {
-      provider,
-      model: null,
-      modelId,
-      prefixedModelId,
-      temperature,
-      maxTokens,
-      available: false,
-      usingGateway: false,
-    }
-  }
-
-  const model: LanguageModel =
-    provider === "anthropic"
-      ? createAnthropic({ apiKey: key })(modelId)
-      : createOpenAI({ apiKey: key })(modelId)
-
   return {
     provider,
-    model,
+    model: null,
     modelId,
     prefixedModelId,
     temperature,
     maxTokens,
-    available: true,
+    available: false,
     usingGateway: false,
   }
 }
