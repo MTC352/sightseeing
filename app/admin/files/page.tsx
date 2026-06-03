@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import {
   FolderOpen, UploadCloud, Trash2, Loader2, Copy, Check, Search, FileText,
-  Film, Music, Image as ImageIcon, File as FileIcon, X, ScrollText,
+  Film, Music, Image as ImageIcon, File as FileIcon, X,
 } from "lucide-react"
 
 type MediaFile = {
@@ -57,8 +57,6 @@ export default function FilesPage() {
   const [uploadError, setUploadError] = useState("")
   const [dragOver, setDragOver] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [tosMediaId, setTosMediaId] = useState<string | null>(null)
-  const [tosBusy, setTosBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -75,34 +73,7 @@ export default function FilesPage() {
     }
   }, [])
 
-  const loadTos = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/site-documents")
-      if (!res.ok) return
-      const data = await res.json()
-      setTosMediaId(data?.termsOfService?.mediaId ?? null)
-    } catch { /* ignore */ }
-  }, [])
-
-  useEffect(() => { load(); loadTos() }, [load, loadTos])
-
-  async function setTermsOfService(id: string | null) {
-    setTosBusy(true)
-    try {
-      const res = await fetch("/api/admin/site-documents", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mediaId: id }),
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to update")
-      const data = await res.json()
-      setTosMediaId(data?.termsOfService?.mediaId ?? null)
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to update Terms of Service")
-    } finally {
-      setTosBusy(false)
-    }
-  }
+  useEffect(() => { load() }, [load])
 
   const uploadFiles = useCallback(async (list: FileList | File[]) => {
     const arr = Array.from(list)
@@ -134,7 +105,6 @@ export default function FilesPage() {
       const res = await fetch(`/api/admin/media/${id}`, { method: "DELETE" })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Delete failed")
       setFiles((f) => f.filter((x) => x.id !== id))
-      if (tosMediaId === id) setTosMediaId(null)
     } catch (e) {
       alert(e instanceof Error ? e.message : "Delete failed")
     }
@@ -268,11 +238,6 @@ export default function FilesPage() {
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
-                  {tosMediaId === file.id && (
-                    <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md bg-primary px-1.5 py-1 text-[10px] font-semibold text-primary-foreground">
-                      <ScrollText className="h-3 w-3" /> Terms
-                    </span>
-                  )}
                 </div>
                 <div className="flex flex-1 flex-col gap-2 p-3">
                   <div className="min-w-0">
@@ -304,20 +269,6 @@ export default function FilesPage() {
                       Open
                     </a>
                   </div>
-                  <button
-                    type="button"
-                    disabled={tosBusy}
-                    onClick={() => setTermsOfService(tosMediaId === file.id ? null : file.id)}
-                    className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${
-                      tosMediaId === file.id
-                        ? "bg-primary/10 text-primary hover:bg-primary/20"
-                        : "border border-dashed border-border text-muted-foreground hover:bg-secondary"
-                    }`}
-                    title="Use this file as the Terms of Service document linked in the site footer"
-                  >
-                    <ScrollText className="h-3 w-3" />
-                    {tosMediaId === file.id ? "Terms of Service ✓" : "Set as Terms of Service"}
-                  </button>
                 </div>
               </div>
             )

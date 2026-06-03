@@ -17,7 +17,7 @@
 - [Planner preflight card state](planner-preflight-state.md) — preflightCardState volatile (resets on refresh); restored buildItinerary cards must be rehydrated to "ready"; only latest card renders full.
 - [Itinerary list↔map sync](itinerary-map-sync.md) — shared active indices are full-step space; map renders a subset & skips unresolved steps, so a stepIndices array translates at the map boundary.
 - [Deploy build force-dynamic](deploy-build-force-dynamic.md) — DB-backed server page.tsx on static routes MUST be force-dynamic; else deploy `next build` prerenders & fails w/ "Connection terminated" (no DB in build sandbox). Local build passes (DB reachable).
-- [Media library & doc slots](media-library.md) — admin Files lib; no SVG (XSS); uploaded files wire into site doc slots (footer ToS) via integrations; refs must clear on delete + null-validate on public read.
+- [Media library](media-library.md) — admin Files lib (`/admin/files`, perm `files`, table media_files); blob-or-local upload; SVG/active-content MIME excluded (XSS).
 - [Planner cross-surface invariants](planner-cross-surface-invariants.md) — resolvePalisisId exists in BOTH planner+itinerary routes (keep fail-closed in sync); multi-day hide spans 5 surfaces.
 - [Admin RBAC](admin-rbac.md) — employee accounts w/ per-section perms; proxy gates via STALE JWT (edge), requireAdminSession is DB-fresh; every new /api/admin/* endpoint MUST be added to ROUTE_RULES or employees get false 403.
 - [Planner chat transport context](planner-chat-transport-context.md) — transport created once ([] deps); prefs + My Trip list MUST be ref-backed (synced in effect + at mutation time) or AI sees stale/empty cart; route RULE 11 makes list+date authoritative.
