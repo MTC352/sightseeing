@@ -285,7 +285,7 @@ export async function GET(req: Request) {
           model,
           system: systemPrompt,
           messages: [{ role: "user", content: userMessage }],
-          maxTokens: aiConfigMaxTokens,
+          maxOutputTokens: aiConfigMaxTokens,
           temperature: aiConfigTemperature,
           experimental_output: Output.object({ schema: RankingSchema }),
         })
