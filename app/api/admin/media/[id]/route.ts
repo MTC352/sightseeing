@@ -3,6 +3,7 @@ import { unlink } from "fs/promises"
 import path from "path"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbDeleteMedia, dbUpdateMediaTitle } from "@/lib/db/queries"
+import { logError } from "@/lib/error-log"
 
 export const dynamic = "force-dynamic"
 
@@ -27,10 +28,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    const session = await requireAdminSession()
     const { id } = await params
     const removed = await dbDeleteMedia(id)
     if (!removed) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+    // Audit trail: record who deleted which file (surfaced in /admin/logs).
+    void logError({
+      source: "media",
+      level: "info",
+      message: `File deleted: "${removed.title ?? removed.filename}" (${removed.url}) by ${session.name} <${session.email}>`,
+      context: {
+        action: "media.delete",
+        fileId: removed.id,
+        filename: removed.filename,
+        url: removed.url,
+        sizeBytes: removed.size_bytes,
+        deletedBy: { id: session.id, name: session.name, email: session.email },
+      },
+    })
 
     // Best-effort cleanup of the underlying stored object.
     try {

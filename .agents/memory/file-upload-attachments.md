@@ -28,3 +28,8 @@ description: How help-article document attachments, upload RBAC, body-size limit
 
 ## Tables
 - Media records live in `media_files` (not `media`). Help attachments are denormalized JSONB on `help_articles.attachments`.
+
+## Files page (admin media library) conventions
+- **Audit:** media deletions are logged to `error_logs` with `source:"media"`, `level:"info"`, and `context.deletedBy {id,name,email}` (surfaces automatically in `/admin/logs`). There is no separate audit table — `error_logs` doubles as the activity log.
+- **Copy-link offers both relative and absolute.** Stored `url` is already relative (`/uploads/…`); the relative form is the recommended one to hardcode in site code so staging→live domain changes don't break links. Absolute = `window.location.origin + url`, for external sharing only.
+- Deletion uses an AlertDialog confirmation (not native `confirm()`).

@@ -3,8 +3,15 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import {
   FolderOpen, UploadCloud, Trash2, Loader2, Copy, Check, Search, FileText,
-  Film, Music, Image as ImageIcon, File as FileIcon, X,
+  Film, Music, Image as ImageIcon, File as FileIcon, X, ChevronDown, Link2, Globe,
 } from "lucide-react"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 type MediaFile = {
   id: string
@@ -57,6 +64,8 @@ export default function FilesPage() {
   const [uploadError, setUploadError] = useState("")
   const [dragOver, setDragOver] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<MediaFile | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -99,29 +108,41 @@ export default function FilesPage() {
     }
   }, [load])
 
-  async function handleDelete(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? The shareable link will stop working.`)) return
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    const target = pendingDelete
+    setDeleting(true)
     try {
-      const res = await fetch(`/api/admin/media/${id}`, { method: "DELETE" })
+      const res = await fetch(`/api/admin/media/${target.id}`, { method: "DELETE" })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Delete failed")
-      setFiles((f) => f.filter((x) => x.id !== id))
+      setFiles((f) => f.filter((x) => x.id !== target.id))
+      setPendingDelete(null)
     } catch (e) {
       alert(e instanceof Error ? e.message : "Delete failed")
+    } finally {
+      setDeleting(false)
     }
   }
 
-  async function copyLink(file: MediaFile) {
-    const link = absoluteUrl(file.url)
+  async function writeClipboard(text: string) {
     try {
-      await navigator.clipboard.writeText(link)
+      await navigator.clipboard.writeText(text)
     } catch {
       const ta = document.createElement("textarea")
-      ta.value = link
+      ta.value = text
       document.body.appendChild(ta)
       ta.select()
       document.execCommand("copy")
       document.body.removeChild(ta)
     }
+  }
+
+  async function copyLink(file: MediaFile, kind: "relative" | "absolute") {
+    // Relative (e.g. "/uploads/x.pdf") is safe to hardcode in site code — it
+    // follows whatever domain it's served from, so staging→live moves don't break.
+    // Absolute includes the current origin (handy for sharing externally).
+    const link = kind === "relative" ? file.url : absoluteUrl(file.url)
+    await writeClipboard(link)
     setCopiedId(file.id)
     setTimeout(() => setCopiedId((c) => (c === file.id ? null : c)), 1800)
   }
@@ -232,7 +253,7 @@ export default function FilesPage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => handleDelete(file.id, file.title ?? file.filename)}
+                    onClick={() => setPendingDelete(file)}
                     className="absolute right-1.5 top-1.5 rounded-md bg-background/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:text-destructive group-hover:opacity-100"
                     title="Delete"
                   >
@@ -249,17 +270,31 @@ export default function FilesPage() {
                     </p>
                   </div>
                   <div className="mt-auto flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => copyLink(file)}
-                      className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-secondary px-2 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/70"
-                    >
-                      {copiedId === file.id ? (
-                        <><Check className="h-3 w-3 text-emerald-600" /> Copied</>
-                      ) : (
-                        <><Copy className="h-3 w-3" /> Copy link</>
-                      )}
-                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-secondary px-2 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/70">
+                        {copiedId === file.id ? (
+                          <><Check className="h-3 w-3 text-emerald-600" /> Copied</>
+                        ) : (
+                          <><Copy className="h-3 w-3" /> Copy link <ChevronDown className="h-3 w-3 opacity-60" /></>
+                        )}
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-56">
+                        <DropdownMenuItem onClick={() => copyLink(file, "relative")} className="gap-2">
+                          <Link2 className="h-3.5 w-3.5" />
+                          <div className="flex flex-col">
+                            <span className="text-xs font-medium">Relative link</span>
+                            <span className="text-[10px] text-muted-foreground">Best for site code · {file.url}</span>
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => copyLink(file, "absolute")} className="gap-2">
+                          <Globe className="h-3.5 w-3.5" />
+                          <div className="flex flex-col">
+                            <span className="text-xs font-medium">Full URL</span>
+                            <span className="text-[10px] text-muted-foreground">Includes domain · for sharing</span>
+                          </div>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <a
                       href={file.url}
                       target="_blank"
@@ -275,6 +310,32 @@ export default function FilesPage() {
           })}
         </div>
       )}
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => { if (!o && !deleting) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete && (
+                <>
+                  &ldquo;<span className="font-medium text-foreground">{pendingDelete.title ?? pendingDelete.filename}</span>&rdquo; will be
+                  permanently deleted. Any link to it (including links used in your site code) will stop working. This cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); confirmDelete() }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Deleting…</> : "Delete file"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
