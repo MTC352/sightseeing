@@ -1,28 +1,22 @@
 import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
-import { dbListMedia } from "@/lib/db/queries"
 import { processUpload } from "@/lib/media-upload"
 
 export const dynamic = "force-dynamic"
-// Allow large uploads (video etc.) to stream through the route handler.
+// Allow large attachment uploads to stream through the route handler.
 export const maxDuration = 60
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
-export async function GET() {
-  try {
-    await requireAdminSession()
-    const files = await dbListMedia()
-    return NextResponse.json(files)
-  } catch (err) {
-    if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    console.error("[admin/media] GET error:", err)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
-  }
-}
-
+/**
+ * Upload endpoint for Help-article attachments. Gated by the `help` permission
+ * (via proxy.ts → canAccessPath on the `/api/admin/help` prefix), so a Help
+ * editor can always attach a document even without the `files` permission. The
+ * media-library *listing* ("Select from Files") remains `files`-gated on
+ * `/api/admin/media`.
+ */
 export async function POST(request: Request) {
   try {
     const session = await requireAdminSession()
@@ -30,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json(body, { status })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    console.error("[admin/media] POST error:", err)
+    console.error("[admin/help/upload] POST error:", err)
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Upload failed" },
       { status: 500 },

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListHelpArticles, dbCreateHelpArticle } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { sanitizeAttachments } from "@/lib/file-rules"
 
 export const dynamic = "force-dynamic"
 
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
       status: data.status ?? "draft",
       order: data.order ?? 99,
       audience: data.audience ?? "public",
+      attachments: sanitizeAttachments(data.attachments),
     })
     revalidatePath("/admin/help")
     return NextResponse.json(article, { status: 201 })

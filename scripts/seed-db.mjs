@@ -40,6 +40,21 @@ async function ensureUserManagementSchema() {
   console.log('✓ admin_users: username + permissions columns ensured')
 }
 
+// Idempotent migration: file-upload validation rules (global default +
+// per-user overrides) and help-article document attachments.
+async function ensureFileRulesSchema() {
+  await query(`ALTER TABLE help_articles ADD COLUMN IF NOT EXISTS attachments jsonb NOT NULL DEFAULT '[]'::jsonb`)
+  await query(`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS file_rules jsonb`)
+  const def = JSON.stringify({ maxSizeMb: 25, allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'mp4', 'md', 'docx'] })
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('file_upload_rules', 'File Upload Rules', '', $1::jsonb)
+     ON CONFLICT (key) DO NOTHING`,
+    [def],
+  )
+  console.log('✓ file_upload_rules + help_articles.attachments + admin_users.file_rules ensured')
+}
+
 // Idempotent migration: media library (Files) table.
 async function ensureMediaSchema() {
   await query(`CREATE TABLE IF NOT EXISTS media_files (
@@ -282,6 +297,7 @@ async function main() {
   try {
     console.log('Seeding database...')
     await ensureUserManagementSchema()
+    await ensureFileRulesSchema()
     await ensureMediaSchema()
     const adminId = await seedAdminUser()
     await seedTrips()

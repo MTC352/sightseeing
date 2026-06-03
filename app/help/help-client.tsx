@@ -16,6 +16,15 @@ import { EditableText } from "@/components/editable-text"
    TYPES — articles come from the DB (admin panel)
 ───────────────────────────────────────────────────────────── */
 
+export interface HelpAttachment {
+  id: string
+  filename: string
+  title?: string | null
+  url: string
+  mimeType?: string | null
+  sizeBytes?: number | null
+}
+
 export interface HelpArticle {
   id: string
   question: string
@@ -23,6 +32,41 @@ export interface HelpArticle {
   category: string
   status?: string | null
   order?: number | null
+  attachments?: HelpAttachment[] | null
+}
+
+function formatBytes(n?: number | null): string {
+  if (!n) return ""
+  const units = ["B", "KB", "MB", "GB"]
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1)
+  return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function AttachmentList({ attachments }: { attachments?: HelpAttachment[] | null }) {
+  if (!attachments || attachments.length === 0) return null
+  return (
+    <div className="mt-3 space-y-1.5">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">Attachments</p>
+      {attachments.map((a) => {
+        const size = formatBytes(a.sizeBytes)
+        return (
+          <a
+            key={a.id || a.url}
+            href={a.url}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-secondary/40"
+          >
+            <FileText className="h-4 w-4 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1 truncate font-medium">{a.title || a.filename}</span>
+            {size && <span className="shrink-0 text-[11px] text-muted-foreground">{size}</span>}
+            <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </a>
+        )
+      })}
+    </div>
+  )
 }
 
 interface FaqCategory {
@@ -336,6 +380,7 @@ export function HelpClient({ articles }: Props) {
                         {openItems.has(item.id) && (
                           <div className="border-t border-border px-4 py-4 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
                             {item.answer}
+                            <AttachmentList attachments={item.attachments} />
                           </div>
                         )}
                       </div>
@@ -384,6 +429,7 @@ export function HelpClient({ articles }: Props) {
                           {openItems.has(item.id) && (
                             <div className="border-t border-border px-4 py-4 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
                               {item.answer}
+                              <AttachmentList attachments={item.attachments} />
                             </div>
                           )}
                         </div>

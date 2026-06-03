@@ -7,6 +7,12 @@ const nextConfig = {
   },
   // Keep heavy Node-only packages out of the client/edge bundle
   serverExternalPackages: ["pdfkit", "canvas"],
+  // Requests pass through proxy.ts, which otherwise truncates bodies at 10MB.
+  // Raise to the upload hard ceiling (HARD_MAX_MB in lib/file-rules.ts) so the
+  // configurable per-user/global size rules are actually reachable.
+  experimental: {
+    proxyClientMaxBodySize: "100mb",
+  },
   images: {
     formats: ["image/avif", "image/webp"],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920],

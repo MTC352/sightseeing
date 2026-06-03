@@ -127,6 +127,15 @@ export interface SupportTicket {
   updatedAt: string
 }
 
+export interface HelpAttachment {
+  id: string
+  filename: string
+  title: string
+  url: string
+  mimeType: string
+  sizeBytes: number
+}
+
 export interface HelpArticle {
   id: string
   question: string
@@ -135,6 +144,7 @@ export interface HelpArticle {
   status: "published" | "draft"
   order: number
   audience: "public" | "admin"
+  attachments?: HelpAttachment[]
   createdAt: string
   updatedAt: string
 }

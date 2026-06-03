@@ -1,15 +1,31 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import type { HelpArticle } from "@/lib/admin-store"
-import { Save, ArrowLeft, Check, AlertCircle, X } from "lucide-react"
+import type { HelpArticle, HelpAttachment } from "@/lib/admin-store"
+import { Save, ArrowLeft, Check, AlertCircle, X, Upload, FolderOpen, FileText, Loader2, Trash2 } from "lucide-react"
 import Link from "next/link"
 
 const PUBLIC_CATEGORIES = ["Booking", "Payments", "Cancellation", "Accessibility", "General", "Getting Here", "Tickets", "Groups", "App", "City Tours", "Meeting Points", "Languages"]
 const ADMIN_CATEGORIES = ["Getting Started", "Dashboard", "Trips", "Blog", "Jobs", "Help & FAQ", "Support Tickets", "Pages (CMS)", "AI Systems", "Integrations", "Header / Footer", "Palisis Import", "DB Tracker"]
 
-export function HelpEditForm({ article }: { article: HelpArticle | null }) {
+type MediaRow = {
+  id: string
+  filename: string
+  title: string | null
+  url: string
+  mime_type: string
+  size_bytes: number
+}
+
+function formatBytes(n: number): string {
+  if (!n) return "0 B"
+  const units = ["B", "KB", "MB", "GB"]
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1)
+  return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+export function HelpEditForm({ article, canUseFiles = false }: { article: HelpArticle | null; canUseFiles?: boolean }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -25,12 +41,54 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
       audience: "public",
     }
   )
+  const [attachments, setAttachments] = useState<HelpAttachment[]>(article?.attachments ?? [])
 
   const audience = form.audience ?? "public"
   const CATEGORIES = audience === "admin" ? ADMIN_CATEGORIES : PUBLIC_CATEGORIES
 
   function set<K extends keyof HelpArticle>(key: K, value: HelpArticle[K]) {
     setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  // ── Attachments ───────────────────────────────────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const [showPicker, setShowPicker] = useState(false)
+
+  function addAttachment(a: HelpAttachment) {
+    setAttachments((list) => (list.some((x) => x.url === a.url) ? list : [...list, a]))
+  }
+  function removeAttachment(idOrUrl: string) {
+    setAttachments((list) => list.filter((a) => a.id !== idOrUrl && a.url !== idOrUrl))
+  }
+
+  async function handleUploadFile(file: File) {
+    setUploading(true)
+    setAttachError(null)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch("/api/admin/help/upload", { method: "POST", body: fd })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAttachError(body.error ?? `Upload failed (${res.status})`)
+        return
+      }
+      addAttachment({
+        id: body.id,
+        filename: body.filename,
+        title: body.title ?? body.filename,
+        url: body.url,
+        mimeType: body.mime_type,
+        sizeBytes: body.size_bytes,
+      })
+    } catch {
+      setAttachError("Network error during upload.")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
   }
 
   async function handleSave() {
@@ -46,7 +104,7 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, attachments }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -182,6 +240,167 @@ export function HelpEditForm({ article }: { article: HelpArticle | null }) {
           <p className="mt-1.5 text-[11px] text-muted-foreground/60">
             Plain text. Keep answers concise and actionable.
           </p>
+        </div>
+
+        {/* Attachments */}
+        <div>
+          <label className={labelClass}>Document attachments</label>
+          <p className="mb-2 text-[11px] text-muted-foreground/60">
+            Attach documents (PDF, etc.) that visitors can download from this article.
+          </p>
+
+          {attachError && (
+            <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1">{attachError}</span>
+              <button type="button" onClick={() => setAttachError(null)} className="shrink-0 opacity-60 hover:opacity-100"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          )}
+
+          {attachments.length > 0 && (
+            <ul className="mb-3 space-y-2">
+              {attachments.map((a) => (
+                <li key={a.id || a.url} className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                  <FileText className="h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <a href={a.url} target="_blank" rel="noopener noreferrer" className="block truncate text-sm font-medium text-foreground hover:underline">
+                      {a.title || a.filename}
+                    </a>
+                    <p className="truncate text-[11px] text-muted-foreground">{a.filename}{a.sizeBytes ? ` · ${formatBytes(a.sizeBytes)}` : ""}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(a.id || a.url)}
+                    className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    aria-label="Remove attachment"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) handleUploadFile(f)
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {uploading ? "Uploading..." : "Upload file"}
+            </button>
+            {canUseFiles && (
+              <button
+                type="button"
+                onClick={() => setShowPicker(true)}
+                className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+              >
+                <FolderOpen className="h-4 w-4" />
+                Select from Files
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showPicker && canUseFiles && (
+        <FilePickerModal
+          onClose={() => setShowPicker(false)}
+          onPick={(m) => {
+            addAttachment({
+              id: m.id,
+              filename: m.filename,
+              title: m.title ?? m.filename,
+              url: m.url,
+              mimeType: m.mime_type,
+              sizeBytes: m.size_bytes,
+            })
+            setShowPicker(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function FilePickerModal({ onClose, onPick }: { onClose: () => void; onPick: (m: MediaRow) => void }) {
+  const [files, setFiles] = useState<MediaRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [q, setQ] = useState("")
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/admin/media")
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to load files")
+      setFiles(await res.json())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load files")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const filtered = q.trim()
+    ? files.filter((f) => `${f.title ?? ""} ${f.filename}`.toLowerCase().includes(q.toLowerCase()))
+    : files
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border p-4">
+          <h2 className="text-base font-bold text-foreground">Select from Files</h2>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="border-b border-border p-3">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search files..."
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          ) : error ? (
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+          ) : filtered.length === 0 ? (
+            <p className="py-12 text-center text-sm text-muted-foreground">No files found.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {filtered.map((f) => (
+                <li key={f.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(f)}
+                    className="flex w-full items-center gap-3 rounded-lg border border-border bg-background p-2.5 text-left transition-colors hover:border-primary/30 hover:bg-secondary/40"
+                  >
+                    <FileText className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{f.title || f.filename}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">{f.filename} · {formatBytes(f.size_bytes)}</p>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

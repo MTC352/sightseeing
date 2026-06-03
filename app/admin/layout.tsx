@@ -6,7 +6,7 @@ import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, CheckSquare, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, ShieldCheck,
 } from "lucide-react"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
@@ -46,6 +46,7 @@ const NAV: NavItem[] = [
   { href: "/admin/implementation", label: "DB Tracker", icon: CheckSquare, perm: "implementation" },
   { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
   { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
+  { href: "/admin/file-rules", label: "File Upload Rules", icon: ShieldCheck, superadminOnly: true },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

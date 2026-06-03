@@ -415,21 +415,21 @@ export async function dbCreateApplication(data: Record<string, unknown>) {
 export async function dbListHelpArticles(audience?: 'public' | 'admin' | 'all') {
   if (audience === 'admin') {
     return query(`
-      SELECT id, question, answer, category, status, audience,
+      SELECT id, question, answer, category, status, audience, attachments,
              sort_order as "order", created_at as "createdAt", updated_at
       FROM help_articles WHERE audience = 'admin' ORDER BY category, sort_order
     `)
   }
   if (audience === 'all') {
     return query(`
-      SELECT id, question, answer, category, status, audience,
+      SELECT id, question, answer, category, status, audience, attachments,
              sort_order as "order", created_at as "createdAt", updated_at
       FROM help_articles ORDER BY audience, category, sort_order
     `)
   }
   // Default: public only
   return query(`
-    SELECT id, question, answer, category, status, audience,
+    SELECT id, question, answer, category, status, audience, attachments,
            sort_order as "order", created_at as "createdAt", updated_at
     FROM help_articles WHERE audience = 'public' OR audience IS NULL ORDER BY category, sort_order
   `)
@@ -437,17 +437,18 @@ export async function dbListHelpArticles(audience?: 'public' | 'admin' | 'all') 
 
 export async function dbGetHelpArticle(id: string) {
   return queryOne(`
-    SELECT id, question, answer, category, status, audience,
+    SELECT id, question, answer, category, status, audience, attachments,
            sort_order as "order", created_at as "createdAt", updated_at
     FROM help_articles WHERE id = $1
   `, [id])
 }
 
 export async function dbCreateHelpArticle(data: Record<string, unknown>) {
+  const attachments = Array.isArray(data.attachments) ? data.attachments : []
   const rows = await query(`
-    INSERT INTO help_articles (question, answer, category, status, sort_order, audience)
-    VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
-  `, [data.question, data.answer, data.category, data.status ?? 'published', data.order ?? 0, data.audience ?? 'public'])
+    INSERT INTO help_articles (question, answer, category, status, sort_order, audience, attachments)
+    VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING *
+  `, [data.question, data.answer, data.category, data.status ?? 'published', data.order ?? 0, data.audience ?? 'public', JSON.stringify(attachments)])
   return rows[0]
 }
 
@@ -461,6 +462,10 @@ export async function dbUpdateHelpArticle(id: string, data: Record<string, unkno
   }
   for (const [key, col] of Object.entries(fieldMap)) {
     if (key in data) { sets.push(`${col} = $${i++}`); vals.push(data[key]) }
+  }
+  if ('attachments' in data) {
+    const attachments = Array.isArray(data.attachments) ? data.attachments : []
+    sets.push(`attachments = $${i++}::jsonb`); vals.push(JSON.stringify(attachments))
   }
   if (sets.length === 0) return dbGetHelpArticle(id)
   sets.push(`updated_at = NOW()`)
@@ -1685,11 +1690,12 @@ export interface AdminUserRow {
   is_active: boolean
   last_login: string | null
   created_at: string
+  file_rules: { maxSizeMb?: number; allowedExtensions?: string[] } | null
 }
 
 const ADMIN_USER_SELECT = `
   id, email, username, name, role, permissions, is_active,
-  last_login, created_at`
+  last_login, created_at, file_rules`
 
 export async function dbListAdminUsers(): Promise<AdminUserRow[]> {
   return query<AdminUserRow>(
@@ -1788,6 +1794,67 @@ export async function dbDeleteAdminUser(id: string): Promise<boolean> {
     [id],
   )
   return !!row
+}
+
+/**
+ * Set (or clear, with null) a single user's file-upload rule override. Unlike
+ * dbUpdateAdminUser this is allowed for the superadmin account too — the
+ * superadmin can constrain its own uploads.
+ */
+export async function dbSetUserFileRules(
+  id: string,
+  rules: { maxSizeMb: number; allowedExtensions: string[] } | null,
+): Promise<AdminUserRow | null> {
+  return queryOne<AdminUserRow>(
+    `UPDATE admin_users SET file_rules = $2::jsonb, updated_at = NOW()
+       WHERE id = $1 RETURNING ${ADMIN_USER_SELECT}`,
+    [id, rules ? JSON.stringify(rules) : null],
+  )
+}
+
+// ── File-upload rules (global default + per-user) ────────────────────────────
+
+/** Read the global default file-upload rules from the integrations table. */
+export async function dbGetGlobalFileRules(): Promise<{
+  maxSizeMb?: number
+  allowedExtensions?: string[]
+} | null> {
+  const row = await queryOne<{ meta: unknown }>(
+    `SELECT meta FROM integrations WHERE key = 'file_upload_rules'`,
+    [],
+  )
+  return (row?.meta as { maxSizeMb?: number; allowedExtensions?: string[] }) ?? null
+}
+
+/** Upsert the global default file-upload rules into the integrations table. */
+export async function dbSetGlobalFileRules(rules: {
+  maxSizeMb: number
+  allowedExtensions: string[]
+}): Promise<void> {
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('file_upload_rules', 'File Upload Rules', '', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
+    [JSON.stringify(rules)],
+  )
+}
+
+/**
+ * Return the raw (unresolved) global + user rule objects for a given user. The
+ * caller resolves them with lib/file-rules resolveEffectiveRules().
+ */
+export async function dbGetFileRuleSources(userId: string): Promise<{
+  global: unknown
+  user: unknown
+}> {
+  const [global, user] = await Promise.all([
+    dbGetGlobalFileRules(),
+    queryOne<{ file_rules: unknown }>(
+      `SELECT file_rules FROM admin_users WHERE id = $1`,
+      [userId],
+    ),
+  ])
+  return { global, user: user?.file_rules ?? null }
 }
 
 // ── Media library (Files) ───────────────────────────────────────────────────

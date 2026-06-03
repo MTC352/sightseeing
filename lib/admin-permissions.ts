@@ -157,6 +157,12 @@ export function canAccessPath(
     return false
   }
 
+  // File-upload rule management (global default + per-user overrides) is
+  // superadmin-only and never grantable to employees.
+  if (matchPath(pathname, "/admin/file-rules") || matchPath(pathname, "/api/admin/file-rules")) {
+    return false
+  }
+
   const perms = sanitizePermissions(permissions)
 
   // Longest-prefix match wins.

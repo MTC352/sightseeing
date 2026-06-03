@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbGetHelpArticle, dbUpdateHelpArticle, dbDeleteHelpArticle } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { sanitizeAttachments } from "@/lib/file-rules"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -26,6 +27,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await requireAdminSession()
     const { id } = await params
     const data = await req.json()
+    // Sanitize attachment metadata at the trust boundary (block javascript:/data:
+    // URLs that would become stored XSS when rendered as links on /help).
+    if ("attachments" in data) {
+      data.attachments = sanitizeAttachments(data.attachments)
+    }
     const updated = await dbUpdateHelpArticle(id, data)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
     revalidatePath("/admin/help")
