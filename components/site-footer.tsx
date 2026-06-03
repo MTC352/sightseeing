@@ -38,7 +38,7 @@ const LINKS = {
     { label: "Help & FAQ", href: "/help" },
     { label: "Emergency & 24/7 Support", href: "/emergency" },
     { label: "Sitemap", href: "/sitemap.xml" },
-    { label: "Terms & Conditions", href: "#" },
+    { label: "Terms & Conditions", href: "/uploads/1780480029465-u38d41.pdf", external: true },
     { label: "Privacy Policy", href: "https://www.slg.lu/politique-de-confidentialite/", external: true },
     { label: "Legal Notice", href: "/impressum" },
     { label: "Whistleblower", href: "https://whistleblowersoftware.com/secure/SLG", external: true },
