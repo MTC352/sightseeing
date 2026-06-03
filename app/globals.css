@@ -305,6 +305,63 @@
   background: hsl(var(--border));
 }
 
+/* ── Live Tracking map markers ─────────────────────────────────────────────── */
+
+.live-track-vehicle {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.live-track-vehicle-ping {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--veh-color, #0ea5e9);
+  opacity: 0.35;
+  animation: live-track-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.live-track-vehicle-dot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: var(--veh-color, #0ea5e9);
+  color: #ffffff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+@keyframes live-track-ping {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.4;
+  }
+  80%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.live-track-endpoint {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.live-track-start {
+  background: #22c55e;
+}
+.live-track-end {
+  background: #ef4444;
+}
+
 /* ── Rich Text Editor (Tiptap / ProseMirror) ───────────────────────────────── */
 
 .rte-content { outline: none; }
