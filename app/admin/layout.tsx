@@ -100,7 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AdminStoreProvider>
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       {/* Sidebar */}
       <aside
         className={`flex shrink-0 flex-col border-r border-border bg-card transition-all duration-200 ${
