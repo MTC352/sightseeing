@@ -16,6 +16,7 @@ const LINKS = {
   "Explore": [
     { label: "All Experiences", href: "/explore" },
     { label: "Departures", href: "/departures" },
+    { label: "Live Tracking", href: "/live-tracking" },
     { label: "Search", href: "/search" },
     { label: "Food & Events", href: "/experiences/food-events" },
     { label: "Tours", href: "/experiences/tours" },
