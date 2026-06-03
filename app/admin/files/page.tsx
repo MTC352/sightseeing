@@ -5,6 +5,7 @@ import {
   FolderOpen, UploadCloud, Trash2, Loader2, Copy, Check, Search, FileText,
   Film, Music, Image as ImageIcon, File as FileIcon, X, ChevronDown, Link2, Globe,
   LayoutGrid, List, Eye, Calendar, User, HardDrive, ExternalLink, Filter,
+  ChevronLeft, ChevronRight,
 } from "lucide-react"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -16,6 +17,7 @@ import {
 import {
   Dialog, DialogContent, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 
 type MediaFile = {
   id: string
@@ -89,6 +91,7 @@ export default function FilesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [search, setSearch] = useState("")
+  const [searchOpen, setSearchOpen] = useState(false)
   const [format, setFormat] = useState<FormatKey>("all")
   const [view, setView] = useState<"grid" | "list">("grid")
   const [uploading, setUploading] = useState(false)
@@ -242,57 +245,89 @@ export default function FilesPage() {
       )}
 
       {/* Toolbar: search + format filter + view toggle */}
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
-          <Search className="h-4 w-4 text-muted-foreground" />
+      <div className="mb-4 flex items-center gap-2">
+        {/* Mobile-only search toggle (collapsed state) */}
+        {!searchOpen && (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            title="Search files"
+            aria-label="Search files"
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-secondary sm:hidden"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        )}
+
+        {/* Search input — always visible on sm+, on mobile only when opened */}
+        <div
+          className={cn(
+            "flex-1 items-center gap-2 rounded-lg border border-border bg-background px-3 py-2",
+            searchOpen ? "flex" : "hidden sm:flex",
+          )}
+        >
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search files…"
+            autoFocus={searchOpen}
             className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
           />
-          <span className="shrink-0 text-xs text-muted-foreground">{filtered.length} file{filtered.length === 1 ? "" : "s"}</span>
+          <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{filtered.length} file{filtered.length === 1 ? "" : "s"}</span>
+          <button
+            type="button"
+            onClick={() => { setSearch(""); setSearchOpen(false) }}
+            className="shrink-0 text-muted-foreground hover:text-foreground sm:hidden"
+            title="Close search"
+            aria-label="Close search"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary sm:w-48">
-            <span className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              {FORMAT_OPTIONS.find((o) => o.key === format)?.label}
-            </span>
-            <ChevronDown className="h-4 w-4 opacity-60" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {FORMAT_OPTIONS.map((o) => (
-              <DropdownMenuItem key={o.key} onClick={() => setFormat(o.key)} className="gap-2">
-                {format === o.key ? <Check className="h-3.5 w-3.5 text-primary" /> : <span className="h-3.5 w-3.5" />}
-                {o.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Format filter + view switcher — side by side; hidden on mobile while search is open */}
+        <div className={cn("flex items-center gap-2", searchOpen && "hidden sm:flex")}>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary sm:w-48">
+              <span className="flex items-center gap-2">
+                <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="hidden sm:inline">{FORMAT_OPTIONS.find((o) => o.key === format)?.label}</span>
+              </span>
+              <ChevronDown className="h-4 w-4 opacity-60" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {FORMAT_OPTIONS.map((o) => (
+                <DropdownMenuItem key={o.key} onClick={() => setFormat(o.key)} className="gap-2">
+                  {format === o.key ? <Check className="h-3.5 w-3.5 text-primary" /> : <span className="h-3.5 w-3.5" />}
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-        <div className="flex items-center rounded-lg border border-border bg-background p-0.5">
-          <button
-            type="button"
-            onClick={() => setView("grid")}
-            title="Grid view"
-            className={`flex items-center justify-center rounded-md px-2.5 py-1.5 transition-colors ${
-              view === "grid" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("list")}
-            title="List view"
-            className={`flex items-center justify-center rounded-md px-2.5 py-1.5 transition-colors ${
-              view === "list" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <List className="h-4 w-4" />
-          </button>
+          <div className="flex shrink-0 items-center rounded-lg border border-border bg-background p-0.5">
+            <button
+              type="button"
+              onClick={() => setView("grid")}
+              title="Grid view"
+              className={`flex items-center justify-center rounded-md px-2.5 py-1.5 transition-colors ${
+                view === "grid" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              title="List view"
+              className={`flex items-center justify-center rounded-md px-2.5 py-1.5 transition-colors ${
+                view === "list" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -462,7 +497,9 @@ export default function FilesPage() {
       )}
 
       <FilePreviewModal
+        files={filtered}
         file={preview}
+        onNavigate={setPreview}
         onClose={() => setPreview(null)}
         onDelete={(f) => setPendingDelete(f)}
         onCopy={copyLink}
@@ -499,9 +536,11 @@ export default function FilesPage() {
 }
 
 function FilePreviewModal({
-  file, onClose, onDelete, onCopy, copiedId,
+  files, file, onNavigate, onClose, onDelete, onCopy, copiedId,
 }: {
+  files: MediaFile[]
   file: MediaFile | null
+  onNavigate: (f: MediaFile) => void
   onClose: () => void
   onDelete: (f: MediaFile) => void
   onCopy: (f: MediaFile, kind: "relative" | "absolute") => void
@@ -509,6 +548,22 @@ function FilePreviewModal({
 }) {
   const [usage, setUsage] = useState<UsageRef[]>([])
   const [usageLoading, setUsageLoading] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const wasOpenRef = useRef(false)
+
+  // Reset details to collapsed only when the modal transitions from closed → open,
+  // so prev/next navigation preserves the user's expanded state.
+  useEffect(() => {
+    const isOpen = !!file
+    if (isOpen && !wasOpenRef.current) setDetailsOpen(false)
+    wasOpenRef.current = isOpen
+  }, [file])
+
+  const index = file ? files.findIndex((f) => f.id === file.id) : -1
+  const hasPrev = index > 0
+  const hasNext = index >= 0 && index < files.length - 1
+  const goPrev = useCallback(() => { if (index > 0) onNavigate(files[index - 1]) }, [index, files, onNavigate])
+  const goNext = useCallback(() => { if (index >= 0 && index < files.length - 1) onNavigate(files[index + 1]) }, [index, files, onNavigate])
 
   useEffect(() => {
     if (!file) return
@@ -523,18 +578,55 @@ function FilePreviewModal({
     return () => { cancelled = true }
   }, [file])
 
+  useEffect(() => {
+    if (!file) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") goPrev()
+      else if (e.key === "ArrowRight") goNext()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [file, goPrev, goNext])
+
   if (!file) return null
   const kind = kindOf(file.mime_type)
 
   return (
     <Dialog open={!!file} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-w-5xl gap-0 overflow-hidden p-0 sm:max-w-5xl [&>button]:hidden">
+      <DialogContent className="w-[calc(100vw-1.5rem)] max-w-5xl gap-0 overflow-hidden rounded-xl p-0 sm:w-[calc(100vw-3rem)] sm:max-w-5xl [&>button]:hidden">
         <DialogDescription className="sr-only">
           Preview and details for {file.title ?? file.filename}
         </DialogDescription>
         <div className="flex max-h-[85vh] flex-col md:flex-row">
           {/* Left — preview */}
-          <div className="flex min-h-[260px] flex-1 items-center justify-center overflow-auto bg-neutral-900 p-4 md:w-[72%]">
+          <div className="relative flex min-h-[240px] flex-1 items-center justify-center overflow-auto bg-neutral-900 p-4">
+            {hasPrev && (
+              <button
+                type="button"
+                onClick={goPrev}
+                title="Previous file (←)"
+                aria-label="Previous file"
+                className="absolute left-2 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            )}
+            {hasNext && (
+              <button
+                type="button"
+                onClick={goNext}
+                title="Next file (→)"
+                aria-label="Next file"
+                className="absolute right-2 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            )}
+            {files.length > 1 && index >= 0 && (
+              <span className="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-medium text-white">
+                {index + 1} / {files.length}
+              </span>
+            )}
             {kind === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={file.url} alt={file.title ?? file.filename} className="max-h-[78vh] max-w-full object-contain" />
@@ -564,10 +656,31 @@ function FilePreviewModal({
             )}
           </div>
 
-          {/* Right — details */}
-          <div className="flex w-full flex-col overflow-y-auto border-t border-border bg-card md:w-[28%] md:border-l md:border-t-0">
-            <div className="flex items-start justify-between gap-2 border-b border-border p-4">
-              <div className="min-w-0">
+          {/* Right — details (collapsible: vertically on mobile, horizontally on desktop) */}
+          <div
+            className={cn(
+              "flex shrink-0 flex-col border-t border-border bg-card md:border-l md:border-t-0",
+              detailsOpen ? "w-full md:w-[320px]" : "w-full md:w-12",
+            )}
+          >
+            <div
+              className={cn(
+                "flex items-center gap-2 border-b border-border p-3 md:p-4",
+                !detailsOpen && "md:flex-col md:items-center md:gap-3 md:border-b-0 md:p-2",
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((o) => !o)}
+                title={detailsOpen ? "Collapse details" : "Show details"}
+                aria-label={detailsOpen ? "Collapse details" : "Show details"}
+                aria-expanded={detailsOpen}
+                className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <ChevronDown className={cn("h-4 w-4 transition-transform md:hidden", detailsOpen && "rotate-180")} />
+                <ChevronLeft className={cn("hidden h-4 w-4 transition-transform md:block", detailsOpen && "rotate-180")} />
+              </button>
+              <div className={cn("min-w-0 flex-1", !detailsOpen && "md:hidden")}>
                 <DialogTitle className="truncate text-sm font-bold text-foreground" title={file.filename}>
                   {file.title ?? file.filename}
                 </DialogTitle>
@@ -576,12 +689,16 @@ function FilePreviewModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                title="Close"
+                aria-label="Close"
+                className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
+            {detailsOpen && (
+            <div className="flex flex-1 flex-col overflow-y-auto">
             <div className="flex-1 space-y-4 p-4">
               {/* File link */}
               <div>
@@ -663,6 +780,8 @@ function FilePreviewModal({
                 <Trash2 className="h-4 w-4" /> Delete file
               </button>
             </div>
+            </div>
+            )}
           </div>
         </div>
       </DialogContent>
