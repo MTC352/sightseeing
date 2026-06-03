@@ -497,6 +497,23 @@ export async function dbDedupeHelpArticles(): Promise<number> {
   return rows.length
 }
 
+// Counts how many help articles are duplicates (i.e. how many rows
+// dbDedupeHelpArticles would remove) using the same (category, question,
+// audience) grouping. Returns 0 when there are no duplicates.
+export async function dbCountDuplicateHelpArticles(): Promise<number> {
+  const row = await queryOne<{ count: string }>(`
+    WITH ranked AS (
+      SELECT ROW_NUMBER() OVER (
+               PARTITION BY category, question, COALESCE(audience, 'public')
+               ORDER BY created_at ASC, id ASC
+             ) AS rn
+      FROM help_articles
+    )
+    SELECT COUNT(*)::text AS count FROM ranked WHERE rn > 1
+  `)
+  return row ? Number(row.count) : 0
+}
+
 // ── Support Tickets ────────────────────────────────────────────────────────
 
 export async function dbListTickets(filters?: { status?: string }) {

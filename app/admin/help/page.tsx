@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { dbListHelpArticles } from "@/lib/db/queries"
+import { dbListHelpArticles, dbCountDuplicateHelpArticles } from "@/lib/db/queries"
 import { Plus, Pencil, HelpCircle, Globe, ShieldCheck } from "lucide-react"
 import { HelpArticleDeleteButton } from "./help-delete-button"
 import { HelpDedupeButton } from "./help-dedupe-button"
@@ -12,7 +12,10 @@ type HelpArticle = {
 }
 
 export default async function AdminHelpPage() {
-  const articles = await dbListHelpArticles("all") as HelpArticle[]
+  const [articles, duplicateCount] = await Promise.all([
+    dbListHelpArticles("all") as Promise<HelpArticle[]>,
+    dbCountDuplicateHelpArticles(),
+  ])
 
   const publicArticles = articles.filter((a) => !a.audience || a.audience === "public")
   const adminArticles = articles.filter((a) => a.audience === "admin")
@@ -95,7 +98,7 @@ export default async function AdminHelpPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <HelpDedupeButton />
+          <HelpDedupeButton duplicateCount={duplicateCount} />
           <Link href="/admin/docs" className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary">
             <ShieldCheck className="h-4 w-4" /> Admin Docs
           </Link>

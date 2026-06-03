@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Copy, Check, AlertCircle } from "lucide-react"
 
-export function HelpDedupeButton() {
+export function HelpDedupeButton({ duplicateCount }: { duplicateCount: number }) {
   const [confirming, setConfirming] = useState(false)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<string>("")
@@ -66,6 +66,8 @@ export function HelpDedupeButton() {
     )
   }
 
+  if (duplicateCount <= 0) return null
+
   return (
     <button
       type="button"
@@ -74,6 +76,9 @@ export function HelpDedupeButton() {
       className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
     >
       <Copy className="h-4 w-4" /> Remove duplicates
+      <span className="ml-0.5 inline-flex min-w-5 items-center justify-center rounded-full bg-destructive/15 px-1.5 py-0.5 text-xs font-semibold text-destructive">
+        {duplicateCount}
+      </span>
     </button>
   )
 }
