@@ -154,7 +154,6 @@ All 16 tables created and seeded. Data persists across restarts.
 ### DB Files
 - `lib/db.ts` — Pool singleton + `query()` / `queryOne()` helpers
 - `lib/db/queries.ts` — All CRUD query functions replacing `admin-store.ts`
-- `scripts/seed-db.mjs` — Seed script (run with `node scripts/seed-db.mjs`)
 
 ## Admin Panel Pages
 | Page | Path |

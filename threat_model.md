@@ -26,7 +26,7 @@ The current deployment is publicly reachable on the internet. The client-side si
 ## Scan Anchors
 
 - **Production entry points:** `app/api/**/*`, `app/admin/**/*`, `proxy.ts`, `app/layout.tsx`
-- **Highest-risk code areas:** `lib/auth.ts`, `scripts/seed-db.mjs`, `app/api/upload/route.ts`, `app/api/careers/apply/route.ts`, `app/api/webhooks/palisis/route.ts`, `app/api/admin/settings/route.ts`, `app/api/help-chat/route.ts`, `app/api/trip-chat/route.ts`, `app/api/planner/route.ts`, `app/api/itinerary/route.ts`, `lib/db/queries.ts`, `lib/tourcms.ts`
+- **Highest-risk code areas:** `lib/auth.ts`, `app/api/upload/route.ts`, `app/api/careers/apply/route.ts`, `app/api/webhooks/palisis/route.ts`, `app/api/admin/settings/route.ts`, `app/api/help-chat/route.ts`, `app/api/trip-chat/route.ts`, `app/api/planner/route.ts`, `app/api/itinerary/route.ts`, `lib/db/queries.ts`, `lib/tourcms.ts`
 - **Surface split:** public site and APIs under `app/` and `app/api/*`; admin UI and admin APIs under `app/admin/*` and `app/api/admin/*`; external webhook under `app/api/webhooks/*`
 - **Usually dev-only / lower-priority:** docs, implementation dashboards, attached assets, and historical artifacts unless they prove a live production default or active data flow
 - **Context-sensitive disclosures:** browser-exposed publishable vendor keys are not findings by themselves; treat them as in-scope only when code can disclose a server-only or broader-scoped credential, or when a masked/admin-only secret store is unintentionally bridged into a public route

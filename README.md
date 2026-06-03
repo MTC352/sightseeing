@@ -81,9 +81,6 @@
 # Install dependencies
 pnpm install
 
-# Seed the database (first run)
-node scripts/seed-db.mjs
-
 # Start the dev server on port 5000
 pnpm dev
 ```
@@ -144,7 +141,6 @@ pnpm start
 **Key files:**
 - `lib/db.ts` — Pool singleton + `query()` / `queryOne()` helpers
 - `lib/db/queries.ts` — All CRUD query functions
-- `scripts/seed-db.mjs` — Re-runnable seed script
 
 ---
 
