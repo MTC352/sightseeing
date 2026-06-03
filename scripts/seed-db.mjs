@@ -77,6 +77,19 @@ async function ensureMediaSchema() {
   console.log('✓ media_files table ensured')
 }
 
+// Idempotent: seed the Active AI Provider selector (Task #15). Stored in the
+// integrations table under key 'ai_provider'. Default 'anthropic'. The DB value
+// is the *admin-selected* provider; resolveAi falls back to whichever provider
+// actually has a key when this is unset.
+async function ensureAiProviderDefault() {
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('ai_provider', 'Active AI Provider', 'anthropic', '{}'::jsonb)
+     ON CONFLICT (key) DO NOTHING`,
+  )
+  console.log('✓ ai_provider integration ensured (default: anthropic)')
+}
+
 async function seedAdminUser() {
   const existing = await query(`SELECT id, password_hash FROM admin_users WHERE email = $1`, ['admin@sightseeing.lu'])
 
@@ -325,6 +338,7 @@ async function main() {
     await ensureUserManagementSchema()
     await ensureFileRulesSchema()
     await ensureMediaSchema()
+    await ensureAiProviderDefault()
     const adminId = await seedAdminUser()
     await seedTrips()
     await seedBlogPosts()

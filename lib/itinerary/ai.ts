@@ -12,18 +12,9 @@
    timeout) resolves to `null` so the caller falls back to the deterministic
    path. They NEVER throw.
    ───────────────────────────────────────────────────────────────────────── */
-import { generateText, Output } from "ai"
+import { generateText, Output, type LanguageModel } from "ai"
 import { logCaughtError } from "@/lib/error-log"
-import { createAnthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
-
-function resolveModelId(raw: string | null | undefined): string {
-  const fallback = "claude-haiku-4-5-20251001"
-  if (!raw || typeof raw !== "string") return fallback
-  if (raw.startsWith("anthropic/")) return raw.slice("anthropic/".length)
-  if (raw.startsWith("claude")) return raw
-  return fallback
-}
 
 export interface CompactCandidate {
   id: string
@@ -45,8 +36,7 @@ const selectionSchema = z.object({
  *  of the candidate ids) or null on any failure. Stepwise: large candidate
  *  sets are scored in batches so we never blow the token budget. */
 export async function selectAndOrder(opts: {
-  anthropicKey: string
-  model: string | null
+  model: LanguageModel | null
   candidates: CompactCandidate[]
   prefs: {
     group: string
@@ -60,13 +50,10 @@ export async function selectAndOrder(opts: {
   maxStops: number
   timeoutMs?: number
 }): Promise<string[] | null> {
-  const { anthropicKey, model, candidates, prefs, visitDate, maxStops } = opts
-  if (!anthropicKey || candidates.length === 0) return null
+  const { model, candidates, prefs, visitDate, maxStops } = opts
+  if (!model || candidates.length === 0) return null
 
   try {
-    const anthropic = createAnthropic({ apiKey: anthropicKey })
-    const modelId = resolveModelId(model)
-
     // Stepwise scoring: process at most 12 candidates per batch, keep the
     // running shortlist, then do a final ordering pass over survivors.
     const BATCH = 12
@@ -75,14 +62,14 @@ export async function selectAndOrder(opts: {
       const survivors: CompactCandidate[] = []
       for (let i = 0; i < candidates.length; i += BATCH) {
         const batch = candidates.slice(i, i + BATCH)
-        const ids = await scoreBatch(anthropic, modelId, batch, prefs, visitDate, Math.min(maxStops + 2, batch.length))
+        const ids = await scoreBatch(model, batch, prefs, visitDate, Math.min(maxStops + 2, batch.length))
         if (ids === null) return null
         survivors.push(...batch.filter((c) => ids.includes(c.id)))
       }
       shortlist = survivors.length > 0 ? survivors : candidates
     }
 
-    const finalIds = await scoreBatch(anthropic, modelId, shortlist, prefs, visitDate, maxStops)
+    const finalIds = await scoreBatch(model, shortlist, prefs, visitDate, maxStops)
     if (finalIds === null) return null
     // Keep only known ids, preserve AI order, dedupe.
     const known = new Set(candidates.map((c) => c.id))
@@ -96,8 +83,7 @@ export async function selectAndOrder(opts: {
 }
 
 async function scoreBatch(
-  anthropic: ReturnType<typeof createAnthropic>,
-  modelId: string,
+  model: LanguageModel,
   batch: CompactCandidate[],
   prefs: {
     group: string
@@ -136,7 +122,7 @@ CANDIDATES:
 ${cards}`
 
     const { output } = await generateText({
-      model: anthropic(modelId),
+      model,
       output: Output.object({ schema: selectionSchema }),
       maxOutputTokens: 400,
       prompt,
@@ -159,19 +145,16 @@ export type Narration = z.infer<typeof narrationSchema>
 /** Write a summary + tips over an already-decided timeline. Returns null on
  *  any failure so the caller can fall back to a deterministic summary. */
 export async function narrate(opts: {
-  anthropicKey: string
-  model: string | null
+  model: LanguageModel | null
   temperature?: number | null
   maxOutputTokens?: number | null
   timelineText: string
   tipsInstructions: string
   styleGuidance?: string
 }): Promise<Narration | null> {
-  const { anthropicKey, model, temperature, maxOutputTokens, timelineText, tipsInstructions, styleGuidance } = opts
-  if (!anthropicKey) return null
+  const { model, temperature, maxOutputTokens, timelineText, tipsInstructions, styleGuidance } = opts
+  if (!model) return null
   try {
-    const anthropic = createAnthropic({ apiKey: anthropicKey })
-    const modelId = resolveModelId(model)
     const prompt = `${styleGuidance ? styleGuidance + "\n\n" : ""}A Luxembourg day itinerary has ALREADY been planned and locked to real timeslots (do not change times or trips). Write a warm, concise "summary" (2-3 sentences) describing the day's flow, then populate "tips".
 
 THE LOCKED ITINERARY:
@@ -183,7 +166,7 @@ ${tipsInstructions}
 For carSuggestion / hotelSuggestion just set recommended:false with short empty-ish reasons unless the day clearly spans rural areas (car) or ends very late (hotel). Return STRICTLY the JSON schema.`
 
     const { output } = await generateText({
-      model: anthropic(modelId),
+      model,
       output: Output.object({ schema: narrationSchema }),
       temperature: temperature ?? undefined,
       maxOutputTokens: maxOutputTokens ?? 700,

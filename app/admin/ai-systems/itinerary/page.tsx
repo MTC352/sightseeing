@@ -4,15 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
-
-// Itinerary generation calls the Anthropic SDK directly (not the Vercel
-// Gateway), so we only expose Claude models here. Adding non-Anthropic ids
-// would fail at runtime.
-const MODELS = [
-  { value: "anthropic/claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fast (recommended)" },
-  { value: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6 — balanced" },
-  { value: "anthropic/claude-opus-4-7", label: "Claude Opus 4.7 — best quality" },
-]
+import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
 
 interface ItineraryForm {
   systemPrompt: string
@@ -38,6 +30,7 @@ const DEFAULTS: ItineraryForm = {
 
 export default function ItineraryAiPage() {
   const router = useRouter()
+  const { provider: activeProvider, models: MODELS } = useActiveAiProvider()
   const [form, setForm] = useState<ItineraryForm>(DEFAULTS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -242,7 +235,10 @@ export default function ItineraryAiPage() {
 
         {/* Model configuration */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-foreground">Model Configuration</h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Model Configuration</h2>
+            <ActiveProviderBadge provider={activeProvider} />
+          </div>
           <div className="space-y-4">
             <div>
               <label className={labelClass}>Model</label>

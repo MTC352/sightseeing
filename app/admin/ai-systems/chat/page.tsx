@@ -15,14 +15,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Wand2 } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
-
-const MODELS = [
-  { value: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6 (Anthropic)" },
-  { value: "anthropic/claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku (Anthropic)" },
-  { value: "openai/gpt-4o", label: "GPT-4o (OpenAI)" },
-  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (OpenAI)" },
-  { value: "google/gemini-3-flash", label: "Gemini 3 Flash (Google)" },
-]
+import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
 
 // Default starter prompt — loaded into the textarea on first-time setup
 // (when the DB returns an empty prompt) and via "Load default suggestion".
@@ -44,6 +37,7 @@ const CHAT_DEFAULTS = {
 
 export default function TripChatAdminPage() {
   const router = useRouter()
+  const { provider: activeProvider, models: MODELS } = useActiveAiProvider()
 
   const [chat, setChat] = useState({ ...CHAT_DEFAULTS })
 
@@ -206,7 +200,10 @@ export default function TripChatAdminPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="mb-4 text-sm font-semibold text-foreground">Model Configuration</h3>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-foreground">Model Configuration</h3>
+              <ActiveProviderBadge provider={activeProvider} />
+            </div>
             <div className="space-y-4">
               <div>
                 <label className={labelClass}>Model</label>

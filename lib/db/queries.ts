@@ -5,6 +5,12 @@
  * AdminPost, etc. so existing API handlers need minimal changes.
  */
 import { query, queryOne, pool } from "@/lib/db"
+import {
+  type AiProvider,
+  effectiveProvider,
+  selectedProvider,
+  equivalentModel,
+} from "@/lib/ai/models"
 
 // ── Trips ──────────────────────────────────────────────────────────────────
 
@@ -691,7 +697,18 @@ export async function dbGetSettings() {
   const mergeHtml = (blocks: Record<string, unknown>[]) =>
     blocks.filter(b => b.enabled && b.html).map(b => `<!-- ${b.label} -->\n${b.html}`).join('\n\n')
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, weglot, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+  // Task #15 — AI provider selection. `aiProviderSelected` is the admin's raw
+  // choice; `aiProvider` is the provider actually used at runtime (falls back to
+  // the other provider when the selected one has no usable key).
+  const aiEnv = {
+    anthropic: process.env.ANTHROPIC_API_KEY,
+    openai: process.env.OPENAI_API_KEY,
+    gateway: process.env.AI_GATEWAY_API_KEY,
+  }
+  const aiProviderSelected = selectedProvider(apiKeys)
+  const aiProvider = effectiveProvider(apiKeys, aiEnv)
+
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, weglot, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
@@ -1253,6 +1270,18 @@ export async function dbGetPromptRevision(id: number): Promise<PromptRevision | 
 }
 
 export async function dbUpdateApiKeys(data: Record<string, string>) {
+  // Task #15 — detect an active-provider switch BEFORE upserting so we can
+  // remap every AI System's stored model to the equivalent tier afterwards.
+  let providerSwitch: AiProvider | null = null
+  if (typeof data.ai_provider === 'string') {
+    const incoming: AiProvider = data.ai_provider === 'openai' ? 'openai' : 'anthropic'
+    const cur = await queryOne<{ value: string }>(
+      `SELECT value FROM integrations WHERE key = 'ai_provider'`,
+    )
+    const current: AiProvider = cur?.value === 'openai' ? 'openai' : 'anthropic'
+    if (incoming !== current) providerSwitch = incoming
+  }
+
   for (const [key, value] of Object.entries(data)) {
     if (key === 'weglot') continue
     await query(
@@ -1260,6 +1289,28 @@ export async function dbUpdateApiKeys(data: Record<string, string>) {
        VALUES ($2, $2, $1, NOW())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
       [value, key]
+    )
+  }
+
+  if (providerSwitch) await dbRemapAiModelsForProvider(providerSwitch)
+}
+
+/**
+ * Task #15 — re-point every AI System's stored model id to the equivalent tier
+ * of `provider` (Haiku⇄gpt-4o-mini, Sonnet⇄gpt-4o, Opus⇄gpt-4.1). Called when the
+ * admin switches the active provider so saved configs never reference a model id
+ * from the wrong provider.
+ */
+export async function dbRemapAiModelsForProvider(provider: AiProvider) {
+  const rows = await query<{ system_key: string; model: string | null }>(
+    `SELECT system_key, model FROM ai_system_configs`,
+  )
+  for (const row of rows) {
+    const next = equivalentModel(row.model ?? '', provider)
+    if (next === row.model) continue
+    await query(
+      `UPDATE ai_system_configs SET model = $1, updated_at = NOW() WHERE system_key = $2`,
+      [next, row.system_key],
     )
   }
 }

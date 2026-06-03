@@ -14,6 +14,7 @@
  */
 
 import { generateText } from "ai"
+import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
@@ -77,8 +78,17 @@ export async function POST(request: Request) {
       city: tripData.city,
     })
 
+    // Task #15 — route through the active provider's fast model.
+    const ai = await resolveAi({ defaultTier: "fast" })
+    if (!ai.model) {
+      return Response.json(
+        { error: "AI is not configured. Add an Anthropic or OpenAI API key in Admin → Integrations." },
+        { status: 503 },
+      )
+    }
+
     const { text } = await generateText({
-      model: "openai/gpt-4o-mini",
+      model: ai.model,
       prompt,
       temperature: 0.7,
       maxOutputTokens: 1200,

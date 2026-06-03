@@ -1,5 +1,5 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
-import { createAnthropic } from "@ai-sdk/anthropic"
+import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListHelpArticles } from "@/lib/db/queries"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
@@ -109,19 +109,15 @@ If the user asks something not covered by the knowledgebase, acknowledge it hone
     const adminPrompt = (helpCfg.systemPrompt as string)?.trim()
     const promptHeader = adminPrompt && adminPrompt.length > 0 ? adminPrompt : baseInstructions
     const systemPrompt = `${promptHeader}\n\n===== KNOWLEDGEBASE (${kbCount} published help article${kbCount === 1 ? "" : "s"}, from sightseeing.lu database) =====\n${knowledgeBase}\n===== END KNOWLEDGEBASE =====`
-    const adminModel = (helpCfg.model as string) || ""
     // Clamp runtime controls to safe ranges in case the DB holds garbage.
     const rawTemp = typeof helpCfg.temperature === "number" ? helpCfg.temperature : 0.3
     const temperature = Math.min(1, Math.max(0, rawTemp))
     const rawMax = typeof helpCfg.maxTokens === "number" ? helpCfg.maxTokens : 1024
     const maxOutputTokens = Math.min(4096, Math.max(128, Math.floor(rawMax)))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-    const anthropicKey = apiKeys?.anthropic || process.env.ANTHROPIC_API_KEY
-    const gatewayKey = process.env.AI_GATEWAY_API_KEY
-
-    if (!gatewayKey && !anthropicKey) {
+    // Task #15 — resolve provider + model centrally. Fail-soft when no key.
+    const ai = await resolveAi({ systemKey: "help", defaultTier: "fast", settings })
+    if (!ai.model) {
       const msg = "Help chat AI is not configured. Please email info@sightseeing.lu and we'll respond personally."
       console.error("[help-chat] No AI credentials available")
       const sse =
@@ -134,21 +130,8 @@ If the user asks something not covered by the knowledgebase, acknowledge it hone
       })
     }
 
-    let model: Parameters<typeof streamText>[0]["model"]
-    if (gatewayKey) {
-      model = adminModel || "anthropic/claude-haiku-4-5-20251001"
-    } else {
-      const anthropic = createAnthropic({ apiKey: anthropicKey! })
-      const modelId = adminModel.startsWith("anthropic/")
-        ? adminModel.slice("anthropic/".length)
-        : adminModel.startsWith("claude")
-          ? adminModel
-          : "claude-haiku-4-5-20251001"
-      model = anthropic(modelId)
-    }
-
     const result = streamText({
-      model,
+      model: ai.model,
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       temperature,

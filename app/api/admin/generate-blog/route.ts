@@ -1,5 +1,5 @@
 import { streamText } from "ai"
-import { createAnthropic } from "@ai-sdk/anthropic"
+import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 
@@ -85,52 +85,34 @@ export async function POST(req: Request) {
   const settings = await dbGetSettings()
   const blogCfg = (settings.ai as Record<string, Record<string, unknown>>)?.blog ?? {}
   const baseSystemPrompt = (blogCfg.systemPrompt as string)?.trim() || DEFAULT_SYSTEM_PROMPT
-  const adminModel = (blogCfg.model as string) || ""
   const temperature = typeof blogCfg.temperature === "number" ? blogCfg.temperature : 0.75
   const maxOutputTokens = typeof blogCfg.maxTokens === "number" ? blogCfg.maxTokens : 4000
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-  const anthropicKey = apiKeys?.anthropic || process.env.ANTHROPIC_API_KEY
-  const gatewayKey = process.env.AI_GATEWAY_API_KEY
 
-  // OpenAI key for DALL-E (env var takes priority over integrations table)
+  // OpenAI key for DALL-E (env var takes priority over integrations table).
+  // NOTE (Task #15): image generation stays on OpenAI DALL·E regardless of the
+  // active text provider — it is intentionally NOT routed through resolveAi.
   const openaiKey =
     process.env.OPENAI_API_KEY ||
     apiKeys?.openai ||
     ""
 
-  // Fail loudly up-front if we have no AI credentials. The previous version
-  // passed a gateway-style model string straight to streamText, which silently
-  // produced an empty stream when AI_GATEWAY_API_KEY was missing — the UI
-  // ticked every milestone "done" but body content was empty.
-  if (!gatewayKey && !anthropicKey) {
+  // ── Resolve the active text provider + model centrally (Task #15) ──────
+  // The stored blog model only picks the TIER; the concrete model id always
+  // belongs to the effective provider. Fail-soft: `.model === null` → no key.
+  const ai = await resolveAi({ systemKey: "blog", defaultTier: "fast", settings })
+  if (!ai.model) {
     return Response.json(
       {
         error:
-          "AI is not configured. Add your Anthropic API key in Admin → Integrations, or set AI_GATEWAY_API_KEY in environment variables.",
+          "AI is not configured. Add your Anthropic or OpenAI API key in Admin → Integrations, or set AI_GATEWAY_API_KEY in environment variables.",
       },
       { status: 503 },
     )
   }
-
-  // ── Resolve a model that will actually work in this environment ────────
-  // Same fallback strategy as /api/planner: prefer the AI Gateway when its
-  // env key is configured, otherwise use the Anthropic SDK directly with the
-  // DB-stored key. This avoids the bogus "anthropic/claude-opus-4.6" string
-  // being sent through a gateway that has no auth.
-  let model: Parameters<typeof streamText>[0]["model"]
-  if (gatewayKey) {
-    model = adminModel || "anthropic/claude-haiku-4-5-20251001"
-  } else {
-    const anthropic = createAnthropic({ apiKey: anthropicKey! })
-    const modelId = adminModel.startsWith("anthropic/")
-      ? adminModel.slice("anthropic/".length)
-      : adminModel.startsWith("claude")
-        ? adminModel
-        : "claude-haiku-4-5-20251001"
-    model = anthropic(modelId)
-  }
+  const model = ai.model
 
   // ── Load published trips so we can ground the article in real catalog ──
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

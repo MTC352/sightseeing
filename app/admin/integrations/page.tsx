@@ -19,6 +19,12 @@ import {
   configKeyFor as searchFilterConfigKey,
   readSearchFiltersConfig,
 } from "@/lib/search-filters-config"
+import {
+  AI_PROVIDERS,
+  PROVIDER_LABELS,
+  type AiProvider,
+  selectedProvider,
+} from "@/lib/ai/models"
 
 interface ApiKeyField {
   key: string
@@ -569,6 +575,45 @@ export default function IntegrationsPage() {
 
       {/* ── API KEYS TAB ─────────────────────────────────────────── */}
       {tab === "keys" && (
+        <>
+        {/* Active AI provider selector — site-wide. The chosen provider is used
+            for EVERY AI feature; switching auto-remaps each AI System's model to
+            the equivalent tier on save. Only providers with a key are selectable. */}
+        <div className="mb-5 rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-muted-foreground/50" />
+            <h2 className="text-sm font-semibold text-foreground">Active AI Provider</h2>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground/60 max-w-xl">
+            Used for every AI feature across the site. A provider becomes selectable once its API key is
+            saved. Switching providers auto-remaps each AI System&apos;s
+            model to the equivalent tier.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {AI_PROVIDERS.map((p) => {
+              const active = selectedProvider(keys) === p
+              const hasKey = !!(keys[p] ?? "").trim()
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setKeys((k) => ({ ...k, ai_provider: p }))}
+                  disabled={!hasKey}
+                  title={hasKey ? undefined : `Add an ${PROVIDER_LABELS[p]} key first`}
+                  className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    active
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${active ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                  {PROVIDER_LABELS[p]}
+                  {active && <span className="text-[10px] font-semibold uppercase tracking-wide">Active</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -685,6 +730,7 @@ export default function IntegrationsPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ── SETTINGS TAB ─────────────────────────────────────────── */}

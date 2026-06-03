@@ -1,4 +1,5 @@
 import { generateText } from "ai"
+import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
 
 export const maxDuration = 30
@@ -98,8 +99,17 @@ ${lines.join("\n")}
 
 Provide SEO analysis and optimization suggestions. Return ONLY the JSON object, nothing else.`
 
+    // Task #15 — route through the active provider's fast model.
+    const ai = await resolveAi({ defaultTier: "fast" })
+    if (!ai.model) {
+      return Response.json(
+        { error: "AI is not configured. Add an Anthropic or OpenAI API key in Admin → Integrations." },
+        { status: 503 },
+      )
+    }
+
     const result = await generateText({
-      model: "openai/gpt-4o-mini",
+      model: ai.model,
       system: SYSTEM_PROMPT,
       prompt: userMessage,
       temperature: 0.3,

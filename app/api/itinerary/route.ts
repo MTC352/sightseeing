@@ -19,6 +19,7 @@ import {
   type ComputeLeg,
 } from "@/lib/itinerary/scheduler"
 import { selectAndOrder, narrate, type CompactCandidate } from "@/lib/itinerary/ai"
+import { resolveAi } from "@/lib/ai/provider"
 import { logError } from "@/lib/error-log"
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -702,12 +703,16 @@ export async function POST(req: Request) {
     const itineraryMaxTokens = typeof itinerarySettings.maxTokens === "number" && itinerarySettings.maxTokens > 0
       ? Math.min(8192, Math.floor(itinerarySettings.maxTokens))
       : null
-    // DB-managed key first, env as fallback — keep this precedence identical to
-    // the planner route. The env key may be stale/invalid while the admin-managed
-    // DB key is the source of truth; env-first caused intermittent 401s here.
-    const anthropicKey =
-      ((allSettings.apiKeys as Record<string, string> | undefined)?.anthropic ?? "").trim() ||
-      (process.env.ANTHROPIC_API_KEY ?? "").trim()
+    // Task #15 — resolve the active AI provider + model centrally. The stored
+    // itinerary model only picks the TIER; the concrete model id always belongs
+    // to the effective provider. `.model` is null (fail-soft) when no usable key,
+    // and selectAndOrder/narrate then fall back to the deterministic path.
+    const aiItinerary = await resolveAi({
+      storedModel: itineraryModel,
+      defaultTier: "fast",
+      settings: allSettings,
+    })
+    const itineraryAiModel = aiItinerary.model
     const dayStartTime = String(settings.dayStartTime ?? "09:00")
     const dayEndTime = String(settings.dayEndTime ?? "21:00")
     const bufferTimeBetweenStops = Number(settings.bufferTimeBetweenStops ?? 30)
@@ -1407,8 +1412,7 @@ ${tipsInstructions}`
       //    deterministic interest/band ordering is the fallback.
       let ordered: CandidateTrip[] = deterministicOrder(candidates, prefs.interests)
       const aiOrder = await selectAndOrder({
-        anthropicKey,
-        model: itineraryModel,
+        model: itineraryAiModel,
         candidates: candidates.map((c): CompactCandidate => ({
           id: c.id,
           title: c.title,
@@ -1502,8 +1506,7 @@ ${tipsInstructions}`
 
       const narration = steps.length > 0
         ? await narrate({
-            anthropicKey,
-            model: itineraryModel,
+            model: itineraryAiModel,
             temperature: itineraryTemperature,
             maxOutputTokens: itineraryMaxTokens,
             timelineText,

@@ -5,14 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Settings2, ChevronRight, Wand2 } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
-
-const MODELS = [
-  { value: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6 (Anthropic)" },
-  { value: "anthropic/claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku (Anthropic)" },
-  { value: "openai/gpt-4o", label: "GPT-4o (OpenAI)" },
-  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (OpenAI)" },
-  { value: "google/gemini-3-flash", label: "Gemini 3 Flash (Google)" },
-]
+import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
 
 const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
   planner: {
@@ -81,6 +74,7 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
   const { system } = use(params)
   const meta = SYSTEM_LABELS[system] ?? { label: system, hint: "" }
   const router = useRouter()
+  const { provider: activeProvider, models: MODELS } = useActiveAiProvider()
 
   const [form, setForm] = useState({ ...DEFAULT_CONFIG })
   const [displayCount, setDisplayCount] = useState(2)
@@ -220,7 +214,10 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
 
         {/* Model + Temperature + Max tokens */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-foreground">Model Configuration</h2>
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Model Configuration</h2>
+            <ActiveProviderBadge provider={activeProvider} />
+          </div>
           <div className="space-y-4">
             <div>
               <label className={labelClass}>Model</label>

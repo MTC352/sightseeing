@@ -1,5 +1,5 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
-import { createAnthropic } from "@ai-sdk/anthropic"
+import { resolveAi } from "@/lib/ai/provider"
 import { dbListHelpArticles, dbGetSettings } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 
@@ -114,13 +114,10 @@ export async function POST(req: Request) {
     const systemPrompt = `${ADMIN_SYSTEM_BASE}\n\n===== ADMIN KNOWLEDGE BASE (${kbCount} article${kbCount === 1 ? "" : "s"}) =====\n${knowledgeBase}\n===== END KNOWLEDGE BASE =====`
 
     const settings = await dbGetSettings()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-    const anthropicKey = apiKeys?.anthropic || process.env.ANTHROPIC_API_KEY
-    const gatewayKey = process.env.AI_GATEWAY_API_KEY
-
-    if (!gatewayKey && !anthropicKey) {
-      const msg = "Admin AI is not configured. Please add an Anthropic API key in Admin → Integrations."
+    // Task #15 — resolve provider + model centrally. Fail-soft when no key.
+    const ai = await resolveAi({ defaultTier: "fast", settings })
+    if (!ai.model) {
+      const msg = "Admin AI is not configured. Please add an Anthropic or OpenAI API key in Admin → Integrations."
       const sse =
         `data: ${JSON.stringify({ type: "start" })}\n\n` +
         `data: ${JSON.stringify({ type: "error", errorText: msg })}\n\n` +
@@ -131,16 +128,8 @@ export async function POST(req: Request) {
       })
     }
 
-    let model: Parameters<typeof streamText>[0]["model"]
-    if (gatewayKey) {
-      model = "anthropic/claude-haiku-4-5-20251001"
-    } else {
-      const anthropic = createAnthropic({ apiKey: anthropicKey! })
-      model = anthropic("claude-haiku-4-5-20251001")
-    }
-
     const result = streamText({
-      model,
+      model: ai.model,
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       temperature: 0.3,

@@ -19,6 +19,7 @@ import {
   Settings2,
   Sliders,
 } from "lucide-react"
+import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
 
 interface PlannerBehaviorSettings {
   model: string
@@ -73,13 +74,6 @@ const MAP_PROVIDERS = [
   { value: "google", label: "Google Maps", description: "Needs Directions key" },
 ]
 
-const MODELS = [
-  { value: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6", provider: "Anthropic" },
-  { value: "openai/gpt-4o", label: "GPT-4o", provider: "OpenAI" },
-  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI" },
-  { value: "google/gemini-3-flash", label: "Gemini 3 Flash", provider: "Google" },
-]
-
 const OPTIMIZATION_OPTIONS = [
   { value: "balanced", label: "Balanced", description: "Equal weight to all factors" },
   { value: "minimize_travel", label: "Minimize Travel", description: "Prioritize nearby activities" },
@@ -94,6 +88,7 @@ const TRAVEL_METHODS = [
 ]
 
 export default function PlannerBehaviorPage() {
+  const { provider: activeProvider, models: MODELS } = useActiveAiProvider()
   const [settings, setSettings] = useState<PlannerBehaviorSettings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -184,8 +179,11 @@ export default function PlannerBehaviorPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <Brain className="h-5 w-5 text-primary" />
             </div>
-            <div>
-              <h2 className="text-base font-semibold text-foreground">AI Behavior</h2>
+            <div className="flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-foreground">AI Behavior</h2>
+                <ActiveProviderBadge provider={activeProvider} />
+              </div>
               <p className="text-xs text-muted-foreground">Control how the AI generates recommendations</p>
             </div>
           </div>
@@ -201,7 +199,7 @@ export default function PlannerBehaviorPage() {
               >
                 {MODELS.map((m) => (
                   <option key={m.value} value={m.value}>
-                    {m.label} ({m.provider})
+                    {m.label}
                   </option>
                 ))}
               </select>

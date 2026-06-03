@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { generateText, Output } from "ai"
-import { createAnthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import { dbListTrips, dbGetSettings } from "@/lib/db/queries"
+import { resolveAi } from "@/lib/ai/provider"
 import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import { logCaughtError } from "@/lib/error-log"
@@ -127,10 +127,10 @@ export async function GET(req: Request) {
   // This ensures changing the admin "Number of Trips" setting busts the cache immediately.
   let displayCount = 2
   let systemPrompt = DEFAULT_PROMPT
-  let configModel = "anthropic/claude-haiku-4-5-20251001"
   let aiConfigMaxTokens = 1024
   let aiConfigTemperature = 0.5
-  let anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? ""
+  // Task #15 — model is resolved centrally to the active provider's equivalent.
+  let aiModel: Awaited<ReturnType<typeof resolveAi>>["model"] = null
   try {
     const settings = await dbGetSettings()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -140,12 +140,10 @@ export async function GET(req: Request) {
       : {}
     if (typeof configExtra.display_count === "number") displayCount = configExtra.display_count
     if (typeof aiConfig?.systemPrompt === "string" && aiConfig.systemPrompt) systemPrompt = aiConfig.systemPrompt
-    if (typeof aiConfig?.model === "string" && aiConfig.model) configModel = aiConfig.model
     if (typeof aiConfig?.maxTokens === "number") aiConfigMaxTokens = aiConfig.maxTokens
     if (typeof aiConfig?.temperature === "number") aiConfigTemperature = aiConfig.temperature
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-    if (apiKeys?.anthropic) anthropicApiKey = apiKeys.anthropic
+    const ai = await resolveAi({ systemKey: "outdoor_today", defaultTier: "fast", settings })
+    aiModel = ai.model
   } catch { /* use defaults */ }
 
   // Cache key includes displayCount so changing the admin setting busts it immediately.
@@ -262,15 +260,9 @@ export async function GET(req: Request) {
     let rankings: Ranking[] = []
     let aiPowered = false
 
-    if (anthropicApiKey) {
+    if (aiModel) {
       try {
-        const anthropic = createAnthropic({ apiKey: anthropicApiKey })
-        const rawModel = configModel.startsWith("anthropic/")
-          ? configModel.slice("anthropic/".length)
-          : configModel.startsWith("claude")
-            ? configModel
-            : "claude-haiku-4-5-20251001"
-        const model = anthropic(rawModel)
+        const model = aiModel
 
         const tripSummaries = eligibleTrips.slice(0, 15).map((t) => ({
           id: String(t.id),

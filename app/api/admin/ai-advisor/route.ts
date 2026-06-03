@@ -1,4 +1,5 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
+import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListTrips, dbListPosts } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 
@@ -100,8 +101,17 @@ export async function POST(request: Request) {
     const appState = await getAppState()
     const systemPrompt = SYSTEM_PROMPT.replace("{{APP_STATE}}", JSON.stringify(appState, null, 2))
 
+    // Task #15 — route through the active provider's fast model. Fail-soft.
+    const ai = await resolveAi({ defaultTier: "fast" })
+    if (!ai.model) {
+      return new Response(
+        JSON.stringify({ error: "AI is not configured. Add an Anthropic or OpenAI API key in Admin → Integrations." }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      )
+    }
+
     const result = streamText({
-      model: "openai/gpt-4o-mini",
+      model: ai.model,
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       temperature: 0.7,

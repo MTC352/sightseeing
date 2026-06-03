@@ -7,7 +7,7 @@ import {
   UIMessage,
   validateUIMessages,
 } from "ai"
-import { createAnthropic } from "@ai-sdk/anthropic"
+import { resolveAi } from "@/lib/ai/provider"
 import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips } from "@/lib/db/queries"
@@ -1157,58 +1157,33 @@ export async function POST(req: Request) {
     
     const systemPrompt = systemPromptParts.join("\n")
 
-    // ── Model resolution ──────────────────────────────────────────────────
-    // The admin UI stores model strings like "openai/gpt-4o-mini" (Vercel AI
-    // Gateway syntax). That only works when AI_GATEWAY_API_KEY is set in the
-    // environment. To keep chat working out-of-the-box without a gateway key,
-    // we fall back to Anthropic Claude via @ai-sdk/anthropic using the API key
-    // stored in DB integrations.anthropic (same source the itinerary route
-    // uses). Order of preference:
-    //   1. AI_GATEWAY_API_KEY env → use the admin-configured gateway model
-    //      string as-is (lets ops set up a real gateway later).
-    //   2. Otherwise → use Anthropic with the DB key. If the admin's model
-    //      string looks like an anthropic model ("claude-…" or
-    //      "anthropic/…"), respect it; otherwise default to claude-3-5-haiku.
+    // ── Model resolution (Task #15) ────────────────────────────────────────
+    // Resolve the active provider + concrete model centrally. The stored model
+    // only selects the TIER; the concrete model id always belongs to the
+    // effective provider, so switching providers never points at a wrong-
+    // provider model id. Fail-soft: `.model === null` → no usable key.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const adminModel: string | undefined =
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       plannerBehavior?.model || (settings.ai?.planner as any)?.model
 
-    const gatewayKey = process.env.AI_GATEWAY_API_KEY
-    let model: Parameters<typeof streamText>[0]["model"]
-    if (gatewayKey) {
-      model = adminModel || "openai/gpt-4o-mini"
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-      // Trim: a pasted key with stray whitespace/newline is sent verbatim and
-      // Anthropic rejects it as "invalid x-api-key". Treat empty-after-trim as
-      // missing so we fall back to the env key (matches lib/weather.ts).
-      const anthropicKey =
-        (apiKeys?.anthropic ?? "").trim() || (process.env.ANTHROPIC_API_KEY ?? "").trim()
-      if (!anthropicKey) {
-        // Stream a chat-shaped error so the client's useChat hook can
-        // display it inline instead of failing silently on a raw 503.
-        const msg = "AI is not configured. Open Admin → Integrations and save your Anthropic API key, or set AI_GATEWAY_API_KEY in environment variables."
-        console.error("[planner] No AI credentials available —", msg)
-        void logError({ source: "ai:planner", message: msg, level: "warn" })
-        const sse =
-          `data: ${JSON.stringify({ type: "start" })}\n\n` +
-          `data: ${JSON.stringify({ type: "error", errorText: msg })}\n\n` +
-          `data: [DONE]\n\n`
-        return new Response(sse, {
-          status: 200,
-          headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
-        })
-      }
-      const anthropic = createAnthropic({ apiKey: anthropicKey })
-      const modelId = adminModel?.startsWith("anthropic/")
-        ? adminModel.slice("anthropic/".length)
-        : adminModel?.startsWith("claude")
-          ? adminModel
-          : "claude-haiku-4-5-20251001"
-      model = anthropic(modelId)
+    const ai = await resolveAi({ storedModel: adminModel, defaultTier: "fast", settings })
+    if (!ai.model) {
+      // Stream a chat-shaped error so the client's useChat hook can
+      // display it inline instead of failing silently on a raw 503.
+      const msg = "AI is not configured. Open Admin → Integrations and save an Anthropic or OpenAI API key, or set AI_GATEWAY_API_KEY in environment variables."
+      console.error("[planner] No AI credentials available —", msg)
+      void logError({ source: "ai:planner", message: msg, level: "warn" })
+      const sse =
+        `data: ${JSON.stringify({ type: "start" })}\n\n` +
+        `data: ${JSON.stringify({ type: "error", errorText: msg })}\n\n` +
+        `data: [DONE]\n\n`
+      return new Response(sse, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
+      })
     }
+    const model = ai.model
 
     const result = streamText({
       model,

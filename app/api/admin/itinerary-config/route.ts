@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { dbGetSettings, dbUpdateItineraryConfig } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { AI_PROVIDERS, modelOptions } from "@/lib/ai/models"
 
 export const dynamic = "force-dynamic"
 
@@ -8,14 +9,12 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
-// Itinerary generation uses the Anthropic SDK directly — keep the allowlist
-// in sync with the admin UI dropdown to prevent a misconfiguration from
-// taking the planner down with a 4xx from a non-Anthropic model id.
-const ALLOWED_MODELS = new Set<string>([
-  "anthropic/claude-haiku-4-5-20251001",
-  "anthropic/claude-sonnet-4-6",
-  "anthropic/claude-opus-4-7",
-])
+// Task #15 — the itinerary route resolves the model through resolveAi, so the
+// stored model only needs to be a valid id for EITHER provider. Build the
+// allowlist from the canonical tier models of both providers.
+const ALLOWED_MODELS = new Set<string>(
+  AI_PROVIDERS.flatMap((p) => modelOptions(p).map((o) => o.value)),
+)
 
 export async function GET() {
   try {

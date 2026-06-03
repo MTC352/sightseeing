@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
 import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun } from "lucide-react"
+import { PROVIDER_LABELS, type AiProvider } from "@/lib/ai/models"
 
 export const dynamic = "force-dynamic"
 
@@ -50,12 +51,19 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
 
 export default async function AiSystemsPage() {
   const settings = await dbGetSettings()
+  const activeProvider = (settings.aiProvider as AiProvider) ?? "anthropic"
 
   return (
     <div className="p-6 lg:p-10">
       <div className="mb-8">
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Settings</p>
-        <h1 className="mt-1 text-2xl font-bold text-foreground">AI Systems</h1>
+        <div className="mt-1 flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold text-foreground">AI Systems</h1>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary">
+            <Bot className="h-3 w-3" />
+            Active provider: {PROVIDER_LABELS[activeProvider]}
+          </span>
+        </div>
         <p className="mt-0.5 text-sm text-muted-foreground">
           Configure AI assistants and get strategic advice for platform growth.
         </p>
