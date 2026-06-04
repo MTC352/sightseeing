@@ -188,6 +188,7 @@ CREATE TABLE trips (
   seo_optimized_at     TIMESTAMPTZ,                      -- when last optimised (drives staleness)
   seo_optimized_by     UUID        REFERENCES admin_users(id),
   seo_source_hashes    JSONB,                            -- per-source-field hash snapshot for staleness
+  itinerary_steps      JSONB,                            -- admin/AI-authored ordered steps [{name, description}]
   created_by           UUID        REFERENCES admin_users(id),
   updated_by           UUID        REFERENCES admin_users(id),
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -203,6 +204,8 @@ CREATE INDEX trips_palisis_id_idx  ON trips(palisis_id);
 **Display logic:** The app renders `title_override ?? title` and `description_override ?? description`. This way admin edits are non-destructive — the original Palisis data is always preserved in `title` / `description`.
 
 **AI SEO fields (`seo_*`):** Written ONLY by the AI SEO Optimizer (`/api/admin/seo-generate` → `/api/admin/trips/[id]/seo`) and are **import-safe** — the Palisis importer/webhook never reads or writes them, so a re-sync can never clobber optimised SEO. Public render (`app/trip/[id]`) prefers `seo_title` / `seo_meta_description` / `seo_keyword` / `seo_body` when present. `seo_source_hashes` snapshots a per-source-field hash at optimization time; when a later sync/edit changes a source field (title, description, highlights, etc.), the admin SEO panel shows a "may be outdated" staleness badge. Scoring lives in `lib/seo/score.ts` (21-check RankMath-style audit).
+
+**Itinerary steps (`itinerary_steps`):** Admin- and AI-authored ordered list of `{ name, description }` objects (array order = display order). Managed in the Trip Edit page's "Itinerary" section (manual CRUD + drag reorder + "Generate Itinerary with AI" via `/api/admin/itinerary-generate`), saved with the normal trip Save. **Import-safe** — never written by the Palisis importer/webhook (excluded from `lib/palisis-mapper.ts`). The public trip detail page (`app/trip/[id]`) renders a timeline section only when this array is non-empty. Distinct from the Palisis `itinerary` TEXT blob and entirely separate from the `/planner` Trip Planner engine.
 
 **When updated:**
 - On manual Palisis import (single trip with diff confirmation, or bulk with override checkbox)

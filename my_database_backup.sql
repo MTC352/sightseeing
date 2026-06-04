@@ -493,7 +493,8 @@ CREATE TABLE public.trips (
     seo_score integer,
     seo_optimized_at timestamp with time zone,
     seo_optimized_by uuid,
-    seo_source_hashes jsonb
+    seo_source_hashes jsonb,
+    itinerary_steps jsonb
 );
 
 

@@ -37,6 +37,30 @@ function arr(v: unknown): string[] {
   return Array.isArray(v) ? (v as unknown[]).map(String).filter((x) => x.trim().length > 0) : []
 }
 
+/** Parse the jsonb itinerary_steps column into clean [{name, description}] order. */
+function itinerarySteps(v: unknown): { name: string; description: string }[] {
+  let raw: unknown = v
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null
+      const o = item as Record<string, unknown>
+      const name = s(o.name) ?? ""
+      const description = s(o.description) ?? ""
+      // A valid step requires BOTH a name and a description.
+      if (!name || !description) return null
+      return { name, description }
+    })
+    .filter((x): x is { name: string; description: string } => x !== null)
+}
+
 /** Build a structured DB-detail object from a Palisis-synced trip row. */
 function mapDbDetail(r: Record<string, unknown>): TripDbDetail {
   return {
@@ -48,6 +72,7 @@ function mapDbDetail(r: Record<string, unknown>): TripDbDetail {
     included: arr(r.included),
     excluded: arr(r.excluded),
     itineraryText: s(r.itinerary),
+    itinerarySteps: itinerarySteps(r.itinerarySteps),
     essentialInformation: s(r.essentialInformation),
     hotelPickupInstructions: s(r.hotelPickupInstructions),
     voucherRedemptionInstructions: s(r.voucherRedemptionInstructions),

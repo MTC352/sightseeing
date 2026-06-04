@@ -1,0 +1,76 @@
+Implement a new "Trip Itinerary" feature.
+
+IMPORTANT:
+
+* This feature is ONLY for:
+
+  1. Admin Trip Edit Page
+  2. Frontend Trip Details Page
+* Do NOT modify or affect the existing Trip Planner page or its functionality.
+
+ADMIN PANEL – TRIP EDIT
+
+Add a new "Itinerary" section inside the Trip Edit page.
+
+Requirements:
+
+1. Admin can add multiple itinerary steps.
+2. Each step must have:
+
+   * Name (required)
+   * Description (required)
+3. Admin can:
+
+   * Create steps
+   * Edit steps
+   * Delete steps
+   * Insert a step between existing steps
+   * Reorder steps using drag-and-drop
+4. Save itinerary data with the trip.
+
+AI GENERATION
+
+Add a button:
+"Generate Itinerary with AI"
+
+When clicked:
+
+* Use the existing AI integration (if available).
+* Generate itinerary steps based on trip details.
+* Each generated step should include:
+
+  * Step/Place Name
+  * Short Description
+* Generated steps should be editable before saving.
+
+FRONTEND – TRIP DETAILS PAGE
+
+Display the itinerary section using the itinerary data saved with the trip.
+
+Requirements:
+
+1. Show itinerary only when itinerary data exists.
+2. Hide the entire itinerary section when no itinerary is available.
+3. Use a timeline/card/box style layout similar to our existing Itinerary Planner design.
+4. UI inspiration: GetYourGuide itinerary section.
+5. Make the design responsive for mobile and desktop.
+
+DATABASE
+
+Add the necessary database fields/model changes to store:
+
+* itinerary steps
+* step order
+* step name
+* step description
+
+ACCEPTANCE CRITERIA
+
+* Admin can manually manage itinerary steps.
+* Admin can generate itinerary using AI.
+* Drag-and-drop ordering works.
+* Itinerary persists correctly after save.
+* Frontend Trip Details page displays itinerary correctly.
+* No itinerary section is shown when empty.
+* Existing Trip Planner functionality remains completely unchanged.
+* All changes are production-ready and fully integrated with the current codebase.

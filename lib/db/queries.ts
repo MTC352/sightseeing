@@ -52,6 +52,7 @@ const TRIP_SELECT = `
   seo_highlights as "seoHighlights", seo_slug as "seoSlug",
   seo_score as "seoScore", seo_optimized_at as "seoOptimizedAt",
   seo_optimized_by as "seoOptimizedBy", seo_source_hashes as "seoSourceHashes",
+  itinerary_steps as "itinerarySteps",
   created_at, updated_at
 `
 
@@ -211,11 +212,17 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     seoHighlights: 'seo_highlights', seoSlug: 'seo_slug',
     seoScore: 'seo_score', seoOptimizedAt: 'seo_optimized_at',
     seoOptimizedBy: 'seo_optimized_by', seoSourceHashes: 'seo_source_hashes',
+    // ── Itinerary steps (import-safe; admin/AI-authored, never written by Palisis) ──
+    itinerarySteps: 'itinerary_steps',
   }
+  // jsonb columns must be serialized to a JSON string before binding (node-pg
+  // would otherwise coerce a JS array of objects into a Postgres array literal).
+  const JSONB_COLS = new Set(['itinerary_steps'])
   for (const [key, col] of Object.entries(fieldMap)) {
     if (key in data) {
       sets.push(`${col} = $${i++}`)
-      vals.push(data[key])
+      const v = data[key]
+      vals.push(JSONB_COLS.has(col) && v != null && typeof v !== 'string' ? JSON.stringify(v) : v)
     }
   }
   if (sets.length === 0) return dbGetTrip(id)

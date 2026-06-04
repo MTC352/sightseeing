@@ -11,6 +11,12 @@
 // These TypeScript interfaces remain because several admin edit forms still
 // import them as shape contracts for their local React state.
 
+/** A single structured itinerary step shown on the trip detail page. */
+export interface ItineraryStep {
+  name: string
+  description: string
+}
+
 export interface AdminTrip {
   id: string
   palisis_id?: string
@@ -83,6 +89,9 @@ export interface AdminTrip {
   seoOptimizedAt?: string | null
   seoOptimizedBy?: string | null
   seoSourceHashes?: Record<string, string> | null
+
+  // ── Itinerary steps (import-safe; admin/AI-authored, never written by Palisis) ──
+  itinerarySteps?: ItineraryStep[] | null
 }
 
 export interface AdminJob {

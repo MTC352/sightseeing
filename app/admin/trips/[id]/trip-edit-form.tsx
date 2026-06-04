@@ -8,6 +8,7 @@ import { Lock } from "lucide-react"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { SEOOptimizer } from "@/components/admin/seo-optimizer"
+import { ItineraryEditor } from "@/components/admin/itinerary-editor"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 
 const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
@@ -184,10 +185,22 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
     try {
       const method = trip ? "PATCH" : "POST"
       const url = trip ? `/api/admin/trips/${trip.id}` : `/api/admin/trips`
+      // Itinerary steps require BOTH name and description — trim and drop any
+      // incomplete rows so partial steps never persist or render.
+      const payload = {
+        ...form,
+        ...(form.itinerarySteps !== undefined
+          ? {
+              itinerarySteps: (form.itinerarySteps ?? [])
+                .map((s) => ({ name: (s.name ?? "").trim(), description: (s.description ?? "").trim() }))
+                .filter((s) => s.name && s.description),
+            }
+          : {}),
+      }
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -903,6 +916,13 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
               if (can(field as string)) set(field as "title" | "description", value)
             }
           }}
+        />
+
+        {/* Itinerary steps */}
+        <ItineraryEditor
+          tripId={trip?.id}
+          steps={form.itinerarySteps ?? []}
+          onChange={(steps) => set("itinerarySteps", steps)}
         />
       </div>
 
