@@ -23,6 +23,7 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
 /* ─── Types shared with the server page ─────────────────────────────── */
 export type TripDbDetail = {
   seoBody?: string
+  seoHighlights?: string[]
   shortDescription?: string
   longDescription?: string
   experienceHighlights?: string
@@ -184,11 +185,13 @@ export default function TripDetailClient({
     trip.description ??
     ""
 
-  // Highlights: DB experience_highlights (text) preferred, else trip.highlights[]
+  // Highlights: admin-optimised SEO highlights → DB experience_highlights (text) → trip.highlights[]
   const highlightsList: string[] =
-    dbDetail?.experienceHighlights
-      ? dbDetail.experienceHighlights.split(/\r?\n+/).map((x) => x.trim()).filter(Boolean)
-      : (trip.highlights ?? [])
+    dbDetail?.seoHighlights && dbDetail.seoHighlights.length > 0
+      ? dbDetail.seoHighlights.map((x) => x.trim()).filter(Boolean)
+      : dbDetail?.experienceHighlights
+        ? dbDetail.experienceHighlights.split(/\r?\n+/).map((x) => x.trim()).filter(Boolean)
+        : (trip.highlights ?? [])
 
   // Includes / Not included: merge DB + static (DB first)
   const includes: string[] = dbDetail?.included.length ? dbDetail.included : (detail?.includes ?? [])

@@ -41,6 +41,7 @@ function arr(v: unknown): string[] {
 function mapDbDetail(r: Record<string, unknown>): TripDbDetail {
   return {
     seoBody: s(r.seoBody),
+    seoHighlights: arr(r.seoHighlights),
     shortDescription: s(r.shortDescription),
     longDescription: s(r.longDescription),
     experienceHighlights: s(r.experienceHighlights),
