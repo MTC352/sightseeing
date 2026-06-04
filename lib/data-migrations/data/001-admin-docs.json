@@ -1,0 +1,596 @@
+[
+  {
+    "question": "How do I configure the AI assistants (Trip Planner, Help Chat, Itinerary)?",
+    "answer": "Go to AI Systems in the sidebar. Each assistant has its own system prompt, model selection, and behaviour settings — changes take effect immediately without a deploy.\n\nTrip Planner AI (/admin/ai-systems/planner): controls the conversational AI on /planner. Sets persona, tone, and recommendation logic.\nHelp Chat AI: powers /help chat widget, draws from published help articles.\nTrip Chat AI: inline chat on /trip/[id] pages, knows the specific trip.\nItinerary AI: builds day itineraries from planner recommendations.\n\nModel settings: lower temperature (0.2–0.5) = more consistent/factual; higher (0.7–1.0) = more creative. Use 0.3–0.6 for most assistants.\n\nWARNING: This section is experimental. Incorrect prompts or settings can break AI features for visitors — test changes carefully.",
+    "category": "AI Systems",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I customise the AI trip planner's behaviour and personality?",
+    "answer": "The AI planner's personality, rules, and constraints are controlled by an editable system prompt.\n\n1. Go to Admin > AI Systems (/admin/ai-systems).\n2. Click the \"Planner\" system to open its configuration.\n3. Edit the System Prompt text field — this is the instruction set the AI follows during every planner conversation.\n4. Optionally change the Model (Claude, GPT-4o, etc.) or Temperature (0 = conservative, 1 = creative).\n5. Click Save. New planner conversations immediately use the updated prompt.",
+    "category": "AI Systems",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I update the itinerary AI's scheduling rules?",
+    "answer": "1. Go to Admin > AI Systems > Itinerary.\n2. The system prompt contains rules for how the AI builds day plans: meal break timing, travel time between stops, priority when trips conflict, etc.\n3. Edit the rules directly in the prompt text. For example, to change the default lunch window, find the lunch rule and update the times.\n4. Click Save. The next itinerary build uses the new rules.",
+    "category": "AI Systems",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I change which AI model powers a feature?",
+    "answer": "1. Go to Admin > AI Systems and open the system you want to change (Planner, Itinerary, or Help Chat).\n2. Find the Model dropdown.\n3. Select a different model — options include claude-3-5-sonnet, claude-3-haiku, gpt-4o, and gpt-4o-mini.\n4. Click Save.\n\nTip: lighter models (haiku, gpt-4o-mini) are faster and cheaper for simple tasks. Use stronger models (sonnet, gpt-4o) when output quality is the priority.",
+    "category": "AI Systems",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I reset an AI system prompt to the built-in default?",
+    "answer": "1. Go to Admin > AI Systems and open the relevant system.\n2. Click the \"Reset to Default\" button beneath the System Prompt field.\n3. Confirm the action. The field is replaced with the hard-coded fallback prompt that ships with the application.\n4. Click Save.",
+    "category": "AI Systems",
+    "status": "published",
+    "sort_order": 4,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I control what the help chat AI knows about the business?",
+    "answer": "1. Go to Admin > AI Systems > Help Chat.\n2. The system prompt is where you tell the AI the business name, opening hours, contact details, policies, and any other facts it should know.\n3. Update the facts section of the prompt with your current details.\n4. Click Save. The help chat will reference these facts immediately in new conversations.",
+    "category": "AI Systems",
+    "status": "published",
+    "sort_order": 5,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I create a new blog post?",
+    "answer": "Blog posts are published to the /blog section of the public site.\n\n1. Go to Admin > Blog (/admin/blog).\n2. Click \"New Post\" (top-right button).\n3. Fill in the Title, Slug (URL-friendly version of the title — auto-generated but editable), Excerpt, and Body content.\n4. Choose a Category and add Tags.\n5. Set Status to Draft to save without publishing, or Published to make it live immediately.\n6. Click Save. The post appears at /blog/[slug] when published.",
+    "category": "Blog",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I create and publish blog posts?",
+    "answer": "Go to Blog in the sidebar. Click New Post, add a title, cover image URL, and body content. The URL slug is auto-generated from the title — edit it manually if needed (must be unique, lowercase, hyphens only). Fill in SEO metadata: meta title (60 chars) and meta description (160 chars) — these appear directly in Google search results. Toggle status from Draft to Published to make the post live on /blog immediately.\n\nBlog post fields: Title, Slug (/blog/[slug] — must be unique), Author (defaults to admin name), Cover Image URL, Content (rich-text with headings/lists/links), Tags (optional), Status (Draft/Published).",
+    "category": "Blog",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I generate blog post content with AI?",
+    "answer": "The blog editor has a built-in AI writing assistant.\n\n1. Open a blog post (create a new one or open an existing draft).\n2. Type a prompt in the AI Generate field — for example: \"Write a 400-word post about the best day trips from Luxembourg City in autumn.\"\n3. Click Generate. The AI fills in the Body field with a full draft.\n4. Review, edit, and adjust the draft as needed.\n5. Set Status to Published and click Save when you are happy with the result.\n\nTip: the more specific your prompt, the better the output. Include the target audience, tone (friendly, professional), and any key points you want covered.",
+    "category": "Blog",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add a featured image to a blog post?",
+    "answer": "The featured image appears at the top of the post and as the thumbnail on the blog listing page.\n\n1. Open the blog post editor.\n2. Find the Featured Image field.\n3. Paste a direct HTTPS image URL into the field.\n4. Click Save. The image will be shown on /blog and at the top of /blog/[slug].",
+    "category": "Blog",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I publish, unpublish, or draft a blog post?",
+    "answer": "The Status field controls visibility on the public site.\n\n1. Open the blog post editor.\n2. Find the Status dropdown.\n3. Select Published to make the post live now, or Draft to keep it hidden from visitors.\n4. Click Save.\n\nNote: there is no built-in scheduler. To publish at a specific time, save as Draft and manually change to Published at your chosen moment.",
+    "category": "Blog",
+    "status": "published",
+    "sort_order": 4,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I edit a blog post's slug or category?",
+    "answer": "1. Open the blog post editor (Admin > Blog > click the post title).\n2. The Slug field is editable — update it to change the URL.\n   Caution: changing a slug breaks any existing links to the old URL.\n3. Change the Category using the dropdown or text field.\n4. Click Save Changes.",
+    "category": "Blog",
+    "status": "published",
+    "sort_order": 5,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add SEO metadata (meta title, meta description) to a blog post?",
+    "answer": "SEO fields help search engines understand and rank the post.\n\n1. Open the blog post editor.\n2. Scroll to the SEO section (below the main content area).\n3. Fill in Meta Title (ideally 50–60 characters) and Meta Description (ideally 120–160 characters).\n4. Click Save. The values are injected into the page's <head> when the post is published.",
+    "category": "Blog",
+    "status": "published",
+    "sort_order": 6,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "What is the DB Tracker and how do I use it?",
+    "answer": "Go to DB Tracker in the sidebar. It runs a live count of every database table and displays the results in a dashboard — useful for verifying data is being written correctly. This page is read-only and does not modify any data.\n\nEach row shows: table name, current row count, expected minimum count, and a status indicator (green = healthy, amber = low, red = empty when content is expected).\n\nTables tracked: admin_users, trips, palisis_sync_log, blog_posts, jobs, job_applications, help_articles, support_tickets, ticket_replies, taxonomies, trip_tags, pages, page_revisions, page_content, ai_system_configs, integrations, header_footer_blocks.",
+    "category": "DB Tracker",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "What does the Dashboard show and how do I use it?",
+    "answer": "The Dashboard is the first page after login. Four stat cards at the top show total trips (with published count), blog posts, open job listings, and featured trips — each card is clickable and navigates to that section. Below are six quick-action shortcuts to Trips, Blog, Jobs, AI Systems, Integrations, and Header/Footer. At the bottom, a table lists the 8 most recently added trips with category, price, and publish status — click any title to open the edit page directly.",
+    "category": "Dashboard",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "What does the admin dashboard show?",
+    "answer": "The dashboard gives you a real-time snapshot of the whole site.\n\n1. Go to /admin — it is the first page after logging in.\n2. The top row shows key counts: total trips, published blog posts, open jobs, and pending support tickets.\n3. The Recent Tickets panel lists the 5 newest support tickets with their status and creation date.\n4. Numbers update every time you navigate to the dashboard — refresh the page to get the latest figures.",
+    "category": "Dashboard",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I jump from the dashboard to a specific section quickly?",
+    "answer": "Use the left-hand sidebar navigation.\n\n1. The sidebar is always visible on the left side of every admin page.\n2. Click Trips, Blog, Jobs, Help, Tickets, Pages, or any other item to go straight to that section.\n3. Click the sightseeing.lu logo at the top of the sidebar to return to the dashboard at any time.",
+    "category": "Dashboard",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I access and navigate the admin panel?",
+    "answer": "Access the admin panel at /admin — you must be logged in with admin credentials. Sessions last 8 hours via an HttpOnly JWT cookie. The left sidebar links to every section; click the collapse arrow at the bottom to hide labels and save screen space. Hover any icon for a tooltip. The 'Visit Site' button at the top opens the public homepage. Change your password immediately after first login — passwords are stored as bcrypt hashes, never in plain text.",
+    "category": "Getting Started",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add a custom announcement banner or script to every page?",
+    "answer": "The Header/Footer editor lets you inject custom HTML, scripts, or banners site-wide.\n\n1. Go to Admin > Header/Footer (/admin/header-footer).\n2. Choose the slot: Head (injected in <head>), Body Start (just after <body>), or Body End (before </body>).\n3. Paste your HTML or script tag into the text area.\n4. Set Status to Active.\n5. Click Save. The code is injected on every public page immediately.",
+    "category": "Header / Footer",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I inject custom HTML, scripts, or CSS into the site?",
+    "answer": "Go to Header/Footer in the sidebar. Code placed in the Header block is injected inside <head> on every public page — use for CSS stylesheets, font imports, and early-loading scripts. Code in the Footer block is injected before </body> — use for analytics (Google Analytics, Meta Pixel), live chat widgets, and other non-blocking scripts.\n\nWARNING: Code here runs on every public page. Invalid HTML or JavaScript errors will affect all visitors. Wrap <script> tags with async or defer to avoid blocking page rendering.",
+    "category": "Header / Footer",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add a Google Analytics or Meta Pixel tracking tag?",
+    "answer": "1. Copy the full tracking script from your Google Analytics or Meta Business Manager account.\n2. Go to Admin > Header/Footer.\n3. Paste the script into the Head slot (Google Analytics) or Body End slot (Meta Pixel).\n4. Set Status to Active and click Save.\n5. Visit the public site and confirm the tag fires using the GA Debugger or Meta Pixel Helper browser extension.",
+    "category": "Header / Footer",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I disable a header/footer block without deleting it?",
+    "answer": "1. Go to Admin > Header/Footer.\n2. Find the block you want to pause.\n3. Change its Status from Active to Inactive.\n4. Click Save. The block stops being injected on public pages but remains saved in the database.\n\nTo re-enable it, set Status back to Active and save.",
+    "category": "Header / Footer",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add a new help article?",
+    "answer": "Help articles power the public /help page and the AI help chat.\n\n1. Go to Admin > Help (/admin/help).\n2. Click \"New Article\".\n3. Fill in the Question (the heading visitors search for) and the Answer (a clear, step-by-step response).\n4. Choose a Category from the dropdown — this groups articles on the /help page (e.g. Booking, Cancellation, Payments).\n5. Set Status to Published to make it live, or Draft to save privately.\n6. Click Save.",
+    "category": "Help & FAQ",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I manage help articles and the public knowledge base?",
+    "answer": "Go to Help & FAQ in the sidebar. Click New Article, set a category (Booking, Getting Here, Cancellation, etc.), question, and answer body. Toggle status to Published — only published articles appear on the public /help page and are used by the AI help chat assistant. Use consistent category names so articles are easy to navigate on the frontend.\n\nThe help chat AI reads all published public articles as its knowledge base — accurate, detailed articles directly improve AI answer quality for visitors.",
+    "category": "Help & FAQ",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I organise help articles into categories?",
+    "answer": "Categories are free-text labels you set per article — they control how articles are grouped on /help.\n\n1. Open any article and set its Category field to the group name you want (e.g. \"Booking\", \"Cancellation\", \"Getting Here\").\n2. All articles sharing the same category text are automatically grouped together on the public help page.\n3. To rename a category, update the Category field on every article in that group.\n\nTip: keep category names short and consistent — even a small spelling difference creates a separate group.",
+    "category": "Help & FAQ",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I reorder help articles within a category?",
+    "answer": "1. Open the article you want to reposition (Admin > Help > click the article).\n2. Find the Sort Order field (a number).\n3. Set a lower number to move the article higher within its category (1 = first).\n4. Click Save.\n5. Repeat for other articles until the order looks right on the public /help page.",
+    "category": "Help & FAQ",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I unpublish or delete a help article?",
+    "answer": "To hide without deleting:\n1. Open the article and change Status to Draft.\n2. Click Save — the article disappears from /help immediately.\n\nTo permanently delete:\n1. Open the article.\n2. Click the Delete button (bottom of the editor or in the actions menu).\n3. Confirm the prompt. Deletion is permanent and cannot be undone.",
+    "category": "Help & FAQ",
+    "status": "published",
+    "sort_order": 4,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add or update my Google Reviews Place ID?",
+    "answer": "The Google Reviews Place ID tells the site which business to pull reviews from.\n\n1. Go to Admin > Integrations (/admin/integrations).\n2. Find the \"Google Reviews Place ID\" field.\n3. Paste your Place ID (format: ChIJ...). You can look it up at https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder.\n4. Click Save. The homepage reviews section will refresh on the next visitor request.",
+    "category": "Integrations",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I manage API keys and third-party integrations?",
+    "answer": "Go to Integrations in the sidebar. Keys stored here are used server-side only — never exposed to the browser. Keys set here take precedence over environment variables.\n\nPalisis/TourCMS: Channel ID, Marketplace ID, and API Key for catalog import and availability lookups. Read-only — data flows from Palisis into this site only.\nGoogle Reviews: Google Place ID + Places API Key (find your Place ID at developers.google.com/maps/documentation/places).\nMapbox: Public access token (starts with 'pk.') — safe for browser, delivered via /api/mapbox-token.\nOpenWeatherMap: API key for the homepage weather widget.\nWeglot: Translation service key; full config at Admin → Integrations → Weglot.\nAI Providers: Anthropic and OpenAI keys — also settable as ANTHROPIC_API_KEY / OPENAI_API_KEY env vars.\n\nUse the Test button next to each key to verify it works before saving.",
+    "category": "Integrations",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I configure the Mapbox API key?",
+    "answer": "Mapbox powers the interactive map on the planner and Explore pages.\n\n1. Go to Admin > Integrations.\n2. Find the Mapbox Public Token field.\n3. Paste your Mapbox public token (starts with \"pk.\").\n4. Click Save.\n\nGet a token from https://account.mapbox.com — a free account gives you generous monthly usage.",
+    "category": "Integrations",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I set up my OpenWeather API key?",
+    "answer": "OpenWeather provides the live weather data shown in the AI planner.\n\n1. Go to Admin > Integrations.\n2. Find the OpenWeather API Key field.\n3. Paste your API key from https://openweathermap.org/api.\n4. Click Test to verify the key is working — a green tick confirms success.\n5. Click Save.\n\nA free OpenWeather account gives 1,000 calls/day which is sufficient for this site.",
+    "category": "Integrations",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add or rotate an AI provider API key (Anthropic or OpenAI)?",
+    "answer": "1. Go to Admin > Integrations.\n2. Find the AI Provider section — there are separate fields for the Anthropic API Key and the AI Gateway Key.\n3. Paste your new key.\n4. Click Save. The planner and blog AI generation features will use the new key on the next request.\n\nKeys are stored in the database and never exposed to the public frontend.",
+    "category": "Integrations",
+    "status": "published",
+    "sort_order": 4,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I validate that a saved API key is working?",
+    "answer": "1. Go to Admin > Integrations.\n2. After saving a key, click the \"Test\" button next to it (available for OpenWeather and Google Reviews).\n3. A green tick means the key is valid and returning data.\n4. A red cross or error message means the key is incorrect or the service is unreachable — double-check you copied the full key without trailing spaces.",
+    "category": "Integrations",
+    "status": "published",
+    "sort_order": 5,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add a new job listing?",
+    "answer": "Job listings appear on the public /careers page.\n\n1. Go to Admin > Jobs (/admin/jobs).\n2. Click \"New Job\".\n3. Fill in Title, Department, Location, Type (Full-time / Part-time / Contract), and Description.\n4. Add a Requirements list and a Benefits list — one item per line.\n5. Set Status to Active to publish immediately, or Draft to save without showing it.\n6. Click Save. The listing appears on /careers immediately when Status is Active.",
+    "category": "Jobs",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I manage job listings and review applications?",
+    "answer": "Go to Jobs in the sidebar. Click New Job and fill in: title, department, location, type (Full-time / Part-time / Freelance), and a full description. Set status to Open to make it appear on /careers; Closed listings stay in admin but are hidden from job seekers.\n\nTo review applications: go to Jobs → Applications. Each application shows applicant name, email, position, cover letter, and CV link. Click an application to open it and change its status: New (just submitted), Reviewed (looked at), Shortlisted (considering for interview), or Rejected.",
+    "category": "Jobs",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I close or deactivate a job listing?",
+    "answer": "1. Go to Admin > Jobs and click the job you want to close.\n2. Change Status from Active to Closed (or Inactive).\n3. Click Save. The listing disappears from /careers but remains in the admin list.\n\nYou can reactivate it at any time by setting Status back to Active.",
+    "category": "Jobs",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I review job applications?",
+    "answer": "1. Go to Admin > Jobs > Applications (/admin/jobs/applications).\n2. You will see a list of all applications across all job listings, sorted by date (newest first).\n3. Click any application to open it and read the applicant's name, email, cover letter, and any attached CV link.\n4. Use the Status dropdown to update the application to Under Review, Shortlisted, Rejected, or Hired.",
+    "category": "Jobs",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I update an application's status?",
+    "answer": "1. Open the application (Admin > Jobs > Applications > click applicant name).\n2. Find the Status dropdown.\n3. Choose the appropriate status: New, Under Review, Shortlisted, Rejected, or Hired.\n4. Click Save. The status change is stored with a timestamp.",
+    "category": "Jobs",
+    "status": "published",
+    "sort_order": 4,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I filter applications by job or status?",
+    "answer": "1. Go to Admin > Jobs > Applications.\n2. Use the Job filter dropdown (if shown) to see applications for one specific listing.\n3. Use the Status filter to show only applications in a given state (e.g. Shortlisted).\n4. Applications are sorted newest-first by default.",
+    "category": "Jobs",
+    "status": "published",
+    "sort_order": 5,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I edit a static page's content?",
+    "answer": "System pages (About, Contact, Privacy Policy, etc.) are managed in Admin > Pages.\n\n1. Go to Admin > Pages (/admin/pages).\n2. Click the page you want to edit.\n3. Update the Title and Content fields in the editor.\n4. Click Save. Changes go live on the public site immediately.",
+    "category": "Pages (CMS)",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I edit static site pages (About, Privacy, Terms)?",
+    "answer": "Go to Pages in the sidebar. Each page has a title, body content, and SEO metadata. WARNING: Changes to pages are published immediately when you save — there is no draft/publish toggle for CMS pages. Every save automatically creates a revision — view the full revision history in the page's edit view by scrolling to the Revisions panel, where you can restore any previous version.",
+    "category": "Pages (CMS)",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I update a page's hero image inline on the public site?",
+    "answer": "Hero images can be changed without navigating to the admin panel.\n\n1. Make sure you are logged into the admin panel in another browser tab.\n2. Visit the public page whose hero image you want to change.\n3. Hover over the hero image — an \"Edit\" overlay button appears for logged-in admins.\n4. Click Edit, paste a new image URL, and click Save.\n5. The new image appears immediately without a page refresh.",
+    "category": "Pages (CMS)",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I create a new system page?",
+    "answer": "1. Go to Admin > Pages and click \"New Page\".\n2. Fill in the Title (shown as the page heading), Slug (the URL path, e.g. \"privacy-policy\"), and Content.\n3. Set Status to Published.\n4. Click Save. The page is accessible at /[slug] on the public site.",
+    "category": "Pages (CMS)",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I run a full catalog import from Palisis/TourCMS?",
+    "answer": "A full import fetches every tour from your TourCMS channel and upserts them into the local database.\n\n1. Go to Admin > Palisis (/admin/palisis).\n2. Click \"Import Full Catalog\".\n3. A progress indicator shows how many trips are being fetched. This may take 10–30 seconds depending on catalog size.\n4. When complete, a summary shows how many trips were created, updated, or skipped.\n5. Visit Admin > Trips to confirm the new or updated trips appear in the list.",
+    "category": "Palisis Import",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I sync trips from Palisis/TourCMS?",
+    "answer": "Go to Palisis Import in the sidebar. First, enter your Channel ID, API Key, and optional Marketplace ID in Admin → Integrations → Palisis/TourCMS.\n\nFull import: click 'Import All from Palisis' to fetch the entire trip catalog and upsert each trip into the database.\nSingle trip sync: on any trip's edit page, scroll to the Palisis panel and click 'Sync from Palisis'.\nAuto-sync: toggle the Auto-sync switch to ON so Palisis webhook events automatically keep trip data current.\n\nWARNING: Running a sync overwrites local edits to price, description, and schedule fields on any trip originally imported from Palisis. Fields not managed by Palisis (internal notes, featured status, custom tags) are NOT overwritten.\n\nEvery sync is logged in the palisis_sync_log table — check the Palisis page for recent sync history.",
+    "category": "Palisis Import",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I enable or disable automatic Palisis sync?",
+    "answer": "Auto-sync re-imports a trip automatically whenever Palisis sends a webhook (e.g. when you update a tour in TourCMS).\n\n1. Go to Admin > Palisis.\n2. Find the Auto-Sync toggle.\n3. Switch it ON to automatically update the local database whenever a Palisis webhook arrives.\n4. Switch it OFF to pause automatic syncing — incoming webhooks will be logged but not applied.\n5. The setting is saved instantly.",
+    "category": "Palisis Import",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I check if a Palisis webhook arrived and was processed?",
+    "answer": "1. Go to Admin > Palisis.\n2. Scroll to the Sync Log section.\n3. Each row shows the webhook event type, the trip it affected, the outcome (synced or skipped), and a timestamp.\n4. A \"skipped\" entry means auto-sync was OFF at the time — the webhook was received but not applied.\n5. To apply it now, open the affected trip in Admin > Trips and click \"Sync from Palisis\".",
+    "category": "Palisis Import",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "Where do I enter my Palisis/TourCMS API credentials?",
+    "answer": "1. Go to Admin > Integrations.\n2. Find the Palisis section with fields for API Key, Channel ID, and Marketplace ID.\n3. Enter the values from your TourCMS account (Settings > API Keys in the TourCMS back office).\n4. Click Test to confirm the credentials work correctly.\n5. Click Save.\n\nThese credentials are used by both the manual import and the live availability check on trip detail pages.",
+    "category": "Palisis Import",
+    "status": "published",
+    "sort_order": 4,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "Why did a Palisis import overwrite my manual edits to a trip?",
+    "answer": "Palisis is the upstream source of truth for any trip that originated there. When a sync runs (manual or automatic), the local database row is replaced with the latest data from TourCMS.\n\nTo keep manual edits safe:\n- Edit fields like tags, featured status, and trip-tag categories in this admin panel — those fields are not overwritten by Palisis.\n- For fields that come from Palisis (title, price, description, images), make the edit in TourCMS first, then sync. That way the data stays consistent between both systems.",
+    "category": "Palisis Import",
+    "status": "published",
+    "sort_order": 5,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I handle customer support tickets?",
+    "answer": "Go to Support Tickets in the sidebar. Click any ticket to open the thread. You can see the original message and all replies in chronological order. Type your reply in the text area at the bottom and click Send Reply.\n\nTicket statuses: Open (new, awaiting first response), In Progress (actively being handled), Resolved (issue closed). Change status using the dropdown in the ticket header.",
+    "category": "Support Tickets",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I view and reply to a customer support ticket?",
+    "answer": "1. Go to Admin > Tickets (/admin/tickets).\n2. The list shows all tickets sorted by date, with a Status badge (Open, In Progress, Resolved, Closed).\n3. Click any ticket to open the full conversation thread.\n4. Type your reply in the Reply box at the bottom.\n5. Click Send Reply. The reply is stored and timestamped in the thread.",
+    "category": "Support Tickets",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I change a ticket's status?",
+    "answer": "1. Open the ticket (Admin > Tickets > click subject line).\n2. Find the Status dropdown at the top of the ticket view.\n3. Choose: Open (awaiting response), In Progress (being handled), Resolved (issue fixed), or Closed (no further action needed).\n4. Click Save Status.",
+    "category": "Support Tickets",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I filter tickets by status or search for a specific customer?",
+    "answer": "1. Go to Admin > Tickets.\n2. Use the Status filter tabs at the top to show only Open, In Progress, or Resolved tickets.\n3. Use the search bar to search by customer name or email address.\n4. Tickets are sorted newest-first by default — click the date column header to reverse the order.",
+    "category": "Support Tickets",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I create, edit, and publish trips?",
+    "answer": "Go to Trips in the sidebar. Click New Trip to create one — fill in at minimum: title, category, price, and duration. Save as draft until ready to publish. Click any trip title to open its edit form; all fields save when you click Save. The Status toggle (Draft/Published) controls public visibility. To archive a trip: open it, scroll to the bottom, and click Archive — archived trips appear under Trips → Archived and can be un-archived at any time.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I feature a trip on the homepage?",
+    "answer": "Featured trips are highlighted in the \"Top Experiences\" section of the public homepage.\n\n1. Go to Admin > Trips (/admin/trips).\n2. Find the trip you want to feature and click its title to open the detail editor.\n3. Scroll to the Status & Visibility section.\n4. Toggle the \"Featured\" switch to ON.\n5. Click Save. The trip will now appear in the featured carousel on the homepage.\n\nTip: you can feature up to 6 trips at once. To un-feature a trip, repeat the steps and toggle Featured to OFF.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 1,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I edit a trip's title, description, or price?",
+    "answer": "All core trip fields are editable in the trip detail editor.\n\n1. Go to Admin > Trips and click the trip you want to edit.\n2. Update any of the fields in the form: Title, Short Description, Long Description, Price, Original Price (for showing a strikethrough), Duration, or Category.\n3. Click Save Changes at the bottom of the form.\n4. The public trip page and any API responses will reflect the new values immediately.\n\nNote: if the trip was imported from Palisis, the next Palisis sync will overwrite fields that come from the Palisis catalog (title, price, description). Edit Palisis-owned fields in TourCMS first, then re-sync.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "What are the trip fields and what does each one do?",
+    "answer": "Title — public display name on cards and the detail page.\nCategory — used for filtering on Explore and Search (e.g. Walking, Boat, Bus).\nPrice — adult price in EUR; child and group prices are separate optional fields.\nDuration — human-readable string (e.g. '2 hours', 'Half day') used for itinerary planning.\nDescription — rich-text shown on the trip detail page.\nImages — main image URL plus up to 4 gallery images (URL-referenced).\nFeatured — boolean toggle; featured trips appear in the homepage hero carousel (aim for 3–6).\nTags — multi-select from the Trip Tags catalog; power the AI planner's interest matching.\nStatus — Draft (hidden) or Published (live on the site).\n\nWARNING: If a trip is synced from Palisis, prices, descriptions, and schedules are overwritten the next time a sync runs — Palisis is the source of truth for those fields.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 2,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add or remove tags from a trip?",
+    "answer": "Tags control how the AI planner categorises trips and which trips appear in interest-based searches.\n\n1. Open the trip editor (Admin > Trips > click a trip).\n2. Scroll to the Tags section.\n3. Click any tag chip to toggle it on or off. Selected tags are highlighted.\n4. You can also type in the search box to filter the tag list.\n5. Click Save Changes. Tag changes take effect immediately for the AI planner and the Explore page filters.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do Trip Tags work?",
+    "answer": "Trip Tags are a canonical catalog of interest labels (e.g. 'Family Friendly', 'Outdoor', 'History'). They are managed at /admin/trip-tags. Tags assigned to trips are used by the AI Trip Planner to match user interests to relevant experiences. Deleting a tag removes it from all trips it is currently assigned to.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 3,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I change a trip's hero image or gallery photos?",
+    "answer": "Trip images are stored as URLs in the database.\n\n1. Open the trip editor (Admin > Trips > click a trip).\n2. Scroll to the Images section.\n3. Paste a direct image URL (HTTPS) into the Main Image field. This is the photo shown on cards and at the top of the trip detail page.\n4. Add extra gallery image URLs in the Additional Images field, one per line.\n5. Click Save Changes.\n\nTip: use a CDN-hosted or Vercel Blob URL for fast loading. Avoid hotlinking from third-party sites as those links can break.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 4,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I mark a trip as active or inactive?",
+    "answer": "Inactive trips are hidden from the public site but remain in the database.\n\n1. Open the trip editor (Admin > Trips > click a trip).\n2. Find the Status field (a dropdown or toggle at the top of the form).\n3. Set it to Active to show the trip publicly, or Inactive to hide it.\n4. Click Save Changes.\n\nInactive trips still appear in the admin trips list so you can re-activate them later.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 5,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I add trip highlights, inclusions, and exclusions?",
+    "answer": "These structured fields appear in the \"What's Included\" section on the public trip detail page.\n\n1. Open the trip editor and scroll to the Highlights / Included / Excluded section.\n2. Enter each highlight on its own line in the Highlights box.\n3. Do the same for Included items (e.g. \"Guided commentary\", \"Hotel pick-up\") and Excluded items (e.g. \"Lunch\", \"Tips\").\n4. Click Save Changes.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 6,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I set trip departure location, languages, and restrictions?",
+    "answer": "These details appear in the trip sidebar on the public detail page.\n\n1. Open the trip editor and scroll to the Details section.\n2. Fill in Departure Location (the meeting point address or landmark).\n3. Add spoken Languages (e.g. \"English, French, German\").\n4. Add any Age Restrictions or physical requirements in the Restrictions field.\n5. Set Min / Max Booking Size if the trip has group limits.\n6. Click Save Changes.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 7,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I manually sync a single trip from Palisis/TourCMS?",
+    "answer": "You can pull the latest data for one trip from Palisis without running a full catalog import.\n\n1. Open the trip editor for the trip you want to sync.\n2. Click the \"Sync from Palisis\" button (top-right of the editor).\n3. The system fetches the latest data from TourCMS and overwrites the local DB row for that trip.\n4. A success or error message appears. If you see an error, check that your Palisis API key is saved in Admin > Integrations.\n\nThis is useful when a price or description changes in TourCMS and you need it live immediately rather than waiting for the next automatic sync.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 8,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I set a trip's cancellation policy?",
+    "answer": "The cancellation policy is displayed on the trip detail page and in the booking flow.\n\n1. Open the trip editor (Admin > Trips > click the trip).\n2. Scroll to the Cancellation Policy field.\n3. Enter the policy text — for example: \"Free cancellation up to 24 hours before the tour. No refund within 24 hours of the start time.\"\n4. Toggle Non-Refundable to ON if the trip cannot be cancelled under any circumstances.\n5. Click Save Changes.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 9,
+    "audience": "admin",
+    "attachments": []
+  },
+  {
+    "question": "How do I duplicate a trip to use it as a template for a new one?",
+    "answer": "There is no one-click duplicate button, but you can create a new trip and copy fields manually.\n\n1. Open the trip you want to base the new one on and note its details.\n2. Go to Admin > Trips and click \"New Trip\".\n3. Fill in the fields, copying from the original trip where relevant.\n4. Change the Title, Slug, and any fields that differ.\n5. Click Save.\n\nTip: if the new trip will also come from Palisis, it is faster to run a Palisis import (Admin > Palisis > Import Full Catalog) and let the system create it automatically.",
+    "category": "Trips",
+    "status": "published",
+    "sort_order": 10,
+    "audience": "admin",
+    "attachments": []
+  }
+]

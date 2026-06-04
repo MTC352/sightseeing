@@ -155,6 +155,40 @@ All 16 tables created and seeded. Data persists across restarts.
 - `lib/db.ts` — Pool singleton + `query()` / `queryOne()` helpers
 - `lib/db/queries.ts` — All CRUD query functions replacing `admin-store.ts`
 
+## Data Migrations (dev → live CONTENT sync)
+
+Publishing syncs the **schema** (new tables/columns) from dev to prod automatically,
+but it does **NOT** sync row content. To get content created in dev (admin docs, AI
+prompts, settings rows) into the live DB without the destructive "overwrite data"
+option, use the **Data Migrations** system.
+
+- **What it is:** code-defined, version-controlled, **idempotent** DATA migrations.
+  Registry: `lib/data-migrations/index.ts`; payloads live in `lib/data-migrations/data/*.json`.
+- **Hard rule — DATA ONLY, NEVER DDL.** Migrations only INSERT/UPDATE rows (with
+  existence checks / `ON CONFLICT`). They must never `CREATE/ALTER/DROP TABLE`.
+  **Production schema is owned exclusively by the Publish flow** (see the database
+  skill). Do not add schema migration scripts, deploy-build hooks, or startup DDL.
+- **Tracking table `data_migrations`** (id, name, applied_at) records what ran in the
+  *current* DB. It is created in dev and reaches prod via Publish — NOT via runtime DDL.
+  If it's missing in a DB, the runner still applies migrations idempotently and reports
+  `recorded:false` (status untracked until the table exists).
+- **Admin UI:** `/admin/db-migrations` (superadmin-only) — shows each migration's
+  applied/pending status in the connected DB, lets you select and run individual ones.
+  On the published site this targets the **live** DB.
+- **API:** `GET /api/admin/db-migrations` (status) + `POST` `{ids:[]}` (run). Superadmin
+  only — gated in `canAccessPath` (proxy edge) AND re-checked DB-fresh in the route.
+- **Adding a new migration:** export the new dev rows to `lib/data-migrations/data/NNN-*.json`,
+  append a `{ id, name, description, apply }` entry to `DATA_MIGRATIONS` (keep ids stable),
+  make `apply()` idempotent. Ship with code, then run it from the live admin panel.
+- **Migration #1 = `001-admin-docs`** — seeds the 66 admin documentation articles
+  (`help_articles`, audience='admin') that power `/admin/docs`.
+
+### Live-DB workflow when prod is behind
+1. Re-**Publish** to apply schema (creates missing tables, e.g. `activity_log`,
+   `media_files`, `data_migrations`).
+2. On the live site, open `/admin/db-migrations` (as superadmin) and run the pending
+   content migrations.
+
 ## Admin Panel Pages
 | Page | Path |
 |---|---|

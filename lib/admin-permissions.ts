@@ -168,6 +168,15 @@ export function canAccessPath(
     return false
   }
 
+  // Data migrations write content to the live DB — superadmin-only, never
+  // grantable to employees.
+  if (
+    matchPath(pathname, "/admin/db-migrations") ||
+    matchPath(pathname, "/api/admin/db-migrations")
+  ) {
+    return false
+  }
+
   const perms = sanitizePermissions(permissions)
 
   // Longest-prefix match wins.
