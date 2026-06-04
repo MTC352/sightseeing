@@ -88,7 +88,8 @@ export default function DbMigrationsPage() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div className="p-6 lg:p-10">
+      <div className="mx-auto max-w-4xl">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-gray-900">
@@ -223,6 +224,7 @@ export default function DbMigrationsPage() {
           </ul>
         </div>
       )}
+      </div>
     </div>
   )
 }

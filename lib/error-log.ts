@@ -152,30 +152,75 @@ export async function logCaughtError(
   await logError({ source, message, statusCode, context })
 }
 
-/** List recent error logs (newest first) for the admin viewer. */
-export async function dbListErrorLogs(opts?: {
-  limit?: number
+type LogLevel = "error" | "warn" | "info"
+
+export interface ErrorLogFilter {
   source?: string
-  level?: "error" | "warn" | "info"
-}): Promise<ErrorLogEntry[]> {
-  await ensureTable()
-  const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 1000)
+  /** Single level (kept for backward-compat). */
+  level?: LogLevel
+  /** Multiple levels — e.g. ["error","warn"] for the default admin view. */
+  levels?: LogLevel[]
+  /** Inclusive lower bound on created_at (ISO string). */
+  from?: string
+  /** Exclusive upper bound on created_at (ISO string). */
+  to?: string
+}
+
+/** Build the shared WHERE clause + bound params used by list + count. */
+function buildErrorLogFilters(opts?: ErrorLogFilter): {
+  whereSql: string
+  params: (string | string[])[]
+} {
   const where: string[] = []
-  const params: (string | number)[] = []
+  const params: (string | string[])[] = []
   if (opts?.source) {
     params.push(opts.source)
     where.push(`source = $${params.length}`)
   }
-  if (opts?.level) {
-    params.push(opts.level)
-    where.push(`level = $${params.length}`)
+  const levels = opts?.levels?.length ? opts.levels : opts?.level ? [opts.level] : undefined
+  if (levels && levels.length) {
+    params.push(levels)
+    where.push(`level = ANY($${params.length}::text[])`)
   }
-  params.push(limit)
+  if (opts?.from) {
+    params.push(opts.from)
+    where.push(`created_at >= $${params.length}`)
+  }
+  if (opts?.to) {
+    params.push(opts.to)
+    where.push(`created_at < $${params.length}`)
+  }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")} ` : ""
+  return { whereSql, params }
+}
+
+/** List recent error logs (newest first) for the admin viewer, paginated. */
+export async function dbListErrorLogs(
+  opts?: ErrorLogFilter & { limit?: number; offset?: number }
+): Promise<ErrorLogEntry[]> {
+  await ensureTable()
+  const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 1000)
+  const offset = Math.max(opts?.offset ?? 0, 0)
+  const { whereSql, params } = buildErrorLogFilters(opts)
+  params.push(String(limit))
+  const limitIdx = params.length
+  params.push(String(offset))
+  const offsetIdx = params.length
   return query<ErrorLogEntry>(
-    `SELECT * FROM error_logs ${whereSql}ORDER BY created_at DESC LIMIT $${params.length}`,
+    `SELECT * FROM error_logs ${whereSql}ORDER BY created_at DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     params
   )
+}
+
+/** Count error logs matching the same filters — drives pagination. */
+export async function dbCountErrorLogs(opts?: ErrorLogFilter): Promise<number> {
+  await ensureTable()
+  const { whereSql, params } = buildErrorLogFilters(opts)
+  const row = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM error_logs ${whereSql}`,
+    params
+  )
+  return parseInt(row?.count ?? "0", 10)
 }
 
 /** Distinct sources present in the log, for filter chips. */
