@@ -35,6 +35,7 @@ export interface AdminTrip {
   badge?: string
   rating: number
   reviewCount: number
+  slug?: string | null
   permalink?: string
   googleBusinessUrl?: string
   featured: boolean

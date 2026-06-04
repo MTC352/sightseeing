@@ -39,10 +39,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // error so non-public trips never leak into the crawler sitemap.
   const tripRows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as Array<{
     id: string
+    slug?: string | null
     updated_at?: string | Date | null
   }>
   const tripPages: MetadataRoute.Sitemap = tripRows.map((trip) => ({
-    url: `${BASE}/trip/${String(trip.id)}`,
+    url: `${BASE}/trip/${String(trip.slug || trip.id)}`,
     lastModified: trip.updated_at ? new Date(trip.updated_at).toISOString() : now,
     changeFrequency: "weekly" as const,
     priority: 0.8,

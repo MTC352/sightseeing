@@ -26,6 +26,7 @@ export const metadata: Metadata = {
 function mapDbRow(r: Record<string, unknown>): SearchTrip {
   return {
     id: String(r.id),
+    slug: r.slug != null ? String(r.slug) : undefined,
     title: String((r.title_override ?? r.title) ?? ""),
     image: String(r.image ?? "/images/placeholder.jpg"),
     price: Number(r.price ?? 0),

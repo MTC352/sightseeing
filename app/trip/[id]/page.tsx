@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { permanentRedirect } from "next/navigation"
 import { getTripById, getTripDetail } from "@/lib/data"
 import type { Trip } from "@/lib/data"
 import TripDetailClient, { type TripDbDetail, type TripFaq, type RelatedTrip } from "./trip-detail-view"
@@ -7,6 +8,7 @@ import { dbGetTrip, dbListTrips, dbTripStatus } from "@/lib/db/queries"
 function mapDbTrip(r: Record<string, unknown>): Trip {
   return {
     id: String(r.id),
+    slug: r.slug != null ? String(r.slug) : undefined,
     title: String((r.title_override ?? r.title) ?? ""),
     image: String(r.image ?? "/images/placeholder.jpg"),
     gallery: Array.isArray(r.gallery) ? (r.gallery as string[]).filter(Boolean) : [],
@@ -264,13 +266,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       trip.category, trip.city ?? "Luxembourg", ...trip.tags, "Luxembourg tours", "sightseeing",
     ],
     alternates: {
-      canonical: `${BASE}/trip/${trip.id}`,
+      canonical: `${BASE}/trip/${trip.slug ?? trip.id}`,
     },
     openGraph: {
       type: "article",
       title: seoTitle,
       description,
-      url: `${BASE}/trip/${trip.id}`,
+      url: `${BASE}/trip/${trip.slug ?? trip.id}`,
       images: [
         { url: ogImage, width: 1200, height: 630, alt: altText },
         { url: imageUrl, width: 1200, height: 630, alt: altText },
@@ -307,6 +309,21 @@ export default async function TripPage({
   const resolved = await resolveTrip(id)
   const { dbRow } = resolved
   let trip = resolved.trip
+
+  // Canonical-URL fallback: legacy id / palisis_id visits are normally caught by
+  // proxy.ts and 308-redirected to `/trip/{slug}` BEFORE rendering. This block is
+  // a soft (client) redirect that only fires if that middleware lookup failed —
+  // it preserves query params (date/time/from). Slug visits (id === slug) skip it.
+  if (trip?.slug && trip.slug !== id) {
+    const query = new URLSearchParams()
+    for (const [k, v] of Object.entries(sp)) {
+      if (typeof v === "string") query.set(k, v)
+      else if (Array.isArray(v)) v.forEach((x) => query.append(k, x))
+    }
+    const qs = query.toString()
+    permanentRedirect(`/trip/${trip.slug}${qs ? `?${qs}` : ""}`)
+  }
+
   const detail = getTripDetail(id)
   const dbDetail = dbRow ? mapDbDetail(dbRow) : null
   const faqs = trip ? buildFaqs(dbDetail, trip, detail?.goodToKnow) : []
@@ -321,6 +338,7 @@ export default async function TripPage({
       const others = list.filter((r) => !sameCat.includes(r))
       return [...sameCat, ...others].slice(0, 3).map((r) => ({
         id: String(r.id),
+        slug: r.slug != null ? String(r.slug) : undefined,
         title: String((r.title_override ?? r.title) ?? ""),
         image: String(r.image ?? "/images/placeholder.jpg"),
         price: Number(r.price ?? 0),
@@ -381,7 +399,7 @@ export default async function TripPage({
     name: trip.title,
     description: s(dbRow?.seoMetaDescription) ?? dbDetail?.longDescription ?? dbDetail?.shortDescription ?? detail?.description ?? trip.description ?? trip.title,
     image: imageUrl,
-    url: `${BASE}/trip/${trip.id}`,
+    url: `${BASE}/trip/${trip.slug ?? trip.id}`,
     touristType: trip.category,
     brand: { "@type": "Organization", name: "sightseeing.lu", url: BASE },
     offers: {
@@ -389,7 +407,7 @@ export default async function TripPage({
       price: trip.price.toFixed(2),
       priceCurrency: "EUR",
       availability: "https://schema.org/InStock",
-      url: `${BASE}/trip/${trip.id}`,
+      url: `${BASE}/trip/${trip.slug ?? trip.id}`,
       validFrom: "2025-01-01",
       priceValidUntil: "2026-12-31",
     },
@@ -427,7 +445,7 @@ export default async function TripPage({
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Home", item: BASE },
       { "@type": "ListItem", position: 2, name: trip.category, item: `${BASE}/experiences/${trip.category.toLowerCase().replace(/ & /g, "-").replace(/ /g, "-")}` },
-      { "@type": "ListItem", position: 3, name: trip.title, item: `${BASE}/trip/${trip.id}` },
+      { "@type": "ListItem", position: 3, name: trip.title, item: `${BASE}/trip/${trip.slug ?? trip.id}` },
     ],
   }
 
@@ -454,7 +472,7 @@ export default async function TripPage({
       "@type": "SpeakableSpecification",
       cssSelector: [".trip-answer-first", ".trip-highlights"],
     },
-    url: `${BASE}/trip/${trip.id}`,
+    url: `${BASE}/trip/${trip.slug ?? trip.id}`,
   }
 
   const allSchemas = [touristTripLd, breadcrumbLd, speakableLd, ...(faqLd ? [faqLd] : [])]

@@ -9,8 +9,41 @@ const PUBLIC_AUTH_PATHS = [
   "/api/admin/auth/logout",
 ]
 
+// Legacy trip-URL segment: internal id (`tcms_21`) or raw palisis_id (`21`).
+// WordPress-style slugs are kebab text and never match these, so this only ever
+// fires for old/canonical id links — never for real slug URLs.
+const LEGACY_TRIP_ID = /^(?:tcms_\d+|\d+)$/
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  // ── Canonical trip-slug redirect (SEO 301) ──────────────────────────────
+  // Old id / palisis_id trip URLs permanently redirect to `/trip/{slug}`.
+  // Done here (before rendering) so Next emits a true HTTP 308 — a page-level
+  // redirect() degrades to a soft client redirect under streaming SSR.
+  if (pathname.startsWith("/trip/")) {
+    const seg = pathname.slice("/trip/".length)
+    if (seg && !seg.includes("/") && LEGACY_TRIP_ID.test(seg)) {
+      try {
+        // Resolve the slug over the internal loopback rather than the public
+        // host — the container can't reliably self-fetch its own external URL
+        // (it round-trips the edge proxy and fails), but localhost always works.
+        const port = process.env.PORT || "5000"
+        const lookup = `http://127.0.0.1:${port}/api/trip-slug/${encodeURIComponent(seg)}`
+        const res = await fetch(lookup, { headers: { accept: "application/json" } })
+        if (res.ok) {
+          const { slug } = (await res.json()) as { slug: string | null }
+          if (slug && slug !== seg) {
+            const target = request.nextUrl.clone()
+            target.pathname = `/trip/${slug}`
+            return NextResponse.redirect(target, 308)
+          }
+        }
+      } catch {
+        // Lookup failed — fall through and let the page render normally.
+      }
+    }
+  }
 
   // ── Admin auth guard ────────────────────────────────────────────────────
   const isAdminPage = pathname.startsWith("/admin")

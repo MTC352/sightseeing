@@ -494,7 +494,8 @@ CREATE TABLE public.trips (
     seo_optimized_at timestamp with time zone,
     seo_optimized_by uuid,
     seo_source_hashes jsonb,
-    itinerary_steps jsonb
+    itinerary_steps jsonb,
+    slug text
 );
 
 

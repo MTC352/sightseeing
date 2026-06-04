@@ -21,6 +21,8 @@
 
 export interface Trip {
   id: string
+  /** WordPress-style URL slug for `/trip/{slug}`. Falls back to `id` when absent. */
+  slug?: string
   title: string
   image: string
   gallery?: string[]

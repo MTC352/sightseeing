@@ -189,6 +189,7 @@ CREATE TABLE trips (
   seo_optimized_by     UUID        REFERENCES admin_users(id),
   seo_source_hashes    JSONB,                            -- per-source-field hash snapshot for staleness
   itinerary_steps      JSONB,                            -- admin/AI-authored ordered steps [{name, description}]
+  slug                 TEXT,                             -- WordPress-style public URL slug (/trip/{slug}); UNIQUE WHERE NOT NULL
   created_by           UUID        REFERENCES admin_users(id),
   updated_by           UUID        REFERENCES admin_users(id),
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),

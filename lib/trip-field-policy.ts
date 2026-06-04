@@ -47,6 +47,7 @@ export const TRIP_FIELDS: TripFieldDef[] = [
   { key: "city",              label: "City",             group: "Basics",  source: "palisis", defaultMode: "editable" },
   { key: "provider",          label: "Provider",         group: "Basics",  source: "palisis", defaultMode: "editable" },
   { key: "category",          label: "Category",         group: "Basics",  source: "local",   defaultMode: "editable" },
+  { key: "slug",              label: "URL Slug",         group: "Basics",  source: "local",   defaultMode: "editable" },
   { key: "permalink",         label: "Permalink",        group: "Basics",  source: "palisis", defaultMode: "editable" },
   { key: "googleBusinessUrl", label: "Google Business URL", group: "Basics", source: "local", defaultMode: "editable" },
   { key: "featured",          label: "Featured",         group: "Basics",  source: "local",   defaultMode: "editable" },

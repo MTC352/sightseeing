@@ -55,6 +55,7 @@ export type TripFaq = { question: string; answer: string }
 
 export type RelatedTrip = {
   id: string
+  slug?: string
   title: string
   image: string
   price: number

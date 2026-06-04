@@ -250,7 +250,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         <div className="flex items-center gap-2">
           {trip && (
             <Link
-              href={`/trip/${trip.id}`}
+              href={`/trip/${trip.slug ?? trip.id}`}
               target="_blank"
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
             >
@@ -290,6 +290,24 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 />
               </div>
               {!can("description") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only</p>}
+            </div>
+            <div>
+              <label className={labelClass}>URL Slug {!can("slug") && <ReadOnlyBadge />}</label>
+              <div className="flex items-center gap-1">
+                <span className="shrink-0 text-xs text-muted-foreground">/trip/</span>
+                <input
+                  type="text"
+                  readOnly={!can("slug")}
+                  className={inputClass}
+                  placeholder="auto-generated-from-title"
+                  value={form.slug ?? ""}
+                  onChange={(e) => set("slug", e.target.value)}
+                />
+              </div>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                WordPress-style URL. Leave blank to auto-generate. Saved value is sanitized and kept unique; old id-based links keep redirecting here.
+              </p>
+              {!can("slug") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>

@@ -53,6 +53,7 @@ const TRIP_SELECT = `
   seo_score as "seoScore", seo_optimized_at as "seoOptimizedAt",
   seo_optimized_by as "seoOptimizedBy", seo_source_hashes as "seoSourceHashes",
   itinerary_steps as "itinerarySteps",
+  slug,
   created_at, updated_at
 `
 
@@ -76,7 +77,7 @@ export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {})
   // on either column so archived/draft status cannot be bypassed by alias.
   return queryOne(
     `SELECT ${TRIP_SELECT} FROM trips
-       WHERE (id = $1 OR palisis_id = $1)
+       WHERE (id = $1 OR palisis_id = $1 OR slug = $1)
        ${extra}
        LIMIT 1`,
     [id]
@@ -91,7 +92,7 @@ export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {})
  */
 export async function dbTripStatus(id: string): Promise<string | null> {
   const row = await queryOne<{ status: string }>(
-    `SELECT status FROM trips WHERE id = $1 OR palisis_id = $1 LIMIT 1`,
+    `SELECT status FROM trips WHERE id = $1 OR palisis_id = $1 OR slug = $1 LIMIT 1`,
     [id]
   )
   return row ? String(row.status ?? "") : null
@@ -106,6 +107,11 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
   const palisisId = (data.palisisId ?? data.id) as string | undefined
   const tripId    = (data.id as string | undefined)
                  ?? (palisisId ? `tcms_${palisisId}` : `t_${Date.now()}_${Math.random().toString(36).slice(2,8)}`)
+  // WordPress-style slug for the public `/trip/{slug}` URL. Generated once at
+  // create time from the (caller-supplied) slug or the title, then made unique.
+  // Palisis re-sync never overrides it (slug is absent from the update payload).
+  const slugBase = generateSlug(String(data.slug ?? data.title ?? '')) || generateSlug(tripId) || `trip-${Date.now()}`
+  const slug = await uniqueTripSlug(slugBase)
   const rows = await query(`
     INSERT INTO trips (
       id, palisis_id, title, description, price, original_price, duration, category,
@@ -122,7 +128,8 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
       pdf_url, video_url, cancellation_policy,
       min_booking_size, max_booking_size, non_refundable,
       next_bookable_date, last_bookable_date,
-      palisis_raw, sync_source, last_synced_at
+      palisis_raw, sync_source, last_synced_at,
+      slug
     )
     VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
@@ -138,7 +145,8 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
       $48,$49,$50,
       $51,$52,$53,
       $54,$55,
-      $56,$57,$58
+      $56,$57,$58,
+      $59
     )
     RETURNING *
   `, [
@@ -168,15 +176,24 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
     data.nextBookableDate ?? null, data.lastBookableDate ?? null,
     data.palisisRaw ?? null, data.syncSource ?? null,
     data.lastSyncedAt ? new Date(data.lastSyncedAt as string) : null,
+    slug,
   ])
   return rows[0]
 }
 
 export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
+  // Sanitize + uniquify an admin-edited slug before it hits the column. An
+  // empty value falls back to the row id so the public URL never breaks.
+  // (Palisis re-sync never passes `slug`, so manual edits are preserved.)
+  if ('slug' in data) {
+    const base = generateSlug(String(data.slug ?? ''))
+    data = { ...data, slug: await uniqueTripSlug(base || generateSlug(id) || `trip-${Date.now()}`, id) }
+  }
   const sets: string[] = []
   const vals: unknown[] = []
   let i = 1
   const fieldMap: Record<string, string> = {
+    slug: 'slug',
     title: 'title', titleOverride: 'title_override', description: 'description',
     descriptionOverride: 'description_override', price: 'price', originalPrice: 'original_price',
     duration: 'duration', category: 'category', tags: 'tags', city: 'city',
@@ -271,13 +288,40 @@ export async function dbGetPostBySlug(slug: string) {
 }
 
 function generateSlug(title: string): string {
-  return String(title)
+  const slug = String(title)
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
     .slice(0, 80)
+    .replace(/-+$/g, '')
+  // Never emit a slug that looks like a legacy trip id (pure digits or
+  // `tcms_NN`). proxy.ts treats those segments as old id/palisis_id URLs and
+  // 308-redirects them, so an all-numeric slug would be hijacked/mis-resolved.
+  if (slug === '' || /^(?:tcms_?\d+|\d+)$/.test(slug)) {
+    return slug ? `trip-${slug}` : ''
+  }
+  return slug
+}
+
+/**
+ * WordPress-style unique slug for trips. Same algorithm as blog `uniqueSlug`
+ * but scoped to the `trips` table. Appends `-2`, `-3`, … on collision.
+ */
+async function uniqueTripSlug(base: string, excludeId?: string): Promise<string> {
+  const slug = base || `trip-${Date.now()}`
+  let suffix = 0
+  while (true) {
+    const candidate = suffix === 0 ? slug : `${slug}-${suffix + 1}`
+    const rows = await query(
+      `SELECT id FROM trips WHERE slug = $1${excludeId ? ' AND id != $2' : ''}`,
+      excludeId ? [candidate, excludeId] : [candidate]
+    )
+    if (rows.length === 0) return candidate
+    suffix++
+  }
 }
 
 async function uniqueSlug(base: string, excludeId?: string): Promise<string> {

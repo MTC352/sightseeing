@@ -28,6 +28,7 @@ export default async function ExplorePage() {
     .filter((r) => (r.status as string) === "published")
     .map((r) => ({
       id: String(r.id),
+      slug: r.slug != null ? String(r.slug) : undefined,
       title: String((r.title_override ?? r.title) ?? ""),
       image: String(r.image ?? "/images/placeholder.jpg"),
       price: Number(r.price ?? 0),

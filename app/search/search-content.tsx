@@ -438,7 +438,7 @@ function SearchCard({ trip, priority = false, hasTodaySlots = false }: { trip: T
   const isTodayBadge = !!trip.badge && /today/i.test(trip.badge)
   const showBadge    = !!trip.badge && (!isTodayBadge || hasTodaySlots)
   return (
-    <Link href={`/trip/${trip.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
+    <Link href={`/trip/${trip.slug ?? trip.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
       <div className="relative aspect-[4/3] overflow-hidden">
         <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority}
           className="object-cover transition-transform duration-300 group-hover:scale-105"
@@ -689,7 +689,7 @@ function SearchListCard({
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md sm:flex-row">
       <div className="relative aspect-[16/10] sm:aspect-auto sm:w-56 lg:w-64 shrink-0">
-        <Link href={`/trip/${trip.id}`} className="absolute inset-0">
+        <Link href={`/trip/${trip.slug ?? trip.id}`} className="absolute inset-0">
           <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority}
             className="object-cover transition-transform duration-300 group-hover:scale-105"
             sizes="(max-width: 640px) 100vw, 256px" />
@@ -714,7 +714,7 @@ function SearchListCard({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{trip.category}</p>
-            <Link href={`/trip/${trip.id}`}>
+            <Link href={`/trip/${trip.slug ?? trip.id}`}>
               <h3 className="mt-0.5 text-base font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">{trip.title}</h3>
             </Link>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">

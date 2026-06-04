@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic"
 
 type TripRow = {
   id: string
+  slug?: string | null
   title: string
   title_override?: string | null
   price: number
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest) {
   const rows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as TripRow[]
 
   let results = rows.map((r) => ({
+    slug: r.slug ?? null,
     id: String(r.id),
     title: r.title_override ?? r.title,
     price: Number(r.price ?? 0),
@@ -106,7 +108,7 @@ export async function GET(request: NextRequest) {
     trips: results.map((t) => ({
       id: t.id,
       title: t.title,
-      url: `${BASE}/trip/${t.id}`,
+      url: `${BASE}/trip/${t.slug || t.id}`,
       price: t.price,
       currency: "EUR",
       duration: t.duration,

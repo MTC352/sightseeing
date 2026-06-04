@@ -283,7 +283,7 @@ function ExploreCard({ trip, priority = false }: { trip: Trip; priority?: boolea
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl bg-card transition-shadow hover:shadow-md">
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl">
-        <Link href={`/trip/${trip.id}`} className="absolute inset-0">
+        <Link href={`/trip/${trip.slug ?? trip.id}`} className="absolute inset-0">
           <Image
             src={trip.image || "/placeholder.svg"}
             alt={trip.title}
@@ -328,7 +328,7 @@ function ExploreCard({ trip, priority = false }: { trip: Trip; priority?: boolea
           }
         </button>
       </div>
-      <Link href={`/trip/${trip.id}`} className="flex flex-1 flex-col gap-1 p-2.5">
+      <Link href={`/trip/${trip.slug ?? trip.id}`} className="flex flex-1 flex-col gap-1 p-2.5">
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{trip.category}</p>
         <p className="text-sm font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors leading-snug">{trip.title}</p>
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -388,7 +388,7 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md sm:flex-row">
       {/* Image */}
       <div className="relative aspect-[16/10] sm:aspect-auto sm:w-56 lg:w-64 shrink-0">
-        <Link href={`/trip/${trip.id}`} className="absolute inset-0">
+        <Link href={`/trip/${trip.slug ?? trip.id}`} className="absolute inset-0">
           <Image
             src={trip.image || "/placeholder.svg"}
             alt={trip.title}
@@ -433,7 +433,7 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{trip.category}</p>
-            <Link href={`/trip/${trip.id}`}>
+            <Link href={`/trip/${trip.slug ?? trip.id}`}>
               <h3 className="mt-0.5 text-base font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">{trip.title}</h3>
             </Link>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -479,7 +479,7 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
                   ))}
                   {departures.today.length > 4 && (
                     <Link
-                      href={`/trip/${trip.id}#calendar`}
+                      href={`/trip/${trip.slug ?? trip.id}#calendar`}
                       className="flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -499,7 +499,7 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
                   ))}
                   {departures.tomorrow.length > 4 && (
                     <Link
-                      href={`/trip/${trip.id}#calendar`}
+                      href={`/trip/${trip.slug ?? trip.id}#calendar`}
                       className="flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-primary hover:bg-primary/5 transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >

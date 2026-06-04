@@ -36,6 +36,7 @@ export default async function Page() {
   // Top-5 published trips for the ItemList JSON-LD. Fail-closed: empty list
   // on DB error so we never expose archived/draft trip references.
   const rows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as Array<{
+    slug?: string | null
     id: string
     title: string
     title_override?: string | null
@@ -53,7 +54,7 @@ export default async function Page() {
     itemListElement: top.map((t, i) => ({
       "@type": "ListItem",
       position: i + 1,
-      url: `${BASE}/trip/${String(t.id)}`,
+      url: `${BASE}/trip/${String(t.slug || t.id)}`,
       name: t.title_override ?? t.title,
     })),
   }
