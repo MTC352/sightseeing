@@ -279,7 +279,8 @@ export default async function TripPage({
     .catch(() => [])
     .then((rows) => {
       const list = (rows as Record<string, unknown>[]).filter((r) => String(r.id) !== id)
-      const sameCat = trip ? list.filter((r) => String(r.category) === trip.category) : []
+      const tripCat = trip?.category
+      const sameCat = tripCat ? list.filter((r) => String(r.category) === tripCat) : []
       const others = list.filter((r) => !sameCat.includes(r))
       return [...sameCat, ...others].slice(0, 3).map((r) => ({
         id: String(r.id),

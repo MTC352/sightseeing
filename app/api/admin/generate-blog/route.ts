@@ -53,7 +53,7 @@ function buildTripCatalogPrompt(trips: any[]): string {
     const title = safeField(t.title, 120)
     const cat = t.category ? ` · ${safeField(t.category, 40)}` : ""
     const city = t.city ? ` · ${safeField(t.city, 60)}` : ""
-    const tagsArr = Array.isArray(t.tags) ? t.tags.slice(0, 5).map((x) => safeField(x, 30)).filter(Boolean) : []
+    const tagsArr = Array.isArray(t.tags) ? t.tags.slice(0, 5).map((x: unknown) => safeField(x, 30)).filter(Boolean) : []
     const tags = tagsArr.length ? ` · tags: ${tagsArr.join(", ")}` : ""
     const blurb = safeField(t.short_description || t.description, 180)
     return `- /trip/${id} | ${title}${cat}${city}${tags}${blurb ? ` — ${blurb}` : ""}`

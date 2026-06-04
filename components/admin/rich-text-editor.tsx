@@ -92,7 +92,7 @@ export function RichTextEditor({
   useEffect(() => {
     if (!editor || value === lastValue.current) return
     const cur = editor.getHTML()
-    if (value !== cur) editor.commands.setContent(value ?? "", false)
+    if (value !== cur) editor.commands.setContent(value ?? "", { emitUpdate: false })
     lastValue.current = value
   }, [editor, value])
 

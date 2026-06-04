@@ -134,5 +134,9 @@ export function isFieldEditable(policy: TripFieldPolicy | null | undefined, key:
 
 /** Merge a stored policy on top of the defaults so the UI always sees every field. */
 export function resolvePolicy(stored: Partial<TripFieldPolicy> | null | undefined): TripFieldPolicy {
-  return { ...buildDefaultPolicy(), ...(stored ?? {}) }
+  const out = buildDefaultPolicy()
+  for (const [key, mode] of Object.entries(stored ?? {})) {
+    if (mode) out[key] = mode
+  }
+  return out
 }

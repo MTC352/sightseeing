@@ -28,7 +28,7 @@ function resolveByPath(path: string): Element | null {
     const tag = seg.slice(0, sep)
     const idx = parseInt(seg.slice(sep + 1), 10)
     if (!tag || Number.isNaN(idx)) return null
-    const matches = Array.from(node.children).filter(
+    const matches: Element[] = Array.from(node.children).filter(
       (c) => c.tagName.toLowerCase() === tag,
     )
     node = matches[idx] ?? null
