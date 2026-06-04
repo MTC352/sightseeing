@@ -165,19 +165,29 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
             <circle
               cx="32" cy="32" r={circleR} fill="none" strokeWidth="6" strokeLinecap="round"
               strokeDasharray={`${strokeDash} ${circleC}`}
-              className={colors.ring}
+              className={staleness.stale ? "stroke-amber-500" : colors.ring}
             />
           </svg>
-          <span className={cn("absolute inset-0 flex items-center justify-center text-xs font-bold", colors.text)}>
+          <span className={cn(
+            "absolute inset-0 flex items-center justify-center text-xs font-bold",
+            staleness.stale ? "text-amber-600 dark:text-amber-400" : colors.text,
+          )}>
             {score}
           </span>
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-foreground">SEO Optimizer</h3>
-          <p className="text-[11px] text-muted-foreground">{passingCount}/{totalCount} checks passing</p>
+          <p className="text-[11px] text-muted-foreground">
+            {staleness.stale
+              ? "Content changed since last optimization — re-run AI to refresh SEO text"
+              : `${passingCount}/${totalCount} checks passing`}
+          </p>
         </div>
-        <span className={cn("shrink-0 rounded-full px-3 py-1 text-xs font-semibold", colors.pill)}>
-          {colors.label}
+        <span className={cn(
+          "shrink-0 rounded-full px-3 py-1 text-xs font-semibold",
+          staleness.stale ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : colors.pill,
+        )}>
+          {staleness.stale ? "Outdated" : colors.label}
         </span>
       </div>
 

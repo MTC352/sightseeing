@@ -4,6 +4,7 @@ import { dbGetTrip, dbUpdateTrip, dbDeleteTrip, dbGetIntegration } from "@/lib/d
 import { resolvePolicy, isFieldEditable, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { liveScoreForTrip } from "@/lib/seo/score"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -62,6 +63,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     const updated = await dbUpdateTrip(id, filtered)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+    // Auto-refresh the SEO score so it never represents stale content. We do NOT
+    // regenerate the optimised seo_* text here (that requires the AI optimizer) —
+    // staleness vs the last optimization is tracked separately via seo_source_hashes
+    // and surfaced as an "Outdated" badge. But the deterministic score IS recomputed
+    // from the trip's current effective fields (image/highlights/slug/seo_* etc.) so
+    // the stored number always matches what the optimizer shows.
+    let finalTrip = updated as Record<string, unknown>
+    if (finalTrip.seoOptimizedAt) {
+      const freshScore = liveScoreForTrip(finalTrip)
+      if (freshScore !== finalTrip.seoScore) {
+        const rescored = await dbUpdateTrip(id, { seoScore: freshScore })
+        if (rescored) finalTrip = rescored as Record<string, unknown>
+      }
+    }
+
     revalidatePath("/admin/trips")
     revalidatePath("/")
     void logActivity({
@@ -69,9 +86,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       action: "trip.update",
       entityType: "trip",
       entityId: id,
-      summary: `Updated trip "${(updated as { title?: string }).title ?? id}"`,
+      summary: `Updated trip "${(finalTrip as { title?: string }).title ?? id}"`,
     })
-    return NextResponse.json({ ...updated, _strippedReadOnly: stripped.length ? stripped : undefined })
+    return NextResponse.json({ ...finalTrip, _strippedReadOnly: stripped.length ? stripped : undefined })
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trips/:id] PATCH error:", err)

@@ -217,6 +217,42 @@ export function scoreSeo(input: SeoScoreInput): SeoScoreSummary {
   return summarizeScore(computeSeoSections(input))
 }
 
+// ── Trip → live score (shared client + server) ─────────────────────────────────
+//
+// Build the *effective* SEO field set the same way the live optimizer widget
+// does: prefer the persisted seo_* columns, fall back to the trip's base content
+// so a never-/partially-optimised trip still scores against real data. Sharing
+// this between the widget and the server keeps the stored seo_score in lockstep
+// with what the admin sees, so the score never represents stale content.
+
+function seoStr(v: unknown): string {
+  return typeof v === "string" ? v : v == null ? "" : String(v)
+}
+
+export function liveSeoFieldsFromTrip(trip: Record<string, unknown>): SeoFields {
+  const baseHighlights = Array.isArray(trip.highlights) ? trip.highlights.map((h) => seoStr(h)) : []
+  const seoHighlights =
+    trip.seoHighlights == null
+      ? baseHighlights
+      : Array.isArray(trip.seoHighlights)
+        ? trip.seoHighlights.map((h) => seoStr(h))
+        : []
+  return {
+    seoKeyword: seoStr(trip.seoKeyword).trim(),
+    seoTitle: seoStr(trip.seoTitle) || seoStr(trip.title),
+    seoMetaDescription: seoStr(trip.seoMetaDescription) || stripHtml(seoStr(trip.description)).slice(0, 160),
+    seoBody: seoStr(trip.seoBody) || seoStr(trip.description),
+    seoHighlights,
+    seoSlug: seoStr(trip.seoSlug) || seoStr(trip.permalink) || seoStr(trip.id),
+  }
+}
+
+/** Deterministic live SEO score (0–100) for a trip's current effective fields. */
+export function liveScoreForTrip(trip: Record<string, unknown>): number {
+  const image = seoStr(trip.image)
+  return scoreSeo(scoreInputFromFields(liveSeoFieldsFromTrip(trip), image)).score
+}
+
 // ── Slug helpers ───────────────────────────────────────────────────────────────
 
 export function slugify(input: string): string {
