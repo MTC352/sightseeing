@@ -12,7 +12,7 @@ import { CookieBanner } from "@/components/cookie-banner"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetWeglotApiKey } from "@/lib/db/queries"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -88,6 +88,7 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const injection = await dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" }))
+  const weglotApiKey = await dbGetWeglotApiKey().catch(() => "")
   return (
     <html lang="en" className={instrumentSans.variable}>
       <head>
@@ -178,7 +179,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {/* ── Cookie consent banner ────────────────────────────────────────
             Client component. Also conditionally loads Weglot only after
             the user accepts functional cookies. */}
-        <CookieBanner />
+        <CookieBanner weglotApiKey={weglotApiKey} />
 
         {/* ── Accessibility toolbar ────────────────────────────────────────
             Built-in WCAG 2.1 AA / EAA 2025 accessibility panel.

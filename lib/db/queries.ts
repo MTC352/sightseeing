@@ -1724,6 +1724,21 @@ export async function dbGetIntegration(key: string) {
   )
 }
 
+/** Resolve the public Weglot API key. Admin-panel DB key (integrations.weglot)
+ *  is the source of truth; env NEXT_PUBLIC_WEGLOT_API_KEY is a dev fallback.
+ *  Returns "" when neither is set so the loader simply stays off. */
+export async function dbGetWeglotApiKey(): Promise<string> {
+  let key = ""
+  try {
+    const row = await dbGetIntegration("weglot")
+    key = (row?.value ?? "").trim()
+  } catch {
+    /* DB unavailable — fall through to env */
+  }
+  if (!key) key = (process.env.NEXT_PUBLIC_WEGLOT_API_KEY ?? "").trim()
+  return key
+}
+
 export async function dbUpsertIntegration(key: string, label: string, value: string) {
   return queryOne<{ key: string }>(
     `INSERT INTO integrations (key, label, value, updated_at)

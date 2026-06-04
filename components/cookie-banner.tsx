@@ -5,7 +5,7 @@ import Script from "next/script"
 import { X, ChevronDown, ChevronUp, Cookie } from "lucide-react"
 import { getConsent, saveConsent, type ConsentState } from "@/lib/cookie-consent"
 
-export function CookieBanner() {
+export function CookieBanner({ weglotApiKey = "" }: { weglotApiKey?: string }) {
   const [consent, setConsent] = useState<ConsentState | null | "loading">("loading")
   const [showPanel, setShowPanel] = useState(false)
   const [functional, setFunctional] = useState(true)
@@ -27,7 +27,7 @@ export function CookieBanner() {
   if (consent !== null) {
     return (
       <>
-        {consent.functional && <WeglotScript />}
+        {consent.functional && <WeglotScript apiKey={weglotApiKey} />}
         {consent.marketing && <TravelpayoutsAllowed />}
       </>
     )
@@ -161,8 +161,15 @@ function CategoryRow({
   )
 }
 
-/** Conditionally rendered Weglot initialiser — only after functional consent */
-function WeglotScript() {
+/** Conditionally rendered Weglot initialiser — only after functional consent.
+ *  The API key comes from the admin panel (integrations.weglot) with an env
+ *  fallback, resolved server-side in app/layout.tsx and passed down as a prop.
+ *  When no valid key is configured the loader renders nothing, so Weglot simply
+ *  stays off rather than initialising against a dead/placeholder project. */
+function WeglotScript({ apiKey }: { apiKey: string }) {
+  // Only inject a well-formed Weglot key (wg_ + alphanumerics). This guards the
+  // inline <script> against any unexpected value stored in the DB.
+  if (!/^wg_[a-zA-Z0-9]+$/.test(apiKey)) return null
   return (
     <Script
       id="weglot-init"
@@ -176,7 +183,7 @@ function WeglotScript() {
             s.src = 'https://cdn.weglot.com/weglot.min.js';
             s.onload = function() {
               Weglot.initialize({
-                api_key: 'wg_65ddaa54ea08d95572a1ed507b2b458b7',
+                api_key: ${JSON.stringify(apiKey)},
                 hide_switcher: true
               });
               try {
