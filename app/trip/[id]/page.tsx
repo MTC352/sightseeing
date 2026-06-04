@@ -40,6 +40,7 @@ function arr(v: unknown): string[] {
 /** Build a structured DB-detail object from a Palisis-synced trip row. */
 function mapDbDetail(r: Record<string, unknown>): TripDbDetail {
   return {
+    seoBody: s(r.seoBody),
     shortDescription: s(r.shortDescription),
     longDescription: s(r.longDescription),
     experienceHighlights: s(r.experienceHighlights),
@@ -203,7 +204,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     return { title: "Trip not found" }
   }
 
+  // Prefer admin-optimised, import-safe SEO fields when present.
+  const seoTitle = s(dbRow?.seoTitle) ?? trip.title
+  const seoKeyword = s(dbRow?.seoKeyword)
+
   const description =
+    s(dbRow?.seoMetaDescription) ??
     dbDetail?.shortDescription ??
     dbDetail?.longDescription ??
     detail?.description ??
@@ -220,18 +226,23 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   })
   const ogImage = `${BASE}/api/og?${ogParams.toString()}`
   const imageUrl = trip.image.startsWith("/") ? `${BASE}${trip.image}` : trip.image
-  const altText = `${trip.title} — ${trip.category} experience in ${trip.city ?? "Luxembourg"}`
+  const altText = seoKeyword
+    ? `${seoKeyword} — ${trip.title}`
+    : `${trip.title} — ${trip.category} experience in ${trip.city ?? "Luxembourg"}`
 
   return {
-    title: trip.title,
+    title: seoTitle,
     description,
-    keywords: [trip.category, trip.city ?? "Luxembourg", ...trip.tags, "Luxembourg tours", "sightseeing"],
+    keywords: [
+      ...(seoKeyword ? [seoKeyword] : []),
+      trip.category, trip.city ?? "Luxembourg", ...trip.tags, "Luxembourg tours", "sightseeing",
+    ],
     alternates: {
       canonical: `${BASE}/trip/${trip.id}`,
     },
     openGraph: {
       type: "article",
-      title: trip.title,
+      title: seoTitle,
       description,
       url: `${BASE}/trip/${trip.id}`,
       images: [
@@ -241,7 +252,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     },
     twitter: {
       card: "summary_large_image",
-      title: trip.title,
+      title: seoTitle,
       description,
       images: [ogImage],
     },
@@ -342,7 +353,7 @@ export default async function TripPage({
     "@context": "https://schema.org",
     "@type": ["TouristTrip", "Product"],
     name: trip.title,
-    description: dbDetail?.longDescription ?? dbDetail?.shortDescription ?? detail?.description ?? trip.description ?? trip.title,
+    description: s(dbRow?.seoMetaDescription) ?? dbDetail?.longDescription ?? dbDetail?.shortDescription ?? detail?.description ?? trip.description ?? trip.title,
     image: imageUrl,
     url: `${BASE}/trip/${trip.id}`,
     touristType: trip.category,

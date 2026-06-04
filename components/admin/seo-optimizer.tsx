@@ -12,90 +12,26 @@ import React, { useState, useMemo, useEffect } from "react"
 import type { AdminTrip } from "@/lib/admin-store"
 import {
   ChevronDown, ChevronUp, CheckCircle2, XCircle, HelpCircle, Eye, Edit3, Search,
+  Sparkles, AlertTriangle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-// ── Word lists ────────────────────────────────────────────────────────────────
-
-const POWER_WORDS = new Set([
-  "ultimate", "proven", "powerful", "essential", "best", "top", "complete",
-  "definitive", "comprehensive", "exclusive", "premium", "incredible", "master",
-  "revolutionary", "effective", "expert", "leading", "premier", "outstanding",
-  "remarkable", "exceptional", "unbeatable", "advanced", "professional",
-])
-
-const SENTIMENT_WORDS = new Set([
-  "beautiful", "stunning", "breathtaking", "unforgettable", "incredible", "amazing",
-  "wonderful", "magnificent", "spectacular", "unique", "exciting", "thrilling",
-  "fascinating", "charming", "lovely", "exceptional", "extraordinary", "outstanding",
-  "superb", "fantastic", "perfect", "delightful", "remarkable", "memorable",
-  "scenic", "authentic", "iconic", "vibrant", "magical",
-])
+import {
+  computeSeoSections, summarizeScore, computeStaleness, scoreInputFromFields,
+  stripHtml, wordCount, countOccurrences, type SeoFields, type SeoSection,
+} from "@/lib/seo/score"
+import { SeoAiModal } from "@/components/admin/seo-ai-modal"
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
-
-/** Strip HTML tags + decode basic entities → plain text. */
-function stripHtml(html: string): string {
-  if (!html) return ""
-  return html
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<\/p>/gi,  " ")
-    .replace(/<\/li>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g,   "&")
-    .replace(/&lt;/g,    "<")
-    .replace(/&gt;/g,    ">")
-    .replace(/&quot;/g,  '"')
-    .replace(/&nbsp;/g,  " ")
-    .replace(/&#39;/g,   "'")
-    .replace(/\s+/g,     " ")
-    .trim()
-}
-
-/** Extract paragraph-level text blocks (for short-paragraph check). */
-function getParagraphs(html: string): string[] {
-  if (html.includes("<p")) {
-    return (html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) ?? [])
-      .map(stripHtml)
-      .filter(Boolean)
-  }
-  return html.split(/\n\n+/).filter(Boolean)
-}
-
-function wordCount(text: string): number {
-  return text.trim() === "" ? 0 : text.trim().split(/\s+/).length
-}
-
-function countOccurrences(text: string, kw: string): number {
-  if (!kw || !text) return 0
-  const re = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")
-  return (text.match(re) ?? []).length
-}
-
-function hasWordFrom(text: string, words: Set<string>): boolean {
-  const lower = text.toLowerCase()
-  for (const w of words) {
-    if (new RegExp(`\\b${w}\\b`).test(lower)) return true
-  }
-  return false
-}
 
 function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1) + "…" : text
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface Check {
-  id: string
-  pass: boolean
-  message: string
-}
-
-interface SectionDef {
-  id: string
-  label: string
-  checks: Check[]
+// Friendly labels for the staleness badge's changed-source list.
+const SOURCE_LABELS: Record<string, string> = {
+  title: "Title", description: "Description", shortDescription: "Short description",
+  longDescription: "Long description", highlights: "Highlights", included: "Includes",
+  excluded: "Excludes", itinerary: "Itinerary", category: "Category", city: "City",
 }
 
 interface Props {
@@ -140,100 +76,70 @@ function scoreColors(score: number) {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
-  const [focusKeyword,  setFocusKeyword]  = useState("")
-  const [seoTitle,      setSeoTitle]      = useState(tripData.title ?? "")
-  const [metaDesc,      setMetaDesc]      = useState(stripHtml(tripData.description ?? "").slice(0, 160))
+  const permalink   = tripData.permalink ?? tripData.id ?? ""
+  const image       = tripData.image ?? ""
+  const url         = `https://sightseeing.lu/trip/${permalink}`
+
+  // Local editable playground state. Seeds prefer the persisted seo_* columns,
+  // then fall back to live form fields (so a never-optimised trip still scores).
+  const [focusKeyword,  setFocusKeyword]  = useState(tripData.seoKeyword ?? "")
+  const [seoTitle,      setSeoTitle]      = useState(tripData.seoTitle ?? tripData.title ?? "")
+  const [metaDesc,      setMetaDesc]      = useState(tripData.seoMetaDescription ?? stripHtml(tripData.description ?? "").slice(0, 160))
   const [editSnippet,   setEditSnippet]   = useState(false)
   const [openSections,  setOpenSections]  = useState<Set<string>>(new Set(["basic"]))
   const [visibleTip,    setVisibleTip]    = useState<string | null>(null)
+  const [showAiModal,   setShowAiModal]   = useState(false)
 
-  // Keep seoTitle in sync with the form title (unless user is editing the snippet)
-  useEffect(() => {
-    if (tripData.title && !editSnippet) setSeoTitle(tripData.title)
-  }, [tripData.title, editSnippet])
+  // Overlays — populated after an AI "Accept & Save All" so the widget reflects
+  // the freshly-persisted SEO without a full page reload.
+  const [bodyOverlay,       setBodyOverlay]       = useState<string | null>(tripData.seoBody ?? null)
+  const [highlightsOverlay, setHighlightsOverlay] = useState<string[] | null>(tripData.seoHighlights ?? null)
+  const [slugOverlay,       setSlugOverlay]       = useState<string | null>(tripData.seoSlug ?? null)
+  const [optimizedOverlay,  setOptimizedOverlay]  = useState<string | null>(tripData.seoOptimizedAt ?? null)
 
-  // Keep metaDesc in sync — pull first 160 chars of plain-text description
+  // Keep seoTitle synced with the form title ONLY when there's no persisted SEO
+  // title yet (don't clobber an optimised title with the raw catalog one).
   useEffect(() => {
-    if (tripData.description && !editSnippet) {
+    if (!tripData.seoTitle && tripData.title && !editSnippet) setSeoTitle(tripData.title)
+  }, [tripData.title, tripData.seoTitle, editSnippet])
+
+  useEffect(() => {
+    if (!tripData.seoMetaDescription && tripData.description && !editSnippet) {
       setMetaDesc(stripHtml(tripData.description).slice(0, 160))
     }
-  }, [tripData.description, editSnippet])
+  }, [tripData.description, tripData.seoMetaDescription, editSnippet])
 
-  // ── Derived values (live) ────────────────────────────────────────────────
-  const kw          = focusKeyword.toLowerCase().trim()
-  const permalink   = tripData.permalink ?? tripData.id ?? ""
-  const rawHtml     = tripData.description ?? ""           // HTML (or plain text) from the editor
-  const image       = tripData.image ?? ""
-  const highlights  = tripData.highlights ?? []
-  const url         = `https://sightseeing.lu/trip/${permalink}`
+  // ── The field set currently being scored ──────────────────────────────────
+  const liveFields: SeoFields = useMemo(() => ({
+    seoKeyword: focusKeyword.trim(),
+    seoTitle,
+    seoMetaDescription: metaDesc,
+    seoBody: bodyOverlay ?? tripData.seoBody ?? tripData.description ?? "",
+    seoHighlights: highlightsOverlay ?? tripData.seoHighlights ?? tripData.highlights ?? [],
+    seoSlug: slugOverlay ?? tripData.seoSlug ?? permalink,
+  }), [focusKeyword, seoTitle, metaDesc, bodyOverlay, highlightsOverlay, slugOverlay,
+       tripData.seoBody, tripData.description, tripData.seoHighlights, tripData.highlights,
+       tripData.seoSlug, permalink])
 
-  // Strip HTML for all text-analysis purposes
-  const plainText = useMemo(() => stripHtml(rawHtml), [rawHtml])
-
+  // Density read-out for the focus-keyword panel.
+  const plainText = useMemo(() => stripHtml(liveFields.seoBody), [liveFields.seoBody])
   const words   = useMemo(() => wordCount(plainText), [plainText])
-  const kwCount = useMemo(() => countOccurrences(plainText, kw), [plainText, kw])
+  const kwCount = useMemo(() => countOccurrences(plainText, focusKeyword.toLowerCase().trim()), [plainText, focusKeyword])
   const density = words > 0 ? (kwCount / words) * 100 : 0
 
   // ── All checks (recomputed instantly on any change) ───────────────────────
-  const sections: SectionDef[] = useMemo(() => {
-    const tl  = seoTitle.toLowerCase()
-    const dl  = plainText.toLowerCase()           // plain text for keyword/content checks
-    const ml  = metaDesc.toLowerCase()
-    const pl  = permalink.toLowerCase()
+  const sections: SeoSection[] = useMemo(
+    () => computeSeoSections(scoreInputFromFields(liveFields, image)),
+    [liveFields, image],
+  )
+  const { passingCount, totalCount, score } = useMemo(() => summarizeScore(sections), [sections])
 
-    const basic: Check[] = [
-      { id: "kw-in-title",    pass: !!kw && tl.includes(kw),                                                        message: "Add Focus Keyword to the SEO title." },
-      { id: "kw-in-meta",     pass: !!kw && ml.includes(kw),                                                        message: "Add Focus Keyword to your SEO Meta Description." },
-      { id: "kw-in-url",      pass: !!kw && pl.includes(kw.replace(/\s+/g, "-")),                                   message: "Use Focus Keyword in the URL." },
-      { id: "kw-in-intro",    pass: !!kw && dl.slice(0, 100).includes(kw),                                          message: "Use Focus Keyword at the beginning of your content." },
-      { id: "kw-in-content",  pass: !!kw && dl.includes(kw),                                                        message: "Use Focus Keyword in the content." },
-      { id: "content-length", pass: words >= 600,
-        message: `Content is ${words} words long. Consider using at least 600 words.` },
-    ]
+  // ── Staleness (source fields changed since last optimization) ─────────────
+  const staleness = useMemo(
+    () => computeStaleness({ ...tripData, seoOptimizedAt: optimizedOverlay ?? tripData.seoOptimizedAt } as Record<string, unknown>),
+    [tripData, optimizedOverlay],
+  )
 
-    const additional: Check[] = [
-      { id: "kw-in-headings",  pass: !!kw && highlights.some((h) => h.toLowerCase().includes(kw)),                  message: "Use Focus Keyword in subheadings like H2, H3, H4, etc." },
-      { id: "image-alt",       pass: !!image,                                                                        message: "Add an image with your Focus Keyword as alt text." },
-      { id: "keyword-density", pass: !!kw && density >= 0.5 && density <= 2.5,
-        message: `Keyword Density is ${density.toFixed(1)}%. Aim for around 1% Keyword Density.` },
-      { id: "url-length",      pass: permalink.length > 0 && permalink.length <= 75,
-        message: permalink.length <= 75
-          ? `URL is ${permalink.length} characters long. Kudos!`
-          : `URL is ${permalink.length} characters long. Consider shortening it.` },
-      // Link checks use the raw HTML so that <a href="..."> tags are detected
-      { id: "external-links",  pass: /https?:\/\/[^"'\s<>]/.test(rawHtml),                                          message: "Link out to external resources." },
-      { id: "dofollow-links",  pass: /href="https?:\/\/[^"]+"/i.test(rawHtml),                                      message: "Add DoFollow links pointing to external resources." },
-      { id: "internal-links",  pass: /href="\/(trip|blog|explore|departures|help)\//i.test(rawHtml),                message: "Add internal links in your content." },
-      { id: "kw-set",          pass: !!kw,                                                                           message: "Set a Focus Keyword for this content." },
-    ]
-
-    const titleReadability: Check[] = [
-      { id: "kw-at-title-start", pass: !!kw && (tl.startsWith(kw) || tl.indexOf(kw) < Math.ceil(tl.length / 2)),  message: "Use the Focus Keyword near the beginning of SEO title." },
-      { id: "title-sentiment",   pass: hasWordFrom(seoTitle, SENTIMENT_WORDS),                                      message: "Your title doesn't contain a positive or a negative sentiment word." },
-      { id: "title-power-word",  pass: hasWordFrom(seoTitle, POWER_WORDS),                                          message: "Your title doesn't contain a power word. Add at least one." },
-      { id: "title-number",      pass: /\d/.test(seoTitle),                                                         message: "Your SEO title doesn't contain a number." },
-    ]
-
-    const contentReadability: Check[] = [
-      { id: "toc",              pass: highlights.length >= 3,                                                        message: "You don't seem to be using a Table of Contents plugin." },
-      { id: "short-paragraphs", pass: !getParagraphs(rawHtml).some((p) => wordCount(p) > 100),
-        message: "At least one paragraph is long. Consider using short paragraphs." },
-      { id: "rich-media",       pass: !!image,                                                                       message: "You are not using rich media like images or videos." },
-    ]
-
-    return [
-      { id: "basic",      label: "Basic SEO",          checks: basic },
-      { id: "additional", label: "Additional",          checks: additional },
-      { id: "title",      label: "Title Readability",   checks: titleReadability },
-      { id: "content",    label: "Content Readability", checks: contentReadability },
-    ]
-  }, [kw, seoTitle, metaDesc, plainText, rawHtml, permalink, image, highlights, words, density])
-
-  // ── Score ─────────────────────────────────────────────────────────────────
-  const allChecks    = sections.flatMap((s) => s.checks)
-  const passingCount = allChecks.filter((c) => c.pass).length
-  const totalCount   = allChecks.length
-  const score        = totalCount > 0 ? Math.round((passingCount / totalCount) * 100) : 0
   const colors       = scoreColors(score)
   const circleR      = 28
   const circleC      = 2 * Math.PI * circleR
@@ -273,6 +179,36 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
         <span className={cn("shrink-0 rounded-full px-3 py-1 text-xs font-semibold", colors.pill)}>
           {colors.label}
         </span>
+      </div>
+
+      {/* ── AI Optimize CTA + staleness banner ───────────────────────────── */}
+      <div className="border-b border-border bg-primary/5 px-5 py-4">
+        {staleness.stale && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              SEO may be outdated — source content changed since the last optimization
+              {staleness.changedFields.length > 0 && (
+                <> ({staleness.changedFields.map((f) => SOURCE_LABELS[f] ?? f).join(", ")})</>
+              )}. Re-run the AI optimizer to refresh.
+            </span>
+          </div>
+        )}
+        <button
+          type="button"
+          disabled={!tripData.id}
+          onClick={() => setShowAiModal(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          <Sparkles className="h-4 w-4" />
+          Optimize SEO via AI
+        </button>
+        {staleness.optimized && tripData.seoOptimizedAt && !staleness.stale && (
+          <p className="mt-2 text-center text-[10px] text-muted-foreground">
+            Last optimized {new Date(optimizedOverlay ?? tripData.seoOptimizedAt).toLocaleString()}
+            {typeof tripData.seoScore === "number" && <> · saved score {tripData.seoScore}</>}
+          </p>
+        )}
       </div>
 
       {/* ── Focus Keyword (primary segment) ────────────────────────────── */}
@@ -458,6 +394,26 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
           )
         })}
       </div>
+
+      {showAiModal && tripData.id && (
+        <SeoAiModal
+          tripId={tripData.id}
+          image={image}
+          current={liveFields}
+          onClose={() => setShowAiModal(false)}
+          onSaved={(result) => {
+            setFocusKeyword(result.fields.seoKeyword ?? "")
+            setSeoTitle(result.fields.seoTitle ?? "")
+            setMetaDesc(result.fields.seoMetaDescription ?? "")
+            setBodyOverlay(result.fields.seoBody ?? "")
+            setHighlightsOverlay(result.fields.seoHighlights ?? [])
+            setSlugOverlay(result.fields.seoSlug ?? "")
+            setOptimizedOverlay(result.seoOptimizedAt)
+            setEditSnippet(true) // lock auto-sync so persisted SEO isn't overwritten by form fields
+            setShowAiModal(false)
+          }}
+        />
+      )}
     </div>
   )
 }

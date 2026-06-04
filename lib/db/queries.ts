@@ -47,6 +47,11 @@ const TRIP_SELECT = `
   non_refundable as "nonRefundable",
   next_bookable_date as "nextBookableDate", last_bookable_date as "lastBookableDate",
   last_synced_at as "lastSyncedAt", sync_source as "syncSource",
+  seo_keyword as "seoKeyword", seo_title as "seoTitle",
+  seo_meta_description as "seoMetaDescription", seo_body as "seoBody",
+  seo_highlights as "seoHighlights", seo_slug as "seoSlug",
+  seo_score as "seoScore", seo_optimized_at as "seoOptimizedAt",
+  seo_optimized_by as "seoOptimizedBy", seo_source_hashes as "seoSourceHashes",
   created_at, updated_at
 `
 
@@ -200,6 +205,12 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     nextBookableDate: 'next_bookable_date', lastBookableDate: 'last_bookable_date',
     palisisRaw: 'palisis_raw', syncSource: 'sync_source',
     lastSyncedAt: 'last_synced_at',
+    // ── SEO (import-safe; never written by the Palisis importer) ───────────
+    seoKeyword: 'seo_keyword', seoTitle: 'seo_title',
+    seoMetaDescription: 'seo_meta_description', seoBody: 'seo_body',
+    seoHighlights: 'seo_highlights', seoSlug: 'seo_slug',
+    seoScore: 'seo_score', seoOptimizedAt: 'seo_optimized_at',
+    seoOptimizedBy: 'seo_optimized_by', seoSourceHashes: 'seo_source_hashes',
   }
   for (const [key, col] of Object.entries(fieldMap)) {
     if (key in data) {

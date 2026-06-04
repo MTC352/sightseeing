@@ -14,6 +14,7 @@ import { GoogleReviews } from "@/components/google-reviews"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
 import { substitutePlaceholders } from "@/lib/booking-url"
+import { stripHtml } from "@/lib/seo/score"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 
@@ -21,6 +22,7 @@ const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun
 
 /* ─── Types shared with the server page ─────────────────────────────── */
 export type TripDbDetail = {
+  seoBody?: string
   shortDescription?: string
   longDescription?: string
   experienceHighlights?: string
@@ -173,8 +175,9 @@ export default function TripDetailClient({
   ).filter(Boolean)
 
   /* ─── Merge DB + static for displayed fields ────────────────────────── */
-  // Description: DB long → DB short → static detail → trip.description
+  // Description: admin-optimised SEO body → DB long → DB short → static → trip
   const mergedDescription =
+    (dbDetail?.seoBody ? stripHtml(dbDetail.seoBody) : undefined) ??
     dbDetail?.longDescription ??
     dbDetail?.shortDescription ??
     detail?.description ??

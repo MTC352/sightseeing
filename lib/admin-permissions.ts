@@ -117,6 +117,8 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/ai-advisor", keys: ["implementation"] },
   { prefix: "/api/admin/seo-analyze", keys: ["implementation"] },
   { prefix: "/api/admin/seo-fix", keys: ["implementation"] },
+  // Per-trip AI SEO optimizer — lives on the trip edit page (Trips section).
+  { prefix: "/api/admin/seo-generate", keys: ["trips"] },
   // Docs
   { prefix: "/admin/docs", keys: ["docs"] },
   { prefix: "/api/admin/admin-help-chat", keys: ["docs"] },

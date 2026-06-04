@@ -71,6 +71,18 @@ export interface AdminTrip {
   lastBookableDate?: string | null
   lastSyncedAt?: string | null
   syncSource?: string | null
+
+  // ── SEO (import-safe; managed by the AI SEO optimizer, never by Palisis) ───
+  seoKeyword?: string | null
+  seoTitle?: string | null
+  seoMetaDescription?: string | null
+  seoBody?: string | null
+  seoHighlights?: string[] | null
+  seoSlug?: string | null
+  seoScore?: number | null
+  seoOptimizedAt?: string | null
+  seoOptimizedBy?: string | null
+  seoSourceHashes?: Record<string, string> | null
 }
 
 export interface AdminJob {

@@ -177,6 +177,17 @@ CREATE TABLE trips (
   palisis_raw          JSONB,                            -- raw Palisis API payload snapshot
   last_synced_at       TIMESTAMPTZ,
   sync_source          TEXT,                             -- 'manual' | 'webhook' | 'bulk'
+  -- AI SEO Optimizer fields (import-safe: NEVER touched by Palisis sync) --------
+  seo_keyword          TEXT,                             -- AI-chosen focus keyword
+  seo_title            TEXT,                             -- optimised <title> / OG title
+  seo_meta_description TEXT,                             -- optimised meta description
+  seo_body             TEXT,                             -- optimised body HTML (≥600 words)
+  seo_highlights       TEXT[],                           -- optimised highlight/subheading list
+  seo_slug             TEXT,                             -- keyword-bearing URL slug
+  seo_score            INT,                              -- 0–100 RankMath-style audit score
+  seo_optimized_at     TIMESTAMPTZ,                      -- when last optimised (drives staleness)
+  seo_optimized_by     UUID        REFERENCES admin_users(id),
+  seo_source_hashes    JSONB,                            -- per-source-field hash snapshot for staleness
   created_by           UUID        REFERENCES admin_users(id),
   updated_by           UUID        REFERENCES admin_users(id),
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -190,6 +201,8 @@ CREATE INDEX trips_palisis_id_idx  ON trips(palisis_id);
 ```
 
 **Display logic:** The app renders `title_override ?? title` and `description_override ?? description`. This way admin edits are non-destructive — the original Palisis data is always preserved in `title` / `description`.
+
+**AI SEO fields (`seo_*`):** Written ONLY by the AI SEO Optimizer (`/api/admin/seo-generate` → `/api/admin/trips/[id]/seo`) and are **import-safe** — the Palisis importer/webhook never reads or writes them, so a re-sync can never clobber optimised SEO. Public render (`app/trip/[id]`) prefers `seo_title` / `seo_meta_description` / `seo_keyword` / `seo_body` when present. `seo_source_hashes` snapshots a per-source-field hash at optimization time; when a later sync/edit changes a source field (title, description, highlights, etc.), the admin SEO panel shows a "may be outdated" staleness badge. Scoring lives in `lib/seo/score.ts` (21-check RankMath-style audit).
 
 **When updated:**
 - On manual Palisis import (single trip with diff confirmation, or bulk with override checkbox)
