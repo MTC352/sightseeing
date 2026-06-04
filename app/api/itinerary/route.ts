@@ -1286,7 +1286,7 @@ ${tipsInstructions}`
         return { lat, lng }
       }
       const fetchProfile = async (
-        profile: "driving" | "walking",
+        profile: "driving" | "walking" | "cycling",
         from: { lat: number; lng: number },
         to: { lat: number; lng: number },
       ): Promise<{ durationSec: number; distanceM: number } | null> => {
@@ -1312,16 +1312,18 @@ ${tipsInstructions}`
         }
       }
       const fetchGoogleProfile = async (
-        profile: "driving" | "walking",
+        profile: "driving" | "walking" | "cycling",
         from: { lat: number; lng: number },
         to: { lat: number; lng: number },
       ): Promise<{ durationSec: number; distanceM: number } | null> => {
         if (!googleRoutingKey) return null
+        // Google's Directions API names cycling "bicycling".
+        const googleMode = profile === "cycling" ? "bicycling" : profile
         try {
           const url =
             `https://maps.googleapis.com/maps/api/directions/json` +
             `?origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}` +
-            `&mode=${profile}&key=${encodeURIComponent(googleRoutingKey)}`
+            `&mode=${googleMode}&key=${encodeURIComponent(googleRoutingKey)}`
           const res = await fetch(url, { cache: "no-store" })
           if (!res.ok) {
             console.warn(`[itinerary] google ${profile} ${res.status}`)
@@ -1346,7 +1348,7 @@ ${tipsInstructions}`
       // Per-leg fetch: prefer Google when the admin selected it AND a key is
       // present, otherwise (or on Google failure) fall back to Mapbox.
       const fetchLeg = async (
-        profile: "driving" | "walking",
+        profile: "driving" | "walking" | "cycling",
         from: { lat: number; lng: number },
         to: { lat: number; lng: number },
       ): Promise<{ durationSec: number; distanceM: number } | null> => {
@@ -1361,21 +1363,23 @@ ${tipsInstructions}`
         const from = parseLatLng(originGeo)
         const to = parseLatLng(destGeo)
         if (!from || !to) {
-          return { driveMin: null, walkMin: null, transitMin: null, distanceKm: null, reason: "no_geocode", ...base }
+          return { driveMin: null, walkMin: null, cycleMin: null, transitMin: null, distanceKm: null, reason: "no_geocode", ...base }
         }
         if (!mapboxToken && !useGoogleRouting) {
-          return { driveMin: null, walkMin: null, transitMin: null, distanceKm: null, reason: "no_token", ...base }
+          return { driveMin: null, walkMin: null, cycleMin: null, transitMin: null, distanceKm: null, reason: "no_token", ...base }
         }
         if (Math.abs(from.lat - to.lat) < 1e-5 && Math.abs(from.lng - to.lng) < 1e-5) {
-          return { driveMin: 0, walkMin: 0, transitMin: null, distanceKm: 0, reason: "ok", ...base }
+          return { driveMin: 0, walkMin: 0, cycleMin: 0, transitMin: null, distanceKm: 0, reason: "ok", ...base }
         }
-        const [drive, walk] = await Promise.all([
+        const [drive, walk, cycle] = await Promise.all([
           fetchLeg("driving", from, to),
           fetchLeg("walking", from, to),
+          fetchLeg("cycling", from, to),
         ])
         return {
           driveMin: drive ? Math.max(1, Math.round(drive.durationSec / 60)) : null,
           walkMin: walk ? Math.max(1, Math.round(walk.durationSec / 60)) : null,
+          cycleMin: cycle ? Math.max(1, Math.round(cycle.durationSec / 60)) : null,
           transitMin: null,
           distanceKm: drive ? Math.round((drive.distanceM / 1000) * 10) / 10 : null,
           reason: "ok",

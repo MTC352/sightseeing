@@ -21,9 +21,29 @@
  * map, route, or any single stop fails to render.
  */
 
-import type { Itinerary } from "@/components/sidebar-itinerary"
+import type { Itinerary, TravelMethod } from "@/components/sidebar-itinerary"
 
 type ItineraryStep = Itinerary["steps"][number]
+
+/** Options for the PDF export. `legMethods` is the visitor's per-leg travel-mode
+ *  selection, keyed by the FROM-step's full index in `itinerary.steps` (the same
+ *  index space the sidebar selector + canvas map use), so the PDF map + maps
+ *  deep link follow the exact same modes the canvas shows. */
+export type DownloadItineraryPdfOptions = {
+  legMethods?: Record<number, TravelMethod>
+}
+
+/** Map a chosen travel mode to the matching Mapbox Directions profile so the
+ *  PDF route follows the SAME roads as the canvas. */
+function methodToMapboxProfile(m: TravelMethod | undefined): "driving" | "walking" | "cycling" {
+  return m === "walk" ? "walking" : m === "cycle" ? "cycling" : "driving"
+}
+
+/** Map a chosen travel mode to Google Maps' travelmode value for the deep link
+ *  (Google calls cycling "bicycling"). */
+function methodToGoogleMode(m: TravelMethod | undefined): "driving" | "walking" | "bicycling" {
+  return m === "walk" ? "walking" : m === "cycle" ? "bicycling" : "driving"
+}
 
 // Palette — kept in lockstep with the canvas (primary = green #16a34a).
 const INK = "#0f172a"
@@ -64,7 +84,10 @@ function hasCoords(s: ItineraryStep): s is ItineraryStep & { lat: number; lng: n
 
 /** Cross-platform "open the whole route" link. Google Maps directions deep-link
  *  opens the native maps app on mobile and the browser on desktop. */
-function buildMapsLink(coords: { lat: number; lng: number }[]): string | null {
+function buildMapsLink(
+  coords: { lat: number; lng: number }[],
+  travelmode: "driving" | "walking" | "bicycling" = "driving",
+): string | null {
   if (coords.length === 0) return null
   if (coords.length === 1) {
     const { lat, lng } = coords[0]
@@ -75,7 +98,7 @@ function buildMapsLink(coords: { lat: number; lng: number }[]): string | null {
   const waypoints = coords.slice(1, -1)
   const params = new URLSearchParams({
     api: "1",
-    travelmode: "driving",
+    travelmode,
     origin: `${origin.lat},${origin.lng}`,
     destination: `${destination.lat},${destination.lng}`,
   })
@@ -95,21 +118,42 @@ function bookingHref(step: ItineraryStep, origin: string, visitDate?: string): s
   return `${origin}/trip/${encodeURIComponent(step.tripId)}?${qs.toString()}#booking`
 }
 
-/** Fetch a road-following encoded polyline for the route (Mapbox Directions),
- *  so the PDF map matches the green driving route shown on the canvas. */
-async function fetchRoutePolyline(coords: { lat: number; lng: number }[], token: string): Promise<string | null> {
-  if (coords.length < 2 || !token) return null
-  try {
-    const path = coords.slice(0, 25).map((c) => `${c.lng},${c.lat}`).join(";")
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${path}?geometries=polyline&overview=full&access_token=${token}`
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const data = await res.json()
-    const g = data?.routes?.[0]?.geometry
-    return typeof g === "string" && g.length > 0 ? g : null
-  } catch {
-    return null
+/** Fetch a road-following encoded polyline PER LEG (Mapbox Directions), each
+ *  routed with that leg's selected travel mode, so the PDF map matches the
+ *  per-leg green route shown on the canvas exactly. Returns one entry per leg
+ *  (coords.length - 1); a null entry means that leg's route couldn't be fetched
+ *  (the static-map builder falls back to a straight segment for it). `methods`
+ *  is aligned 1:1 with the legs (leg k = coords[k] → coords[k+1]). */
+async function fetchLegPolylines(
+  coords: { lat: number; lng: number }[],
+  methods: TravelMethod[],
+  token: string,
+): Promise<(string | null)[]> {
+  if (coords.length < 2 || !token) return []
+  const n = Math.min(coords.length, 25)
+  const tasks: Promise<string | null>[] = []
+  for (let k = 0; k < n - 1; k++) {
+    const a = coords[k]
+    const b = coords[k + 1]
+    const profile = methodToMapboxProfile(methods[k])
+    tasks.push(
+      (async () => {
+        try {
+          const url =
+            `https://api.mapbox.com/directions/v5/mapbox/${profile}/${a.lng},${a.lat};${b.lng},${b.lat}` +
+            `?geometries=polyline&overview=full&access_token=${token}`
+          const res = await fetch(url)
+          if (!res.ok) return null
+          const data = await res.json()
+          const g = data?.routes?.[0]?.geometry
+          return typeof g === "string" && g.length > 0 ? g : null
+        } catch {
+          return null
+        }
+      })(),
+    )
   }
+  return Promise.all(tasks)
 }
 
 /** Build a Mapbox Static Images API URL with numbered green pins + a green
@@ -120,7 +164,7 @@ function buildStaticMapUrl(
   token: string,
   w: number,
   h: number,
-  polyline: string | null,
+  legPolylines: (string | null)[],
 ): string | null {
   if (!token || coords.length === 0) return null
   const color = "16a34a"
@@ -135,8 +179,15 @@ function buildStaticMapUrl(
   const base = (overlay: string) =>
     `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlay}/auto/${w}x${h}@2x?padding=44&access_token=${token}`
 
-  if (polyline) {
-    const url = base(`path-4+${color}-0.95(${encodeURIComponent(polyline)}),${markers}`)
+  // Prefer one road-following path overlay PER LEG (each leg routed with its own
+  // travel mode) so the PDF map matches the per-leg canvas route. Mapbox Static
+  // accepts multiple comma-separated path overlays.
+  const pathOverlays = legPolylines
+    .filter((p): p is string => typeof p === "string" && p.length > 0)
+    .map((p) => `path-4+${color}-0.95(${encodeURIComponent(p)})`)
+    .join(",")
+  if (pathOverlays) {
+    const url = base(`${pathOverlays},${markers}`)
     if (url.length <= 8000) return url
   }
   if (coords.length > 1) {
@@ -198,10 +249,14 @@ function prettyDate(ymd: string | undefined): string {
  * Generate + trigger download of a PDF for the given itinerary.
  * Returns false if the itinerary is empty (nothing to export).
  */
-export async function downloadItineraryPdf(itinerary: Itinerary | null | undefined): Promise<boolean> {
+export async function downloadItineraryPdf(
+  itinerary: Itinerary | null | undefined,
+  opts?: DownloadItineraryPdfOptions,
+): Promise<boolean> {
   if (!itinerary || !Array.isArray(itinerary.steps) || itinerary.steps.length === 0) {
     return false
   }
+  const legMethods = opts?.legMethods
 
   const { jsPDF } = await import("jspdf")
   const origin = typeof window !== "undefined" ? window.location.origin : ""
@@ -311,13 +366,33 @@ export async function downloadItineraryPdf(itinerary: Itinerary | null | undefin
   // ---- Map (best-effort, road-following green route) ---------------------
   // Wrapped whole — any unforeseen map error must never abort the export.
   try {
-    const coords = steps.filter(hasCoords).map((s) => ({ lat: s.lat, lng: s.lng }))
-    const mapsLink = buildMapsLink(coords)
+    // Keep each mapped coord's ORIGINAL step index so per-leg travel modes
+    // (keyed by the from-step's full index, same as the sidebar + canvas) line
+    // up with the right segment.
+    const coordSteps = steps
+      .map((s, idx) => ({ s, idx }))
+      .filter(({ s }) => hasCoords(s))
+      .map(({ s, idx }) => ({ lat: (s as ItineraryStep & { lat: number }).lat, lng: (s as ItineraryStep & { lng: number }).lng, idx }))
+    const coords = coordSteps.map(({ lat, lng }) => ({ lat, lng }))
+    // Travel mode for each leg k (coordSteps[k] → coordSteps[k+1]) = the mode
+    // chosen for leaving coordSteps[k], defaulting to driving.
+    const legMethodArr: TravelMethod[] = coordSteps
+      .slice(0, -1)
+      .map(({ idx }) => legMethods?.[idx] ?? "drive")
+    // Google Maps' single deep link can't mix modes, so use the dominant
+    // selected mode across the legs (ties fall back to driving).
+    const dominantMethod: TravelMethod = (() => {
+      const counts: Record<TravelMethod, number> = { drive: 0, walk: 0, cycle: 0 }
+      for (const m of legMethodArr) counts[m]++
+      const top = (Object.keys(counts) as TravelMethod[]).reduce((a, b) => (counts[b] > counts[a] ? b : a), "drive")
+      return counts[top] > 0 ? top : "drive"
+    })()
+    const mapsLink = buildMapsLink(coords, methodToGoogleMode(dominantMethod))
     if (coords.length > 0) {
       const token = await fetchMapboxToken()
-      const polyline = await fetchRoutePolyline(coords, token)
+      const legPolylines = await fetchLegPolylines(coords, legMethodArr, token)
       const mapH = 200
-      const mapUrl = buildStaticMapUrl(coords, token, 1000, 420, polyline)
+      const mapUrl = buildStaticMapUrl(coords, token, 1000, 420, legPolylines)
       let drewMap = false
       if (mapUrl) {
         const img = await fetchImageAsDataUrl(mapUrl)

@@ -31,6 +31,30 @@ at the map boundary only.
 Marker placement uses real per-stop geocodes (`step.lat/lng` from the scheduler's
 `departureGeo`/`endGeo`), falling back to a city approximation.
 
+**Route line vs markers (3-surface parity):** the planner shows the SAME route on
+three surfaces — canvas Mapbox map, PDF static map, and the "open in maps" deep link.
+Markers/pins render for EVERY stop (city-jitter fallback when a stop lacks a geocode),
+but the ROUTE line must only connect stops with a REAL geocode. Both the PDF
+(`itinerary-pdf.ts`, `hasCoords` filter) and the canvas (`sightseeing-map.tsx`,
+`routePoints` = real-coord stops only) drop non-geocoded stops from the line so the
+two are byte-for-byte identical. **Why:** routing through a fake jittered point draws
+a phantom detour on the canvas that the PDF/deep-link never show. In the common
+case (all stops geocoded) `routePoints` == every marker so the line is unchanged.
+
+**Per-leg travel mode is keyed by FROM-stop full-step index everywhere.** A
+`legMethods` map (`drive|walk|cycle`, type `TravelMethod` exported from
+`sidebar-itinerary.tsx`) is keyed by the from-stop's full-step index — the SAME key
+in the sidebar selector, canvas (`legMethods[fromStepIdx]`→Mapbox profile), and PDF
+(`coordSteps[k].idx`→per-leg polyline + dominant Google `travelmode`). Defaults come
+from the shared `recommendedTravelMethod(leg)` (planner SEEDS state from it, keyed by
+trip-set fingerprint, so user overrides survive benign rerenders but reset when the
+trip set changes). **Gotchas:** (1) Google deep link is single-mode → use the
+*dominant* selected mode, so it can't be pixel-identical to Mapbox; canvas↔PDF ARE.
+(2) `has`/`recommendedTravelMethod` must treat `cycleMin` as first-class (cycle-only
+legs exist in theory) or the selector wrongly shows "unavailable". (3) cap/default
+changes for legMethods must touch sidebar selector + planner seed effect + both route
+builders.
+
 **Pin shape & overlap (teardrop, not circles):** markers are a CSS teardrop —
 outer box `28x40`, a `28x28` circle at top with a `border-top:12px` `::after`
 triangle hanging below so the tail's bottom vertex lands at **y=40 = the box

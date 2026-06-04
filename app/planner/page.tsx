@@ -8,7 +8,7 @@ import { Navbar } from "@/components/site-navbar"
 import { TripCart } from "@/components/planner/trip-cart"
 import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
 import { SightseeingAlbum } from "@/components/chatgpt-widgets/sightseeing-album"
-import { SidebarItinerary, ItineraryPanel, type Itinerary, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
+import { SidebarItinerary, ItineraryPanel, recommendedTravelMethod, type Itinerary, type TravelMethod, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { usePlannerList } from "@/lib/planner-list-context"
 import { weatherData, type Trip } from "@/lib/data"
@@ -1209,6 +1209,38 @@ export default function PlannerPage() {
   const [mapExpanded, setMapExpanded] = useState(false)
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "up" | "down">>({})
   const [centerItinerary, setCenterItinerary] = useState<Itinerary | null>(null)
+  // Per-leg travel mode (Car / Cycling / Walking) keyed by the from-step's FULL
+  // index in centerItinerary.steps — the same index space the sidebar selector
+  // and the canvas map use. Seeded from each leg's recommended mode whenever the
+  // plan's trip set changes, then overridable per leg. Drives the canvas route,
+  // the PDF map AND the maps deep link so all three stay identical.
+  const [legMethods, setLegMethods] = useState<Record<number, TravelMethod>>({})
+  const handleLegMethodChange = useCallback((legIndex: number, method: TravelMethod) => {
+    setLegMethods((prev) => ({ ...prev, [legIndex]: method }))
+  }, [])
+  // Read centerItinerary through a ref inside the seeding effect so the effect
+  // re-seeds ONLY when the trip set changes (fingerprint), not on every benign
+  // object-identity change — which would wipe the visitor's per-leg overrides.
+  const centerItineraryRef = useRef<Itinerary | null>(centerItinerary)
+  useEffect(() => { centerItineraryRef.current = centerItinerary }, [centerItinerary])
+  const itineraryLegFingerprint = useMemo(
+    () => (centerItinerary?.steps ?? []).map((s) => s.tripId).join("|"),
+    [centerItinerary],
+  )
+  useEffect(() => {
+    const it = centerItineraryRef.current
+    if (!it || it.steps.length === 0) {
+      setLegMethods({})
+      return
+    }
+    const seed: Record<number, TravelMethod> = {}
+    it.steps.forEach((s, i) => {
+      if (!it.steps[i + 1]) return
+      seed[i] = recommendedTravelMethod(s.travelLeg)
+    })
+    setLegMethods(seed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itineraryLegFingerprint])
   // PDF export of the active/latest day itinerary (canvas + chat-card buttons).
   // Always prefers the full plan loaded on the Trip Canvas (it carries map
   // coords, tips, prices); falls back to a chat card's lighter plan only when
@@ -1220,13 +1252,16 @@ export default function PlannerPage() {
     if (!target) return
     setDownloadingItineraryPdf(true)
     try {
-      await downloadItineraryPdf(target)
+      // Pass the per-leg modes so the PDF map + deep link match the canvas —
+      // but only when exporting the on-canvas plan the modes belong to (a
+      // lighter chat-card fallback has its own, unrelated leg indices).
+      await downloadItineraryPdf(target, target === centerItinerary ? { legMethods } : undefined)
     } catch {
       /* swallow — a failed export must never break the planner */
     } finally {
       setDownloadingItineraryPdf(false)
     }
-  }, [downloadingItineraryPdf, centerItinerary])
+  }, [downloadingItineraryPdf, centerItinerary, legMethods])
   // Visibility of the full-screen modal is now decoupled from the
   // itinerary DATA. Closing the modal previously cleared centerItinerary,
   // which (a) wiped localStorage and (b) flipped the sidebar back to
@@ -4119,6 +4154,7 @@ export default function PlannerPage() {
                     activeLegIndex={activeLegIndex}
                     onStopClick={handleMapStopClick}
                     onLegClick={handleMapLegClick}
+                    legMethods={legMethods}
                   />
                 </div>
               </div>
@@ -4131,6 +4167,8 @@ export default function PlannerPage() {
                 onFocusLeg={handleFocusLeg}
                 activeStopIndex={activeStopIndex}
                 activeLegIndex={activeLegIndex}
+                legMethods={legMethods}
+                onLegMethodChange={handleLegMethodChange}
               />
             </div>
           ) : !showResults ? (

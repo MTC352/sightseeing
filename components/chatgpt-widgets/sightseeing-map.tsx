@@ -4,6 +4,13 @@ import { useRef, useEffect, useState, useCallback } from "react"
 import Image from "next/image"
 import { Star, Clock, X, Maximize2 } from "lucide-react"
 import type { Trip } from "@/lib/data"
+import type { TravelMethod } from "@/components/sidebar-itinerary"
+
+/** Map a chosen travel mode to the matching Mapbox Directions profile so the
+ *  canvas route follows the SAME roads the PDF + deep link will use. */
+function methodToMapboxProfile(m: TravelMethod | undefined): "driving" | "walking" | "cycling" {
+  return m === "walk" ? "walking" : m === "cycle" ? "cycling" : "driving"
+}
 
 const CITY_COORDS: Record<string, [number, number]> = {
   "Luxembourg":        [6.1319, 49.6117],
@@ -99,9 +106,14 @@ interface SightseeingMapProps {
   /** Fired when the user clicks a route segment — lets the parent scroll the
    *  matching "Travel to next stop" block into view. */
   onLegClick?: (index: number) => void
+  /** Selected travel mode per leg, keyed by the FROM-step (full) index — the
+   *  same index space as itineraryStepIndices. Each leg's route is fetched with
+   *  the matching Mapbox profile so the canvas matches the PDF + deep link.
+   *  Undefined entries default to driving. */
+  legMethods?: Record<number, TravelMethod>
 }
 
-export function SightseeingMap({ trips, onSelect, visible = true, suppressFullscreen = false, itineraryTrips, itineraryCoords, itineraryStepIndices, activeStopIndex = null, activeLegIndex = null, onStopClick, onLegClick }: SightseeingMapProps) {
+export function SightseeingMap({ trips, onSelect, visible = true, suppressFullscreen = false, itineraryTrips, itineraryCoords, itineraryStepIndices, activeStopIndex = null, activeLegIndex = null, onStopClick, onLegClick, legMethods }: SightseeingMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapboxRef = useRef<any>(null)
@@ -289,6 +301,19 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     const stepIndices = itineraryTrips.map((_, i) => itineraryStepIndices?.[i] ?? i)
     itineraryStepIndicesRef.current = stepIndices
 
+    // ROUTE points are only the stops with a REAL geocode — never the city
+    // jitter fallback. This keeps the green line honest (no fake detours) AND
+    // makes the canvas route identical to the PDF map + maps deep link, which
+    // also drop non-geocoded stops. Each point carries its FROM-stop full-step
+    // index so leg identity / mode keying matches every surface. In the common
+    // case (all stops geocoded) this equals every marker, so the line is
+    // unchanged; it only diverges in the degraded non-geocoded case.
+    const routePoints: { coord: [number, number]; stepIdx: number }[] = []
+    itineraryTrips.forEach((_, i) => {
+      const real = itineraryCoords?.[i]
+      if (real) routePoints.push({ coord: real as [number, number], stepIdx: stepIndices[i] })
+    })
+
     // Numbered pins
     itineraryTrips.forEach((trip, i) => {
       const [lng, lat] = coords[i]
@@ -332,14 +357,19 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
     let cancelled = false
     const buildRoutes = async () => {
       const features: GeoJSON.Feature[] = []
-      for (let i = 0; i < coords.length - 1; i++) {
-        const a = coords[i]
-        const b = coords[i + 1]
+      for (let i = 0; i < routePoints.length - 1; i++) {
+        const a = routePoints[i].coord
+        const b = routePoints[i + 1].coord
+        const fromStepIdx = routePoints[i].stepIdx
         let geometry: GeoJSON.Geometry = { type: "LineString", coordinates: [a, b] }
         if (tokenRef.current) {
           try {
+            // Route THIS leg with the visitor's selected mode (keyed by the
+            // FROM-stop's full-step index) so the green line on the canvas
+            // matches the PDF map + maps deep link exactly.
+            const profile = methodToMapboxProfile(legMethods?.[fromStepIdx])
             const url =
-              `https://api.mapbox.com/directions/v5/mapbox/driving/${a[0]},${a[1]};${b[0]},${b[1]}` +
+              `https://api.mapbox.com/directions/v5/mapbox/${profile}/${a[0]},${a[1]};${b[0]},${b[1]}` +
               `?geometries=geojson&overview=full&access_token=${encodeURIComponent(tokenRef.current)}`
             const r = await fetch(url)
             if (r.ok) {
@@ -351,7 +381,7 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
         }
         // Tag the leg with the FROM-stop's full-step index so the panel (which
         // indexes travel boxes by from-step) and the map agree on leg identity.
-        features.push({ type: "Feature", properties: { legIndex: stepIndices[i] }, geometry })
+        features.push({ type: "Feature", properties: { legIndex: fromStepIdx }, geometry })
       }
       // Re-check AFTER the await chain so two rapid plan-rebuilds can't both
       // reach addSource and crash Mapbox with "Source already exists".
@@ -399,7 +429,7 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
         m.off("mouseleave", "itinerary-route-line", handleRouteLeave)
       }
     }
-  }, [itineraryTrips, itineraryCoords, itineraryStepIndices, mapReady, handleRouteClick, handleRouteEnter, handleRouteLeave])
+  }, [itineraryTrips, itineraryCoords, itineraryStepIndices, legMethods, mapReady, handleRouteClick, handleRouteEnter, handleRouteLeave])
 
   // Active stop → toggle the `is-active` pin class + recentre on it. The
   // incoming index is in FULL-STEP space, so we match it against each marker's

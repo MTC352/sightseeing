@@ -47,6 +47,9 @@ export interface SlotInput {
 export interface TravelLeg {
   driveMin: number | null
   walkMin: number | null
+  /** Cycling minutes from Mapbox `cycling` (or Google `bicycling`). Null when
+   *  the routing provider returned no cycling route. */
+  cycleMin: number | null
   transitMin: number | null
   distanceKm: number | null
   reason: "ok" | "no_token" | "no_geocode"

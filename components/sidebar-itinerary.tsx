@@ -5,7 +5,7 @@ import { usePlannerList } from "@/lib/planner-list-context"
 import Link from "next/link"
 import Image from "next/image"
 import {
-  Route, Sparkles, Clock, Bus, Car, Building2, ArrowRight,
+  Route, Sparkles, Clock, Bike, Car, Building2, ArrowRight, Check,
   Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
   CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin, Plus, Download,
 } from "lucide-react"
@@ -105,6 +105,37 @@ interface BreakAfter {
   durationMinutes: number
 }
 
+/** Per-leg travel mode the visitor can choose for each "Travel to next stop".
+ *  Drives the canvas Mapbox route, the PDF static map, and the open-in-maps
+ *  deep link so all three surfaces show the SAME route for the chosen mode. */
+export type TravelMethod = "drive" | "walk" | "cycle"
+
+/** The recommended default mode for a travel leg, shared by the sidebar
+ *  selector AND the planner (which seeds the per-leg state from it) so the
+ *  canvas map, PDF map and deep link all default to the SAME mode the sidebar
+ *  highlights. Walking wins on short hops (≤1.2 km) or whenever it's no slower
+ *  than driving; otherwise driving, falling back to whichever mode has data. */
+export function recommendedTravelMethod(
+  leg: { driveMin: number | null; walkMin: number | null; cycleMin?: number | null; distanceKm: number | null } | null | undefined,
+): TravelMethod {
+  const cycleMin = leg?.cycleMin ?? null
+  const has = !!leg && (leg.driveMin !== null || leg.walkMin !== null || cycleMin !== null)
+  if (!has || !leg) return "drive"
+  const walkMin = leg.walkMin ?? null
+  const driveMin = leg.driveMin ?? null
+  const distanceKm = leg.distanceKm ?? null
+  const recommendWalk =
+    walkMin !== null &&
+    ((distanceKm !== null && distanceKm <= 1.2) || (driveMin !== null && walkMin <= driveMin))
+  if (recommendWalk) return "walk"
+  if (driveMin !== null) return "drive"
+  if (walkMin !== null) return "walk"
+  // Cycle-only leg (no drive/walk route from the provider): recommend cycle
+  // rather than a mode that has no data.
+  if (cycleMin !== null) return "cycle"
+  return "drive"
+}
+
 interface ItineraryStep {
   time: string
   tripTitle: string
@@ -137,6 +168,9 @@ interface ItineraryStep {
   travelLeg?: {
     driveMin: number | null
     walkMin: number | null
+    /** Cycling minutes (Mapbox `cycling` / Google `bicycling`). Null when the
+     *  routing provider returned no cycling route. */
+    cycleMin?: number | null
     /** Always null today — Mapbox has no transit profile. The field exists
      *  so the UI can render "—" and we can wire Google Distance Matrix in
      *  later without another schema change. */
@@ -1424,6 +1458,8 @@ export function ItineraryPanel({
   onFocusLeg,
   activeStopIndex = null,
   activeLegIndex = null,
+  legMethods,
+  onLegMethodChange,
 }: {
   itinerary: Itinerary
   onClose: () => void
@@ -1438,6 +1474,13 @@ export function ItineraryPanel({
    *  card/leg into view and highlights it. */
   activeStopIndex?: number | null
   activeLegIndex?: number | null
+  /** Selected travel mode per leg, keyed by the FROM-step index (same index
+   *  space as itinerary.steps). Undefined entries fall back to the leg's
+   *  recommended mode. Drives the canvas map, PDF map, and maps deep link. */
+  legMethods?: Record<number, TravelMethod>
+  /** Fired when the visitor picks a different mode for a "Travel to next stop"
+   *  leg — parent re-routes the map and reuses it for the PDF + deep link. */
+  onLegMethodChange?: (legIndex: number, method: TravelMethod) => void
 }) {
   const showCarWidget = itinerary.widgets?.showCarWidget !== false
   const showHotelWidget = itinerary.widgets?.showHotelWidget !== false
@@ -1446,13 +1489,13 @@ export function ItineraryPanel({
     if (downloadingPdf) return
     setDownloadingPdf(true)
     try {
-      await downloadItineraryPdf(itinerary)
+      await downloadItineraryPdf(itinerary, { legMethods })
     } catch {
       /* swallow — a failed export should never break the panel */
     } finally {
       setDownloadingPdf(false)
     }
-  }, [downloadingPdf, itinerary])
+  }, [downloadingPdf, itinerary, legMethods])
   // Per-step DOM refs so a map click can scroll the matching card into view.
   const stepRefs = useRef<(HTMLDivElement | null)[]>([])
   useEffect(() => {
@@ -1679,7 +1722,7 @@ export function ItineraryPanel({
                   any null field renders as "—" instead of a guessed number. */}
               {nextStep && (() => {
                 const leg = step.travelLeg
-                const has = leg && (leg.driveMin !== null || leg.walkMin !== null)
+                const has = leg && (leg.driveMin !== null || leg.walkMin !== null || (leg.cycleMin ?? null) !== null)
                 const fmt = (v: number | null, suffix: string) =>
                   v === null ? "—" : `${v} ${suffix}`
                 // Prefer the server-supplied human address; fall back to
@@ -1705,14 +1748,14 @@ export function ItineraryPanel({
                 })()
                 const driveMin = leg?.driveMin ?? null
                 const walkMin = leg?.walkMin ?? null
-                const distanceKm = leg?.distanceKm ?? null
-                // Recommend walking for short hops (≤1.2 km) or whenever it's no
-                // slower than driving; otherwise recommend driving.
-                const recommendWalk = Boolean(has) && walkMin !== null && (
-                  (distanceKm !== null && distanceKm <= 1.2) ||
-                  (driveMin !== null && walkMin <= driveMin)
-                )
-                const recommendDrive = Boolean(has) && !recommendWalk && driveMin !== null
+                const cycleMin = leg?.cycleMin ?? null
+                // Default the leg to its recommended mode (shared helper, so the
+                // map + PDF + deep link all default the SAME way); the visitor
+                // can override it and the choice flows to all three surfaces.
+                const recommendedMethod = recommendedTravelMethod(leg)
+                const recommendWalk = Boolean(has) && recommendedMethod === "walk"
+                const recommendDrive = Boolean(has) && recommendedMethod === "drive"
+                const selectedMethod: TravelMethod = legMethods?.[i] ?? recommendedMethod
                 // Live = routed by the map provider this build; otherwise the
                 // numbers came from the static fallback matrix.
                 const isLive = leg?.reason === "ok"
@@ -1763,61 +1806,47 @@ export function ItineraryPanel({
                         )}
                       </div>
                     </div>
-                    {/* Each transport mode shows its own travel time AND the
-                        arrival ETA for that mode, so the user can compare when
-                        they'd actually get there by car / transit / walking.
-                        Car/taxi includes a 2–5 min pickup buffer in its ETA. */}
-                    <div className="flex flex-col gap-1.5">
-                      {(() => {
-                        const carEta = etaFor(leg?.driveMin ?? null, TAXI_BUFFER_LO, TAXI_BUFFER_HI)
+                    {/* Per-leg travel-mode selector. The visitor picks Car /
+                        Cycling / Walking and the choice re-routes the canvas
+                        map, the PDF static map AND the open-in-maps deep link so
+                        all three surfaces show the same route. Defaults to the
+                        recommended mode. Each row also shows the arrival ETA;
+                        car includes a 2–5 min pickup buffer. */}
+                    <div className="flex flex-col gap-1">
+                      {([
+                        { key: "drive" as TravelMethod, Icon: Car, label: "by car", min: driveMin, eta: etaFor(driveMin, TAXI_BUFFER_LO, TAXI_BUFFER_HI), recommended: recommendDrive },
+                        { key: "cycle" as TravelMethod, Icon: Bike, label: "cycling", min: cycleMin, eta: etaFor(cycleMin), recommended: false },
+                        { key: "walk" as TravelMethod, Icon: Route, label: "walking", min: walkMin, eta: etaFor(walkMin), recommended: recommendWalk },
+                      ]).map(({ key, Icon, label, min, eta, recommended }) => {
+                        const selectable = Boolean(has) && min !== null && !!onLegMethodChange
+                        const isSelected = Boolean(has) && key === selectedMethod
                         return (
-                          <span className="flex items-center gap-1.5">
-                            <Car className="h-3.5 w-3.5 shrink-0 text-primary/70" />
-                            <span className="font-semibold text-foreground">{fmt(leg?.driveMin ?? null, "min")}</span>
-                            <span className="text-[10px] text-muted-foreground">by car</span>
-                            {recommendDrive && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
-                            {carEta && has && (
+                          <button
+                            key={key}
+                            type="button"
+                            disabled={!selectable}
+                            onClick={selectable ? () => onLegMethodChange?.(i, key) : undefined}
+                            aria-pressed={isSelected}
+                            title={selectable ? `Use ${label.replace(/^by /, "")} for this leg` : undefined}
+                            className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors ${
+                              isSelected
+                                ? "border-primary/60 bg-primary/10"
+                                : "border-transparent hover:bg-secondary/70"
+                            } ${selectable ? "cursor-pointer" : "cursor-default"}`}
+                          >
+                            <Icon className={`h-3.5 w-3.5 shrink-0 ${isSelected ? "text-primary" : "text-primary/70"}`} />
+                            <span className="font-semibold text-foreground">{fmt(min, "min")}</span>
+                            <span className="text-[10px] text-muted-foreground">{label}</span>
+                            {recommended && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
+                            {isSelected && <Check className="h-3 w-3 shrink-0 text-primary" />}
+                            {eta && has && (
                               <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-foreground/70">
-                                ETA · <span className="font-semibold text-foreground">{carEta}</span>
+                                ETA · <span className="font-semibold text-foreground">{eta}</span>
                               </span>
                             )}
-                          </span>
+                          </button>
                         )
-                      })()}
-                      {(() => {
-                        const transitEta = etaFor(leg?.transitMin ?? null)
-                        return (
-                          <span className="flex items-center gap-1.5">
-                            <Bus className="h-3.5 w-3.5 shrink-0 text-foreground/40" />
-                            <span className="font-semibold text-foreground/70">{fmt(leg?.transitMin ?? null, "min")}</span>
-                            <span className="text-[10px] text-muted-foreground">by transit</span>
-                            {transitEta && has && (
-                              <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-foreground/70">
-                                ETA · <span className="font-semibold text-foreground">{transitEta}</span>
-                              </span>
-                            )}
-                          </span>
-                        )
-                      })()}
-                      {/* Walking is ALWAYS shown so the user can choose
-                          their mode of transport — even if it's a long
-                          walk we let them see the number and decide. */}
-                      {(() => {
-                        const walkEta = etaFor(leg?.walkMin ?? null)
-                        return (
-                          <span className="flex items-center gap-1.5">
-                            <Route className="h-3.5 w-3.5 shrink-0 text-primary/70" />
-                            <span className="font-semibold text-foreground">{fmt(leg?.walkMin ?? null, "min")}</span>
-                            <span className="text-[10px] text-muted-foreground">walking</span>
-                            {recommendWalk && <span className="rounded bg-primary/10 px-1 text-[9px] font-semibold text-primary">Recommended</span>}
-                            {walkEta && has && (
-                              <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-foreground/70">
-                                ETA · <span className="font-semibold text-foreground">{walkEta}</span>
-                              </span>
-                            )}
-                          </span>
-                        )
-                      })()}
+                      })}
                     </div>
                     {unavailableCopy && (
                       <p className="mt-1.5 text-[10.5px] leading-snug text-muted-foreground/80">
