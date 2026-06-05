@@ -19,6 +19,12 @@ type NavItem = {
   badge?: string
   perm?: PermissionKey
   superadminOnly?: boolean
+  /**
+   * Hidden from the sidebar by default. Only surfaces when Developer Mode is on
+   * (activated for superadmins via the `?dev=1` URL flag). Intentionally has no
+   * UI affordance — discoverable only by manual URL.
+   */
+  devOnly?: boolean
   children?: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }[]
 }
 
@@ -44,7 +50,7 @@ const NAV: NavItem[] = [
   { href: "/admin/integrations", label: "Admin Settings", icon: Plug, perm: "integrations" },
   { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
   { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
-  { href: "/admin/db-migrations", label: "Data Migrations", icon: Database, superadminOnly: true },
+  { href: "/admin/db-migrations", label: "Data Migrations", icon: Database, superadminOnly: true, devOnly: true },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw, perm: "palisis" },
   { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
   { href: "/admin/tickets", label: "Support Tickets", icon: Ticket, perm: "tickets" },
@@ -60,6 +66,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [mounted, setMounted] = useState(false)
   const [role, setRole] = useState<string>("")
   const [permissions, setPermissions] = useState<string[]>([])
+  const [devMode, setDevMode] = useState(false)
 
   const isLoginPage = pathname === "/admin/login" || pathname.startsWith("/admin/login/")
 
@@ -84,6 +91,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => { setMobileOpen(false) }, [pathname])
 
+  // Developer Mode: a hidden toggle for superadmins, activated only by manually
+  // appending `?dev=1` to the URL (and `?dev=0` to turn it off). Once on it is
+  // persisted in localStorage so it survives client-side navigation, since
+  // <Link> clicks drop the query string. No UI surfaces how to enable it.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      if (params.has("dev")) {
+        const on = params.get("dev") === "1"
+        setDevMode(on)
+        if (on) localStorage.setItem("admin_dev_mode", "1")
+        else localStorage.removeItem("admin_dev_mode")
+      } else {
+        setDevMode(localStorage.getItem("admin_dev_mode") === "1")
+      }
+    } catch {
+      /* ignore — storage/URL access can throw in restricted contexts */
+    }
+  }, [pathname])
+
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)")
     const update = () => setIsDesktop(mq.matches)
@@ -98,6 +125,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const isSuperadmin = role === FULL_ACCESS_ROLE
   const visibleNav = NAV.filter((item) => {
+    // Hidden dev-only entries (e.g. Data Migrations) require Developer Mode on.
+    if (item.devOnly && !devMode) return false
     if (isSuperadmin) return true
     if (item.superadminOnly) return false
     if (!item.perm) return true // e.g. Dashboard — always visible
