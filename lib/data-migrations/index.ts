@@ -14,7 +14,7 @@
  * rows. The admin runner (/admin/db-migrations) records applied migrations in
  * the `data_migrations` table so the UI can show dev vs live status.
  */
-import { query, queryOne } from "@/lib/db"
+import { query, queryOne, withTransaction } from "@/lib/db"
 import adminDocs from "./data/001-admin-docs.json"
 import aiSystemConfigs from "./data/003-ai-system-configs.json"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
@@ -22,16 +22,35 @@ import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 export type MigrationResult = {
   inserted: number
   skipped: number
+  /** Rows overwritten in-place (only when applied with overwrite). */
+  updated?: number
   detail: string
+}
+
+/** Options passed to an overwrite-capable migration's apply(). */
+export type ApplyOptions = {
+  /** When true, overwrite existing rows instead of skipping them. */
+  overwrite?: boolean
+  /** Restrict the run to these natural keys (e.g. system_key). */
+  onlyKeys?: string[]
 }
 
 export type DataMigration = {
   id: string
   name: string
   description: string
+  /**
+   * Whether this migration supports an opt-in overwrite of existing rows.
+   * Defaults to false (pure skip-if-exists). Only set true for migrations
+   * whose apply() honours ApplyOptions.overwrite.
+   */
+  overwritable?: boolean
   /** Idempotent data-only application. No DDL. */
-  apply: () => Promise<MigrationResult>
+  apply: (opts?: ApplyOptions) => Promise<MigrationResult>
 }
+
+/** The AI System prompts & settings migration — the overwrite-capable one. */
+export const AI_SYSTEM_CONFIG_MIGRATION_ID = "003-ai-system-configs"
 
 type AdminDoc = {
   question: string
@@ -131,24 +150,19 @@ async function applyTripItineraryConfig(): Promise<MigrationResult> {
  * Idempotent: an existing row (matched by system_key) is left untouched so admin
  * prompt/model/settings edits are preserved.
  */
-async function applyAiSystemConfigs(): Promise<MigrationResult> {
-  const configs = aiSystemConfigs as AiSystemConfig[]
-  let inserted = 0
-  let skipped = 0
-  for (const c of configs) {
-    const existing = await queryOne<{ system_key: string }>(
-      `SELECT system_key FROM ai_system_configs WHERE system_key = $1 LIMIT 1`,
-      [c.system_key],
-    )
-    if (existing) {
-      skipped++
-      continue
-    }
-    await query(
-      `INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
-       ON CONFLICT (system_key) DO NOTHING`,
-      [
+async function applyAiSystemConfigs(opts?: ApplyOptions): Promise<MigrationResult> {
+  const overwrite = opts?.overwrite === true
+  const onlyKeys = opts?.onlyKeys
+  const configs = (aiSystemConfigs as AiSystemConfig[]).filter(
+    (c) => !onlyKeys || onlyKeys.includes(c.system_key),
+  )
+  // Run as a single transaction so a multi-row overwrite is all-or-nothing.
+  return withTransaction(async (q) => {
+    let inserted = 0
+    let skipped = 0
+    let updated = 0
+    for (const c of configs) {
+      const values = [
         c.system_key,
         c.label,
         c.description ?? null,
@@ -157,15 +171,153 @@ async function applyAiSystemConfigs(): Promise<MigrationResult> {
         c.temperature ?? null,
         c.max_tokens ?? null,
         JSON.stringify(c.extra_config ?? {}),
-      ],
-    )
-    inserted++
+      ]
+      const existing = await q<{ system_key: string }>(
+        `SELECT system_key FROM ai_system_configs WHERE system_key = $1 LIMIT 1`,
+        [c.system_key],
+      )
+      if (existing.length > 0) {
+        if (!overwrite) {
+          skipped++
+          continue
+        }
+        // Opt-in overwrite: replace the full row with the migration's saved values.
+        const upd = await q<{ system_key: string }>(
+          `UPDATE ai_system_configs
+             SET label = $2, description = $3, system_prompt = $4, model = $5,
+                 temperature = $6, max_tokens = $7, extra_config = $8::jsonb
+           WHERE system_key = $1
+           RETURNING system_key`,
+          values,
+        )
+        if (upd.length > 0) updated++
+        else skipped++
+        continue
+      }
+      const ins = await q<{ system_key: string }>(
+        `INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+         ON CONFLICT (system_key) DO NOTHING
+         RETURNING system_key`,
+        values,
+      )
+      if (ins.length > 0) inserted++
+      else skipped++
+    }
+    const parts = [`${inserted} inserted`]
+    if (overwrite) parts.push(`${updated} overwritten`)
+    parts.push(`${skipped} left untouched`)
+    return { inserted, skipped, updated, detail: parts.join(", ") }
+  })
+}
+
+export type AiConfigFieldKey =
+  | "label"
+  | "description"
+  | "system_prompt"
+  | "model"
+  | "temperature"
+  | "max_tokens"
+  | "extra_config"
+
+export type AiConfigFieldDiff = {
+  field: AiConfigFieldKey
+  /** Migration's saved value, normalised to a display string. */
+  migration: string
+  /** Current DB value, normalised to a display string (null when missing). */
+  current: string | null
+  differs: boolean
+}
+
+export type AiConfigComparison = {
+  system_key: string
+  label: string
+  /** "missing" = no DB row; "identical" = all fields match; "different" = at least one field differs. */
+  status: "missing" | "identical" | "different"
+  fields: AiConfigFieldDiff[]
+}
+
+type AiConfigDbRow = {
+  system_key: string
+  label: string | null
+  description: string | null
+  system_prompt: string | null
+  model: string | null
+  temperature: number | string | null
+  max_tokens: number | null
+  extra_config: unknown
+}
+
+const AI_CONFIG_FIELDS: AiConfigFieldKey[] = [
+  "label",
+  "description",
+  "system_prompt",
+  "model",
+  "temperature",
+  "max_tokens",
+  "extra_config",
+]
+
+/** Normalise any field value to a stable display/comparison string. */
+function normaliseFieldValue(field: AiConfigFieldKey, value: unknown): string {
+  if (value === null || value === undefined) return ""
+  if (field === "extra_config") {
+    try {
+      const obj = typeof value === "string" ? JSON.parse(value) : value
+      return JSON.stringify(obj ?? {}, null, 2)
+    } catch {
+      return String(value)
+    }
   }
-  return {
-    inserted,
-    skipped,
-    detail: `${inserted} inserted, ${skipped} already present`,
+  if (field === "temperature") {
+    const n = typeof value === "string" ? Number(value) : value
+    return typeof n === "number" && Number.isFinite(n) ? String(n) : String(value)
   }
+  return String(value)
+}
+
+/**
+ * Compare every AI System config in migration 003's snapshot against the current
+ * DB rows. Powers the admin "compare prompts" view so a superadmin can see exactly
+ * what would change before overwriting (or copy values across manually).
+ */
+export async function getAiSystemConfigComparison(): Promise<AiConfigComparison[]> {
+  const configs = aiSystemConfigs as AiSystemConfig[]
+  const rows = await query<AiConfigDbRow>(
+    `SELECT system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config
+       FROM ai_system_configs`,
+  )
+  const byKey = new Map(rows.map((r) => [r.system_key, r]))
+  return configs.map((c) => {
+    const dbRow = byKey.get(c.system_key)
+    const fields: AiConfigFieldDiff[] = AI_CONFIG_FIELDS.map((field) => {
+      const migration = normaliseFieldValue(
+        field,
+        (c as unknown as Record<string, unknown>)[field],
+      )
+      const current = dbRow
+        ? normaliseFieldValue(field, (dbRow as unknown as Record<string, unknown>)[field])
+        : null
+      return { field, migration, current, differs: current !== null && current !== migration }
+    })
+    let status: AiConfigComparison["status"]
+    if (!dbRow) status = "missing"
+    else status = fields.some((f) => f.differs) ? "different" : "identical"
+    return { system_key: c.system_key, label: c.label, status, fields }
+  })
+}
+
+/**
+ * Overwrite specific AI System config rows from migration 003's snapshot (per-row
+ * "apply to live"). Inserts the row when missing, replaces it in full when present.
+ */
+export async function applyAiSystemConfigKeys(keys: string[]): Promise<MigrationResult> {
+  const valid = (aiSystemConfigs as AiSystemConfig[]).map((c) => c.system_key)
+  const onlyKeys = keys.filter((k) => valid.includes(k))
+  if (onlyKeys.length === 0) {
+    return { inserted: 0, skipped: 0, updated: 0, detail: "No matching AI System keys" }
+  }
+  return applyAiSystemConfigs({ overwrite: true, onlyKeys })
 }
 
 /**
@@ -191,7 +343,8 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     id: "003-ai-system-configs",
     name: "AI Systems prompts & settings",
     description:
-      "Seeds the AI System configs shown under /admin/ai-systems (blog, chat + planner chat form, help, itinerary + tips, outdoor_today, planner + behavior settings). Excludes trip_itinerary (migration 002). Idempotent: existing rows are left untouched so admin prompt/model/settings edits are preserved.",
+      "Seeds the AI System configs shown under /admin/ai-systems (blog, chat + planner chat form, help, itinerary + tips, outdoor_today, planner + behavior settings). Excludes trip_itinerary (migration 002). Idempotent by default: existing rows are left untouched. Supports opt-in overwrite (compare + overwrite per prompt, or overwrite all) to push updated dev prompts/settings.",
+    overwritable: true,
     apply: applyAiSystemConfigs,
   },
 ]
@@ -202,6 +355,8 @@ export type MigrationStatus = {
   description: string
   applied: boolean
   appliedAt: string | null
+  /** Whether this migration supports the opt-in overwrite of existing rows. */
+  overwritable: boolean
 }
 
 export async function getMigrationStatus(): Promise<{
@@ -227,6 +382,7 @@ export async function getMigrationStatus(): Promise<{
       description: m.description,
       applied: appliedMap.has(m.id),
       appliedAt: appliedMap.get(m.id) ?? null,
+      overwritable: m.overwritable === true,
     })),
   }
 }
@@ -238,12 +394,23 @@ export type RunResult =
       recorded: boolean
       inserted: number
       skipped: number
+      updated?: number
+      overwrote: boolean
       detail: string
     }
   | { id: string; ok: false; error: string }
 
-export async function runMigrations(ids: string[]): Promise<RunResult[]> {
+/**
+ * Run the given migrations in order (deduped). Any id also present in
+ * `overwriteIds` is applied with overwrite=true — but only when that migration
+ * is `overwritable`; for non-overwritable migrations the flag is ignored.
+ */
+export async function runMigrations(
+  ids: string[],
+  overwriteIds: string[] = [],
+): Promise<RunResult[]> {
   const results: RunResult[] = []
+  const overwriteSet = new Set(overwriteIds)
   // Dedupe while preserving order so a doubled id can't run twice in one call.
   for (const id of Array.from(new Set(ids))) {
     const m = DATA_MIGRATIONS.find((x) => x.id === id)
@@ -251,8 +418,9 @@ export async function runMigrations(ids: string[]): Promise<RunResult[]> {
       results.push({ id, ok: false, error: "Unknown migration id" })
       continue
     }
+    const overwrite = overwriteSet.has(id) && m.overwritable === true
     try {
-      const res = await m.apply()
+      const res = await m.apply({ overwrite })
       let recorded = true
       try {
         await query(
@@ -266,7 +434,7 @@ export async function runMigrations(ids: string[]): Promise<RunResult[]> {
         if (isUndefinedTable(e)) recorded = false
         else throw e
       }
-      results.push({ id, ok: true, recorded, ...res })
+      results.push({ id, ok: true, recorded, overwrote: overwrite, ...res })
     } catch (e) {
       results.push({ id, ok: false, error: (e as Error).message })
     }

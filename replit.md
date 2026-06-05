@@ -187,7 +187,33 @@ option, use the **Data Migrations** system.
 - **Migration #3 = `003-ai-system-configs`** — seeds the remaining AI Systems
   prompts/models/settings rows in `ai_system_configs` (blog, chat + planner chat
   form, help, itinerary + tips, outdoor_today, planner + behavior settings).
-  Excludes `trip_itinerary` (owned by #2). Idempotent: existing rows untouched.
+  Excludes `trip_itinerary` (owned by #2). Idempotent by default: existing rows
+  untouched.
+
+#### #003 opt-in OVERWRITE + comparison (AI System prompts)
+Migration #003 is the only **`overwritable`** migration. It can replace existing
+`ai_system_configs` rows with the committed JSON snapshot — but only as an explicit
+choice (default is still skip-if-exists). The overwrite replaces the **full row**
+(prompt, model, temperature, max_tokens, extra_config), so it also resets admin
+edits made directly in that DB (incl. planner behavior settings + planner chat
+form in `extra_config`). All paths are superadmin-only.
+- **Snapshot, not live dev:** overwrite pushes the values **committed in
+  `lib/data-migrations/data/003-ai-system-configs.json`**, NOT whatever is in dev
+  right now. To sync updated dev prompts, RE-EXPORT that JSON from dev, ship the
+  code, then run overwrite on the live site.
+- **`/admin/db-migrations`** shows, for #003: an "Overwrite all existing rows on
+  run" checkbox (feeds `overwriteIds` to `POST /api/admin/db-migrations`) and a
+  "Compare prompts" panel.
+- **Comparison + per-prompt apply:** `components/admin/ai-config-diff.tsx` +
+  `GET /api/admin/db-migrations/ai-configs` show each system's migration value vs
+  current DB value (line-diff via `lib/diff.ts`) with status Not-in-DB / Up-to-date
+  / Differs. Per-row "Overwrite this row from migration" (`POST` `{keys:[]}`) and
+  "Copy migration value" let you overwrite one prompt or edit manually.
+- **Engine:** `lib/data-migrations/index.ts` — `DataMigration.overwritable`,
+  `apply(opts:{overwrite?,onlyKeys?})`, `runMigrations(ids, overwriteIds)`,
+  `getAiSystemConfigComparison()`, `applyAiSystemConfigKeys(keys)`. The #003 apply
+  runs inside a single `withTransaction` (lib/db.ts) so a bulk overwrite is
+  all-or-nothing; counts are accurate via `RETURNING`.
 
 ### Live-DB workflow when prod is behind
 1. Re-**Publish** to apply schema (creates missing tables, e.g. `activity_log`,

@@ -9,7 +9,10 @@ import {
   Loader2,
   AlertTriangle,
   RefreshCw,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
+import AiConfigDiff from "@/components/admin/ai-config-diff"
 
 type MigrationStatus = {
   id: string
@@ -17,6 +20,7 @@ type MigrationStatus = {
   description: string
   applied: boolean
   appliedAt: string | null
+  overwritable: boolean
 }
 
 type StatusResponse = {
@@ -25,7 +29,16 @@ type StatusResponse = {
 }
 
 type RunResult =
-  | { id: string; ok: true; recorded: boolean; inserted: number; skipped: number; detail: string }
+  | {
+      id: string
+      ok: true
+      recorded: boolean
+      inserted: number
+      skipped: number
+      updated?: number
+      overwrote: boolean
+      detail: string
+    }
   | { id: string; ok: false; error: string }
 
 export default function DbMigrationsPage() {
@@ -33,6 +46,8 @@ export default function DbMigrationsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [overwriteAll, setOverwriteAll] = useState<Set<string>>(new Set())
+  const [showCompare, setShowCompare] = useState<Set<string>>(new Set())
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<RunResult[] | null>(null)
 
@@ -64,16 +79,30 @@ export default function DbMigrationsPage() {
     })
   }
 
+  function toggleSet(
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    id: string,
+  ) {
+    setter((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   async function runSelected() {
     if (selected.size === 0) return
     setRunning(true)
     setResults(null)
     setError(null)
+    // Only send overwrite ids that are actually selected for this run.
+    const overwriteIds = Array.from(overwriteAll).filter((id) => selected.has(id))
     try {
       const res = await fetch("/api/admin/db-migrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: Array.from(selected) }),
+        body: JSON.stringify({ ids: Array.from(selected), overwriteIds }),
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body?.error ?? `Run failed (${res.status})`)
@@ -139,40 +168,77 @@ export default function DbMigrationsPage() {
       ) : (
         <div className="space-y-3">
           {data?.migrations.map((m) => (
-            <label
+            <div
               key={m.id}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 hover:border-indigo-300"
+              className="rounded-lg border border-gray-200 bg-white p-4 hover:border-indigo-300"
             >
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600"
-                checked={selected.has(m.id)}
-                onChange={() => toggle(m.id)}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700">
-                    {m.id}
-                  </code>
-                  <span className="font-medium text-gray-900">{m.name}</span>
-                  {m.applied ? (
-                    <span className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
-                      <CheckCircle2 className="h-3 w-3" /> Applied
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
-                      <Circle className="h-3 w-3" /> Pending
-                    </span>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600"
+                  checked={selected.has(m.id)}
+                  onChange={() => toggle(m.id)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700">
+                      {m.id}
+                    </code>
+                    <span className="font-medium text-gray-900">{m.name}</span>
+                    {m.applied ? (
+                      <span className="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                        <CheckCircle2 className="h-3 w-3" /> Applied
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                        <Circle className="h-3 w-3" /> Pending
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm text-gray-500">{m.description}</p>
+                  {m.appliedAt && (
+                    <p className="mt-1 text-xs text-gray-400">
+                      Last applied: {new Date(m.appliedAt).toLocaleString()}
+                    </p>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-gray-500">{m.description}</p>
-                {m.appliedAt && (
-                  <p className="mt-1 text-xs text-gray-400">
-                    Last applied: {new Date(m.appliedAt).toLocaleString()}
-                  </p>
-                )}
-              </div>
-            </label>
+              </label>
+
+              {m.overwritable && (
+                <div className="ml-7 mt-3 space-y-3">
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-orange-300 text-orange-600"
+                      checked={overwriteAll.has(m.id)}
+                      disabled={!selected.has(m.id)}
+                      onChange={() => toggleSet(setOverwriteAll, m.id)}
+                    />
+                    <span className="text-xs text-orange-800">
+                      <strong>Overwrite all existing rows on run.</strong> Replaces every AI
+                      System&apos;s prompt, model and settings in this DB with the migration&apos;s
+                      saved values — including any edits made directly here. Leave off to only add
+                      missing rows. (Select this migration above to enable.)
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleSet(setShowCompare, m.id)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                  >
+                    {showCompare.has(m.id) ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                    {showCompare.has(m.id) ? "Hide comparison" : "Compare prompts before overwriting"}
+                  </button>
+
+                  {showCompare.has(m.id) && <AiConfigDiff />}
+                </div>
+              )}
+            </div>
           ))}
 
           {data?.migrations.length === 0 && (
@@ -193,7 +259,8 @@ export default function DbMigrationsPage() {
           Run selected{selected.size > 0 ? ` (${selected.size})` : ""}
         </button>
         <span className="text-xs text-gray-400">
-          Re-running an applied migration is safe — it won&apos;t duplicate data.
+          Re-running an applied migration is safe — it won&apos;t duplicate data. Existing rows
+          are only replaced when you tick &quot;Overwrite all existing rows&quot;.
         </span>
       </div>
 

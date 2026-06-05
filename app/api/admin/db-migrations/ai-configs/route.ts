@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
 import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
-import { getMigrationStatus, runMigrations } from "@/lib/data-migrations"
+import {
+  getAiSystemConfigComparison,
+  applyAiSystemConfigKeys,
+} from "@/lib/data-migrations"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -10,7 +13,7 @@ function statusOf(err: unknown): number | undefined {
   return err instanceof Error ? (err as { status?: number }).status : undefined
 }
 
-/** Data migrations write content to the live DB — superadmin only. */
+/** Comparing/overwriting AI System prompts writes to the live DB — superadmin only. */
 async function requireSuperadmin() {
   const session = await requireAdminSession()
   if (session.role !== FULL_ACCESS_ROLE) {
@@ -25,43 +28,39 @@ function errorResponse(err: unknown, tag: string) {
   const s = statusOf(err)
   if (s === 401) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (s === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  console.error(`[admin/db-migrations] ${tag} error:`, err)
+  console.error(`[admin/db-migrations/ai-configs] ${tag} error:`, err)
   return NextResponse.json({ error: "Internal server error" }, { status: 500 })
 }
 
+/** GET — per-system comparison of the migration snapshot vs the current DB rows. */
 export async function GET() {
   try {
     await requireSuperadmin()
-    return NextResponse.json(await getMigrationStatus())
+    return NextResponse.json({ comparison: await getAiSystemConfigComparison() })
   } catch (err) {
     return errorResponse(err, "GET")
   }
 }
 
+/** POST { keys: string[] } — overwrite the given AI System rows from the snapshot. */
 export async function POST(req: Request) {
   try {
     const session = await requireSuperadmin()
     const body = await req.json().catch(() => ({}))
-    const ids: string[] = Array.isArray(body?.ids)
-      ? body.ids.filter((x: unknown): x is string => typeof x === "string")
+    const keys: string[] = Array.isArray(body?.keys)
+      ? body.keys.filter((x: unknown): x is string => typeof x === "string")
       : []
-    if (ids.length === 0) {
-      return NextResponse.json({ error: "No migration ids provided" }, { status: 400 })
+    if (keys.length === 0) {
+      return NextResponse.json({ error: "No AI System keys provided" }, { status: 400 })
     }
-    const overwriteIds: string[] = Array.isArray(body?.overwriteIds)
-      ? body.overwriteIds.filter((x: unknown): x is string => typeof x === "string")
-      : []
-    const results = await runMigrations(ids, overwriteIds)
-    const overwriteSummary = overwriteIds.length
-      ? ` (overwrite: ${overwriteIds.join(", ")})`
-      : ""
+    const result = await applyAiSystemConfigKeys(keys)
     void logActivity({
       actor: session,
-      action: "db-migration.run",
+      action: "db-migration.ai-config-overwrite",
       entityType: "db-migration",
-      summary: `Ran data migration(s): ${ids.join(", ")}${overwriteSummary}`,
+      summary: `Overwrote AI System config(s) from migration snapshot: ${keys.join(", ")}`,
     })
-    return NextResponse.json({ results })
+    return NextResponse.json({ result })
   } catch (err) {
     return errorResponse(err, "POST")
   }
