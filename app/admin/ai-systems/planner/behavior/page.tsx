@@ -14,12 +14,12 @@ import {
   Bus,
   Car,
   Footprints,
-  Loader2,
   RotateCcw,
   Settings2,
   Sliders,
 } from "lucide-react"
 import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
+import { PageHeaderSkeleton, CardSkeleton } from "@/components/admin/ai-system-skeleton"
 
 interface PlannerBehaviorSettings {
   model: string
@@ -88,7 +88,7 @@ const TRAVEL_METHODS = [
 ]
 
 export default function PlannerBehaviorPage() {
-  const { provider: activeProvider, models: MODELS } = useActiveAiProvider()
+  const { provider: activeProvider, models: MODELS, ready } = useActiveAiProvider()
   const [settings, setSettings] = useState<PlannerBehaviorSettings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -127,10 +127,16 @@ export default function PlannerBehaviorPage() {
   const inputClass = "w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground transition-colors focus:border-primary focus:outline-none"
   const selectClass = "w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground transition-colors focus:border-primary focus:outline-none appearance-none cursor-pointer"
 
-  if (loading) {
+  if (loading || !ready) {
     return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="p-6 lg:p-10">
+        <PageHeaderSkeleton withBack />
+        <div className="grid max-w-4xl gap-6 md:grid-cols-2">
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={3} />
+        </div>
       </div>
     )
   }

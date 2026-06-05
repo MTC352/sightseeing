@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, AlertCircle, Sparkles, Wrench, Gauge, RotateCcw } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
+import { PageHeaderSkeleton, PromptCardSkeleton } from "@/components/admin/ai-system-skeleton"
 import {
   DEFAULT_SEO_OPTIMIZE_PROMPT,
   DEFAULT_SEO_FIX_PROMPT,
@@ -25,7 +26,7 @@ const DEFAULTS: SeoForm = {
 
 export default function SeoAiPage() {
   const router = useRouter()
-  const { provider: activeProvider } = useActiveAiProvider()
+  const { provider: activeProvider, ready } = useActiveAiProvider()
   const [form, setForm] = useState<SeoForm>(DEFAULTS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -136,6 +137,19 @@ export default function SeoAiPage() {
       rows: 18,
     },
   ]
+
+  if (loading || !ready) {
+    return (
+      <div className="p-6 lg:p-10">
+        <PageHeaderSkeleton />
+        <div className="max-w-3xl space-y-6">
+          <PromptCardSkeleton rows={18} />
+          <PromptCardSkeleton rows={8} />
+          <PromptCardSkeleton rows={18} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 lg:p-10">

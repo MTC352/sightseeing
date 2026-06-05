@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Save, Check, Bot, AlertCircle, Settings2, ChevronRight, Wand2 } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
+import { EditorBodySkeleton } from "@/components/admin/ai-system-skeleton"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 
 export const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
@@ -77,16 +78,18 @@ const DEFAULT_CONFIG = {
  */
 export function AiSystemEditor({ system }: { system: string }) {
   const meta = SYSTEM_LABELS[system] ?? { label: system, hint: "" }
-  const { provider: activeProvider, models: MODELS } = useActiveAiProvider()
+  const { provider: activeProvider, models: MODELS, ready } = useActiveAiProvider()
 
   const [form, setForm] = useState({ ...DEFAULT_CONFIG })
   const [displayCount, setDisplayCount] = useState(2)
+  const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
 
   useEffect(() => {
     let cancelled = false
+    setLoaded(false)
     fetch("/api/admin/settings")
       .then((r) => r.json())
       .then((s) => {
@@ -111,6 +114,7 @@ export function AiSystemEditor({ system }: { system: string }) {
         }
       })
       .catch(() => {})
+      .finally(() => { if (!cancelled) setLoaded(true) })
     return () => { cancelled = true }
   }, [system])
 
@@ -150,6 +154,10 @@ export function AiSystemEditor({ system }: { system: string }) {
   const inputClass =
     "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
   const labelClass = "mb-1.5 block text-xs font-medium text-muted-foreground"
+
+  // Hold the skeleton until BOTH the saved config and the active provider are
+  // known, so the form renders once with real data (no blank → default → data flash).
+  if (!loaded || !ready) return <EditorBodySkeleton />
 
   return (
     <div>

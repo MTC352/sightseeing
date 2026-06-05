@@ -20,8 +20,12 @@ import {
 export function useActiveAiProvider(): {
   provider: AiProvider
   models: { value: string; label: string }[]
+  ready: boolean
 } {
   const [provider, setProvider] = useState<AiProvider>("anthropic")
+  // `ready` lets editor pages hold their skeleton until the active provider is
+  // known, so the model dropdown never flashes the wrong provider's options.
+  const [ready, setReady] = useState(false)
   useEffect(() => {
     let cancelled = false
     fetch("/api/admin/settings")
@@ -33,11 +37,14 @@ export function useActiveAiProvider(): {
           setProvider(s.aiProvider)
         }
       })
+      .finally(() => {
+        if (!cancelled) setReady(true)
+      })
     return () => {
       cancelled = true
     }
   }, [])
-  return { provider, models: modelOptions(provider) }
+  return { provider, models: modelOptions(provider), ready }
 }
 
 export function ActiveProviderBadge({ provider }: { provider: AiProvider }) {

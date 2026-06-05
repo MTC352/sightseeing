@@ -22,6 +22,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Plus, Trash2, RotateCcw, Wand2, ChevronDown } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
+import { PageHeaderSkeleton, PromptCardSkeleton, CardSkeleton } from "@/components/admin/ai-system-skeleton"
 import { PLANNER_PROMPT_STATIC_PREVIEW } from "@/lib/planner/system-prompt"
 
 const PLANNER_PROMPT_SUGGESTION = `You are the dedicated trip-planning assistant for sightseeing.lu. Keep replies short, warm, and conversational (1–2 sentences). Surface real, bookable trips from the catalog. Never invent prices, durations, or availability — call the right tool instead. When the user is ready, propose an itinerary; otherwise keep narrowing options with one focused follow-up question.`
@@ -85,6 +86,7 @@ export default function TripPlannerChatAdminPage() {
   const [initialPrompt, setInitialPrompt] = useState<string>("")
   const [showBasePrompt, setShowBasePrompt] = useState(false)
 
+  const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
@@ -117,6 +119,7 @@ export default function TripPlannerChatAdminPage() {
         setPlannerPrompt(nextPrompt)
         setInitialPrompt(nextPrompt)
       })
+      .finally(() => { if (!cancelled) setLoaded(true) })
     return () => { cancelled = true }
   }, [])
 
@@ -167,6 +170,20 @@ export default function TripPlannerChatAdminPage() {
 
   const inputClass = "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
   const labelClass = "mb-1.5 block text-xs font-medium text-muted-foreground"
+
+  if (!loaded) {
+    return (
+      <div className="p-6 lg:p-10">
+        <PageHeaderSkeleton />
+        <div className="max-w-3xl space-y-8">
+          <PromptCardSkeleton rows={8} />
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={2} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 lg:p-10">

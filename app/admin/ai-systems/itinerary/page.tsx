@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
+import { PageHeaderSkeleton, PromptCardSkeleton, ModelCardSkeleton, CardSkeleton } from "@/components/admin/ai-system-skeleton"
 
 interface ItineraryForm {
   systemPrompt: string
@@ -30,7 +31,7 @@ const DEFAULTS: ItineraryForm = {
 
 export default function ItineraryAiPage() {
   const router = useRouter()
-  const { provider: activeProvider, models: MODELS } = useActiveAiProvider()
+  const { provider: activeProvider, models: MODELS, ready } = useActiveAiProvider()
   const [form, setForm] = useState<ItineraryForm>(DEFAULTS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -82,6 +83,20 @@ export default function ItineraryAiPage() {
   const inputClass =
     "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
   const labelClass = "mb-1.5 block text-xs font-medium text-muted-foreground"
+
+  if (loading || !ready) {
+    return (
+      <div className="p-6 lg:p-10">
+        <PageHeaderSkeleton />
+        <div className="max-w-3xl space-y-6">
+          <PromptCardSkeleton rows={18} />
+          <PromptCardSkeleton rows={6} />
+          <CardSkeleton lines={1} />
+          <ModelCardSkeleton />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 lg:p-10">
