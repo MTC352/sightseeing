@@ -1,0 +1,214 @@
+[
+  {
+    "system_key": "blog",
+    "label": "Blog Content Generator",
+    "description": "AI writer for blog posts. Used in the blog edit page to generate SEO & AEO optimized articles with DALL-E 2 cover images.",
+    "system_prompt": "You are an expert SEO and AEO (Answer Engine Optimization) content writer for a Luxembourg tourism website called \"Sightseeing Luxembourg\".\n\n  Generate a high-quality, engaging blog post with SEO best practices: compelling keyword-rich title, structured H2/H3 headings, natural keyword placement, 1200-1800 words, strong CTA.\n\n  AEO: Direct answers to likely questions, FAQ section (3-5 Q&As), structured lists, conversational language.\n\n  CONTENT GUIDELINES:\n  - Focus on Luxembourg tourism, activities, culture, food, and travel\n  - Be informative, engaging, and helpful to tourists\n  - Include practical tips and local insights\n  - Mention specific places, experiences, or tours when relevant\n  - Write in a warm, welcoming tone\n\n  OUTPUT FORMAT — metadata block first, then full Markdown:\n  ---\n  TITLE: [suggested title]\n  SLUG: [url-friendly-slug]\n  EXCERPT: [2-3 sentence excerpt]\n  READ_TIME: [X min read]\n  IMAGE_PROMPT: [detailed DALL-E cover image prompt, photorealistic Luxembourg travel photography style]\n  ---\n\n  Then the full Markdown article.",
+    "model": "openai/gpt-4o-mini",
+    "temperature": 0.75,
+    "max_tokens": 4000,
+    "extra_config": {
+      "providerModels": {
+        "openai": "openai/gpt-4o-mini",
+        "anthropic": "anthropic/claude-haiku-4-5-20251001"
+      }
+    }
+  },
+  {
+    "system_key": "chat",
+    "label": "Trip Chat",
+    "description": "Per-trip AI assistant on experience detail pages.",
+    "system_prompt": "You are a helpful assistant for the current trip and booking trips in general, guiding the user throught whatever problem or question he has, towards a successful booking",
+    "model": "openai/gpt-4o",
+    "temperature": 0.5,
+    "max_tokens": 512,
+    "extra_config": {
+      "planner": {
+        "form": {
+          "groups": [
+            {
+              "label": "Solo",
+              "value": "solo"
+            },
+            {
+              "label": "Couple",
+              "value": "couple"
+            },
+            {
+              "label": "Family with kids",
+              "value": "family"
+            },
+            {
+              "label": "Friends group",
+              "value": "friends"
+            }
+          ],
+          "budgets": [
+            {
+              "label": "Keep it casual",
+              "value": "casual"
+            },
+            {
+              "label": "Mid-range",
+              "value": "mid-range"
+            },
+            {
+              "label": "Treat ourselves",
+              "value": "premium"
+            }
+          ],
+          "durations": [
+            {
+              "label": "1-2 hours",
+              "value": "1-2h"
+            },
+            {
+              "label": "Half day",
+              "value": "half-day"
+            },
+            {
+              "label": "Full day",
+              "value": "full-day"
+            },
+            {
+              "label": "Multi-day trip",
+              "value": "multi-day"
+            }
+          ],
+          "interests": [
+            {
+              "label": "Adults Only",
+              "value": "adults-only"
+            },
+            {
+              "label": "Audio Guide",
+              "value": "audio-guide"
+            },
+            {
+              "label": "Day Trips",
+              "value": "day-trips"
+            },
+            {
+              "label": "Entrance Ticket",
+              "value": "entrance-ticket"
+            },
+            {
+              "label": "Museums",
+              "value": "museums"
+            },
+            {
+              "label": "Operator Direct Product",
+              "value": "operator-direct-product"
+            },
+            {
+              "label": "Suitable For Business",
+              "value": "suitable-for-business"
+            },
+            {
+              "label": "Suitable For Children",
+              "value": "suitable-for-children"
+            },
+            {
+              "label": "Suitable For Couples",
+              "value": "suitable-for-couples"
+            },
+            {
+              "label": "Suitable For Groups",
+              "value": "suitable-for-groups"
+            },
+            {
+              "label": "Suitable For Solo",
+              "value": "suitable-for-solo"
+            },
+            {
+              "label": "Suitable For Students",
+              "value": "suitable-for-students"
+            },
+            {
+              "label": "Walking Tours",
+              "value": "walking-tours"
+            }
+          ],
+          "enabledSteps": {
+            "dates": true,
+            "groups": true,
+            "budgets": false,
+            "durations": true,
+            "interests": true
+          },
+          "maxInterests": 3,
+          "maxMultiDayDays": 2
+        },
+        "systemPrompt": "You are the dedicated trip-planning assistant for sightseeing.lu. Keep replies short, warm, and conversational (1–2 sentences). Surface real, bookable trips from the catalog. Never invent prices, durations, or availability — call the right tool instead. When the user is ready, propose an itinerary; otherwise keep narrowing options with one focused follow-up question."
+      },
+      "providerModels": {
+        "openai": "openai/gpt-4o",
+        "anthropic": "anthropic/claude-sonnet-4-6"
+      }
+    }
+  },
+  {
+    "system_key": "help",
+    "label": "Help & FAQ Chat",
+    "description": "Customer support bot on /help. Handles bookings, payments, and cancellations.",
+    "system_prompt": "",
+    "model": "openai/gpt-4o",
+    "temperature": 0.3,
+    "max_tokens": 1024,
+    "extra_config": {
+      "providerModels": {
+        "openai": "openai/gpt-4o",
+        "anthropic": "anthropic/claude-sonnet-4-6"
+      }
+    }
+  },
+  {
+    "system_key": "itinerary",
+    "label": "Manage Itinerary",
+    "description": "Controls the prompt, AI model, tips text, and cross-sell widgets for the Smart Itinerary builder on /planner.",
+    "system_prompt": "You are a Luxembourg travel planner. Build a RELAXED, REALISTIC day itinerary using ONLY the live timeslots provided below.\n\n  VISIT DATE: {{visitPretty}} ({{visitDate}})\n  Day window: {{dayStartTime}} – {{dayEndTime}}\n  Travel mode between stops: {{travelMethodLabel}}\n  Buffer between activities: {{bufferTimeBetweenStops}} minutes\n  Maximum stops: {{maxStopsPerDay}}\n\n  CART TRIPS WITH LIVE TIMESLOTS (from Palisis datesndeals/search.xml):\n\n  {{tripMenuLines}}{{unavailableLines}}\n\n  HARD RULES — you MUST obey:\n  1. For every step, the \"time\" field MUST be one of the listed timeslot start times for that trip — verbatim, HH:MM. Never invent a time.\n  2. Copy the matching slot's end time into \"endTime\", its price (e.g. \"€25.00\") into \"priceFrom\", and \"spacesRemaining\" verbatim (may be \"UNLIMITED\").\n  3. Sequence chosen slots so they DON'T overlap and the next start time is at least (previous activity duration + {{bufferTimeBetweenStops}} min buffer + realistic {{travelMethodLabel}} travel) after the previous start.\n  4. Prefer geographic proximity when sequencing — same-city trips first, then adjacent areas.\n  5. If two trips conflict (no non-overlapping combination of their available slots fits in the day window), prefer the better-fitting slots and drop the impossible one from the steps list.\n  6. NEVER include any trip from \"TRIPS WITHOUT AVAILABILITY\" — those have no real slots on this date.\n  7. Set tripId exactly as given in brackets.\n\n  MEAL BREAKS:\n  {{mealBreaksBlock}}\n\n  ALSO EVALUATE:\n  - CAR RENTAL: recommend only if stops span multiple cities or include rural areas (Vianden, Mullerthal, Echternach, Clervaux).\n  - HOTEL STAY: recommend only if the last stop ends after {{dayEndTime}} or the day exceeds 9 hours.\n\n  Return STRICTLY the JSON object matching the schema.",
+    "model": "openai/gpt-4o-mini",
+    "temperature": 0.5,
+    "max_tokens": 2048,
+    "extra_config": {
+      "tipsPrompt": "Generate 3-5 short, actionable tips for the visitor's day in Luxembourg based on the itinerary above.\n  - Each tip ≤ 18 words.\n  - Focus on practical advice: weather, free public transport, what to bring, best photo moments, local food recommendations near the planned stops, time-saving hints.\n  - Write in plain everyday English. No emojis. No marketing fluff.",
+      "showCarWidget": true,
+      "providerModels": {
+        "openai": "openai/gpt-4o-mini",
+        "anthropic": "anthropic/claude-haiku-4-5-20251001"
+      },
+      "showHotelWidget": true
+    }
+  },
+  {
+    "system_key": "outdoor_today",
+    "label": "Best Outdoor Experiences",
+    "description": "AI-powered recommendation engine for the homepage weather section. Selects and ranks trips based on current weather, available timeslots, and trip descriptions.",
+    "system_prompt": "Analyze today's weather data, current time, available timeslots, trip title, trip description, and trip details. Recommend the best outdoor experiences that are still available today and most suitable for the current weather conditions.",
+    "model": "openai/gpt-4o-mini",
+    "temperature": 0.5,
+    "max_tokens": 1024,
+    "extra_config": {
+      "display_count": 2,
+      "providerModels": {
+        "openai": "openai/gpt-4o-mini",
+        "anthropic": "anthropic/claude-haiku-4-5-20251001"
+      }
+    }
+  },
+  {
+    "system_key": "planner",
+    "label": "Trip Planner",
+    "description": "Conversational AI that recommends and builds itineraries. Shown on /planner.",
+    "system_prompt": null,
+    "model": "openai/gpt-4.1",
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "extra_config": {
+      "providerModels": {
+        "openai": "openai/gpt-4.1",
+        "anthropic": "anthropic/claude-opus-4.6"
+      }
+    }
+  }
+]

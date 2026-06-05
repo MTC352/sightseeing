@@ -16,6 +16,7 @@
  */
 import { query, queryOne } from "@/lib/db"
 import adminDocs from "./data/001-admin-docs.json"
+import aiSystemConfigs from "./data/003-ai-system-configs.json"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 
 export type MigrationResult = {
@@ -40,6 +41,17 @@ type AdminDoc = {
   sort_order: number
   audience: string
   attachments: unknown
+}
+
+type AiSystemConfig = {
+  system_key: string
+  label: string
+  description: string | null
+  system_prompt: string | null
+  model: string | null
+  temperature: number | null
+  max_tokens: number | null
+  extra_config: unknown
 }
 
 /** Postgres "undefined_table" — the tracking table hasn't reached this DB yet. */
@@ -111,6 +123,52 @@ async function applyTripItineraryConfig(): Promise<MigrationResult> {
 }
 
 /**
+ * Seed the AI System configs (prompts, models, and settings) shown under
+ * /admin/ai-systems: blog, chat (per-trip + planner chat form/prompt), help,
+ * itinerary (incl. tips prompt + widgets), outdoor_today, and planner (incl.
+ * planner behavior settings in extra_config). The `trip_itinerary` row is owned
+ * by migration 002 and intentionally excluded here.
+ * Idempotent: an existing row (matched by system_key) is left untouched so admin
+ * prompt/model/settings edits are preserved.
+ */
+async function applyAiSystemConfigs(): Promise<MigrationResult> {
+  const configs = aiSystemConfigs as AiSystemConfig[]
+  let inserted = 0
+  let skipped = 0
+  for (const c of configs) {
+    const existing = await queryOne<{ system_key: string }>(
+      `SELECT system_key FROM ai_system_configs WHERE system_key = $1 LIMIT 1`,
+      [c.system_key],
+    )
+    if (existing) {
+      skipped++
+      continue
+    }
+    await query(
+      `INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+       ON CONFLICT (system_key) DO NOTHING`,
+      [
+        c.system_key,
+        c.label,
+        c.description ?? null,
+        c.system_prompt ?? null,
+        c.model ?? null,
+        c.temperature ?? null,
+        c.max_tokens ?? null,
+        JSON.stringify(c.extra_config ?? {}),
+      ],
+    )
+    inserted++
+  }
+  return {
+    inserted,
+    skipped,
+    detail: `${inserted} inserted, ${skipped} already present`,
+  }
+}
+
+/**
  * The ordered registry. Add new migrations to the END with the next numeric id.
  * Keep ids stable once shipped — they are the tracking keys.
  */
@@ -128,6 +186,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Seeds the 'Itinerary Generator' AI System config (system_key='trip_itinerary') used by 'Generate Itinerary with AI' on the trip edit page. Idempotent: an existing row is left untouched so admin prompt/model edits are preserved.",
     apply: applyTripItineraryConfig,
+  },
+  {
+    id: "003-ai-system-configs",
+    name: "AI Systems prompts & settings",
+    description:
+      "Seeds the AI System configs shown under /admin/ai-systems (blog, chat + planner chat form, help, itinerary + tips, outdoor_today, planner + behavior settings). Excludes trip_itinerary (migration 002). Idempotent: existing rows are left untouched so admin prompt/model/settings edits are preserved.",
+    apply: applyAiSystemConfigs,
   },
 ]
 

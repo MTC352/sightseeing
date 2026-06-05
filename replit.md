@@ -182,6 +182,12 @@ option, use the **Data Migrations** system.
   make `apply()` idempotent. Ship with code, then run it from the live admin panel.
 - **Migration #1 = `001-admin-docs`** — seeds the 66 admin documentation articles
   (`help_articles`, audience='admin') that power `/admin/docs`.
+- **Migration #2 = `002-trip-itinerary-ai-config`** — seeds the `trip_itinerary`
+  AI System config row used by "Generate Itinerary with AI" on the trip edit page.
+- **Migration #3 = `003-ai-system-configs`** — seeds the remaining AI Systems
+  prompts/models/settings rows in `ai_system_configs` (blog, chat + planner chat
+  form, help, itinerary + tips, outdoor_today, planner + behavior settings).
+  Excludes `trip_itinerary` (owned by #2). Idempotent: existing rows untouched.
 
 ### Live-DB workflow when prod is behind
 1. Re-**Publish** to apply schema (creates missing tables, e.g. `activity_log`,
