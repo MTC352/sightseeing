@@ -286,6 +286,28 @@ export async function POST(req: Request) {
     if (!rawTrips.length) {
       return Response.json({ error: "No trips provided" }, { status: 400 })
     }
+    // Deduplicate by trip ID before any DB or TourCMS work. An attacker can
+    // submit hundreds of copies of the same valid trip ID and multiply upstream
+    // work linearly — deduplication collapses that to at most one call per
+    // unique trip.
+    const seenIds = new Set<string>()
+    rawTrips = rawTrips.filter((t) => {
+      if (seenIds.has(t.id)) return false
+      seenIds.add(t.id)
+      return true
+    })
+    // Hard cap on cart size. The scheduler enforces HARD_MAX_STOPS=5 per day
+    // and the UI caps dayCount at 14, so no real itinerary can use more than
+    // ~70 trips — but even that is extremely generous. Cap at 20 here to
+    // prevent a single unauthenticated request from triggering an unbounded
+    // number of TourCMS API calls (datesndeals + checkAvailability per trip).
+    const MAX_CART_TRIPS = 20
+    if (rawTrips.length > MAX_CART_TRIPS) {
+      return Response.json(
+        { error: "TOO_MANY_TRIPS", message: `Cart may contain at most ${MAX_CART_TRIPS} trips.` },
+        { status: 400 },
+      )
+    }
     const isPreflight = mode === "preflight"
     // Hydrate trips: accept either fully-populated {id,title,city,duration,
     // category} (cart path) OR id-only payloads (chat path where the AI's
