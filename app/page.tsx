@@ -4,6 +4,7 @@ import { TrendingSection, WeatherSection, CategoriesSection, ReviewsSection, Rec
 import { LastMinuteDealsSection } from "@/components/last-minute-deals-section"
 import { SiteFooter } from "@/components/site-footer"
 import { dbListTrips } from "@/lib/db/queries"
+import { safeJsonLd } from "@/lib/json-ld"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -67,7 +68,7 @@ export default async function Page() {
     <div className="min-h-screen bg-background">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(schemas) }}
       />
       <Navbar />
       <HeroSection />

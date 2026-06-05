@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import type { Trip } from "@/lib/data"
 import ExploreClient from "./explore-client"
 import { dbListTrips } from "@/lib/db/queries"
+import { safeJsonLd } from "@/lib/json-ld"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -69,7 +70,7 @@ export default async function ExplorePage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListLd) }}
       />
       <ExploreClient initialTrips={tripList} />
     </>
