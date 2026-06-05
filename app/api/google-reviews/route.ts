@@ -43,18 +43,105 @@ async function findPlaceIdByName(name: string, apiKey: string): Promise<string |
   }
 }
 
-/* Resolve share.google / goo.gl shortlinks by following redirects */
+/* Allowlist of hostnames that are valid Google shortlink input domains */
+const SHORTLINK_ALLOWED_HOSTS = new Set([
+  "share.google",
+  "goo.gl",
+  "maps.app.goo.gl",
+])
+
+/* Allowlist of hostname suffixes that are valid Google redirect destinations */
+function isAllowedRedirectHost(hostname: string): boolean {
+  return (
+    hostname === "google.com" ||
+    hostname.endsWith(".google.com") ||
+    hostname.endsWith(".googleapis.com")
+  )
+}
+
+/* Block private / link-local / loopback destinations.
+   Covers the most common SSRF pivots; hostname-level check before any fetch. */
+function isPrivateHost(hostname: string): boolean {
+  const h = hostname.toLowerCase()
+  // Loopback / localhost
+  if (h === "localhost" || h === "0.0.0.0" || h === "::1") return true
+  // IPv4 private ranges: 127.x, 10.x, 192.168.x, 172.16-31.x, 169.254.x (IMDS)
+  if (/^127\./.test(h)) return true
+  if (/^10\./.test(h)) return true
+  if (/^192\.168\./.test(h)) return true
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true
+  if (/^169\.254\./.test(h)) return true
+  // IPv6 private / link-local prefixes
+  if (/^fc[0-9a-f]{2}:/i.test(h) || /^fd[0-9a-f]{2}:/i.test(h)) return true
+  if (/^fe80:/i.test(h)) return true
+  return false
+}
+
+/* Validate a redirect-destination URL is safe to follow.
+   Returns the validated URL string or null if it should be rejected. */
+function validateRedirectTarget(rawUrl: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== "https:") return null
+  if (isPrivateHost(parsed.hostname)) return null
+  if (!isAllowedRedirectHost(parsed.hostname)) return null
+  return parsed.href
+}
+
+/* Resolve share.google / goo.gl shortlinks to the final Google Maps URL.
+   Uses manual redirect handling so every hop is validated before being fetched.
+   Only the initial request goes to an allowlisted shortlink host; redirects are
+   only followed when the Location header points to an allowed Google domain.
+   Private / internal IP destinations are rejected at every hop. */
 async function resolveShortlink(url: string): Promise<string> {
   try {
-    if (
-      url.includes("share.google") ||
-      url.includes("goo.gl") ||
-      url.includes("maps.app.goo.gl")
-    ) {
-      const res = await fetch(url, { redirect: "follow" })
-      return res.url
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return url
     }
-    return url
+
+    // Only accept HTTPS URLs whose hostname is exactly an allowlisted shortlink domain
+    if (parsed.protocol !== "https:") return url
+    if (!SHORTLINK_ALLOWED_HOSTS.has(parsed.hostname)) return url
+    if (isPrivateHost(parsed.hostname)) return url
+
+    // Follow redirects manually — validate each Location before requesting it
+    const MAX_HOPS = 5
+    let current = parsed.href
+    for (let hop = 0; hop < MAX_HOPS; hop++) {
+      const res = await fetch(current, {
+        redirect: "manual",
+        method: "GET",
+      })
+
+      // Not a redirect — current is the final URL
+      if (res.status < 300 || res.status >= 400) return current
+
+      const location = res.headers.get("location")
+      if (!location) return current
+
+      // Resolve relative Location headers against the current URL
+      let nextUrl: string
+      try {
+        nextUrl = new URL(location, current).href
+      } catch {
+        return current
+      }
+
+      // Validate the next hop before following
+      const safe = validateRedirectTarget(nextUrl)
+      if (!safe) return url   // abort — return original input unchanged
+
+      current = safe
+    }
+
+    return current
   } catch {
     return url
   }
