@@ -179,6 +179,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 {isSuperadmin ? "Admin" : "Employee"}
               </span>
+              {devMode && (
+                <span className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-600 dark:text-blue-400">
+                  Dev
+                </span>
+              )}
             </>
           )}
           {effectiveCollapsed && <LayoutDashboard className="hidden h-4 w-4 text-muted-foreground md:block" />}
@@ -208,7 +213,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Nav links */}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2 py-3">
-          {visibleNav.map(({ href, label, icon: Icon, exact, badge, children }) => {
+          {visibleNav.map(({ href, label, icon: Icon, exact, badge, devOnly, children }) => {
             const isActive = exact
               ? pathname === href
               : href !== "/admin" && pathname.startsWith(href)
@@ -231,6 +236,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   {!effectiveCollapsed && (
                     <>
                       <span className="flex-1">{label}</span>
+                      {devOnly && (
+                        <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                          Dev
+                        </span>
+                      )}
                       {badge && (
                         <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                           {badge}

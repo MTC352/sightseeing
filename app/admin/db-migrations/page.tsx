@@ -124,6 +124,9 @@ export default function DbMigrationsPage() {
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-gray-900">
             <Database className="h-6 w-6 text-indigo-600" />
             Data Migrations
+            <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+              Dev
+            </span>
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-gray-500">
             Version-controlled <strong>content</strong> migrations (articles, AI prompts,
