@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
 export const dynamic = "force-dynamic"
 
@@ -16,15 +17,61 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function hasPermission(
+  role: string,
+  permissions: string[] | undefined,
+  required: PermissionKey,
+): boolean {
+  if (role === FULL_ACCESS_ROLE) return true
+  return Array.isArray(permissions) && permissions.includes(required)
+}
+
 export async function GET() {
   try {
-    await requireAdminSession()
-    return NextResponse.json(await dbGetSettings())
+    const session = await requireAdminSession()
+    const full = await dbGetSettings()
+
+    if (session.role === FULL_ACCESS_ROLE) {
+      return NextResponse.json(full)
+    }
+
+    const perms = session.permissions ?? []
+
+    const filtered: Record<string, unknown> = {}
+
+    if (perms.includes("integrations")) {
+      filtered.apiKeys = full.apiKeys
+      filtered.weglot = full.weglot
+      filtered.aiProvider = full.aiProvider
+      filtered.aiProviderSelected = full.aiProviderSelected
+    }
+
+    if (perms.includes("ai-systems")) {
+      filtered.ai = full.ai
+      filtered.plannerBehavior = full.plannerBehavior
+      filtered.itineraryBehavior = full.itineraryBehavior
+      filtered.seoBehavior = full.seoBehavior
+    }
+
+    if (perms.includes("header-footer")) {
+      filtered.header = full.header
+      filtered.footer = full.footer
+    }
+
+    return NextResponse.json(filtered)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/settings] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
+}
+
+const SECTION_PERMISSION: Record<string, PermissionKey> = {
+  apiKeys: "integrations",
+  ai: "ai-systems",
+  weglot: "integrations",
+  header: "header-footer",
+  footer: "header-footer",
 }
 
 export async function PATCH(req: Request) {
@@ -34,6 +81,15 @@ export async function PATCH(req: Request) {
     const { section, data } = body as {
       section: "apiKeys" | "ai" | "weglot" | "header" | "footer"
       data: Record<string, unknown>
+    }
+
+    const required = SECTION_PERMISSION[section]
+    if (!required) {
+      return NextResponse.json({ error: "Unknown section" }, { status: 400 })
+    }
+
+    if (!hasPermission(session.role, session.permissions, required)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     if (section === "apiKeys") {
@@ -50,8 +106,6 @@ export async function PATCH(req: Request) {
       await dbUpdateHeaderFooter("header", data.customHtml as string)
     } else if (section === "footer") {
       await dbUpdateHeaderFooter("footer", data.customHtml as string)
-    } else {
-      return NextResponse.json({ error: "Unknown section" }, { status: 400 })
     }
 
     void logActivity({
