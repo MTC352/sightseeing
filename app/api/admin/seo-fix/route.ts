@@ -16,6 +16,7 @@
 import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
+import { dbGetSeoPrompts } from "@/lib/db/queries"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
@@ -87,8 +88,13 @@ export async function POST(request: Request) {
       )
     }
 
+    // Admin-editable shared system prompt for all fix actions (Admin → AI
+    // Systems → SEO Optimizer). The per-fix-type instruction stays in `prompt`.
+    const { fix: fixSystemPrompt } = await dbGetSeoPrompts()
+
     const { text } = await generateText({
       model: ai.model,
+      system: fixSystemPrompt,
       prompt,
       temperature: 0.7,
       maxOutputTokens: 1200,

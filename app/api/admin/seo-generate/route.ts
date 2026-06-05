@@ -1,7 +1,7 @@
 import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
-import { dbGetTrip } from "@/lib/db/queries"
+import { dbGetTrip, dbGetSeoPrompts } from "@/lib/db/queries"
 import {
   computeSeoSections,
   summarizeScore,
@@ -20,43 +20,6 @@ export const dynamic = "force-dynamic"
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
-
-const SYSTEM_PROMPT = `You are an elite SEO copywriter for sightseeing.lu, a Luxembourg tourism & tour-booking site. You optimise a single trip page to score ~100/100 on a RankMath-style audit.
-
-You will be given the trip's source content. Do TWO things:
-1. Choose the single best FOCUS KEYWORD — a realistic, searchable phrase a tourist would type (e.g. "Luxembourg city tour", "wine tasting Moselle"). 2-4 words, lowercase.
-2. Write fully-optimised SEO fields that satisfy ALL of these constraints:
-
-FOCUS KEYWORD usage:
-- Appears in the title, near the START.
-- Appears in the meta description.
-- Appears in the FIRST sentence of the body.
-- Appears naturally 4-8 times across the body (keyword density ~1%).
-- Appears in at least one highlight/subheading.
-
-TITLE (catchy, click-worthy):
-- Starts with (or very near) the focus keyword.
-- Contains a POWER word (e.g. Ultimate, Best, Essential, Complete, Premium, Expert).
-- Contains a SENTIMENT word (e.g. Unforgettable, Stunning, Breathtaking, Amazing, Scenic, Iconic).
-- Contains a NUMBER (e.g. a year, hours, "Top 5").
-
-META DESCRIPTION: 140-160 chars, compelling, includes the keyword and a call to action.
-
-BODY: Valid HTML, 600+ words, written as engaging travel copy. Use multiple SHORT <p> paragraphs (each under 100 words) and a few <h3> subheadings. Include at least one external DoFollow link (e.g. to https://www.visitluxembourg.com) and at least one internal link to another site section (href must start with /trip/, /explore/, /departures/, /blog/ or /help/). Real, useful prose — no filler.
-
-HIGHLIGHTS: 3-6 short bullet strings; at least one contains the focus keyword.
-
-SLUG: short, hyphenated, lowercase, contains the keyword, max 75 chars.
-
-Respond with ONLY a valid JSON object (no markdown, no code fences):
-{
-  "keyword": "...",
-  "title": "...",
-  "metaDescription": "...",
-  "body": "<p>...</p>...",
-  "highlights": ["...", "..."],
-  "slug": "..."
-}`
 
 function buildSource(trip: Record<string, unknown>): string {
   const g = (k: string) => {
@@ -117,9 +80,13 @@ export async function POST(request: Request) {
       )
     }
 
+    // Admin-editable creative prompt (Admin → AI Systems → SEO Optimizer),
+    // falls back to the default when no override is stored.
+    const { optimize: systemPrompt } = await dbGetSeoPrompts()
+
     const result = await generateText({
       model: ai.model,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       prompt: `Optimise this trip page for SEO. Return ONLY the JSON object.\n\n${buildSource(trip)}`,
       temperature: 0.5,
       maxOutputTokens: 3000,

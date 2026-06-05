@@ -12,6 +12,12 @@ import {
   equivalentModel,
   providerOf,
 } from "@/lib/ai/models"
+import {
+  DEFAULT_SEO_OPTIMIZE_PROMPT,
+  DEFAULT_SEO_FIX_PROMPT,
+  DEFAULT_SEO_ANALYZE_PROMPT,
+  type SeoPrompts,
+} from "@/lib/ai/seo-prompts"
 
 // ── Trips ──────────────────────────────────────────────────────────────────
 
@@ -722,6 +728,14 @@ export async function dbGetSettings() {
     // 2..14 (clamped). Surfaced publicly via /api/planner/form-config.
     maxMultiDayDays: 2,
   }
+  // SEO Optimizer: the three editable creative prompts (Optimize / Fix /
+  // Analyze). Defaults are the live hardcoded defaults so the admin page renders
+  // the prompts actually in effect right now when no override exists.
+  let seoBehavior: SeoPrompts = {
+    optimize: DEFAULT_SEO_OPTIMIZE_PROMPT,
+    fix: DEFAULT_SEO_FIX_PROMPT,
+    analyze: DEFAULT_SEO_ANALYZE_PROMPT,
+  }
   for (const r of aiRows as Record<string, unknown>[]) {
     // Expose extra_config alongside the basic fields so consumers (e.g.
     // /api/planner reading the Trip-Chat-managed planner prompt override
@@ -753,6 +767,15 @@ export async function dbGetSettings() {
         ...extra,
       }
     }
+    if (r.system_key === 'seo') {
+      const optimize = typeof r.system_prompt === 'string' && r.system_prompt.trim()
+        ? r.system_prompt : seoBehavior.optimize
+      const fix = typeof extra.fixPrompt === 'string' && (extra.fixPrompt as string).trim()
+        ? extra.fixPrompt as string : seoBehavior.fix
+      const analyze = typeof extra.analyzePrompt === 'string' && (extra.analyzePrompt as string).trim()
+        ? extra.analyzePrompt as string : seoBehavior.analyze
+      seoBehavior = { optimize, fix, analyze }
+    }
   }
 
   const headerBlocks = (hfRows as Record<string, unknown>[]).filter(b => b.placement !== 'body_end')
@@ -771,7 +794,7 @@ export async function dbGetSettings() {
   const aiProviderSelected = selectedProvider(apiKeys)
   const aiProvider = effectiveProvider(apiKeys, aiEnv)
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, weglot, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
@@ -846,6 +869,86 @@ export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
   if (typeof tipsPrompt === 'string') {
     await dbRecordPromptRevision('itinerary', 'tipsPrompt', tipsPrompt, beforeTipsPrompt)
   }
+}
+
+/**
+ * Update the "SEO Optimizer" AI System — the three creative prompts that drive
+ * /api/admin/seo-generate (optimize), /api/admin/seo-fix (fix) and
+ * /api/admin/seo-analyze (analyze). Stored on the single ai_system_configs row
+ * with system_key = 'seo' (optimize → system_prompt, fix/analyze → extra_config).
+ *
+ * Partial-safe: any prompt omitted from `data` is preserved (so activating one
+ * revision never wipes the other two). Each provided prompt is snapshotted to
+ * ai_prompt_revisions with a baseline so the first edit is reversible.
+ */
+export async function dbUpdateSeoConfig(data: {
+  optimizePrompt?: string
+  fixPrompt?: string
+  analyzePrompt?: string
+}) {
+  // Snapshot pre-edit values so first-edit rollback is possible + so we can
+  // merge extra_config non-destructively.
+  const beforeRow = await queryOne<{ system_prompt: string; extra_config: unknown }>(
+    `SELECT system_prompt, extra_config FROM ai_system_configs WHERE system_key = 'seo'`,
+  )
+  const beforeOptimize = beforeRow?.system_prompt ?? ''
+  const beforeExtra = (beforeRow?.extra_config && typeof beforeRow.extra_config === 'object')
+    ? beforeRow.extra_config as Record<string, unknown>
+    : {}
+  const beforeFix = typeof beforeExtra.fixPrompt === 'string' ? beforeExtra.fixPrompt : ''
+  const beforeAnalyze = typeof beforeExtra.analyzePrompt === 'string' ? beforeExtra.analyzePrompt : ''
+
+  const { optimizePrompt, fixPrompt, analyzePrompt } = data
+
+  // Non-destructive extra_config merge — preserve any field omitted from this
+  // update (and any future keys) instead of resetting them.
+  const extra: Record<string, unknown> = { ...beforeExtra }
+  if (typeof fixPrompt === 'string') extra.fixPrompt = fixPrompt
+  if (typeof analyzePrompt === 'string') extra.analyzePrompt = analyzePrompt
+
+  await query(`
+    INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, extra_config)
+    VALUES ('seo', 'SEO Optimizer',
+      'Editable creative prompts for the AI SEO tools on the trip edit page — Optimize, Fix and Analyze. Deterministic scoring stays in code.',
+      $1, 'anthropic/claude-haiku-4-5-20251001', $2)
+    ON CONFLICT (system_key) DO UPDATE SET
+      system_prompt = COALESCE($1, ai_system_configs.system_prompt),
+      extra_config = $2,
+      updated_at = NOW()
+  `, [
+    optimizePrompt ?? null,
+    JSON.stringify(extra),
+  ])
+
+  if (typeof optimizePrompt === 'string') {
+    await dbRecordPromptRevision('seo', 'optimizePrompt', optimizePrompt, beforeOptimize)
+  }
+  if (typeof fixPrompt === 'string') {
+    await dbRecordPromptRevision('seo', 'fixPrompt', fixPrompt, beforeFix)
+  }
+  if (typeof analyzePrompt === 'string') {
+    await dbRecordPromptRevision('seo', 'analyzePrompt', analyzePrompt, beforeAnalyze)
+  }
+}
+
+/**
+ * Lean fetch of the effective SEO prompts for the runtime routes. One query,
+ * falls back to the hardcoded defaults for any prompt with no stored override.
+ */
+export async function dbGetSeoPrompts(): Promise<SeoPrompts> {
+  const row = await queryOne<{ system_prompt: string; extra_config: unknown }>(
+    `SELECT system_prompt, extra_config FROM ai_system_configs WHERE system_key = 'seo'`,
+  )
+  const extra = (row?.extra_config && typeof row.extra_config === 'object')
+    ? row.extra_config as Record<string, unknown>
+    : {}
+  const optimize = typeof row?.system_prompt === 'string' && row.system_prompt.trim()
+    ? row.system_prompt : DEFAULT_SEO_OPTIMIZE_PROMPT
+  const fix = typeof extra.fixPrompt === 'string' && (extra.fixPrompt as string).trim()
+    ? extra.fixPrompt as string : DEFAULT_SEO_FIX_PROMPT
+  const analyze = typeof extra.analyzePrompt === 'string' && (extra.analyzePrompt as string).trim()
+    ? extra.analyzePrompt as string : DEFAULT_SEO_ANALYZE_PROMPT
+  return { optimize, fix, analyze }
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   dbUpdateAiSystem,
   dbUpdateChatPlannerConfig,
   dbUpdateItineraryConfig,
+  dbUpdateSeoConfig,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 
@@ -36,6 +37,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       await dbUpdateItineraryConfig({ systemPrompt: promptText })
     } else if (systemKey === "itinerary" && promptKind === "tipsPrompt") {
       await dbUpdateItineraryConfig({ tipsPrompt: promptText })
+    } else if (systemKey === "seo" && promptKind === "optimizePrompt") {
+      await dbUpdateSeoConfig({ optimizePrompt: promptText })
+    } else if (systemKey === "seo" && promptKind === "fixPrompt") {
+      await dbUpdateSeoConfig({ fixPrompt: promptText })
+    } else if (systemKey === "seo" && promptKind === "analyzePrompt") {
+      await dbUpdateSeoConfig({ analyzePrompt: promptText })
     } else if (promptKind === "systemPrompt") {
       // Generic AI system row (chat per-trip prompt, help, blog, planner legacy).
       await dbUpdateAiSystem(systemKey, { systemPrompt: promptText })

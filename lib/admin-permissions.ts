@@ -96,6 +96,7 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/planner-behavior", keys: ["ai-systems"] },
   { prefix: "/api/admin/itinerary-config", keys: ["ai-systems"] },
   { prefix: "/api/admin/chat-planner-config", keys: ["ai-systems"] },
+  { prefix: "/api/admin/seo-config", keys: ["ai-systems"] },
   { prefix: "/api/admin/prompt-revisions", keys: ["ai-systems"] },
   // Integrations
   { prefix: "/admin/integrations", keys: ["integrations"] },
