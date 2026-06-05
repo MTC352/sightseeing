@@ -192,7 +192,23 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         ...(form.itinerarySteps !== undefined
           ? {
               itinerarySteps: (form.itinerarySteps ?? [])
-                .map((s) => ({ name: (s.name ?? "").trim(), description: (s.description ?? "").trim() }))
+                .map((s) => {
+                  const base = { name: (s.name ?? "").trim(), description: (s.description ?? "").trim() }
+                  // Preserve an optional resolved location. Only attach when BOTH
+                  // coordinates are real finite numbers — otherwise drop it so a
+                  // half-set location never persists.
+                  const lat = typeof s.lat === "number" && Number.isFinite(s.lat) ? s.lat : null
+                  const lng = typeof s.lng === "number" && Number.isFinite(s.lng) ? s.lng : null
+                  if (lat !== null && lng !== null) {
+                    return {
+                      ...base,
+                      lat,
+                      lng,
+                      placeName: (s.placeName ?? "").trim() || null,
+                    }
+                  }
+                  return base
+                })
                 .filter((s) => s.name && s.description),
             }
           : {}),

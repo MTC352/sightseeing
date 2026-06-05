@@ -1,7 +1,7 @@
 import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
-import { dbGetTrip } from "@/lib/db/queries"
+import { dbGetTrip, dbGetSettings } from "@/lib/db/queries"
 
 export const maxDuration = 45
 export const dynamic = "force-dynamic"
@@ -26,13 +26,14 @@ Produce a realistic, well-ordered list of itinerary steps a guest follows during
 Each step must have:
 - "name": the stop / place / activity title — short (2-7 words), specific (e.g. "Vianden Castle", "Old Town walking tour", "Moselle wine tasting").
 - "description": 1-2 engaging sentences (max ~45 words) describing what happens at this stop and why it's worth it. Plain travel prose, no marketing fluff, no emojis.
+- "location" (OPTIONAL): a real, geocodable place name to pin on a map — ONLY when the step refers to a specific, searchable physical place (a named museum, castle, landmark, square, restaurant, town center). Make it precise and unambiguous by including the town and country, e.g. "European Schengen Museum, Schengen, Luxembourg" or "Vianden Castle, Luxembourg". OMIT "location" entirely for vague or non-mappable stops such as "Lunch break", "Free time", "Return journey", or generic activities that have no single fixed place.
 
 Return 3-8 steps. Order matters — first step = start of the experience, last step = end.
 
 Respond with ONLY a valid JSON object (no markdown, no code fences):
 {
   "steps": [
-    { "name": "...", "description": "..." }
+    { "name": "...", "description": "...", "location": "Optional Place, Town, Country" }
   ]
 }`
 
@@ -75,7 +76,15 @@ function extractJson(text: string): Record<string, unknown> | null {
   }
 }
 
-type Step = { name: string; description: string }
+type Step = {
+  name: string
+  description: string
+  /** Raw geocode query the AI proposed (resolved to lat/lng later). */
+  locationQuery?: string
+  lat?: number
+  lng?: number
+  placeName?: string
+}
 
 function normalizeSteps(raw: unknown): Step[] {
   if (!Array.isArray(raw)) return []
@@ -87,10 +96,78 @@ function normalizeSteps(raw: unknown): Step[] {
     const description = stripHtml(String(r.description ?? r.desc ?? "")).trim()
     // Each step requires BOTH a name and a description — skip incomplete rows.
     if (!name || !description) continue
-    out.push({ name: name.slice(0, 200), description: description.slice(0, 1000) })
+    const locRaw = r.location ?? r.place ?? r.placeName
+    const locationQuery =
+      typeof locRaw === "string" && locRaw.trim() ? stripHtml(locRaw).trim().slice(0, 200) : undefined
+    out.push({ name: name.slice(0, 200), description: description.slice(0, 1000), locationQuery })
     if (out.length >= 12) break
   }
   return out
+}
+
+/** Server-side Mapbox token: admin DB key wins, env is the fallback. */
+async function getMapboxToken(): Promise<string> {
+  let token = ""
+  try {
+    const settings = await dbGetSettings()
+    token = settings?.apiKeys?.mapbox ?? ""
+  } catch {
+    /* fall through to env */
+  }
+  if (!token) {
+    token =
+      process.env.mapbox ??
+      process.env.MAPBOX ??
+      process.env.MAPBOX_TOKEN ??
+      process.env.MAPBOX_ACCESS_TOKEN ??
+      process.env.NEXT_PUBLIC_MAPBOX_TOKEN ??
+      ""
+  }
+  return typeof token === "string" && token.startsWith("pk.") ? token : ""
+}
+
+/** Resolve a place-name query into coordinates via the Mapbox Geocoding API.
+ *  Returns null on any failure so location stays optional and fail-soft. */
+async function geocode(
+  query: string,
+  token: string,
+): Promise<{ lat: number; lng: number; placeName: string } | null> {
+  try {
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+      `?limit=1&country=lu,de,fr,be&access_token=${encodeURIComponent(token)}`
+    const r = await fetch(url)
+    if (!r.ok) return null
+    const d = await r.json()
+    const feat = Array.isArray(d?.features) ? d.features[0] : null
+    const c = feat?.center
+    if (!Array.isArray(c) || c.length < 2) return null
+    const lng = Number(c[0])
+    const lat = Number(c[1])
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return { lat, lng, placeName: String(feat.place_name ?? query) }
+  } catch {
+    return null
+  }
+}
+
+/** Geocode each step's optional location query (bounded, in parallel). Steps
+ *  with no query or a failed lookup keep no coordinates — locations are optional. */
+async function attachLocations(steps: Step[], token: string): Promise<void> {
+  if (!token) return
+  await Promise.all(
+    steps.map(async (step) => {
+      if (!step.locationQuery) return
+      const hit = await geocode(step.locationQuery, token)
+      if (hit) {
+        step.lat = hit.lat
+        step.lng = hit.lng
+        step.placeName = hit.placeName
+      }
+    }),
+  )
+  // Drop the raw query from the response — only resolved coords matter to the client.
+  for (const s of steps) delete s.locationQuery
 }
 
 /**
@@ -134,6 +211,11 @@ export async function POST(request: Request) {
     if (steps.length === 0) {
       return Response.json({ error: "The AI returned an unexpected response. Please try again." }, { status: 502 })
     }
+
+    // Resolve the optional per-step locations to coordinates (fail-soft — a
+    // missing Mapbox key or geocode miss simply leaves the step un-pinned).
+    const mapboxToken = await getMapboxToken()
+    await attachLocations(steps, mapboxToken)
 
     return Response.json({ ok: true, steps })
   } catch (err) {

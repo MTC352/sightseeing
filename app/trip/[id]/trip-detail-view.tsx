@@ -11,6 +11,7 @@ import { SiteFooter } from "@/components/site-footer"
 import { TripCard } from "@/components/trip-card"
 import { TripChat } from "@/components/trip-chat"
 import { GoogleReviews } from "@/components/google-reviews"
+import { TripItinerary } from "@/components/trip-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
 import { substitutePlaceholders } from "@/lib/booking-url"
@@ -30,7 +31,7 @@ export type TripDbDetail = {
   included: string[]
   excluded: string[]
   itineraryText?: string
-  itinerarySteps?: { name: string; description: string }[]
+  itinerarySteps?: { name: string; description: string; lat?: number | null; lng?: number | null; placeName?: string | null }[]
   essentialInformation?: string
   hotelPickupInstructions?: string
   voucherRedemptionInstructions?: string
@@ -422,25 +423,12 @@ export default function TripDetailClient({
             {/* Itinerary — admin/AI-authored structured steps win, then static, then free-text DB */}
             {structuredSteps.length > 0 ? (
               <div className="mt-8">
-                <h2 className="text-lg font-bold text-foreground">This is the plan</h2>
-                <div className="mt-4 flex flex-col" data-testid="trip-itinerary-steps">
-                  {structuredSteps.map((step, i) => (
-                    <div key={i} className="flex gap-4">
-                      <div className="flex flex-col items-center">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{i + 1}</div>
-                        {i < structuredSteps.length - 1 && <div className="flex-1 w-px bg-border" />}
-                      </div>
-                      <div className="pb-6">
-                        {step.name && <p className="text-sm font-semibold text-foreground">{step.name}</p>}
-                        {step.description && <p className="mt-1 text-sm text-muted-foreground leading-relaxed">{step.description}</p>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <h2 className="text-lg font-bold text-foreground">Itinerary</h2>
+                <TripItinerary steps={structuredSteps} />
               </div>
             ) : hasStaticItinerary ? (
               <div className="mt-8">
-                <h2 className="text-lg font-bold text-foreground">This is the plan</h2>
+                <h2 className="text-lg font-bold text-foreground">Itinerary</h2>
                 <div className="mt-4 flex flex-col">
                   {detail!.itinerary.map((step, i) => (
                     <div key={i} className="flex gap-4">
@@ -459,7 +447,7 @@ export default function TripDetailClient({
               </div>
             ) : dbItineraryText ? (
               <div className="mt-8">
-                <h2 className="text-lg font-bold text-foreground">This is the plan</h2>
+                <h2 className="text-lg font-bold text-foreground">Itinerary</h2>
                 <p className="mt-3 whitespace-pre-line text-sm text-muted-foreground leading-relaxed" data-testid="trip-itinerary">
                   {dbItineraryText}
                 </p>

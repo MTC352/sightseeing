@@ -11,10 +11,16 @@
 // These TypeScript interfaces remain because several admin edit forms still
 // import them as shape contracts for their local React state.
 
-/** A single structured itinerary step shown on the trip detail page. */
+/** A single structured itinerary step shown on the trip detail page.
+ *  Location is OPTIONAL — only set for searchable, mappable places (e.g.
+ *  "European Schengen Museum"). Vague stops (lunch break, free time) omit it. */
 export interface ItineraryStep {
   name: string
   description: string
+  lat?: number | null
+  lng?: number | null
+  /** Human-readable label of the resolved place (geocoder result / search). */
+  placeName?: string | null
 }
 
 export interface AdminTrip {

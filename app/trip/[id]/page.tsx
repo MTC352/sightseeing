@@ -39,8 +39,11 @@ function arr(v: unknown): string[] {
   return Array.isArray(v) ? (v as unknown[]).map(String).filter((x) => x.trim().length > 0) : []
 }
 
-/** Parse the jsonb itinerary_steps column into clean [{name, description}] order. */
-function itinerarySteps(v: unknown): { name: string; description: string }[] {
+type ParsedStep = { name: string; description: string; lat?: number | null; lng?: number | null; placeName?: string | null }
+
+/** Parse the jsonb itinerary_steps column into clean ordered steps. An optional
+ *  location (lat/lng/placeName) is preserved when present and valid. */
+function itinerarySteps(v: unknown): ParsedStep[] {
   let raw: unknown = v
   if (typeof raw === "string") {
     try {
@@ -51,16 +54,23 @@ function itinerarySteps(v: unknown): { name: string; description: string }[] {
   }
   if (!Array.isArray(raw)) return []
   return raw
-    .map((item) => {
+    .map((item): ParsedStep | null => {
       if (!item || typeof item !== "object") return null
       const o = item as Record<string, unknown>
       const name = s(o.name) ?? ""
       const description = s(o.description) ?? ""
       // A valid step requires BOTH a name and a description.
       if (!name || !description) return null
-      return { name, description }
+      const lat = typeof o.lat === "number" && Number.isFinite(o.lat) ? o.lat : null
+      const lng = typeof o.lng === "number" && Number.isFinite(o.lng) ? o.lng : null
+      const hasLoc = lat !== null && lng !== null
+      return {
+        name,
+        description,
+        ...(hasLoc ? { lat, lng, placeName: s(o.placeName) ?? null } : {}),
+      }
     })
-    .filter((x): x is { name: string; description: string } => x !== null)
+    .filter((x): x is ParsedStep => x !== null)
 }
 
 /** Build a structured DB-detail object from a Palisis-synced trip row. */

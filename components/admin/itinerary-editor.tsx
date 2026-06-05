@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { GripVertical, Plus, Trash2, Sparkles, Loader2, ArrowDown, AlertCircle } from "lucide-react"
+import { GripVertical, Plus, Trash2, Sparkles, Loader2, ArrowDown, AlertCircle, MapPin, X } from "lucide-react"
 import type { ItineraryStep } from "@/lib/admin-store"
+import { LocationPicker, type PickedLocation } from "@/components/admin/location-picker"
 
 interface ItineraryEditorProps {
   tripId?: string
@@ -18,6 +19,7 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pickerIndex, setPickerIndex] = useState<number | null>(null)
 
   const list = steps ?? []
 
@@ -27,6 +29,26 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
 
   function setField(index: number, field: keyof ItineraryStep, value: string) {
     update(list.map((s, i) => (i === index ? { ...s, [field]: value } : s)))
+  }
+
+  function setLocation(index: number, loc: PickedLocation) {
+    update(
+      list.map((s, i) =>
+        i === index ? { ...s, lat: loc.lat, lng: loc.lng, placeName: loc.placeName || null } : s,
+      ),
+    )
+  }
+
+  function clearLocation(index: number) {
+    update(
+      list.map((s, i) =>
+        i === index ? { ...s, lat: null, lng: null, placeName: null } : s,
+      ),
+    )
+  }
+
+  function hasLocation(s: ItineraryStep): boolean {
+    return typeof s.lat === "number" && typeof s.lng === "number" && Number.isFinite(s.lat) && Number.isFinite(s.lng)
   }
 
   function addStep() {
@@ -77,10 +99,20 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
       }
       const generated: ItineraryStep[] = Array.isArray(data.steps)
         ? data.steps
-            .map((s: { name?: unknown; description?: unknown }) => ({
-              name: String(s?.name ?? "").trim(),
-              description: String(s?.description ?? "").trim(),
-            }))
+            .map((s: { name?: unknown; description?: unknown; lat?: unknown; lng?: unknown; placeName?: unknown }) => {
+              const base: ItineraryStep = {
+                name: String(s?.name ?? "").trim(),
+                description: String(s?.description ?? "").trim(),
+              }
+              const lat = typeof s?.lat === "number" && Number.isFinite(s.lat) ? s.lat : null
+              const lng = typeof s?.lng === "number" && Number.isFinite(s.lng) ? s.lng : null
+              if (lat !== null && lng !== null) {
+                base.lat = lat
+                base.lng = lng
+                base.placeName = typeof s?.placeName === "string" ? s.placeName : null
+              }
+              return base
+            })
             .filter((s: ItineraryStep) => s.name && s.description)
         : []
       if (generated.length === 0) {
@@ -184,6 +216,43 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
                   rows={2}
                   className="w-full resize-y rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary disabled:opacity-60"
                 />
+
+                {hasLocation(step) ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-md bg-primary/5 px-2.5 py-1.5 text-xs">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-foreground">
+                      {step.placeName || `${(step.lat as number).toFixed(5)}, ${(step.lng as number).toFixed(5)}`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setPickerIndex(i)}
+                      className="rounded px-1.5 py-0.5 font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => clearLocation(i)}
+                      aria-label="Remove location"
+                      title="Remove location"
+                      className="rounded p-0.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setPickerIndex(i)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-50"
+                  >
+                    <MapPin className="h-3.5 w-3.5" /> Select location from Map{" "}
+                    <span className="text-[10px] font-normal opacity-70">(optional)</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex flex-col gap-1">
@@ -221,6 +290,22 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
       >
         <Plus className="h-3.5 w-3.5" /> Add step
       </button>
+
+      {pickerIndex !== null && list[pickerIndex] && (
+        <LocationPicker
+          title={list[pickerIndex].name || `Step ${pickerIndex + 1}`}
+          initial={{
+            lat: list[pickerIndex].lat,
+            lng: list[pickerIndex].lng,
+            placeName: list[pickerIndex].placeName,
+          }}
+          onClose={() => setPickerIndex(null)}
+          onConfirm={(loc) => {
+            setLocation(pickerIndex, loc)
+            setPickerIndex(null)
+          }}
+        />
+      )}
     </section>
   )
 }
