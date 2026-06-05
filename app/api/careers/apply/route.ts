@@ -19,6 +19,10 @@ const ALLOWED_EXTENSIONS = /\.(pdf|doc|docx|txt|jpg|jpeg|png)$/i
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const MAX_ATTACHMENTS = 5
 
+// Hard total body cap enforced via stream reading before multipart parsing.
+// Covers chunked/streamed requests that omit Content-Length entirely.
+const MAX_TOTAL_BODY = MAX_FILE_SIZE * MAX_ATTACHMENTS + 1024 * 1024 // 51 MB
+
 function isAllowedFile(file: File): boolean {
   return ALLOWED_MIME_TYPES.has(file.type) && ALLOWED_EXTENSIONS.test(file.name)
 }
@@ -27,13 +31,79 @@ function randomToken(): string {
   return randomBytes(16).toString("hex")
 }
 
+/**
+ * Read the entire request body into a Buffer while enforcing MAX_TOTAL_BODY.
+ * Returns null and a 413 NextResponse if the body exceeds the limit —
+ * critically, this works for all transfer encodings including chunked,
+ * where Content-Length is absent or unreliable.
+ */
+async function readBodyWithLimit(
+  request: Request,
+): Promise<{ body: Buffer; contentType: string } | { limitExceeded: true }> {
+  // Fast path: reject on Content-Length alone when the header is present and
+  // clearly over the limit — avoids streaming overhead for obvious abuse.
+  const clHeader = request.headers.get("content-length")
+  if (clHeader !== null) {
+    const declared = parseInt(clHeader, 10)
+    if (Number.isFinite(declared) && declared > MAX_TOTAL_BODY) {
+      return { limitExceeded: true }
+    }
+  }
+
+  const contentType = request.headers.get("content-type") ?? "application/octet-stream"
+
+  if (!request.body) {
+    return { body: Buffer.alloc(0), contentType }
+  }
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      totalBytes += value.byteLength
+      if (totalBytes > MAX_TOTAL_BODY) {
+        reader.cancel().catch(() => undefined)
+        return { limitExceeded: true }
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const merged = Buffer.concat(chunks)
+  return { body: merged, contentType }
+}
+
 export async function POST(request: Request) {
   schedulePrune()
   const limit = rateLimit(request, { limit: 5, windowMs: 60 * 60 * 1000 })
   if (!limit.allowed) return limit.response
 
+  // Read and hard-limit the body BEFORE multipart parsing so oversized requests
+  // — including chunked transfers that omit Content-Length — are rejected before
+  // the server allocates parser memory.
+  const bodyResult = await readBodyWithLimit(request)
+  if ("limitExceeded" in bodyResult) {
+    return NextResponse.json(
+      { error: `Request body too large. Maximum total upload size is ${MAX_ATTACHMENTS * 10} MB.` },
+      { status: 413 },
+    )
+  }
+
   try {
-    const formData = await request.formData()
+    // Reconstruct a synthetic request from the already-read, size-checked bytes
+    // so that the built-in formData() parser can process the multipart body.
+    const syntheticReq = new Request("http://localhost", {
+      method: "POST",
+      headers: { "content-type": bodyResult.contentType },
+      body: bodyResult.body,
+    })
+    const formData = await syntheticReq.formData()
 
     const jobId = formData.get("jobId") as string
     const fullName = formData.get("fullName") as string
@@ -87,9 +157,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Upload validated files using randomised paths so stored URLs are not
-    // guessable — even though blobs are technically public, the long random
-    // token acts as an access capability that applicants cannot enumerate.
+    // Upload validated files as private blobs. Private blobs are not accessible
+    // via direct URL — they require server-side authentication (BLOB_READ_WRITE_TOKEN).
+    // The admin UI always downloads through the /api/admin/applications/download
+    // proxy which enforces an active admin session before calling blob get().
     const attachments: { name: string; url: string }[] = []
     let resumeUrl: string | undefined
 
@@ -98,7 +169,7 @@ export async function POST(request: Request) {
       const blob = await put(
         `applications/${jobId}/${randomToken()}.${ext}`,
         resume,
-        { access: "public" }
+        { access: "private" }
       )
       resumeUrl = blob.url
       attachments.push({ name: resume.name, url: blob.url })
@@ -110,7 +181,7 @@ export async function POST(request: Request) {
         const blob = await put(
           `applications/${jobId}/${randomToken()}.${ext}`,
           file,
-          { access: "public" }
+          { access: "private" }
         )
         attachments.push({ name: file.name, url: blob.url })
       }

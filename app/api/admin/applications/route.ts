@@ -9,13 +9,41 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+// Replace raw blob storage URLs with admin-authenticated proxy URLs so
+// applicant documents are never directly accessible from the browser without
+// an active admin session.
+function proxyFileUrls(
+  apps: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return apps.map((app) => {
+    const id = app.id as string
+    const result = { ...app }
+
+    if (app.resumeUrl) {
+      result.resumeUrl = `/api/admin/applications/download?id=${encodeURIComponent(id)}&type=resume`
+    }
+
+    if (Array.isArray(app.attachments)) {
+      result.attachments = (app.attachments as Array<{ name: string; url: string }>).map(
+        (att, idx) => ({
+          name: att.name,
+          url: `/api/admin/applications/download?id=${encodeURIComponent(id)}&type=attachment&index=${idx}`,
+        }),
+      )
+    }
+
+    return result
+  })
+}
+
 export async function GET(req: Request) {
   try {
     await requireAdminSession()
     const { searchParams } = new URL(req.url)
     const jobId = searchParams.get("jobId") ?? undefined
     const status = searchParams.get("status") ?? undefined
-    return NextResponse.json(await dbListApplications({ jobId, status }))
+    const apps = await dbListApplications({ jobId, status })
+    return NextResponse.json(proxyFileUrls(apps as Array<Record<string, unknown>>))
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/applications] GET error:", err)
