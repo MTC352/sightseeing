@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
-import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun, Sparkles } from "lucide-react"
+import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun } from "lucide-react"
 import { PROVIDER_LABELS, type AiProvider } from "@/lib/ai/models"
 
 export const dynamic = "force-dynamic"
@@ -50,12 +50,6 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
     description: "AI-powered homepage recommendation engine — selects and ranks trips based on today's weather, live timeslots, and trip descriptions.",
     icon: Sun,
     href: "/admin/ai-systems/outdoor_today",
-  },
-  seo: {
-    label: "SEO Optimizer",
-    description: "Creative prompts for the three AI SEO tools on the trip edit page — Optimize, Fix and Analyze. Edit all three together, each with revision history.",
-    icon: Sparkles,
-    href: "/admin/ai-systems/seo",
   },
 }
 
