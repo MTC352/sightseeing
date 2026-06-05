@@ -1,9 +1,29 @@
 import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
-import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun } from "lucide-react"
+import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun, MapPinned } from "lucide-react"
 import { PROVIDER_LABELS, type AiProvider } from "@/lib/ai/models"
 
 export const dynamic = "force-dynamic"
+
+// "Single Trip AIs" groups the AI assistants that operate on a SINGLE trip:
+// the per-trip chat (system_key `chat`) and the single-trip itinerary generator
+// (system_key `trip_itinerary`). Both prompts live under this one block.
+const SINGLE_TRIP_SUBSYSTEMS: { key: string; label: string; description: string; icon: typeof Bot; href: string }[] = [
+  {
+    key: "chat",
+    label: "Per-Trip Chat",
+    description: "AI assistant on experience detail pages. Answers trip-specific questions.",
+    icon: MessageSquare,
+    href: "/admin/ai-systems/chat",
+  },
+  {
+    key: "trip_itinerary",
+    label: "Itinerary Generator",
+    description: 'Powers "Generate Itinerary with AI" on the trip edit page — builds the step-by-step itinerary with map locations.',
+    icon: MapPinned,
+    href: "/admin/ai-systems/trip_itinerary",
+  },
+]
 
 // The legacy "Trip Planner" (planner) card was removed — its DB row stays
 // because /api/planner still reads behaviour-knob defaults from there, but
@@ -22,12 +42,6 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
     description: "Prompt, model, tips text, cross-sell widgets and multi-day max-days cap for the Smart Itinerary on /planner. Uses live Palisis timeslots.",
     icon: Route,
     href: "/admin/ai-systems/itinerary",
-  },
-  chat: {
-    label: "Trip Chat",
-    description: "Per-trip AI assistant on experience detail pages. Answers trip-specific questions.",
-    icon: MessageSquare,
-    href: "/admin/ai-systems/chat",
   },
   "planner-chat": {
     label: "Trip Planner Chat",
@@ -117,6 +131,46 @@ export default async function AiSystemsPage() {
             </Link>
           )
         })}
+
+        {/* Single Trip AIs — one block holding both per-trip prompts. */}
+        <div className="flex flex-col rounded-2xl border border-border bg-card p-6 sm:col-span-2 lg:col-span-1">
+          <div className="mb-4 flex items-start justify-between">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+              <MapPinned className="h-5 w-5 text-primary" />
+            </div>
+          </div>
+          <h2 className="text-base font-semibold text-foreground">Single Trip AIs</h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            AI assistants scoped to a single trip — the per-trip chat and the itinerary generator. Manage each prompt below.
+          </p>
+
+          <div className="mt-4 space-y-2 border-t border-border pt-4">
+            {SINGLE_TRIP_SUBSYSTEMS.map((sub) => {
+              const config = (settings.ai as Record<string, { model?: string }>)[sub.key]
+              return (
+                <Link
+                  key={sub.key}
+                  href={sub.href}
+                  className="group flex items-center gap-3 rounded-xl border border-border bg-background p-3 transition-colors hover:border-primary/30 hover:bg-secondary/40"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <sub.icon className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">{sub.label}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">{sub.description}</p>
+                  </div>
+                  {config?.model && (
+                    <span className="hidden shrink-0 rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline">
+                      {String(config.model).split("/").pop()}
+                    </span>
+                  )}
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
+                </Link>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="mt-8 rounded-xl border border-border bg-card p-5">

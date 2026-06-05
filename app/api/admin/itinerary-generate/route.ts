@@ -2,9 +2,16 @@ import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbGetTrip, dbGetSettings } from "@/lib/db/queries"
+import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 
 export const maxDuration = 45
 export const dynamic = "force-dynamic"
+
+/** AI System key — admin-managed prompt/model/temp/tokens for this tool. */
+const SYSTEM_KEY = "trip_itinerary"
+
+/** Default geocoding country: these experiences are in Luxembourg. */
+const DEFAULT_COUNTRY = "lu"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -19,23 +26,32 @@ function stripHtml(html: string): string {
     .trim()
 }
 
-const SYSTEM_PROMPT = `You are a Luxembourg travel expert writing the step-by-step itinerary for a single tour/experience page on sightseeing.lu.
+const SYSTEM_PROMPT = TRIP_ITINERARY_SYSTEM_PROMPT
 
-Produce a realistic, well-ordered list of itinerary steps a guest follows during THIS experience — the places they visit and stops they make, in chronological order. Base it strictly on the trip details provided; never invent attractions that wouldn't plausibly be part of this tour.
+/** Map a country name appearing in free text to its ISO-3166 alpha-2 code. */
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  luxembourg: "lu",
+  letzebuerg: "lu",
+  germany: "de",
+  deutschland: "de",
+  france: "fr",
+  belgium: "be",
+  belgique: "be",
+  belgie: "be",
+  netherlands: "nl",
+  holland: "nl",
+  nederland: "nl",
+}
 
-Each step must have:
-- "name": the stop / place / activity title — short (2-7 words), specific (e.g. "Vianden Castle", "Old Town walking tour", "Moselle wine tasting").
-- "description": 1-2 engaging sentences (max ~45 words) describing what happens at this stop and why it's worth it. Plain travel prose, no marketing fluff, no emojis.
-- "location" (OPTIONAL): a real, geocodable place name to pin on a map — ONLY when the step refers to a specific, searchable physical place (a named museum, castle, landmark, square, restaurant, town center). Make it precise and unambiguous by including the town and country, e.g. "European Schengen Museum, Schengen, Luxembourg" or "Vianden Castle, Luxembourg". OMIT "location" entirely for vague or non-mappable stops such as "Lunch break", "Free time", "Return journey", or generic activities that have no single fixed place.
-
-Return 3-8 steps. Order matters — first step = start of the experience, last step = end.
-
-Respond with ONLY a valid JSON object (no markdown, no code fences):
-{
-  "steps": [
-    { "name": "...", "description": "...", "location": "Optional Place, Town, Country" }
-  ]
-}`
+/** Detect an explicitly-named country in free text; null when none is present. */
+function countryCodeFromText(text: string | null | undefined): string | null {
+  if (!text) return null
+  const t = text.toLowerCase()
+  for (const [name, code] of Object.entries(COUNTRY_NAME_TO_CODE)) {
+    if (new RegExp(`\\b${name}\\b`).test(t)) return code
+  }
+  return null
+}
 
 function buildSource(trip: Record<string, unknown>): string {
   const g = (k: string) => {
@@ -127,15 +143,17 @@ async function getMapboxToken(): Promise<string> {
 }
 
 /** Resolve a place-name query into coordinates via the Mapbox Geocoding API.
+ *  `country` is an ISO-3166 alpha-2 filter (defaults to Luxembourg upstream).
  *  Returns null on any failure so location stays optional and fail-soft. */
 async function geocode(
   query: string,
   token: string,
+  country: string,
 ): Promise<{ lat: number; lng: number; placeName: string } | null> {
   try {
     const url =
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-      `?limit=1&country=lu,de,fr,be&access_token=${encodeURIComponent(token)}`
+      `?limit=1&country=${encodeURIComponent(country)}&access_token=${encodeURIComponent(token)}`
     const r = await fetch(url)
     if (!r.ok) return null
     const d = await r.json()
@@ -152,13 +170,18 @@ async function geocode(
 }
 
 /** Geocode each step's optional location query (bounded, in parallel). Steps
- *  with no query or a failed lookup keep no coordinates — locations are optional. */
-async function attachLocations(steps: Step[], token: string): Promise<void> {
+ *  with no query or a failed lookup keep no coordinates — locations are optional.
+ *  `baseCountry` is the default geocoding country (Luxembourg unless the trip
+ *  itself is elsewhere); a step's query may explicitly name another country to
+ *  widen to it (a stated cross-border excursion). */
+async function attachLocations(steps: Step[], token: string, baseCountry: string): Promise<void> {
   if (!token) return
   await Promise.all(
     steps.map(async (step) => {
       if (!step.locationQuery) return
-      const hit = await geocode(step.locationQuery, token)
+      const explicit = countryCodeFromText(step.locationQuery)
+      const country = explicit ?? baseCountry
+      const hit = await geocode(step.locationQuery, token, country)
       if (hit) {
         step.lat = hit.lat
         step.lng = hit.lng
@@ -190,7 +213,17 @@ export async function POST(request: Request) {
       return Response.json({ error: "Trip not found." }, { status: 404 })
     }
 
-    const ai = await resolveAi({ defaultTier: "fast" })
+    // One settings round-trip feeds both the admin prompt and resolveAi.
+    const settings = await dbGetSettings()
+    const aiCfg = (settings.ai as Record<string, { systemPrompt?: unknown }> | undefined)?.[SYSTEM_KEY]
+    const systemPrompt =
+      typeof aiCfg?.systemPrompt === "string" && aiCfg.systemPrompt.trim()
+        ? aiCfg.systemPrompt
+        : SYSTEM_PROMPT
+
+    // Active provider + this system's model/temp/tokens (provider switch remaps
+    // the model tier automatically).
+    const ai = await resolveAi({ systemKey: SYSTEM_KEY, defaultTier: "fast", settings })
     if (!ai.model) {
       return Response.json(
         { error: "AI is not configured. Add an Anthropic or OpenAI API key in Admin → Integrations." },
@@ -200,10 +233,10 @@ export async function POST(request: Request) {
 
     const result = await generateText({
       model: ai.model,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       prompt: `Write the step-by-step itinerary for this experience. Return ONLY the JSON object.\n\n${buildSource(trip)}`,
-      temperature: 0.6,
-      maxOutputTokens: 1500,
+      temperature: typeof ai.temperature === "number" ? ai.temperature : 0.6,
+      maxOutputTokens: typeof ai.maxTokens === "number" ? ai.maxTokens : 1500,
     })
 
     const parsed = extractJson(result.text)
@@ -214,8 +247,10 @@ export async function POST(request: Request) {
 
     // Resolve the optional per-step locations to coordinates (fail-soft — a
     // missing Mapbox key or geocode miss simply leaves the step un-pinned).
+    // Default to Luxembourg; honor a trip explicitly set in another country.
     const mapboxToken = await getMapboxToken()
-    await attachLocations(steps, mapboxToken)
+    const baseCountry = countryCodeFromText(String(trip.country ?? "")) ?? DEFAULT_COUNTRY
+    await attachLocations(steps, mapboxToken, baseCountry)
 
     return Response.json({ ok: true, steps })
   } catch (err) {

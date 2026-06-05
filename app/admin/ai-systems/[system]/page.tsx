@@ -6,6 +6,7 @@ import Link from "next/link"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Settings2, ChevronRight, Wand2 } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
+import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 
 const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
   planner: {
@@ -13,8 +14,12 @@ const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
     hint: "Used on /planner. Has access to the full trip catalog, weather, cart, and group data. Supports tools: searchTrips, showWeather, offerCoupon, buildItinerary, addToCart.",
   },
   chat: {
-    label: "Trip Chat",
-    hint: "Used on individual trip detail pages (/trip/[id]). At runtime it receives: the full current trip context, all published trips catalog, blog articles, and open job listings as a knowledge base. For complex itinerary questions it redirects to /planner. Use the system prompt to customise tone, restrict topics, or add operator-specific instructions.",
+    label: "Per-Trip Chat",
+    hint: "Part of Single Trip AIs. Used on individual trip detail pages (/trip/[id]). At runtime it receives: the full current trip context, all published trips catalog, blog articles, and open job listings as a knowledge base. For complex itinerary questions it redirects to /planner. Use the system prompt to customise tone, restrict topics, or add operator-specific instructions.",
+  },
+  trip_itinerary: {
+    label: "Itinerary Generator",
+    hint: 'Part of Single Trip AIs. Powers "Generate Itinerary with AI" on the trip edit page — builds the step-by-step itinerary shown on the public trip page, with optional map locations. Locations geocode to Luxembourg by default. Uses the active AI provider; switching providers remaps the model.',
   },
   help: {
     label: "Help & FAQ Chat",
@@ -31,6 +36,7 @@ const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
 }
 
 const DEFAULT_PROMPT_SUGGESTIONS: Record<string, string> = {
+  trip_itinerary: TRIP_ITINERARY_SYSTEM_PROMPT,
   blog: `You are an expert SEO and AEO (Answer Engine Optimization) content writer for a Luxembourg tourism website called "Sightseeing Luxembourg".
 
   Generate a high-quality, engaging blog post with SEO best practices: compelling keyword-rich title, structured H2/H3 headings, natural keyword placement, 1200-1800 words, strong CTA.
@@ -89,12 +95,22 @@ export default function AiSystemSettingsPage({ params }: { params: Promise<{ sys
       .then((s) => {
         if (cancelled) return
         const config = s?.ai?.[system]
+        const suggestion = DEFAULT_PROMPT_SUGGESTIONS[system]
         if (config) {
-          setForm({ ...DEFAULT_CONFIG, ...config })
+          // Pre-fill with the built-in default when no prompt has been saved yet,
+          // so the admin edits FROM the prompt that's actually in effect.
+          const merged = { ...DEFAULT_CONFIG, ...config }
+          if (!String(merged.systemPrompt ?? "").trim() && suggestion) {
+            merged.systemPrompt = suggestion
+          }
+          setForm(merged)
           if (system === "outdoor_today") {
             const count = config?.extra?.display_count
             if (typeof count === "number") setDisplayCount(count)
           }
+        } else if (suggestion) {
+          // No DB row at all — still show the built-in default as the starting point.
+          setForm((f) => ({ ...f, systemPrompt: suggestion }))
         }
       })
       .catch(() => {})

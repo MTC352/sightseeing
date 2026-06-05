@@ -16,6 +16,7 @@
  */
 import { query, queryOne } from "@/lib/db"
 import adminDocs from "./data/001-admin-docs.json"
+import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 
 export type MigrationResult = {
   inserted: number
@@ -86,6 +87,30 @@ async function applyAdminDocs(): Promise<MigrationResult> {
 }
 
 /**
+ * Seed the "Itinerary Generator" (system_key='trip_itinerary') AI System config
+ * row so the admin editor renders the default prompt/model and the single-trip
+ * "Generate Itinerary with AI" tool resolves its prompt DB-first in production.
+ * Idempotent: never overwrites an existing row (admin edits are preserved).
+ */
+async function applyTripItineraryConfig(): Promise<MigrationResult> {
+  const existing = await queryOne<{ system_key: string }>(
+    `SELECT system_key FROM ai_system_configs WHERE system_key = 'trip_itinerary' LIMIT 1`,
+  )
+  if (existing) {
+    return { inserted: 0, skipped: 1, detail: "trip_itinerary config already present" }
+  }
+  await query(
+    `INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config)
+     VALUES ('trip_itinerary', 'Itinerary Generator',
+       'Single Trip AIs — powers "Generate Itinerary with AI" on the trip edit page (step-by-step itinerary + optional Luxembourg map locations).',
+       $1, 'anthropic/claude-haiku-4-5-20251001', 0.6, 1500, '{}'::jsonb)
+     ON CONFLICT (system_key) DO NOTHING`,
+    [TRIP_ITINERARY_SYSTEM_PROMPT],
+  )
+  return { inserted: 1, skipped: 0, detail: "trip_itinerary config seeded" }
+}
+
+/**
  * The ordered registry. Add new migrations to the END with the next numeric id.
  * Keep ids stable once shipped — they are the tracking keys.
  */
@@ -96,6 +121,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Seeds the internal admin documentation articles (help_articles, audience='admin') that power the /admin/docs page. Idempotent: existing articles with the same question are left untouched.",
     apply: applyAdminDocs,
+  },
+  {
+    id: "002-trip-itinerary-ai-config",
+    name: "Single Trip itinerary generator AI config",
+    description:
+      "Seeds the 'Itinerary Generator' AI System config (system_key='trip_itinerary') used by 'Generate Itinerary with AI' on the trip edit page. Idempotent: an existing row is left untouched so admin prompt/model edits are preserved.",
+    apply: applyTripItineraryConfig,
   },
 ]
 
