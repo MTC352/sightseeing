@@ -11,6 +11,7 @@ The current deployment is publicly reachable on the internet. The client-side si
 - **Admin accounts and sessions** — admin email addresses, password hashes, JWT session cookies, and the JWT signing secret. Compromise gives full control of site content, integrations, and AI/system settings.
 - **Integration secrets** — TourCMS/Palisis credentials, AI provider keys, Google Places, Mapbox, weather, and translation keys stored in the database or environment. Compromise can expose data, incur cost, or let an attacker impersonate the application to third parties.
 - **Content and CMS data** — trips, blog posts, help articles, pages, ticket records, AI prompts/configs, and header/footer HTML blocks. Tampering can deface the site, inject attacker-controlled script, or alter business content.
+- **Applicant documents and contact data** — resumes, cover letters, email addresses, phone numbers, and any supporting files uploaded through public careers flows. Exposure would leak sensitive personal data.
 - **Public infrastructure and billable resources** — public blob storage, external API quotas, database capacity, and AI usage. Abuse can create cost, service degradation, or operational disruption.
 - **Palisis/TourCMS sync state** — imported trip data, sync logs, and webhook-triggered refresh behavior. Integrity matters because sync actions can overwrite local trip data.
 
@@ -26,7 +27,7 @@ The current deployment is publicly reachable on the internet. The client-side si
 ## Scan Anchors
 
 - **Production entry points:** `app/api/**/*`, `app/admin/**/*`, `proxy.ts`, `app/layout.tsx`
-- **Highest-risk code areas:** `lib/auth.ts`, `app/api/upload/route.ts`, `app/api/careers/apply/route.ts`, `app/api/webhooks/palisis/route.ts`, `app/api/admin/settings/route.ts`, `app/api/help-chat/route.ts`, `app/api/trip-chat/route.ts`, `app/api/planner/route.ts`, `app/api/itinerary/route.ts`, `lib/db/queries.ts`, `lib/tourcms.ts`
+- **Highest-risk code areas:** `lib/auth.ts`, `app/api/upload/route.ts`, `app/api/careers/apply/route.ts`, `app/api/webhooks/palisis/route.ts`, `app/api/admin/settings/route.ts`, `app/api/help-chat/route.ts`, `app/api/trip-chat/route.ts`, `app/api/planner/route.ts`, `app/api/itinerary/route.ts`, `app/api/google-reviews/route.ts`, `app/page.tsx`, `app/explore/page.tsx`, `lib/db/queries.ts`, `lib/tourcms.ts`
 - **Surface split:** public site and APIs under `app/` and `app/api/*`; admin UI and admin APIs under `app/admin/*` and `app/api/admin/*`; external webhook under `app/api/webhooks/*`
 - **Usually dev-only / lower-priority:** docs, implementation dashboards, attached assets, and historical artifacts unless they prove a live production default or active data flow
 - **Context-sensitive disclosures:** browser-exposed publishable vendor keys are not findings by themselves; treat them as in-scope only when code can disclose a server-only or broader-scoped credential, or when a masked/admin-only secret store is unintentionally bridged into a public route
@@ -50,6 +51,8 @@ Because Palisis is upstream for synced trip data, webhook- or import-driven refr
 The app stores multiple sensitive keys and internal prompts. Those values must never be exposed to public clients or leak through logs, public routes, or client bundles unless the specific token is intentionally publishable. Admin APIs that return settings must stay inside the admin boundary.
 
 Error responses and rendered content must not expose secrets or unsafely execute attacker-controlled HTML. Any rich content rendered to end users must be serialized or sanitized in a way that prevents script execution.
+
+Structured-data `<script type="application/ld+json">` blocks are active render sinks, not inert metadata. Any database-backed values interpolated into JSON-LD must be escaped with a serializer that prevents `</script>` breakout.
 
 Stored-but-unrendered HTML configuration is lower priority than active render sinks. If a settings field can store custom HTML but the current production codebase never injects it into a public page, do not report XSS until a real render path is identified.
 
