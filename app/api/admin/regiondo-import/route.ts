@@ -33,21 +33,24 @@ export async function POST(req: Request) {
   }
 
   const startedAt = Date.now()
-  const body = (await req.json().catch(() => ({}))) as { override?: boolean }
+  const body = (await req.json().catch(() => ({}))) as { override?: boolean; dryRun?: boolean }
   const overrideAll = body.override === true
+  const dryRun = body.dryRun === true
 
   // ── 1. Load Regiondo client ─────────────────────────────────────────────────
   const regiondo = await getRegiondoClient()
   if (!regiondo) {
     const error =
       "Regiondo not configured — add the Public Key and Secret Key in Admin → Settings (DMO / Regiondo section)"
-    await dbInsertRegiondoSyncLog({
-      trigger_type: "manual",
-      action: "import_run",
-      note: `FAILED: ${error}`,
-      changes: { ok: false, error, imported: 0, updated: 0, skipped: 0, total: 0, duration_ms: Date.now() - startedAt },
-    })
-    return NextResponse.json({ ok: false, imported: 0, updated: 0, skipped: 0, total: 0, error }, { status: 503 })
+    if (!dryRun) {
+      await dbInsertRegiondoSyncLog({
+        trigger_type: "manual",
+        action: "import_run",
+        note: `FAILED: ${error}`,
+        changes: { ok: false, error, imported: 0, updated: 0, skipped: 0, total: 0, duration_ms: Date.now() - startedAt },
+      })
+    }
+    return NextResponse.json({ ok: false, dryRun, imported: 0, updated: 0, skipped: 0, total: 0, error }, { status: 503 })
   }
 
   const logs: string[] = []
@@ -58,13 +61,15 @@ export async function POST(req: Request) {
   if (!list.ok) {
     const error = `Regiondo catalog fetch failed: ${list.error}`
     logs.push(`[${ts()}] ERROR: ${error}`)
-    await dbInsertRegiondoSyncLog({
-      trigger_type: "manual",
-      action: "import_run",
-      note: `FAILED: ${error}`,
-      changes: { ok: false, error, imported: 0, updated: 0, skipped: 0, total: 0, duration_ms: Date.now() - startedAt, log: logs },
-    })
-    return NextResponse.json({ ok: false, error, imported: 0, updated: 0, skipped: 0, total: 0, log: logs }, { status: 502 })
+    if (!dryRun) {
+      await dbInsertRegiondoSyncLog({
+        trigger_type: "manual",
+        action: "import_run",
+        note: `FAILED: ${error}`,
+        changes: { ok: false, error, imported: 0, updated: 0, skipped: 0, total: 0, duration_ms: Date.now() - startedAt, log: logs },
+      })
+    }
+    return NextResponse.json({ ok: false, dryRun, error, imported: 0, updated: 0, skipped: 0, total: 0, log: logs }, { status: 502 })
   }
 
   const products = list.data
@@ -74,6 +79,49 @@ export async function POST(req: Request) {
   const existing = await dbListRegiondoTrips()
   const byRegiondoId = new Map(existing.filter((t) => t.regiondo_id).map((t) => [t.regiondo_id!, t]))
   logs.push(`[${ts()}] DB has ${existing.length} existing DMO trips.`)
+
+  // ── 3b. DRY RUN — return the planned actions WITHOUT writing anything ─────────
+  //
+  // Lets the admin manually review what the importer will do (connection OK,
+  // per-product create/update/skip plan) before committing. No detail/variation/
+  // option fetches, no DB writes, no sync-log entry.
+  if (dryRun) {
+    let willCreate = 0
+    let willUpdate = 0
+    let willSkip = 0
+    const plan = products.map((summary) => {
+      const regiondoId = String(summary.product_id ?? "").trim()
+      const leanTitle = String(summary.name ?? "")
+      if (!regiondoId) {
+        willSkip++
+        return { regiondoId: "", title: leanTitle || "(untitled)", action: "skip" as const }
+      }
+      const exists = byRegiondoId.has(regiondoId)
+      const title = byRegiondoId.get(regiondoId)?.title ?? leanTitle
+      if (!exists) {
+        willCreate++
+        return { regiondoId, title, action: "create" as const }
+      }
+      if (overrideAll) {
+        willUpdate++
+        return { regiondoId, title, action: "update" as const }
+      }
+      willSkip++
+      return { regiondoId, title, action: "skip" as const }
+    })
+
+    return NextResponse.json({
+      ok: true,
+      dryRun: true,
+      total: products.length,
+      existing: existing.length,
+      override: overrideAll,
+      willCreate,
+      willUpdate,
+      willSkip,
+      plan,
+    })
+  }
 
   // ── 4. Process each product ──────────────────────────────────────────────────
   let imported = 0

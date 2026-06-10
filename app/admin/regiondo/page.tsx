@@ -25,6 +25,21 @@ interface ImportResult {
   log?: string[]
 }
 
+type PlanAction = "create" | "update" | "skip"
+
+interface PreviewResult {
+  ok: boolean
+  dryRun: true
+  total: number
+  existing: number
+  override: boolean
+  willCreate: number
+  willUpdate: number
+  willSkip: number
+  plan: { regiondoId: string; title: string; action: PlanAction }[]
+  error?: string
+}
+
 interface SyncLogEntry {
   id: string
   trigger_type: string
@@ -56,6 +71,9 @@ export default function RegiondoPage() {
   const [expandedLog, setExpandedLog]   = useState<string | null>(null)
   const [overrideMode, setOverrideMode] = useState(false)
   const [confirmOpen, setConfirmOpen]   = useState(false)
+  const [previewing, setPreviewing]     = useState(false)
+  const [preview, setPreview]           = useState<PreviewResult | null>(null)
+  const [previewError, setPreviewError] = useState("")
 
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true)
@@ -69,6 +87,31 @@ export default function RegiondoPage() {
   }, [])
 
   useEffect(() => { fetchLogs() }, [fetchLogs])
+
+  async function runPreview(override = false) {
+    setPreviewing(true)
+    setPreview(null)
+    setPreviewError("")
+    setImportResult(null)
+    setImportError("")
+    try {
+      const res  = await fetch("/api/admin/regiondo-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ override, dryRun: true }),
+      })
+      const data = await res.json() as PreviewResult
+      if (data.ok) {
+        setPreview(data)
+      } else {
+        setPreviewError(data.error ?? "Could not reach DMO/Regiondo — check your keys in Admin Settings.")
+      }
+    } catch {
+      setPreviewError("Request failed — check your DMO / Regiondo keys in Admin Settings.")
+    } finally {
+      setPreviewing(false)
+    }
+  }
 
   async function runImport(override = false) {
     setImporting(true)
@@ -84,12 +127,23 @@ export default function RegiondoPage() {
       const data = await res.json() as ImportResult
       setImportResult(data)
       if (!data.ok) setImportError(data.error ?? "Import failed — see log for details.")
+      // Clear the preview — the plan has now been executed.
+      setPreview(null)
+      setPreviewError("")
       await fetchLogs()
     } catch {
       setImportError("Request failed — check your DMO / Regiondo keys in Admin Settings.")
     } finally {
       setImporting(false)
     }
+  }
+
+  // Toggling override invalidates a shown preview — the plan (skip vs. update)
+  // would no longer match what will run, so force a fresh review.
+  function handleOverrideToggle(checked: boolean) {
+    setOverrideMode(checked)
+    setPreview(null)
+    setPreviewError("")
   }
 
   return (
@@ -137,6 +191,8 @@ export default function RegiondoPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             Pull the full product catalog from DMO/Regiondo and create new trips.
             Existing DMO trips are skipped unless you run an override import.
+            <strong className="text-foreground"> Preview first</strong> to review exactly
+            what will be created or overridden — nothing is written until you confirm.
           </p>
 
           {/* Override checkbox */}
@@ -148,8 +204,8 @@ export default function RegiondoPage() {
             <input
               type="checkbox"
               checked={overrideMode}
-              onChange={(e) => setOverrideMode(e.target.checked)}
-              disabled={importing}
+              onChange={(e) => handleOverrideToggle(e.target.checked)}
+              disabled={importing || previewing}
               className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
             />
             <div>
@@ -163,21 +219,83 @@ export default function RegiondoPage() {
             </div>
           </label>
 
+          {/* Step 1 — Preview (dry run, no writes) */}
           <button
             type="button"
-            onClick={() => {
-              if (overrideMode) {
-                setConfirmOpen(true)
-              } else {
-                runImport(false)
-              }
-            }}
-            disabled={importing}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            onClick={() => runPreview(overrideMode)}
+            disabled={importing || previewing}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/5 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
           >
-            <Download className={`h-4 w-4 ${importing ? "animate-bounce" : ""}`} />
-            {importing ? "Importing…" : "Run Import"}
+            <RefreshCw className={`h-4 w-4 ${previewing ? "animate-spin" : ""}`} />
+            {previewing ? "Checking…" : preview ? "Refresh preview" : "Preview import"}
           </button>
+
+          {previewError && (
+            <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+              <div className="flex items-start gap-2">
+                <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{previewError}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Preview details — manual review before committing */}
+          {preview && (
+            <div className="mt-3 rounded-xl border border-border bg-secondary/30 p-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                Connection OK — review before importing
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                <span><strong className="text-foreground">{preview.total}</strong> in catalog</span>
+                <span><strong className="text-emerald-600">{preview.willCreate}</strong> new</span>
+                <span><strong className="text-blue-600">{preview.willUpdate}</strong> {preview.override ? "to override" : "updates"}</span>
+                <span><strong className="text-muted-foreground">{preview.willSkip}</strong> skipped</span>
+              </div>
+              {!preview.override && preview.willSkip > 0 && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+                  Existing DMO trips are skipped. Tick “Override existing DMO trips” above to refresh them.
+                </p>
+              )}
+              {preview.plan.length > 0 && (
+                <div className="mt-3 max-h-52 overflow-y-auto rounded-lg border border-border/60 bg-background/60">
+                  <ul className="divide-y divide-border/60 text-[11px]">
+                    {preview.plan.map((p, i) => (
+                      <li key={`${p.regiondoId}-${i}`} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                        <span className="truncate text-foreground">{p.title || p.regiondoId || "(untitled)"}</span>
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                          p.action === "create"
+                            ? "bg-emerald-500/10 text-emerald-600"
+                            : p.action === "update"
+                            ? "bg-blue-500/10 text-blue-600"
+                            : "bg-muted text-muted-foreground"
+                        }`}>
+                          {p.action === "create" ? "New" : p.action === "update" ? "Override" : "Skip"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Step 2 — Confirm & commit */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (overrideMode) {
+                    setConfirmOpen(true)
+                  } else {
+                    runImport(false)
+                  }
+                }}
+                disabled={importing}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+              >
+                <Download className={`h-4 w-4 ${importing ? "animate-bounce" : ""}`} />
+                {importing ? "Importing…" : `Confirm & import (${preview.willCreate + preview.willUpdate})`}
+              </button>
+            </div>
+          )}
 
           {/* Override confirmation dialog */}
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
