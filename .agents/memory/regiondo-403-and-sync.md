@@ -10,25 +10,30 @@ The HMAC-SHA256 signing is VERIFIED correct against Regiondo's official
 queryString` (the query string signed must byte-for-byte equal the query sent on
 the wire), headers `X-API-ID` / `X-API-TIME` / `X-API-HASH` / `Accept-Language`.
 
-**Symptom that proves it's account-side, not code:** a no-auth request returns
-**401 JSON** `{"code":401}`; ANY request with a recognized `X-API-ID` returns
-**403 with an empty body**, across every signing permutation (ms vs sec
-timestamp, key order, swapped keys, prod vs sandbox host). Recognized-but-
-forbidden ⇒ the key pair is rejected on the Regiondo account side, not a bug.
+**Symptom that proves it's account-side, not code:** ANY request with a
+recognized `X-API-ID` returns **403 with an empty body**, across every signing
+permutation (ms vs sec timestamp, prod `api.regiondo.com/v1` vs sandbox
+`sandbox-api.regiondo.com/v1`), even the MINIMAL `/categories` call with an empty
+query string. A 403 on the minimal signed request can't be a query-string/encoding
+bug — the key pair is rejected on the Regiondo account side. (`api.regiondo.de` is
+NOT an API host — it returns storefront 404 HTML.)
 
-**Fastest credential diagnostic:** a valid Regiondo secret is **even-length
-hex**. A saved secret that is odd-length or non-hex is truncated/mis-pasted and
-will ALWAYS 403. The admin Test modal surfaces `secretKey_length`,
-`secretKey_isEvenLengthHex`, and a non-reversible SHA-256 fingerprint of each key
-(never the raw secret) so the admin can compare against their working app.
+**The secret is a PLAIN UTF-8 STRING key — do NOT expect it to be hex.** All four
+official `regiondo-dev/api` reference clients (JS Postman, PHP, Java, C#) feed the
+secret straight into HMAC as UTF-8 bytes: PHP `hash_hmac('sha256',msg,secret)`,
+Java `new SecretKeySpec(key.getBytes("UTF-8"),...)`, JS `CryptoJS.HmacSHA256(msg,
+secret)`. Node `createHmac("sha256",secret)` is byte-identical. **A prior session's
+"valid secret = even-length hex" claim was WRONG** — secret length/charset is not a
+validity signal. (Observed non-working pair: public `MO…` 14 chars, secret 37 chars.)
 
-**Why:** signing was empirically exhausted before confirming it was
-credential/account-side; don't re-chase it in code. Tell the user to regenerate
-the key pair and enable API access (Regiondo Dashboard → Connectivity → API
-Configuration).
+**Why:** signing is provably correct and was empirically exhausted (live 403 on
+both hosts); don't re-chase it in code.
 
-**How to apply:** when Regiondo 403s, check the secret is even-length hex and the
-fingerprint matches the working key before touching any signing code.
+**How to apply:** when Regiondo 403s, do NOT touch signing. Tell the user the keys
+are rejected account-side — regenerate the key pair in the Regiondo Dashboard,
+enable API access, confirm whether they are sandbox vs production keys (set the
+DB-configurable `regiondoApiUrl` to the sandbox host for sandbox keys), and check
+whether the Regiondo account requires IP-allowlisting the calling server.
 
 # Single-trip sync mirrors Palisis
 
