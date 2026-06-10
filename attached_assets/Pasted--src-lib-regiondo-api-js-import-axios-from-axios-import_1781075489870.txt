@@ -1,0 +1,236 @@
+// src/lib/regiondo-api.js
+
+import axios from "axios"
+import CryptoJS from "crypto-js"
+
+/**
+ * Regiondo API service for Next.js applications
+ */
+export default class RegiondoAPI {
+  constructor(config = {}) {
+    // Try to use server-side environment variables first
+    this.publicKey = process.env.REGIONDO_PUBLIC_KEY || config.publicKey
+    this.secretKey = process.env.REGIONDO_SECRET_KEY || config.secretKey
+    this.baseURL = process.env.REGIONDO_API_URL || config.baseURL || "https://api.regiondo.com/v1"
+
+    // Fall back to public variables if server-side ones aren't available
+    if (!this.publicKey) {
+      this.publicKey = process.env.NEXT_PUBLIC_REGIONDO_PUBLIC_KEY || config.publicKey
+    }
+    if (!this.secretKey) {
+      this.secretKey = process.env.NEXT_PUBLIC_REGIONDO_SECRET_KEY || config.secretKey
+    }
+    if (this.baseURL === "https://api.regiondo.com/v1") {
+      this.baseURL = process.env.NEXT_PUBLIC_REGIONDO_API_URL || config.baseURL || "https://api.regiondo.com/v1"
+    }
+
+    if (!this.publicKey || !this.secretKey) {
+      throw new Error(
+        "Regiondo API keys are required. Please provide them via environment variables or constructor parameters.",
+      )
+    }
+
+    this.axiosInstance = axios.create({
+      baseURL: this.baseURL,
+      timeout: 30000,
+    })
+
+    // Add request interceptor to automatically add authentication headers
+    this.axiosInstance.interceptors.request.use(this._requestInterceptor.bind(this), (error) => Promise.reject(error))
+  }
+
+  /**
+   * Extract query string from URL
+   * @param {string} url - The URL to extract the query string from
+   * @returns {string} - The query string (with the leading '?' if present)
+   */
+
+  _getQueryString(url) {
+    const arrSplit = url.split("?")
+    return arrSplit.length > 1 ? url.substring(url.indexOf("?") + 1) : ""
+  }
+
+  /**
+   * Generate authentication headers for Regiondo API
+   * @param {string} url - The request URL including query parameters
+   * @returns {Object} - Object containing the required authentication headers
+   */
+  async _generateAuthHeaders(url) {
+    const queryString = this._getQueryString(url)
+    const timestamp = Date.now()
+    const requestData = `${timestamp}${this.publicKey}${queryString}`
+
+    // Use Web Crypto API for browser compatibility
+    // let hmacDigest
+
+    // Check if we're in a browser or Node.js environment
+    // if (typeof window !== "undefined") {
+    //   // console.log("window")
+    //   // Browser environment - use Web Crypto API
+    //   const encoder = new TextEncoder()
+    //   const keyData = encoder.encode(this.secretKey)
+    //   const messageData = encoder.encode(requestData)
+
+    //   const cryptoKey = await window.crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, [
+    //     "sign",
+    //   ])
+
+    //   const signature = await window.crypto.subtle.sign("HMAC", cryptoKey, messageData)
+
+    //   // Convert the signature to hex string
+    //   hmacDigest = Array.from(new Uint8Array(signature))
+    //     .map((b) => b.toString(16).padStart(2, "0"))
+    //     .join("")
+    // } else {
+    // Node.js environment - use Node.js crypto
+    // const crypto = require("crypto")
+    // hmacDigest = crypto.createHmac("sha256", this.secretKey).update(requestData).digest("hex")
+    // Use crypto-js for HMAC-SHA256 hashing
+    const hmacDigest = CryptoJS.HmacSHA256(requestData, this.secretKey).toString(CryptoJS.enc.Hex)
+    // }
+
+    return {
+      "X-API-HASH": hmacDigest,
+      "X-API-TIME": timestamp,
+      "X-API-ID": this.publicKey,
+      "Accept-Language": "en-US",
+    }
+  }
+
+  /**
+   * Axios request interceptor that adds authentication headers
+   * @param {Object} config - Axios request configuration
+   * @returns {Object} - Modified config with authentication headers
+   */
+  async _requestInterceptor(config) {
+    const url = `${config.url}${config.params ? `?${new URLSearchParams(config.params).toString()}` : ""}`
+    // console.log("url")
+    // console.log(url)
+    const authHeaders = await this._generateAuthHeaders(url)
+    config.headers = {
+      ...config.headers,
+      ...authHeaders,
+    }
+
+    return config
+  }
+
+  /**
+   * Make a GET request to the Regiondo API
+   * @param {string} endpoint - API endpoint path
+   * @param {Object} params - Query parameters
+   * @param {Object} options - Additional Axios options
+   * @returns {Promise<Object>} - API response
+   */
+  async get(endpoint, params = {}, options = {}) {
+    try {
+      // console.log(`Making A GET request to ${endpoint}`, { params })
+      const response = await this.axiosInstance.get(endpoint, {
+        params,
+        ...options,
+      })
+      // Log response structure for debugging
+      // console.log(`Response from ${endpoint}:`, {
+      //   status: response.status,
+      //   hasData: !!response.data,
+      //   dataType: typeof response.data,
+      //   isArray: Array.isArray(response.data),
+      //   keys: response.data ? Object.keys(response.data) : null,
+      // })
+      return response.data
+    } catch (error) {
+      // Handle circular references in error objects
+      return this._handleError(error)
+    }
+  }
+
+  /**
+   * Make a POST request to the Regiondo API with JSON data
+   * @param {string} endpoint - API endpoint path
+   * @param {Object} data - Request body data (will be sent as JSON)
+   * @param {Object} options - Additional Axios options
+   * @returns {Promise<Object>} - API response
+   */
+  async post(endpoint, data = {}, options = {}) {
+    try {
+      console.log(`Making POST request to ${endpoint}`, { data: JSON.stringify(data).substring(0, 200) + "..." })
+
+      // Ensure headers include content-type for JSON
+      const requestOptions = {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+      }
+
+      const response = await this.axiosInstance.post(endpoint, data, requestOptions)
+      
+      // console.log(`Response from POST ${endpoint}:`, {
+      //   status: response.status,
+      //   hasData: !!response.data,
+      //   dataType: typeof response.data,
+      //   keys: response.data ? Object.keys(response.data) : null,
+      // })
+
+      return response.data
+    } catch (error) {
+      // Handle error and return it instead of just throwing
+      return this._handleError(error)
+    }
+  }
+
+  /**
+   * Make a PUT request to the Regiondo API
+   * @param {string} endpoint - API endpoint path
+   * @param {Object} data - Request body data
+   * @param {Object} options - Additional Axios options
+   * @returns {Promise<Object>} - API response
+   */
+  async put(endpoint, data = {}, options = {}) {
+    try {
+      const response = await this.axiosInstance.put(endpoint, data, options)
+      return response.data
+    } catch (error) {
+      this._handleError(error)
+    }
+  }
+
+  /**
+   * Make a DELETE request to the Regiondo API
+   * @param {string} endpoint - API endpoint path
+   * @param {Object} options - Additional Axios options
+   * @returns {Promise<Object>} - API response
+   */
+  async delete(endpoint, options = {}) {
+    try {
+      // console.log("endpoint")
+      // console.log(endpoint)
+      const response = await this.axiosInstance.delete(endpoint, options)
+      // console.log("DELETE response")
+      // console.log(response)
+      return response.data
+    } catch (error) {
+      this._handleError(error)
+    }
+  }
+
+  /**
+   * Handle API errors
+   * @param {Error} error - The error object
+   * @throws {Error} - Rethrows with additional context
+   */
+  _handleError(error) {
+    // Extract only safe, serializable properties
+    const errorInfo = {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data ? JSON.parse(JSON.stringify(error.response.data)) : null,
+    }
+
+    console.error("Regiondo API Error:", errorInfo)
+
+    // Return the error instead of throwing to prevent unhandled rejections
+    throw new Error(`Regiondo API Error: ${error.response?.data?.message || error.message}`)
+  }
+}
