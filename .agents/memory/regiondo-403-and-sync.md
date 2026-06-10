@@ -26,8 +26,21 @@ secret)`. Node `createHmac("sha256",secret)` is byte-identical. **A prior sessio
 "valid secret = even-length hex" claim was WRONG** — secret length/charset is not a
 validity signal. (Observed non-working pair: public `MO…` 14 chars, secret 37 chars.)
 
+**Decisive 3-way live diagnostic (run from the Replit shell with real curl):**
+no-auth → **401 + JSON** (creds missing); a BOGUS key+hash → **403 empty**; our
+REAL signed key → **403 empty, byte-identical to the bogus key**. Real-key ==
+bogus-key (while no-key == 401) ⇒ Regiondo does not accept this key pair from this
+server. Header names are therefore correct (401 vs 403 distinction proves it), and
+plain `curl` 403s too (so it's NOT a User-Agent/WAF-UA issue).
+
+**Prime suspect when the user says the SAME keys work elsewhere: IP allowlisting.**
+Regiondo restricts API access by source IP; the keys work from the user's
+whitelisted machine but not from Replit's egress. Replit dev egress IP observed:
+`34.63.106.121` (deploy/prod egress can differ and Replit IPs can change without
+reserved egress). Ask the user to allowlist the egress IP in the Regiondo account.
+
 **Why:** signing is provably correct and was empirically exhausted (live 403 on
-both hosts); don't re-chase it in code.
+both hosts, real curl + node identical); don't re-chase it in code.
 
 **How to apply:** when Regiondo 403s, do NOT touch signing. Tell the user the keys
 are rejected account-side — regenerate the key pair in the Regiondo Dashboard,
