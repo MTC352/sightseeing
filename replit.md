@@ -32,8 +32,16 @@ Second trip source, branded **"DMO"** in the admin UI, mirroring the Palisis flo
   `app/api/admin/regiondo-logs/route.ts`. Admin page `/admin/regiondo` (perm `regiondo`).
 - **"Override existing" is scoped ONLY to `source='regiondo'`** — the Regiondo importer never
   reads or mutates Palisis trips (and vice-versa). Verified via `dbListRegiondoTrips`.
+- **Per-trip single sync:** `lib/regiondo-sync.ts` `syncSingleTripFromRegiondo(regiondoId, trigger)`
+  re-fetches one product (detail + variations + options) and overrides our DB row, mirroring
+  `lib/palisis-sync.ts`. Route `app/api/admin/regiondo-import/single/route.ts` (POST `{regiondoId}`,
+  superadmin/`regiondo` perm, `logActivity` action `regiondo.import_single`). Every run (single AND
+  bulk) is logged to `regiondo_sync_log` with full detail. The shared `app/admin/trips/trip-sync-button.tsx`
+  switches source by which id prop is passed (`palisisId` vs `regiondoId`).
 - Connectivity test: `/api/admin/test-key` `regiondo` case (`pingRegiondo`); keys managed in
-  `/admin/integrations` "DMO / Regiondo" section.
+  `/admin/integrations` "DMO / Regiondo" section. A **403** from Regiondo means the request signature
+  is correct (verified against Regiondo's official reference client) but the key pair is being rejected
+  account-side — regenerate keys in the Regiondo Dashboard and confirm API access is enabled.
 - API reference markdown: `docs/regiondo-api.md`.
 - **Do NOT add any code that pushes data to Regiondo** — same upstream-source-of-truth rule as Palisis.
 

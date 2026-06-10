@@ -357,9 +357,9 @@ async function getAvailOptions(
 }
 
 /** Credential test — a cheap signed call that proves the keys are accepted. */
-async function ping(config: RegiondoConfig): Promise<{ ok: boolean; error?: string; count?: number }> {
+async function ping(config: RegiondoConfig): Promise<{ ok: boolean; error?: string; count?: number; httpStatus?: number }> {
   const res = await regiondoGet(config, "/products", { limit: 1, store_locale: STORE_LOCALE })
-  if (!res.ok) return { ok: false, error: res.error }
+  if (!res.ok) return { ok: false, error: res.error, httpStatus: res.httpStatus }
   const data = unwrap<RegiondoProductSummary[]>(res.data)
   return { ok: true, count: Array.isArray(data) ? data.length : 0 }
 }

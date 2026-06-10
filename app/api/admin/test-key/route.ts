@@ -232,13 +232,20 @@ async function runTest(
         }
       }
       const ping = await pingRegiondo({ publicKey: key, secretKey })
-      return {
-        ok: ping.ok,
-        service,
-        message: ping.ok
-          ? "Valid — Regiondo accepted the credentials."
-          : `Rejected by Regiondo: ${ping.error ?? "authentication failed"}.`,
+      let message: string
+      if (ping.ok) {
+        message = "Valid — Regiondo accepted the credentials."
+      } else if (ping.httpStatus === 403) {
+        // Signing is correct (verified against Regiondo's own reference client).
+        // A 403 means the key pair itself is being rejected by Regiondo.
+        message =
+          "Regiondo returned 403 Forbidden — the request signature is correct, so the key pair is being rejected. " +
+          "Re-generate the keys in your Regiondo Dashboard (Connectivity → API Configuration → Generate Keys), " +
+          "confirm API access is enabled on the account, and paste the matching Public + Secret key here."
+      } else {
+        message = `Rejected by Regiondo: ${ping.error ?? "authentication failed"}.`
       }
+      return { ok: ping.ok, service, message }
     }
 
     default:

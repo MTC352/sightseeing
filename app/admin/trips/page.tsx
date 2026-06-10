@@ -189,7 +189,7 @@ export default async function AdminTripsPage() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Link>
-                      <TripSyncButton palisisId={trip.palisis_id} />
+                      <TripSyncButton palisisId={trip.palisis_id} regiondoId={trip.regiondoId} />
                       <TripArchiveButton tripId={trip.id} isArchived={false} />
                       <TripDeleteButton tripId={trip.id} tripTitle={trip.title} />
                     </div>
