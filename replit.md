@@ -15,6 +15,28 @@ Includes a full public frontend and a comprehensive admin panel at `/admin/*`.
 - Auto-sync is toggleable in `/admin/palisis` (stored as `integrations.palisis_auto_sync`). When OFF, incoming webhooks are logged-and-skipped.
 - **Do NOT add any code that pushes admin trip edits to Palisis.** The admin UI's "Edit Trip" form writes to our DB only — Palisis is the upstream source of truth, not a sink.
 
+## DMO / Regiondo Importer (also ONE-WAY ONLY)
+
+Second trip source, branded **"DMO"** in the admin UI, mirroring the Palisis flow.
+**Regiondo (Regiondo Platform API) → our DB. Never the other way around.**
+
+- **Shared `trips` table** with a `source` column (`'palisis'` default, `'regiondo'` for DMO).
+  Regiondo trips use id `rgd_{regiondoId}`, `palisis_id` NULL, `regiondo_id` set.
+- **STATIC data only** is stored: catalog fields → `trips`, plus variations → `product_variations`
+  and ticket-type options → `product_options` (both FK→trips CASCADE, static snapshots).
+- **DYNAMIC data is NEVER stored** — live availability (dates, timeslots, remaining quantity)
+  is fetched at view time via the Regiondo API, never persisted.
+- Code paths: `lib/regiondo.ts` (HMAC-SHA256 client, DB-first keys
+  `integrations.regiondoPublicKey`/`regiondoSecretKey` then env, `clearRegiondoConfigCache`),
+  `lib/regiondo-mapper.ts` (static-only mapping), `app/api/admin/regiondo-import/route.ts`,
+  `app/api/admin/regiondo-logs/route.ts`. Admin page `/admin/regiondo` (perm `regiondo`).
+- **"Override existing" is scoped ONLY to `source='regiondo'`** — the Regiondo importer never
+  reads or mutates Palisis trips (and vice-versa). Verified via `dbListRegiondoTrips`.
+- Connectivity test: `/api/admin/test-key` `regiondo` case (`pingRegiondo`); keys managed in
+  `/admin/integrations` "DMO / Regiondo" section.
+- API reference markdown: `docs/regiondo-api.md`.
+- **Do NOT add any code that pushes data to Regiondo** — same upstream-source-of-truth rule as Palisis.
+
 ## Key Architecture
 
 - **Framework:** Next.js 16 (App Router) with TypeScript
@@ -129,13 +151,16 @@ Full runbook: `docs/seo-indexing.md`.
 
 ## Database (PostgreSQL)
 
-All 16 tables created and seeded. Data persists across restarts.
+All 19 tables created and seeded. Data persists across restarts.
 
 | Table | Rows | Description |
 |---|---|---|
 | admin_users | 1 | Back-office users with bcrypt passwords |
-| trips | 43 | Sightseeing experiences |
+| trips | 43 | Sightseeing experiences (shared by Palisis + DMO/Regiondo via `source` col) |
 | palisis_sync_log | 0 | Palisis API sync history |
+| product_variations | 0 | DMO/Regiondo static product variations (FK→trips CASCADE) |
+| product_options | 0 | DMO/Regiondo static ticket-type options (FK→trips CASCADE) |
+| regiondo_sync_log | 0 | DMO/Regiondo import history |
 | blog_posts | 2 | Published blog articles |
 | jobs | 3 | Open job listings |
 | job_applications | 0 | Career form submissions |

@@ -15,19 +15,24 @@ export default async function AdminTripsPage() {
     id: string; palisis_id: string | null; title: string; city: string; category: string; price: number;
     originalPrice: number | null; image: string; featured: boolean;
     featuredDeparture: boolean; status: string; syncSource?: string | null;
+    source?: string | null; regiondoId?: string | null;
     seoScore?: number | null; seoOptimizedAt?: string | null;
   } & Record<string, unknown>)[]
 
+  // A trip is "DMO" if it came in via the Regiondo importer (source='regiondo').
+  const isRegiondo = (t: { source?: string | null; regiondoId?: string | null }) =>
+    t.source === "regiondo" || !!t.regiondoId
   // A trip is "Palisis" if it came in via the TourCMS importer — either
   // the row was tagged with `sync_source = 'palisis'`, or it has a
   // populated `palisis_id` (older imports predated the marker column),
   // or its id uses the modern `tcms_` prefix. Anything else is truly
   // ad-hoc and counts as "Manual". We block manual creation server-side
   // in app/api/admin/trips POST, so the manual count should be 0.
-  const isPalisis = (t: { id: string; palisis_id?: string | null; syncSource?: string | null }) =>
-    t.syncSource === "palisis" || !!t.palisis_id || t.id.startsWith("tcms_")
+  const isPalisis = (t: { id: string; palisis_id?: string | null; syncSource?: string | null; source?: string | null; regiondoId?: string | null }) =>
+    !isRegiondo(t) && (t.syncSource === "palisis" || !!t.palisis_id || t.id.startsWith("tcms_"))
+  const regiondoCount = trips.filter(isRegiondo).length
   const palisisCount = trips.filter(isPalisis).length
-  const manualCount  = trips.length - palisisCount
+  const manualCount  = trips.length - palisisCount - regiondoCount
 
   return (
     <div className="p-6 lg:p-10">
@@ -41,6 +46,11 @@ export default async function AdminTripsPage() {
             <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold bg-blue-500/12 text-blue-600 ring-1 ring-inset ring-blue-500/20">
               {palisisCount} Palisis
             </span>
+            {regiondoCount > 0 && (
+              <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold bg-emerald-500/12 text-emerald-600 ring-1 ring-inset ring-emerald-500/20">
+                {regiondoCount} DMO
+              </span>
+            )}
             <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold bg-slate-500/10 text-slate-500 ring-1 ring-inset ring-slate-500/20">
               {manualCount} Manual
             </span>
@@ -101,7 +111,11 @@ export default async function AdminTripsPage() {
                         </Link>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <p className="text-xs text-muted-foreground">{trip.city}</p>
-                          {isPalisis(trip) ? (
+                          {isRegiondo(trip) ? (
+                            <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-emerald-500/12 text-emerald-600 ring-1 ring-inset ring-emerald-500/20">
+                              DMO
+                            </span>
+                          ) : isPalisis(trip) ? (
                             <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-blue-500/12 text-blue-600 ring-1 ring-inset ring-blue-500/20">
                               Palisis
                             </span>

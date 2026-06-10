@@ -9,6 +9,8 @@ import {
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { clearTourCMSConfigCache } from "@/lib/tourcms"
+import { clearRegiondoConfigCache } from "@/lib/regiondo"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 
 export const dynamic = "force-dynamic"
@@ -94,6 +96,13 @@ export async function PATCH(req: Request) {
 
     if (section === "apiKeys") {
       await dbUpdateApiKeys(data as Record<string, string>)
+      // Clear cached credential configs so new keys take effect immediately.
+      if ("palisis" in data || "palisisChannelId" in data || "palisisMarketplaceId" in data) {
+        clearTourCMSConfigCache()
+      }
+      if ("regiondoPublicKey" in data || "regiondoSecretKey" in data) {
+        clearRegiondoConfigCache()
+      }
     } else if (section === "ai") {
       const { system, displayCount, ...config } = data as { system: string; displayCount?: number } & Record<string, unknown>
       await dbUpdateAiSystem(system, config)

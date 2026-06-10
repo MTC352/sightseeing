@@ -1026,6 +1026,54 @@ Syncs departure slot availability for all existing trips from Palisis.
 
 ---
 
+### 15.1 DMO / Regiondo Import
+
+> **Status: EXISTS.** Imports the static Regiondo (branded "DMO") product catalog into
+> `trips` (`source='regiondo'`) plus `product_variations` / `product_options`. One-way
+> (API → DB), static-only — live availability is fetched at view time, never stored.
+> Admin-only (permission `regiondo`).
+
+**Admin page using these APIs:** `/admin/regiondo`
+
+---
+
+#### `POST /api/admin/regiondo-import`
+
+Pulls the full Regiondo product catalog and creates/updates DMO trips. Existing DMO
+trips are skipped unless `override: true`. **Override is scoped to `source='regiondo'`
+only — Palisis trips are never touched.**
+
+**Request body:**
+```json
+{ "override": false }
+```
+
+**Response (200 OK):**
+```json
+{
+  "ok": true,
+  "total": 12,
+  "imported": 8,
+  "updated": 0,
+  "skipped": 4,
+  "apiErrors": 0,
+  "log": ["..."]
+}
+```
+
+---
+
+#### `GET /api/admin/regiondo-logs?limit=5`
+
+Returns the latest Regiondo import runs from `regiondo_sync_log`.
+
+**Response (200 OK):**
+```json
+{ "ok": true, "logs": [ { "id": "...", "action": "created", "changes": { "total": 12, "imported": 8 }, "created_at": "..." } ] }
+```
+
+---
+
 ### 16. File Upload
 
 > **Status: EXISTS** — Generic file upload to Vercel Blob. Used for trip images and job application attachments.
@@ -1479,6 +1527,8 @@ Generates a business pitch PDF.
 | `/api/admin/planner-behavior` | POST | EXISTS | `/admin/ai-systems/planner/behavior` |
 | `/api/admin/palisis-import` | POST | EXISTS (mock) | `/admin/palisis` import |
 | `/api/admin/palisis-availability` | POST | EXISTS (mock) | `/admin/palisis` availability sync |
+| `/api/admin/regiondo-import` | POST | EXISTS | `/admin/regiondo` DMO catalog import |
+| `/api/admin/regiondo-logs` | GET | EXISTS | `/admin/regiondo` import history |
 | `/api/upload` | POST | EXISTS | Trip image upload, file attachments |
 | `/api/webhooks/palisis` | POST | **NOT BUILT** | Palisis push webhook receiver |
 

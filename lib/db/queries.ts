@@ -4,7 +4,12 @@
  * from lib/admin-store.ts. Shape of returned objects matches AdminTrip,
  * AdminPost, etc. so existing API handlers need minimal changes.
  */
-import { query, queryOne, pool } from "@/lib/db"
+import { query, queryOne, pool, withTransaction } from "@/lib/db"
+import type {
+  MappedRegiondoTrip,
+  MappedVariation,
+  MappedOption,
+} from "@/lib/regiondo-mapper"
 import {
   type AiProvider,
   effectiveProvider,
@@ -53,6 +58,7 @@ const TRIP_SELECT = `
   non_refundable as "nonRefundable",
   next_bookable_date as "nextBookableDate", last_bookable_date as "lastBookableDate",
   last_synced_at as "lastSyncedAt", sync_source as "syncSource",
+  source, regiondo_id as "regiondoId",
   seo_keyword as "seoKeyword", seo_title as "seoTitle",
   seo_meta_description as "seoMetaDescription", seo_body as "seoBody",
   seo_highlights as "seoHighlights", seo_slug as "seoSlug",
@@ -1960,6 +1966,228 @@ export async function dbListPalisisSyncLogs(limit = 20, offset = 0) {
 export async function dbCountPalisisSyncLogs() {
   const rows = await query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM palisis_sync_log`,
+    []
+  )
+  return parseInt(rows[0]?.count ?? "0", 10)
+}
+
+// ── Regiondo (DMO) trips, variations, options ─────────────────────────────────
+//
+// ⚠️ ONE-WAY: Regiondo API → our DB only. These helpers only WRITE imported
+// catalog data into our DB; nothing here is ever pushed back to Regiondo.
+//
+// Source isolation: every Regiondo row carries source='regiondo'. The Palisis
+// importer keys on palisis_id (NULL for Regiondo rows) and source defaults to
+// 'palisis', so the two importers can never touch each other's trips.
+
+export interface RegiondoTripRow {
+  id: string
+  regiondo_id: string | null
+  title: string | null
+  permalink: string | null
+  slug: string | null
+}
+
+/** List existing DMO/Regiondo trips (source='regiondo') keyed for the importer. */
+export async function dbListRegiondoTrips() {
+  return query<RegiondoTripRow>(
+    `SELECT id, regiondo_id, title, permalink, slug
+     FROM trips WHERE source = 'regiondo'`
+  )
+}
+
+/** Insert a brand-new Regiondo trip. palisis_id stays NULL; id = rgd_{productId}. */
+export async function dbCreateRegiondoTrip(m: MappedRegiondoTrip) {
+  const tripId = `rgd_${m.regiondoId}`
+  const slugBase =
+    generateSlug(m.title) || generateSlug(tripId) || `trip-${Date.now()}`
+  const slug = await uniqueTripSlug(slugBase)
+  const rows = await query(
+    `INSERT INTO trips (
+       id, palisis_id, source, regiondo_id,
+       title, description, short_description, price, original_price,
+       currency_code, duration, category, city, country, provider,
+       image, gallery, languages, departure_location, departure_geocode,
+       permalink, sku, in_stock, is_expired, status,
+       regiondo_raw, sync_source, last_synced_at, slug
+     ) VALUES (
+       $1, NULL, 'regiondo', $2,
+       $3, $4, $5, $6, $7,
+       $8, $9, $10, $11, $12, $13,
+       $14, $15, $16, $17, $18,
+       $19, $20, $21, $22, $23,
+       $24::jsonb, $25, $26, $27
+     )
+     RETURNING *`,
+    [
+      tripId, m.regiondoId,
+      m.title, m.description, m.shortDescription, m.price, m.originalPrice,
+      m.currencyCode, m.duration, m.category, m.city, m.country, m.provider,
+      m.image, m.gallery ?? [], m.languages ?? [], m.departureLocation, m.departureGeocode,
+      m.permalink, m.sku, m.inStock, m.isExpired, m.status,
+      m.regiondoRaw != null ? JSON.stringify(m.regiondoRaw) : null,
+      "bulk", m.lastSyncedAt ? new Date(m.lastSyncedAt) : null, slug,
+    ]
+  )
+  return rows[0] as { id: string }
+}
+
+/**
+ * Update an existing Regiondo trip with refreshed static data (override mode).
+ * Only ever matches source='regiondo' rows. Preserves slug, permalink (optional),
+ * SEO fields, itinerary steps, and the *_override columns — exactly the local
+ * edits the Palisis importer also preserves.
+ */
+export async function dbUpdateRegiondoTrip(
+  id: string,
+  m: MappedRegiondoTrip,
+  opts: { preservePermalink?: boolean } = {}
+) {
+  const sets: string[] = [
+    `title = $2`, `description = $3`, `short_description = $4`,
+    `price = $5`, `original_price = $6`, `currency_code = $7`,
+    `duration = $8`, `category = $9`, `city = $10`, `country = $11`,
+    `provider = $12`, `image = $13`, `gallery = $14`, `languages = $15`,
+    `departure_location = $16`, `departure_geocode = $17`, `sku = $18`,
+    `in_stock = $19`, `is_expired = $20`, `regiondo_raw = $21::jsonb`,
+    `sync_source = $22`, `last_synced_at = $23`, `updated_at = NOW()`,
+  ]
+  const vals: unknown[] = [
+    id,
+    m.title, m.description, m.shortDescription,
+    m.price, m.originalPrice, m.currencyCode,
+    m.duration, m.category, m.city, m.country,
+    m.provider, m.image, m.gallery ?? [], m.languages ?? [],
+    m.departureLocation, m.departureGeocode, m.sku,
+    m.inStock, m.isExpired, m.regiondoRaw != null ? JSON.stringify(m.regiondoRaw) : null,
+    "bulk", m.lastSyncedAt ? new Date(m.lastSyncedAt) : null,
+  ]
+  if (!opts.preservePermalink) {
+    sets.push(`permalink = $24`)
+    vals.push(m.permalink)
+  }
+  const rows = await query(
+    `UPDATE trips SET ${sets.join(", ")}
+     WHERE id = $1 AND source = 'regiondo' RETURNING *`,
+    vals
+  )
+  return rows[0] ?? null
+}
+
+/** Replace all variations for a trip (idempotent — delete then insert). */
+export async function dbReplaceVariations(
+  tripId: string,
+  productId: string,
+  variations: MappedVariation[]
+) {
+  await withTransaction(async (q) => {
+    await q(`DELETE FROM product_variations WHERE trip_id = $1`, [tripId])
+    for (const v of variations) {
+      await q(
+        `INSERT INTO product_variations (
+           id, trip_id, product_id, variation_id, name,
+           from_date, to_date, appointment_type,
+           is_default, sort_order
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (product_id, variation_id) DO UPDATE SET
+           trip_id = EXCLUDED.trip_id, name = EXCLUDED.name,
+           from_date = EXCLUDED.from_date, to_date = EXCLUDED.to_date,
+           appointment_type = EXCLUDED.appointment_type,
+           is_default = EXCLUDED.is_default, sort_order = EXCLUDED.sort_order,
+           updated_at = NOW()`,
+        [
+          `${tripId}__${v.variationId}`, tripId, productId, v.variationId, v.name,
+          v.fromDate, v.toDate, v.appointmentType,
+          v.isDefault, v.sortOrder,
+        ]
+      )
+    }
+  })
+}
+
+/** Replace all options for a trip (idempotent — delete then insert). */
+export async function dbReplaceOptions(
+  tripId: string,
+  productId: string,
+  options: MappedOption[]
+) {
+  await withTransaction(async (q) => {
+    await q(`DELETE FROM product_options WHERE trip_id = $1`, [tripId])
+    for (const o of options) {
+      await q(
+        `INSERT INTO product_options (
+           id, trip_id, product_id, variation_id, option_id, name, sort_order,
+           min_qty_to_sell, max_qty_to_sell, original_price, regiondo_price,
+           vat_percentage_val, capacity, booking_notice_period, description
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         ON CONFLICT (product_id, variation_id, option_id) DO UPDATE SET
+           trip_id = EXCLUDED.trip_id, name = EXCLUDED.name,
+           sort_order = EXCLUDED.sort_order,
+           min_qty_to_sell = EXCLUDED.min_qty_to_sell,
+           max_qty_to_sell = EXCLUDED.max_qty_to_sell,
+           original_price = EXCLUDED.original_price,
+           regiondo_price = EXCLUDED.regiondo_price,
+           vat_percentage_val = EXCLUDED.vat_percentage_val,
+           capacity = EXCLUDED.capacity,
+           booking_notice_period = EXCLUDED.booking_notice_period,
+           description = EXCLUDED.description, updated_at = NOW()`,
+        [
+          `${tripId}__${o.variationId}__${o.optionId}`, tripId, productId,
+          o.variationId, o.optionId, o.name, o.sortOrder,
+          o.minQtyToSell, o.maxQtyToSell, o.originalPrice, o.regiondoPrice,
+          o.vatPercentageVal, o.capacity, o.bookingNoticePeriod, o.description,
+        ]
+      )
+    }
+  })
+}
+
+// ── Regiondo Sync Log ─────────────────────────────────────────────────────────
+
+export async function dbInsertRegiondoSyncLog(data: {
+  trigger_type: string
+  action: string
+  note?: string
+  changes?: Record<string, unknown>
+  regiondo_id?: string
+  triggered_by?: string
+}) {
+  return queryOne(
+    `INSERT INTO regiondo_sync_log (id, trigger_type, regiondo_id, action, changes, triggered_by, note, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4::jsonb, $5::uuid, $6, NOW())
+     RETURNING id`,
+    [
+      data.trigger_type,
+      data.regiondo_id ?? null,
+      data.action,
+      data.changes ? JSON.stringify(data.changes) : null,
+      data.triggered_by ?? null,
+      data.note ?? null,
+    ]
+  )
+}
+
+export async function dbListRegiondoSyncLogs(limit = 20, offset = 0) {
+  return query<{
+    id: string
+    trigger_type: string
+    regiondo_id: string | null
+    action: string
+    changes: Record<string, unknown> | null
+    note: string | null
+    created_at: string
+  }>(
+    `SELECT id, trigger_type, regiondo_id, action, changes, note, created_at
+     FROM regiondo_sync_log
+     ORDER BY created_at DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  )
+}
+
+export async function dbCountRegiondoSyncLogs() {
+  const rows = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM regiondo_sync_log`,
     []
   )
   return parseInt(rows[0]?.count ?? "0", 10)

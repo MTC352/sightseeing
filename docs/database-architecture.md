@@ -150,8 +150,15 @@ Core content table. Stores display metadata synced from Palisis. Admins can over
 
 ```sql
 CREATE TABLE trips (
-  id                   TEXT        PRIMARY KEY,           -- Palisis trip ID (e.g. "31898")
-  palisis_id           TEXT        NOT NULL UNIQUE,       -- explicit Palisis reference
+  id                   TEXT        PRIMARY KEY,           -- Palisis trip ID (e.g. "31898") or "rgd_{id}" for Regiondo
+  palisis_id           TEXT        UNIQUE,                -- explicit Palisis reference (NULL for Regiondo trips)
+  source               TEXT        NOT NULL DEFAULT 'palisis',  -- 'palisis' | 'regiondo' — upstream importer
+  regiondo_id          TEXT        UNIQUE,                -- Regiondo product id (NULL for Palisis trips)
+  sku                  TEXT,                              -- Regiondo product SKU
+  currency_code        TEXT,                              -- Regiondo currency (e.g. "EUR")
+  in_stock             BOOLEAN,                           -- Regiondo static stock flag (NOT live availability)
+  is_expired           BOOLEAN,                           -- Regiondo product expiry flag
+  regiondo_raw         JSONB,                             -- raw Regiondo product payload snapshot
   title                TEXT        NOT NULL,              -- synced from Palisis
   title_override       TEXT,                             -- set by admin; shown in place of title
   description          TEXT,                             -- synced from Palisis
@@ -237,6 +244,79 @@ CREATE INDEX palisis_sync_log_created_at_idx ON palisis_sync_log(created_at DESC
 ```
 
 **When created:** Every time a sync operation runs — manual or webhook. This table is never updated; rows are only inserted.
+
+---
+
+### 6.3.1 DMO / Regiondo importer tables
+
+The Regiondo (branded "DMO") importer mirrors the Palisis flow but is fully isolated:
+shared `trips` table with `source='regiondo'`, dedicated child tables for **static**
+product variations/ticket-type options, and its own append-only sync log.
+
+> **One-way (API → DB) and static-only.** Only the static catalog is stored. Live
+> availability (dates, timeslots, remaining quantity) is fetched at view time from the
+> Regiondo API and is **never** persisted. We never push data back to Regiondo.
+
+```sql
+-- Static product variations (date-range / appointment-type buckets)
+CREATE TABLE product_variations (
+  id               TEXT        PRIMARY KEY,   -- "{tripId}__{variationId}"
+  trip_id          TEXT        NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  product_id       TEXT        NOT NULL,      -- Regiondo product id
+  variation_id     TEXT        NOT NULL,      -- Regiondo variation id
+  name             TEXT,
+  from_date        DATE,                      -- static validity window start
+  to_date          DATE,                      -- static validity window end
+  appointment_type TEXT,
+  is_default       BOOLEAN     NOT NULL DEFAULT FALSE,
+  sort_order       INT         NOT NULL DEFAULT 0,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (product_id, variation_id)
+);
+CREATE INDEX product_variations_trip_id_idx ON product_variations(trip_id);
+
+-- Static per-variation options / ticket types (Adult, Child, …)
+CREATE TABLE product_options (
+  id                    TEXT        PRIMARY KEY,  -- "{tripId}__{variationId}__{optionId}"
+  trip_id               TEXT        NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  product_id            TEXT        NOT NULL,     -- Regiondo product id
+  variation_id          TEXT        NOT NULL,     -- Regiondo variation id
+  option_id             TEXT        NOT NULL,     -- Regiondo option id
+  name                  TEXT,
+  sort_order            INT         NOT NULL DEFAULT 0,
+  min_qty_to_sell       INT,
+  max_qty_to_sell       INT,
+  original_price        NUMERIC,
+  regiondo_price        NUMERIC,
+  vat_percentage_val    TEXT,
+  capacity              INT,                       -- static capacity (NOT live remaining qty)
+  booking_notice_period INT,
+  description           TEXT,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (product_id, variation_id, option_id)
+);
+CREATE INDEX product_options_trip_id_idx ON product_options(trip_id);
+
+-- Append-only audit trail for Regiondo imports (mirror of palisis_sync_log)
+CREATE TABLE regiondo_sync_log (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  trigger_type  TEXT        NOT NULL,   -- 'manual_bulk'
+  regiondo_id   TEXT,                   -- NULL for bulk imports (covers many products)
+  action        TEXT        NOT NULL,   -- 'created' | 'updated' | 'skipped' | 'error'
+  changes       JSONB,                  -- run summary { total, imported, updated, skipped, ... }
+  triggered_by  UUID        REFERENCES admin_users(id),
+  note          TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**Override scoping:** The "Override existing DMO trips" option in `/admin/regiondo` only
+re-fetches and overwrites trips where `source='regiondo'`. Palisis trips are never read or
+mutated by the Regiondo importer (and vice-versa). The `trip_id` FKs CASCADE so deleting a
+DMO trip removes its variations/options. `dbReplaceVariations` / `dbReplaceOptions` run
+inside a single transaction (delete + upsert).
 
 ---
 

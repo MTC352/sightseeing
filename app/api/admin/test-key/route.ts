@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { pingTourCMS } from "@/lib/tourcms"
+import { pingRegiondo } from "@/lib/regiondo"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logError } from "@/lib/error-log"
 
@@ -18,6 +19,7 @@ const TIMEOUT = 8000
 interface TestRequest {
   service?: string
   key?: string
+  secretKey?: string
   placeId?: string
   channelId?: string
   marketplaceId?: string
@@ -215,6 +217,27 @@ async function runTest(
           remaining_hits: ping.remaining_hits,
           remaining_hits_post: ping.remaining_hits_post,
         },
+      }
+    }
+
+    case "regiondo": {
+      // `key` carries the Public Key (X-API-ID); secretKey is the HMAC secret.
+      const secretKey = (params.secretKey ?? "").trim()
+      if (!secretKey || secretKey.length < 4) {
+        return {
+          ok: false,
+          service,
+          status: "SECRET_KEY_MISSING",
+          message: "Enter the Regiondo Secret Key above and try again.",
+        }
+      }
+      const ping = await pingRegiondo({ publicKey: key, secretKey })
+      return {
+        ok: ping.ok,
+        service,
+        message: ping.ok
+          ? "Valid — Regiondo accepted the credentials."
+          : `Rejected by Regiondo: ${ping.error ?? "authentication failed"}.`,
       }
     }
 
