@@ -100,7 +100,7 @@ export async function PATCH(req: Request) {
       if ("palisis" in data || "palisisChannelId" in data || "palisisMarketplaceId" in data) {
         clearTourCMSConfigCache()
       }
-      if ("regiondoPublicKey" in data || "regiondoSecretKey" in data) {
+      if ("regiondoPublicKey" in data || "regiondoSecretKey" in data || "regiondoApiUrl" in data) {
         clearRegiondoConfigCache()
       }
     } else if (section === "ai") {

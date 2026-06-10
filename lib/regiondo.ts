@@ -25,9 +25,83 @@ import { dbGetSettings } from "@/lib/db/queries"
 import { logError } from "@/lib/error-log"
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const BASE_URL = "https://api.regiondo.com/v1"
+/** Fallback API base URL used only when neither the DB nor env configures one. */
+const DEFAULT_BASE_URL = "https://api.regiondo.com/v1"
 const REQUEST_TIMEOUT_MS = 15_000
 const STORE_LOCALE = "en-US"
+
+/**
+ * Reject SSRF-prone hosts: localhost, private/CGNAT IPv4 ranges, IPv6
+ * loopback/ULA/link-local, and the cloud metadata address (169.254.169.254).
+ * The admin-configurable base URL is a server-side fetch target, so it must be
+ * constrained to public internet hosts even though only admins can set it.
+ */
+function isPrivateOrLocalHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "") // strip IPv6 brackets
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true
+  if (h === "::1") return true
+  if (h.startsWith("fc") || h.startsWith("fd")) return true // IPv6 ULA fc00::/7
+  if (h.startsWith("fe80")) return true // IPv6 link-local
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (m) {
+    const a = Number(m[1])
+    const b = Number(m[2])
+    if (a === 0 || a === 10 || a === 127) return true
+    if (a === 169 && b === 254) return true // link-local + metadata
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+  }
+  return false
+}
+
+/**
+ * Validate an admin-supplied API base URL. Requires https, no embedded
+ * credentials, and a public host (no SSRF targets). Returns the normalised URL
+ * (trailing slash stripped) or a human-readable rejection reason.
+ */
+export function validateRegiondoBaseUrl(raw: string): { ok: true; url: string } | { ok: false; reason: string } {
+  const trimmed = (raw ?? "").trim()
+  if (!trimmed) return { ok: false, reason: "the URL is empty" }
+  let u: URL
+  try {
+    u = new URL(trimmed)
+  } catch {
+    return { ok: false, reason: "it is not a valid URL" }
+  }
+  if (u.protocol !== "https:") return { ok: false, reason: "it must use https://" }
+  if (u.username || u.password) return { ok: false, reason: "it must not embed credentials" }
+  if (isPrivateOrLocalHost(u.hostname)) {
+    return { ok: false, reason: "it must be a public internet host (localhost / private / metadata addresses are not allowed)" }
+  }
+  return { ok: true, url: `${u.origin}${u.pathname}`.replace(/\/+$/, "") }
+}
+
+/** Resolve a candidate to a safe base URL, falling back to the default if unsafe/blank. */
+function resolveSafeBaseUrl(candidate?: string | null): string {
+  const c = (candidate ?? "").trim()
+  if (!c) return DEFAULT_BASE_URL
+  const v = validateRegiondoBaseUrl(c)
+  return v.ok ? v.url : DEFAULT_BASE_URL
+}
+
+/**
+ * Resolve the Regiondo API base URL: DB integrations key `regiondoApiUrl` first
+ * (admin panel is the source of truth), then env `REGIONDO_API_URL`, then the
+ * built-in default. Pass `explicit` to override (e.g. an unsaved value from the
+ * Test form). Any unsafe/invalid value falls back to the safe default.
+ */
+export async function getRegiondoBaseUrl(explicit?: string): Promise<string> {
+  if (explicit && explicit.trim()) return resolveSafeBaseUrl(explicit)
+  try {
+    const settings = await dbGetSettings()
+    const keys = (settings?.apiKeys as Record<string, string>) ?? {}
+    if (keys.regiondoApiUrl && keys.regiondoApiUrl.trim()) return resolveSafeBaseUrl(keys.regiondoApiUrl)
+  } catch {
+    /* DB unavailable — fall through to env/default */
+  }
+  return resolveSafeBaseUrl(process.env.REGIONDO_API_URL)
+}
 
 // ── Resilience ───────────────────────────────────────────────────────────────
 // Regiondo can return a transient 429/5xx or time out. We retry IDEMPOTENT GET
@@ -58,6 +132,8 @@ function parseRetryAfterMs(header: string | null): number | null {
 export interface RegiondoConfig {
   publicKey: string
   secretKey: string
+  /** API base URL (DB-configurable; defaults to the public Regiondo API). */
+  baseUrl: string
 }
 
 export interface RegiondoError {
@@ -164,7 +240,9 @@ export async function getRegiondoConfig(): Promise<RegiondoConfig | null> {
     const pub = (keys.regiondoPublicKey ?? "").trim()
     const sec = (keys.regiondoSecretKey ?? "").trim()
     if (pub && sec) {
-      _cachedConfig = { publicKey: pub, secretKey: sec }
+      // Base URL is DB-first too; env/default fill in when the DB key is blank.
+      const baseUrl = resolveSafeBaseUrl((keys.regiondoApiUrl ?? "").trim() || process.env.REGIONDO_API_URL)
+      _cachedConfig = { publicKey: pub, secretKey: sec, baseUrl }
       _cacheExpiry = Date.now() + 5 * 60 * 1000
       return _cachedConfig
     }
@@ -175,7 +253,7 @@ export async function getRegiondoConfig(): Promise<RegiondoConfig | null> {
   const envPub = (process.env.REGIONDO_PUBLIC_KEY ?? "").trim()
   const envSec = (process.env.REGIONDO_SECRET_KEY ?? "").trim()
   if (envPub && envSec) {
-    _cachedConfig = { publicKey: envPub, secretKey: envSec }
+    _cachedConfig = { publicKey: envPub, secretKey: envSec, baseUrl: resolveSafeBaseUrl(process.env.REGIONDO_API_URL) }
     _cacheExpiry = Date.now() + 5 * 60 * 1000
     return _cachedConfig
   }
@@ -235,7 +313,7 @@ async function regiondoGet<T = unknown>(
   params?: Record<string, string | number | undefined>,
 ): Promise<ApiResult<T>> {
   const queryString = toQueryString(params)
-  const url = queryString ? `${BASE_URL}${path}?${queryString}` : `${BASE_URL}${path}`
+  const url = queryString ? `${config.baseUrl}${path}?${queryString}` : `${config.baseUrl}${path}`
 
   let lastError = "request failed"
   let lastStatus: number | undefined
@@ -400,7 +478,7 @@ export async function pingRegiondoVerbose(
   // Mirror the user's reference call exactly: get('/products', { limit, store_locale }).
   const params = { limit: 250, store_locale: STORE_LOCALE }
   const queryString = toQueryString(params)
-  const url = `${BASE_URL}/products?${queryString}`
+  const url = `${config.baseUrl}/products?${queryString}`
 
   const timestamp = Date.now()
   const stringToSign = `${timestamp}${config.publicKey}${queryString}`
@@ -420,7 +498,7 @@ export async function pingRegiondoVerbose(
     request: {
       method: "GET",
       url,
-      baseURL: BASE_URL,
+      baseURL: config.baseUrl,
       endpoint: "/products",
       queryStringSigned: queryString,
       stringToSign,

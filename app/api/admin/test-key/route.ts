@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { pingTourCMS } from "@/lib/tourcms"
-import { pingRegiondoVerbose } from "@/lib/regiondo"
+import { pingRegiondoVerbose, getRegiondoBaseUrl, validateRegiondoBaseUrl } from "@/lib/regiondo"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logError } from "@/lib/error-log"
 
@@ -20,6 +20,7 @@ interface TestRequest {
   service?: string
   key?: string
   secretKey?: string
+  apiUrl?: string
   placeId?: string
   channelId?: string
   marketplaceId?: string
@@ -231,9 +232,26 @@ async function runTest(
           message: "Enter the Regiondo Secret Key above and try again.",
         }
       }
+      // Base URL is DB-configurable; prefer an unsaved value from the Test form,
+      // then fall back to the DB-stored / env / default URL. Reject an unsafe
+      // explicit URL up front so the admin gets a clear message (vs silently
+      // falling back to the default).
+      const apiUrl = (params.apiUrl ?? "").trim()
+      if (apiUrl) {
+        const urlCheck = validateRegiondoBaseUrl(apiUrl)
+        if (!urlCheck.ok) {
+          return {
+            ok: false,
+            service,
+            status: "INVALID_API_URL",
+            message: `The API Base URL is invalid — ${urlCheck.reason}. Fix it and try again.`,
+          }
+        }
+      }
+      const baseUrl = await getRegiondoBaseUrl(apiUrl)
       // Verbose test — returns the exact signed request + raw response so the
       // admin can debug a 403 directly in the Test modal.
-      const ping = await pingRegiondoVerbose({ publicKey: key, secretKey })
+      const ping = await pingRegiondoVerbose({ publicKey: key, secretKey, baseUrl })
       let message: string
       if (ping.ok) {
         message = "Valid — Regiondo accepted the credentials."

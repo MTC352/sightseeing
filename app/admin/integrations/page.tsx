@@ -148,6 +148,13 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
         hint: "Regiondo Platform API Secret Key — used to HMAC-sign requests. Required for the import and the connectivity test.",
         secret: true,
       },
+      {
+        key: "regiondoApiUrl",
+        label: "API Base URL",
+        placeholder: "https://api.regiondo.com/v1",
+        hint: "Regiondo API base URL (no trailing slash). Leave blank to use the default https://api.regiondo.com/v1.",
+        secret: false,
+      },
     ],
   },
   {
@@ -454,6 +461,7 @@ export default function IntegrationsPage() {
       if (fieldKey === "regiondoPublicKey") {
         payload.service = "regiondo"
         payload.secretKey = keys.regiondoSecretKey ?? ""
+        if (keys.regiondoApiUrl) payload.apiUrl = keys.regiondoApiUrl
       }
       if (fieldKey === "googleReviews" && keys.googlePlaceId) {
         payload.placeId = keys.googlePlaceId
