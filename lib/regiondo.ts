@@ -383,7 +383,89 @@ export async function getRegiondoClient() {
   }
 }
 
-/** Test arbitrary credentials (used by the Integrations "Test connection" check). */
-export async function pingRegiondo(config: RegiondoConfig) {
-  return ping(config)
+/**
+ * Verbose credential test for the admin Test modal — returns the EXACT request
+ * it signed and sent (URL, signed query string, string-to-sign, headers, hash)
+ * plus the raw response (status, headers, body) so an admin can debug a 403.
+ *
+ * SECURITY: never returns the secret key. The string-to-sign and X-API-HASH are
+ * safe to show (the hash is a one-time derived signature; the string-to-sign
+ * contains only the timestamp, the PUBLIC key, and the query string). The secret
+ * is represented only by its length + a short SHA-256 fingerprint so the admin
+ * can compare it against the key in their working app WITHOUT exposing it.
+ */
+export async function pingRegiondoVerbose(
+  config: RegiondoConfig,
+): Promise<{ ok: boolean; httpStatus?: number; error?: string; debug: Record<string, unknown> }> {
+  // Mirror the user's reference call exactly: get('/products', { limit, store_locale }).
+  const params = { limit: 250, store_locale: STORE_LOCALE }
+  const queryString = toQueryString(params)
+  const url = `${BASE_URL}/products?${queryString}`
+
+  const timestamp = Date.now()
+  const stringToSign = `${timestamp}${config.publicKey}${queryString}`
+  const hash = createHmac("sha256", config.secretKey).update(stringToSign).digest("hex")
+  const headers: Record<string, string> = {
+    "X-API-ID": config.publicKey,
+    "X-API-TIME": String(timestamp),
+    "X-API-HASH": hash,
+    "Accept-Language": STORE_LOCALE,
+    Accept: "application/json",
+  }
+
+  const secretFingerprint = createHmac("sha256", "regiondo-debug").update(config.secretKey).digest("hex").slice(0, 12)
+  const publicFingerprint = createHmac("sha256", "regiondo-debug").update(config.publicKey).digest("hex").slice(0, 12)
+
+  const baseDebug: Record<string, unknown> = {
+    request: {
+      method: "GET",
+      url,
+      baseURL: BASE_URL,
+      endpoint: "/products",
+      queryStringSigned: queryString,
+      stringToSign,
+      sentHeaders: headers,
+    },
+    credentials: {
+      publicKey: config.publicKey,
+      publicKey_length: config.publicKey.length,
+      publicKey_fingerprint: publicFingerprint,
+      secretKey_length: config.secretKey.length,
+      secretKey_fingerprint: secretFingerprint,
+      secretKey_isEvenLengthHex:
+        /^[0-9a-fA-F]+$/.test(config.secretKey) && config.secretKey.length % 2 === 0,
+    },
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { method: "GET", headers, signal: controller.signal })
+    const bodyText = await res.text().catch(() => "")
+    const responseHeaders: Record<string, string> = {}
+    res.headers.forEach((v, k) => {
+      responseHeaders[k] = v
+    })
+
+    return {
+      ok: res.ok,
+      httpStatus: res.status,
+      error: res.ok ? undefined : `HTTP ${res.status}`,
+      debug: {
+        ...baseDebug,
+        response: {
+          status: res.status,
+          statusText: res.statusText,
+          headers: responseHeaders,
+          bodyLength: bodyText.length,
+          body: bodyText.slice(0, 2000),
+        },
+      },
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    return { ok: false, error, debug: { ...baseDebug, response: { error } } }
+  } finally {
+    clearTimeout(timer)
+  }
 }
