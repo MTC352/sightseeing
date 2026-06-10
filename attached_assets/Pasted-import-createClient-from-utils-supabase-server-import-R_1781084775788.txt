@@ -1,0 +1,1355 @@
+import { createClient } from "@/utils/supabase/server"
+import RegiondoAPI from "./regiondo-api"
+
+// Initialize the Regiondo API client
+const regiondoApi = new RegiondoAPI()
+const supabase = createClient()
+
+/**
+ * Interface for sold item data from Regiondo API
+ */
+export interface SoldItem {
+  order_number: string
+  order_id: number
+  type: string
+  sold_date: string
+  sold_time: string
+  cancel_date: string | null
+  cancel_time: string | null
+  validated_date: string | null
+  validated_time: string | null
+  voucher_redeem_date: string | null
+  voucher_redeem_time: string | null
+  ticket_code: string
+  validity_status: string
+  expiry_date: string | null
+  expiry_time: string | null
+  sku: string
+  product_id: number
+  option_id: number
+  ticket_name: string
+  variation_name: string
+  option_name: string
+  event_date: string
+  event_time: string
+  price_excl_tax: {
+    currency_code: string
+    amount: number
+  }
+  tax_amount: {
+    currency_code: string
+    amount: number
+  }
+  price_incl_tax: {
+    currency_code: string
+    amount: number
+  }
+  discount_amount: {
+    currency_code: string
+    amount: number
+  }
+  price_after_discount_excl_tax: {
+    currency_code: string
+    amount: number
+  }
+  price_after_discount_incl_tax: {
+    currency_code: string
+    amount: number
+  }
+  payment_method: string
+  payment_attribute: string
+  payment_status: string
+  distribution_channel: string
+  distribution_channel_partner: string
+  contact_data: {
+    firstname: string
+    lastname: string
+    email: string
+    telephone: string
+  }
+  resources?: Array<{
+    resource_id: number
+    consumption: number
+    resouces_name: string
+  }>
+}
+
+/**
+ * Fetch all products from Regiondo
+ * @returns Promise with the list of products
+ */
+export async function fetchAllProducts() {
+  try {
+    // Use our API route instead of calling Regiondo API directly
+
+    const response = await regiondoApi.get(`/products`, { limit: 250, store_locale: "en-US" })
+    return response
+  } catch (error) {
+    console.error("Error fetching products:", error)
+    throw error
+  }
+}
+
+// Update the fetchProductById function to handle errors better
+export async function fetchProductById(productId: string | number) {
+  try {
+    // Use our API route instead of calling Regiondo API directly
+    // const response = await fetch(`/api/regiondo?endpoint=/products/${productId}`)
+    const response = await regiondoApi.get(`/products/${productId}`, { store_locale: "en-US" })
+
+    return response
+  } catch (error) {
+    console.error(`Error fetching product ${productId}:`, error)
+    throw error
+  }
+}
+
+// Fetch bookings by product ID or booking key
+export async function fetchBookingsByProductId(
+  productId: string,
+  dateFrom?: string,
+  dateTo?: string,
+  bookingKey?: string,
+) {
+  try {
+    // Build the query parameters
+    const params: Record<string, string> = {}
+
+    if (bookingKey) {
+      // If booking key is provided, use it directly
+      params.booking_key = bookingKey
+    } else {
+      // Otherwise use product ID and other filters
+      params.limit = "250"
+      params.product_ids = productId
+      params.type = "offline_reservation,booking,voucher,redeem"
+
+      // Add date range if provided
+      if (dateFrom && dateTo) {
+        params.date_range = `${dateFrom},${dateTo}`
+      }
+    }
+
+    // Make the API request
+    const response = await regiondoApi.get("/supplier/bookings", params).catch((error) => {
+      console.error("Error fetching bookings from Regiondo:", error)
+      return { data: [] }
+    })
+
+    // Return the data
+    if (response && response.data) {
+      return response.data
+    } else {
+      return []
+    }
+  } catch (error) {
+    console.error("Error fetching bookings from Regiondo:", error)
+    throw error
+  }
+}
+
+/**
+ * Extract variations from product data
+ * @param product - The product data
+ * @returns Array of variations
+ */
+export function extractVariationsFromProduct(product: any) {
+  if (!product || !product.data || !product.data.variations) {
+    return []
+  }
+
+  return product.data.variations.map((variation: any) => ({
+    variation_id: variation.variation_id,
+    name: variation.name,
+    from: variation.from,
+    to: variation.to,
+    appointment_type: variation.appointment_type,
+  }))
+}
+
+/**
+ * Extract timeslot dates from product variations
+ * @param product - The product data
+ * @returns Object with dates as keys and arrays of dates as values
+ */
+// export function extractTimeslotDatesFromProduct(product: any) {
+//   if (!product || !product.data || !product.data.variations || !product.data.variations.length) {
+//     return { status: 0, data: [] }
+//   }
+
+//   // Use the first variation's available dates
+//   const firstVariation = product.data.variations[0]
+//   if (!firstVariation.available_dates) {
+//     return { status: 0, data: [] }
+//   }
+
+//   // Convert the available_dates object to the expected format
+//   const dates = Object.keys(firstVariation.available_dates).map((date) => ({
+//     date: date,
+//   }))
+
+//   return {
+//     status: 1,
+//     data: dates,
+//   }
+// }
+
+/**
+ * Extract timeslots from product variations
+ * @param product - The product data
+ * @returns Object with timeslot data
+ */
+// export function extractTimeslotsFromProduct(product: any) {
+//   if (!product || !product.data || !product.data.variations || !product.data.variations.length) {
+//     return { status: 0, data: [] }
+//   }
+
+//   // Use the first variation's available dates
+//   const firstVariation = product.data.variations[0]
+//   if (!firstVariation.available_dates) {
+//     return { status: 0, data: [] }
+//   }
+
+//   const timeslots = []
+//   const variationId = firstVariation.variation_id
+
+//   // Process each date and its time slots
+//   Object.entries(firstVariation.available_dates).forEach(([date, timeSlotArrays]: [string, any]) => {
+//     // Each date can have multiple arrays of time slots
+//     timeSlotArrays.forEach((timeSlotArray: string[]) => {
+//       // Each time slot in the array
+//       timeSlotArray.forEach((time: string) => {
+//         const startDateTime = `${date} ${time}`
+
+//         // Create a timeslot object with estimated capacity and availability
+//         timeslots.push({
+//           start_date_time: startDateTime,
+//           booking_cut_off_hours: 2, // Default value
+//           bookable_until_time: startDateTime, // Same as start time for simplicity
+//           is_available: 1,
+//           event_capacity: 45, // Default capacity from product description
+//           qty_available: Math.floor(Math.random() * 45), // Random availability for demonstration
+//           qty_available_by_option: {},
+//           stock_available_by_option: {},
+//           regiondo_variation_id: variationId,
+//         })
+//       })
+//     })
+//   })
+
+//   return {
+//     status: 1,
+//     total: timeslots.length,
+//     data: timeslots,
+//   }
+// }
+
+/**
+ * Fetch variations for a product
+ * @param productId - The ID of the product
+ * @returns Promise with the list of variations
+ */
+export async function fetchProductVariations(productId: string | number) {
+  try {
+    const response = await regiondoApi.get(`/products/variations/${productId}`)
+
+    return response?.data || response
+  } catch (error) {
+    console.error(`Error fetching variations for product ${productId}:`, error)
+    throw error
+  }
+}
+
+/**
+ * Fetch available options for a variation
+ * @param variationId - The ID of the variation
+ * @param date - Optional date in format YYYY-MM-DD to get availability for a specific date
+ * @returns Promise with the available options
+ */
+export async function fetchAvailableOptions(variationId: string | number, date?: string, time?: string) {
+  try {
+    const params: Record<string, string> = {}
+
+    // Add date parameter if provided
+    if (date) {
+      params.date = date
+    }
+    // Add date parameter if provided
+    if (time) {
+      params.time = time
+    }
+
+    const response = await regiondoApi.get(`/products/availoptions/${variationId}`, params)
+    return response?.data || response
+  } catch (error) {
+    console.error(`Error fetching options for variation ${variationId}:`, error)
+    throw error
+  }
+}
+
+/**
+ * Fetch available timeslot dates for a variation
+ * @param variationId - The ID of the variation
+ * @param fromDate - Start date in format YYYY-MM-DD
+ * @param toDate - End date in format YYYY-MM-DD
+ * @returns Promise with the available dates
+ */
+export async function fetchTimeslotDates(variationId: string | number, fromDate: string, toDate: string) {
+  try {
+    const response = await regiondoApi.get("/products/timeslots/dates", {
+      variation_id: variationId,
+      from_date: fromDate,
+      to_date: toDate,
+    })
+    return response
+  } catch (error) {
+    console.error(`Error fetching timeslot dates for variation ${variationId}:`, error)
+    throw error
+  }
+}
+
+// Add this new interface for timeslot data
+export interface TimeslotData {
+  start_date_time: string
+  booking_cut_off_hours: number
+  bookable_until_time: string
+  is_available: number
+  event_capacity: number
+  qty_available: number
+  qty_available_by_option: Record<string, number>
+  stock_available_by_option: Record<string, number>
+  regiondo_variation_id: number
+  appointment_type: string
+}
+
+// Update the fetchTimeslots function to handle errors better
+export async function fetchTimeslots(params: {
+  regiondo_variation_id?: string | number
+  regiondo_option_id?: string | number
+  from_datetime: string
+  to_datetime: string
+  include_past?: Boolean 
+}): Promise<{ status: number; total: number; data: TimeslotData[], message:String }> {
+  console.log("params")
+  console.log(params)
+  try {
+    if (!params.regiondo_variation_id && !params.regiondo_option_id) {
+      console.error("Either regiondo_variation_id or regiondo_option_id is required")
+      return { status: 0, total: 0, data: [],message:"Either regiondo_variation_id or regiondo_option_id is required" }
+    }
+
+    const response = await regiondoApi.get("/products/timeslots", params).catch((error) => {
+      console.error("Error in regiondoApi.get for timeslots:", error)
+      console.log("Error in regiondoApi.get for timeslots:", error)
+      return { status: 0, total: 0, data: [], message:'a' }
+    })
+    console.log("response")
+    console.log(response)
+    return response || { status: 0, total: 0, data: [], message:'b' }
+  } catch (error) {
+    console.error("Error fetching timeslots:", error)
+    return { status: 0, total: 0, data: [], message:'c' }
+  }
+}
+// Update the fetchTimeslots function to handle errors better
+export async function fetchOptionsfromDB(params: {
+  productId?: string | number;
+  variationId?: string | number;
+  Maxdata?: number;
+  column?: string;
+  dateTime:string;
+}): Promise<any> {
+  const { productId, variationId, Maxdata, column } = params;
+
+  // Early exits for validation
+  if (!supabase) {
+    return { success: false, error: "Failed to initialize Supabase client" };
+  }
+  if (!productId && !variationId) {
+    return { success: false, error: "Need ProductId or Variation ID" };
+  }
+
+  try {
+    // Base query
+    let query = supabase.from("product_options").select(column || "*");
+
+    // Apply filters
+    if (productId) query = query.eq("product_id", productId);
+    if (variationId) query = query.eq("variation_id", variationId);
+    if (Maxdata) query = query.limit(Maxdata);
+
+    // Execute query
+    const { data: options, error: optionsError } = await query.order("sort_order", { ascending: true });
+
+    if (optionsError) {
+      return { success: false, error: optionsError.message };
+    }
+
+    // 🟢 Type assertion to ensure TypeScript recognizes it as an object
+    if (Maxdata === 1 && column && options.length > 0) {
+      // Assert that options[0] is an object
+      const firstOption = options[0] as Record<string, any>;
+
+      // Access column safely
+      return { success: true, options: firstOption[column as string] };
+    }
+
+    return { success: true, options };
+  } catch (error) {
+    console.error("Error retrieving options for variation:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+// Update the fetchTimeslots function to handle errors better
+export async function FetchAvailableOptionIDForProductId(params: {
+  productId?: string | number;
+  bookingDate?: string;
+  bookingTime?: string;
+}): Promise<any> {
+  const { productId,bookingDate,bookingTime} = params;
+
+  // Early exits for validation
+  if (!supabase) {
+    return { success: false, error: "Failed to initialize Supabase client" };
+  }
+  if (!productId || !bookingDate || !bookingTime) {
+    return { success: false, error: "Need ProductId" };
+  }
+
+  try {
+    // Base query
+    let { data: variation_data, error} = await supabase.from("product_variations").select("variation_id").eq('product_id',productId);
+
+    if(error) {
+        return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    }
+    // If variation not found in DB get it from API
+    if(!variation_data) {
+      variation_data = await fetchProductVariations(productId);
+      // console.log("variation_data")
+      // console.log(variation_data)
+      if(!variation_data) {
+        return { success: false, error: "No variation available for Product" };
+      }
+    }
+    let firstOptionId: string | undefined
+
+    for (const variation of variation_data) {
+      if(variation && (!variation.id && !variation.variation_id)) {
+        continue
+      }
+        console.log("variation")
+        console.log(variation)
+          const options = await fetchAvailableOptions((variation.variation_id || variation.id), bookingDate,bookingTime)
+          if(!firstOptionId && Object.keys(options).length > 0) {
+            firstOptionId = Object.keys(options)[0]
+          }
+    }
+    return { success: true ,optionID:firstOptionId};
+  } catch (error) {
+    console.error("Error retrieving options for variation:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+
+export async function storeProductVariationsAndOptions(productId: string, variationData: any[]) {
+  
+  if (!supabase) {
+    throw new Error("Failed to initialize Supabase client")
+  }
+
+  const results = {
+    variations: [] as any[],
+    options: [] as any[],
+  }
+
+  // Process each variation
+  for (const variation of variationData) {
+    // Process available dates to only include future dates
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    const availableDates = variation.available_dates
+      ? Object.keys(variation.available_dates).filter((date) => new Date(date) >= today)
+      : []
+
+    // Prepare variation data for upsert
+    const variationRecord = {
+      product_id: productId,
+      variation_id: variation.variation_id,
+      name: variation.name,
+      from_date: variation.from,
+      to_date: variation.to,
+      appointment_type: variation.appointment_type,
+      available_dates: availableDates,
+      updated_at: new Date().toISOString(),
+    }
+
+    // Upsert variation data
+    const { data: upsertedVariation, error: variationError } = await supabase
+      .from("product_variations")
+      .upsert(variationRecord, { onConflict: "product_id, variation_id" })
+
+    if (variationError) {
+      console.error(`Error upserting variation ${variation.variation_id}:`, variationError)
+      continue
+    }
+
+    results.variations.push(upsertedVariation)
+
+    // Fetch available options for this variation
+    const today_str = new Date().toISOString().split("T")[0] // Format: YYYY-MM-DD
+    try {
+      const options = await fetchAvailableOptions(variation.variation_id, today_str)
+      if (options && Object.keys(options).length > 0) {
+        // Delete existing options for this product and variation
+        const { error: deleteError } = await supabase
+          .from("product_options")
+          .delete()
+          .eq("product_id", productId)
+          .eq("variation_id", variation.variation_id)
+
+        if (deleteError) {
+          console.error(`Error deleting existing options for variation ${variation.variation_id}:`, deleteError)
+          continue
+        }
+        // console.log("Object.values(options)")
+        // console.log(Object.values(options))
+        // Insert new options
+        const optionRecords = Object.values(options).map((option: any) => {
+          if(!option.option_id) {
+            return false
+          }
+            return {
+            product_id: productId,
+            variation_id: variation.variation_id,
+            option_id: option.option_id,
+            name: option.name,
+            sort_order: option.sort_order,
+            min_qty_to_sell: option.min_qty_to_sell,
+            max_qty_to_sell: option.max_qty_to_sell,
+            original_price: option.original_price,
+            regiondo_price: option.regiondo_price,
+            vat_percentage_val: option.vat_percentage_val,
+            duration_value: option.duration_value,
+            duration_type: option.duration_type,
+            description: option.description,
+            sales_start_dt: option.sales_start_dt,
+            sales_end_dt: option.sales_end_dt,
+            capacity: option.capacity,
+            booking_notice_period: option.booking_notice_period,
+            qty_left: option.qty_left,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }
+        })
+
+        if (optionRecords.length > 0) {
+          const { data: insertedOptions, error: insertError } = await supabase
+            .from("product_options")
+            .insert(optionRecords)
+            .select()
+
+          if (insertError) {
+            console.error(`Error inserting options for variation ${variation.variation_id}:`, insertError)
+            continue
+          }
+
+          results.options.push(...(insertedOptions || []))
+        }
+      }
+    } catch (error) {
+      console.error(`Error fetching options for variation ${variation.variation_id}:`, error)
+    }
+  }
+
+  return results
+}
+
+
+
+// Add a new function to fetch all timeslots for a variation with a date range
+export async function fetchAllTimeslotsForVariation(
+  variationId: string | number,
+  variationData: any = null,
+): Promise<TimeslotData[]> {
+  try {
+    // Add null check for variationId
+    if (!variationId) {
+      console.error("Invalid variation ID provided to fetchAllTimeslotsForVariation")
+      return []
+    }
+
+    let fromDate: string
+    let toDate: string
+
+    //  If variation data is provided, extract the date range from it
+    if (variationData && variationData.from && variationData.to) {
+      // Use the variation's from and to dates
+      const today = new Date()
+      // const fromDateObj = new Date(variationData.from)
+      // // Reset time to compare only dates (not time)
+      // today.setHours(0, 0, 0, 0)
+      // fromDateObj.setHours(0, 0, 0, 0)
+      // // console.log("fromDateObj")
+      // // console.log(fromDateObj)
+      // // console.log(today)
+      // if (fromDateObj != today) {
+      //   // If variation's from date is in the future, use today's date
+      //   const todayStr = today.toISOString().split('T')[0] // Format: YYYY-MM-DD
+      //   fromDate = todayStr
+      //   console.log("variationData.from is future date, using today:", todayStr)
+      // } else {
+      //   // Use the variation's from date
+      //   fromDate = variationData.from
+      //   console.log("variationData.from")
+      //   console.log(variationData.from)
+      // }
+      const todayStr = today.toISOString().split('T')[0] // Format: YYYY-MM-DD
+      fromDate = todayStr
+      toDate = variationData.to
+    } else {
+      // Fallback to default date range
+      const dateRange = getDateRangeForNextDays(90)
+      fromDate = dateRange.fromDate
+      toDate = dateRange.toDate
+    }
+
+    // const dateRange = getDateRangeForNextDays(30)
+    // fromDate = dateRange.fromDate
+    // toDate = dateRange.toDate
+
+    // Fetch timeslots for the variation with the full date range
+    const response = await fetchTimeslots({
+      regiondo_variation_id: variationId,
+      from_datetime: `${fromDate} 00:00:00`,
+      to_datetime: `${toDate} 23:59:59`,
+      include_past:true
+    }).catch((error) => {
+      console.error(`Error fetching timeslots for variation ${variationId}:`, error)
+      return { status: 0, total: 0, data: [] }
+    })
+
+    if (!response || !response.data || !Array.isArray(response.data)) {
+      console.warn("Unexpected response format for timeslots:", response)
+      return []
+    }
+
+    return response.data
+  } catch (error) {
+    console.error(`Error fetching all timeslots for variation ${variationId}:`, error)
+    return [] // Return empty array instead of throwing
+  }
+}
+
+/**
+ * Helper function to format a date as YYYY-MM-DD
+ * @param date - The date to format
+ * @returns Formatted date string
+ */
+export function formatDateYMD(date: Date): string {
+  return date.toISOString().split("T")[0]
+}
+
+/**
+ * Helper function to get a date range for the next N days
+ * @param days - Number of days to include in the range
+ * @returns Object with fromDate and toDate strings
+ */
+export function getDateRangeForNextDays(days = 30) {
+  const today = new Date()
+  const endDate = new Date()
+  endDate.setDate(today.getDate() + days)
+
+  return {
+    fromDate: formatDateYMD(today),
+    toDate: formatDateYMD(endDate),
+  }
+}
+
+/**
+ * Fetch all necessary data for a product including variations, options, and timeslots
+ * @param productId - The ID of the product
+ * @returns Promise with the complete product data
+ */
+export async function fetchCompleteProductData(productId: string | number) {
+  try {
+    // Fetch the product details
+    const product = await fetchProductById(productId)
+
+    // Extract variations from product data
+    const variations = extractVariationsFromProduct(product)
+    //const variations = await fetchProductVariations(productId)
+
+    /*
+    // Extract timeslot dates from product data
+    const timeslotDates = extractTimeslotDatesFromProduct(product)
+
+    // Extract timeslots from product data
+    const timeslots = extractTimeslotsFromProduct(product)
+
+    // Options will still be fetched from API if needed
+    let options = []
+
+    // If there are variations, fetch options for the first variation
+    if (variations.length > 0) {
+      try {
+        options = await fetchAvailableOptions(variations[0].variation_id)
+      } catch (error) {
+        console.error(`Error fetching options for variation ${variations[0].variation_id}:`, error)
+        // Continue without options if there's an error
+      }
+    }
+*/
+
+    // The following code is commented out as requested
+    // It shows the original implementation that made separate API calls
+
+    // If there are variations, fetch options and timeslots for the first variation
+    let options = []
+    let timeslotDates = []
+    let timeslots = []
+
+    if (variations?.data && variations?.data.length > 0) {
+      const firstVariation = variations?.data?.[0]
+      // Fetch options for the first variation
+      options = await fetchAvailableOptions(firstVariation.id)
+
+      // Get date range for the next 30 days
+      const { fromDate, toDate } = getDateRangeForNextDays(30)
+
+      // Fetch timeslot dates
+      timeslotDates = await fetchTimeslotDates(firstVariation.id, fromDate, toDate)
+
+      // Fetch timeslots for the first variation
+      timeslots = await fetchTimeslots({
+        regiondo_variation_id: firstVariation.id,
+        from_datetime: `${fromDate} 00:00:00`,
+        to_datetime: `${toDate} 23:59:59`,
+      })
+    }
+
+    return {
+      product,
+      variations,
+      options,
+      timeslotDates,
+      timeslots,
+    }
+  } catch (error) {
+    console.error(`Error fetching complete data for product ${productId}:`, error)
+    throw error
+  }
+}
+
+// Add a function to fetch option details to get names and prices
+export async function fetchOptionDetails(optionIds: string[]): Promise<Record<string, any>> {
+  try {
+    if (!optionIds.length) return {}
+
+    // Create a map to store option details
+    const optionDetails: Record<string, any> = {}
+
+    // Fetch details for each option ID
+    // Note: In a real implementation, you might want to batch these requests
+    // or have an API endpoint that accepts multiple option IDs
+    for (const optionId of optionIds) {
+      try {
+        // This is a placeholder for the actual API call
+        // Replace with your actual API endpoint for fetching option details
+        const response = await regiondoApi.get(`/products/options/${optionId}`)
+
+        if (response && response.data) {
+          optionDetails[optionId] = {
+            option_id: optionId,
+            name: response.data.name || `Option ${optionId}`,
+            price: response.data.price || "0.00",
+            currency_code: response.data.currency_code || "EUR",
+          }
+        } else {
+          // Fallback if API doesn't return data
+          optionDetails[optionId] = {
+            option_id: optionId,
+            name: `Option ${optionId}`,
+            price: "0.00",
+            currency_code: "EUR",
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching details for option ${optionId}:`, error)
+        // Provide fallback data if API call fails
+        optionDetails[optionId] = {
+          option_id: optionId,
+          name: `Option ${optionId}`,
+          price: "0.00",
+          currency_code: "EUR",
+        }
+      }
+    }
+
+    return optionDetails
+  } catch (error) {
+    console.error("Error fetching option details:", error)
+    return {}
+  }
+}
+
+/**
+ * Interface for a variation with detailed options and availability
+ */
+export interface VariationWithOptions {
+  variation_id: string
+  name: string
+  from?: string
+  to?: string
+  appointment_type?: string
+  dates: {
+    [date: string]: {
+      times: {
+        [time: string]: {
+          options: {
+            [optionId: string]: {
+              option_id: string
+              name: string
+              price: string
+              capacity: number
+              qty_left: number
+              [key: string]: any // For other option properties
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Interface for complete product details with variations, dates, times, and options
+ */
+export interface CompleteProductDetails {
+  product: any
+  variations: VariationWithOptions[]
+}
+
+/**
+ * Fetch complete product details with all variations, dates, timeslots, and available options
+ * @param productId - The ID of the product
+ * @returns Promise with the complete product details
+ */
+export async function fetchCompleteProductDetailsWithOptions(
+  productId: string | number,
+): Promise<CompleteProductDetails> {
+  try {
+    console.log(`Fetching complete product details with options for product ${productId}...`)
+
+    // Step 1: Fetch the product details
+    const product = await fetchProductById(productId)
+    if (!product || !product.data) {
+      throw new Error(`Product ${productId} not found or invalid response`)
+    }
+
+    // Step 2: Extract variations from the product data
+    const productVariations = product.data.variations || []
+    if (!productVariations.length) {
+      throw new Error(`No variations found for product ${productId}`)
+    }
+
+    // Step 3: Process each variation to get options for each date and time
+    const variationsWithOptions: VariationWithOptions[] = []
+
+    for (const variation of productVariations) {
+      const variationId = variation.variation_id
+
+      // Initialize the variation with options structure
+      const variationWithOptions: VariationWithOptions = {
+        variation_id: variationId,
+        name: variation.name,
+        from: variation.from,
+        to: variation.to,
+        appointment_type: variation.appointment_type,
+        dates: {},
+      }
+
+      // Process each date in the variation
+      if (variation.available_dates) {
+        for (const [date, timesArrays] of Object.entries(variation.available_dates)) {
+          // Initialize the date structure
+          variationWithOptions.dates[date] = { times: {} }
+
+          // Process each time array for the date
+          for (const timeArray of timesArrays as string[][]) {
+            for (const time of timeArray) {
+              // Initialize the time structure
+              variationWithOptions.dates[date].times[time] = { options: {} }
+
+              try {
+                // Fetch available options for this variation and date
+                const options = await fetchAvailableOptions(variationId, date)
+
+                // Process each option
+                if (options && typeof options === "object") {
+                  for (const [optionId, optionData] of Object.entries(options)) {
+                    // Add the option to the structure
+                    variationWithOptions.dates[date].times[time].options[optionId] = {
+                      ...optionData,
+                      option_id: optionId,
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error(`Error fetching options for variation ${variationId} on ${date} at ${time}:`, error)
+                // Continue with the next time slot even if this one fails
+              }
+            }
+          }
+        }
+      }
+
+      // Add the processed variation to the result
+      variationsWithOptions.push(variationWithOptions)
+    }
+
+    return {
+      product,
+      variations: variationsWithOptions,
+    }
+  } catch (error) {
+    console.error(`Error fetching complete product details with options for product ${productId}:`, error)
+    throw error
+  }
+}
+
+/**
+ * Get available capacity for a specific variation, date, and time
+ * @param productDetails - The complete product details
+ * @param variationId - The variation ID
+ * @param date - The date in format YYYY-MM-DD
+ * @param time - The time in format HH:MM:SS
+ * @returns Object with capacity information
+ */
+export function getAvailableCapacity(
+  productDetails: CompleteProductDetails,
+  variationId: string,
+  date: string,
+  time: string,
+): {
+  totalCapacity: number
+  availableCapacity: number
+  options: Array<{
+    optionId: string
+    name: string
+    capacity: number
+    available: number
+    price: string
+  }>
+} {
+  // Find the variation
+  const variation = productDetails.variations.find((v) => v.variation_id === variationId)
+  if (!variation || !variation.dates[date] || !variation.dates[date].times[time]) {
+    return { totalCapacity: 0, availableCapacity: 0, options: [] }
+  }
+
+  // Get the options for this variation, date, and time
+  const options = variation.dates[date].times[time].options
+
+  // Calculate total capacity and available capacity
+  let totalCapacity = 0
+  let availableCapacity = 0
+  const optionsArray = []
+
+  for (const [optionId, optionData] of Object.entries(options)) {
+    const capacity = Number(optionData.capacity) || 0
+    const available = Number(optionData.qty_left) || 0
+
+    totalCapacity += capacity
+    availableCapacity += available
+
+    optionsArray.push({
+      optionId,
+      name: optionData.name,
+      capacity,
+      available,
+      price: optionData.regiondo_price || optionData.original_price,
+    })
+  }
+
+  return {
+    totalCapacity,
+    availableCapacity,
+    options: optionsArray,
+  }
+}
+
+/**
+ * Calculate resource usage based on timeslot data
+ * @param timeslotData - The timeslot data from the API
+ * @returns Resource usage percentage
+ */
+export function calculateResourceUsage(timeslotData: any): number {
+  if (!timeslotData || !timeslotData.event_capacity || timeslotData.event_capacity === 0) {
+    return 0
+  }
+
+  const booked = timeslotData.event_capacity - timeslotData.qty_available
+  return Math.round((booked / timeslotData.event_capacity) * 100)
+}
+
+/**
+ * Check if a product has stock discrepancy
+ * This is a placeholder function that should be implemented based on your business logic
+ * @param regiondoData - The Regiondo product data
+ * @param palisisData - The Palisis product data
+ * @returns Boolean indicating if there's a stock discrepancy
+ */
+export function checkStockDiscrepancy(regiondoData: any, palisisData: any): boolean {
+  // This is a placeholder implementation
+  // You should implement the actual logic based on your requirements
+
+  // For now, we'll just return false (no discrepancy)
+  return false
+}
+
+/**
+ * Fetch sold items for a specific product ID
+ * @param productId - The ID of the product to fetch sold items for
+ * @param dateFrom - Optional start date in format YYYY-MM-DD
+ * @param dateTo - Optional end date in format YYYY-MM-DD
+ * @returns Promise with the list of sold items
+ */
+export async function fetchSoldItemsByProductId(
+  productId: string | number,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<SoldItem[]> {
+  try {
+    const params: Record<string, string> = {
+      product_ids: productId.toString(),
+    }
+
+    // Add date range if provided
+    if (dateFrom && dateTo) {
+      params.date_range = `${dateFrom},${dateTo}`
+      params.date_bought = "Date of event" // Use event date instead of purchase date
+    }
+
+    const response = await regiondoApi.get("/partner/solditems", params)
+
+    if (!response || !Array.isArray(response)) {
+      console.warn("Unexpected response format for sold items:", response)
+      return []
+    }
+
+    console.log(`Found ${response.length} sold items for product ${productId}`)
+    return response as SoldItem[]
+  } catch (error) {
+    console.error(`Error fetching sold items for product ${productId}:`, error)
+    throw error
+  }
+}
+
+/**
+ * Get sold items grouped by date and variation
+ * @param soldItems - Array of sold items from the API
+ * @returns Object with dates as keys and arrays of items grouped by variation as values
+ */
+export function groupSoldItemsByDateAndVariation(soldItems: SoldItem[]): Record<string, Record<string, SoldItem[]>> {
+  const grouped: Record<string, Record<string, SoldItem[]>> = {}
+
+  soldItems.forEach((item) => {
+    // Use event_date as the key
+    const date = item.event_date
+    const variationId = item.option_id.toString()
+
+    // Initialize date group if it doesn't exist
+    if (!grouped[date]) {
+      grouped[date] = {}
+    }
+
+    // Initialize variation group if it doesn't exist
+    if (!grouped[date][variationId]) {
+      grouped[date][variationId] = []
+    }
+
+    // Add item to the appropriate group
+    grouped[date][variationId].push(item)
+  })
+
+  return grouped
+}
+
+/**
+ * Calculate booking statistics from sold items
+ * @param soldItems - Array of sold items from the API
+ * @returns Object with booking statistics
+ */
+export function calculateBookingStats(soldItems: SoldItem[]): {
+  totalBookings: number
+  totalRevenue: number
+  currencyCode: string
+  bookingsByVariation: Record<string, number>
+  revenueByVariation: Record<string, number>
+} {
+  let totalBookings = 0
+  let totalRevenue = 0
+  const currencyCode = soldItems.length > 0 ? soldItems[0].price_incl_tax.currency_code : "EUR"
+  const bookingsByVariation: Record<string, number> = {}
+  const revenueByVariation: Record<string, number> = {}
+
+  soldItems.forEach((item) => {
+    // Skip cancelled items
+    if (item.cancel_date) {
+      return
+    }
+
+    totalBookings++
+    totalRevenue += item.price_incl_tax.amount
+
+    const variationName = item.variation_name || "Unknown"
+
+    // Count bookings by variation
+    if (!bookingsByVariation[variationName]) {
+      bookingsByVariation[variationName] = 0
+    }
+    bookingsByVariation[variationName]++
+
+    // Sum revenue by variation
+    if (!revenueByVariation[variationName]) {
+      revenueByVariation[variationName] = 0
+    }
+    revenueByVariation[variationName] += item.price_incl_tax.amount
+  })
+
+  return {
+    totalBookings,
+    totalRevenue,
+    currencyCode,
+    bookingsByVariation,
+    revenueByVariation,
+  }
+}
+
+/**
+ * Interface for permanent reservation request
+ */
+export interface PermanentReservationRequest {
+  product_id: number
+  date_time: string
+  skip_customer_validation?: boolean
+  items: Array<{
+    option_id?: number
+    qty: number
+    external_item_id?: string
+  }>
+}
+
+/**
+ * Interface for permanent reservation response
+ */
+export interface PermanentReservationResponse {
+  booking_key: string
+  product_id: number
+  date_time: string
+  items: Array<{
+    item_code: string
+    option_id: number
+    qty: number
+    external_item_id?: string
+    reservation_code: string
+    attendee_data?: any[]
+  }>
+  contact_data_required?: string[]
+  buyer_data_required?: any[]
+  attendee_data_required?: any[]
+  discount_info?: any[]
+}
+
+/**
+ * Interface for purchase response
+ */
+export interface PurchaseResponse {
+  info_generated_at: string
+  order_number: number
+  order_id: string
+  purchased_at: string
+  items: Array<{
+    unique_item_id: string
+    booking_key: string
+    product_id: string
+    ticket_name: string
+    ticket_variation: string
+    ticket_option: string
+    ticket_option_id: number
+    ticket_qty: number
+    ticket_qty_canceled: number
+    ticket_codes: Array<{
+      reference_id: string
+      validity_status: string
+      code: string
+      barcode_type: string
+      type: string
+      expiry_date: string
+      expiry_time: string
+      generated_at: string
+      ticket_pdf: string
+      gift_redeem_item: any[]
+    }>
+    resources?: Array<{
+      resource_id: string
+      consumption: string
+      resource_name: string
+    }>
+    status: string
+    external_id: string
+    event_date_time: string
+    row_total_incl_tax: number
+    row_total_excl_tax: number
+    row_total_tax_amount: number
+    price_per_one_incl_tax: number
+    price_per_one_excl_tax: number
+    currency: string
+    payment_status: string
+    item_type_code: string
+    sales_channel: string
+  }>
+  sales_channel: string
+  payment_method: string
+  contact_data: {
+    firstname: string
+    lastname: string
+    email: string
+  }
+  subtotal: number
+  tax_amount: number
+  grand_total: number
+  currency: string
+}
+
+/**
+ * Create a permanent reservation in Regiondo
+ * @param data - The reservation data
+ * @param placeBooking - Whether to place the booking immediately (default: true)
+ * @returns Promise with the reservation response and purchase response
+ */
+export async function createPermanentReservation(
+  data: PermanentReservationRequest,
+  placeBooking = true,
+): Promise<{ reservation: PermanentReservationResponse; purchase?: PurchaseResponse; error?: string }> {
+  try {
+    console.log(`Creating permanent reservation for product ${data.product_id}`)
+
+    // Format the request data
+    const requestData = {
+      ...data,
+      skip_customer_validation: data.skip_customer_validation ?? true,
+    }
+
+    console.log("Creating reservation with data:", requestData)
+
+    // Step 1: Create the permanent reservation
+    const reservationResponse = await regiondoApi.post(
+      `/checkout/permanentreservation?place_booking=${placeBooking}`,
+      requestData,
+    )
+
+    // Check if booking_key is in the response
+    if (!reservationResponse || !reservationResponse.booking_key) {
+      const errorMessage =
+        reservationResponse?.error || "Failed to create permanent reservation: No booking key received"
+      console.error(errorMessage, reservationResponse)
+      return {
+        reservation: reservationResponse || {},
+        error: errorMessage,
+      }
+    }
+
+    console.log(`Successfully created permanent reservation with booking key: ${reservationResponse.booking_key}`)
+
+    // Step 2: Complete the purchase using the booking key
+    try {
+      const bookingKey = reservationResponse.booking_key
+      console.log(`Completing purchase for booking key: ${bookingKey}`)
+
+      const purchaseResponse = await regiondoApi.post(
+        `/checkout/permanentreservation/purchase?booking_key=${bookingKey}`,
+      )
+
+      if (!purchaseResponse || !purchaseResponse.order_id) {
+        const errorMessage = purchaseResponse?.error || "Failed to complete purchase: No order ID received"
+        console.error(errorMessage, purchaseResponse)
+        return {
+          reservation: reservationResponse,
+          error: errorMessage,
+        }
+      }
+
+      console.log(`Successfully completed purchase with order ID: ${purchaseResponse.order_id}`)
+
+      // Step 3: Fetch the booking details using the booking key and store in database
+      try {
+        console.log(`Fetching booking details for booking key: ${bookingKey}`)
+
+        // Fetch booking details
+        const bookingDetails = await fetchBookingsByProductId(
+          data.product_id.toString(),
+          undefined,
+          undefined,
+          bookingKey,
+        )
+
+        if (bookingDetails && bookingDetails.length > 0) {
+          console.log(`Successfully fetched booking details for booking key: ${bookingKey}`)
+
+          // Store the booking in the database
+          const storeResponse = await fetch(`/api/bookings/${data.product_id}/store`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ bookings: bookingDetails }),
+          })
+
+          if (!storeResponse.ok) {
+            console.error(`Failed to store booking in database: ${await storeResponse.text()}`)
+          } else {
+            console.log(`Successfully stored booking in database`)
+          }
+        } else {
+          console.warn(`No booking details found for booking key: ${bookingKey}`)
+        }
+      } catch (fetchError) {
+        console.error(`Error fetching or storing booking details: ${fetchError.message}`)
+        // Continue with the purchase response even if fetching/storing booking fails
+      }
+
+      return {
+        reservation: reservationResponse,
+        purchase: purchaseResponse,
+      }
+    } catch (purchaseError) {
+      console.error("Error completing purchase:", purchaseError)
+      return {
+        reservation: reservationResponse,
+        error: `Reservation created but purchase failed: ${purchaseError.message || "Unknown error"}`,
+      }
+    }
+  } catch (error) {
+    console.error("Error creating permanent reservation:", error)
+    return {
+      reservation: {} as PermanentReservationResponse,
+      error: `Failed to create reservation: ${error.message || "Unknown error"}`,
+    }
+  }
+}
+
+/**
+ * Create a booking in Regiondo
+ * This is a placeholder function that should be implemented based on your business logic
+ */
+export async function createRegiondoBooking(bookingData: any): Promise<any> {
+  console.log("createRegiondoBooking called with:", bookingData)
+  // In a real implementation, you would call the Regiondo API to create a booking
+  // For now, we'll simulate a successful booking creation
+  const mockRegiondoId = `regiondo-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+  return { success: true, regiondoId: mockRegiondoId }
+}
