@@ -211,6 +211,87 @@ async function applyAiSystemConfigs(opts?: ApplyOptions): Promise<MigrationResul
   })
 }
 
+/**
+ * WordPress-style slug generator — a FROZEN copy of `generateSlug` from
+ * `lib/db/queries.ts` at the time this migration was written. It is intentionally
+ * duplicated (not imported) so the migration's behaviour stays stable even if the
+ * live app's slug rules change later.
+ *
+ * Never emits a slug that looks like a legacy trip id (pure digits or `tcms_NN`):
+ * `proxy.ts` 308-redirects those segments as old id/palisis_id URLs, so such a
+ * slug would be hijacked. Those are prefixed with `trip-` instead.
+ */
+function migTripSlugify(input: string): string {
+  const slug = String(input)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .replace(/-+$/g, "")
+  if (slug === "" || /^(?:tcms_?\d+|\d+)$/.test(slug)) {
+    return slug ? `trip-${slug}` : ""
+  }
+  return slug
+}
+
+/** A slug value that must be replaced: empty, or a legacy id-looking segment. */
+function tripSlugNeedsBackfill(slug: string | null): boolean {
+  const s = (slug ?? "").trim()
+  return s === "" || /^(?:tcms_?\d+|\d+)$/.test(s)
+}
+
+/**
+ * Backfill `trips.slug` for every trip whose slug is missing/empty or still looks
+ * like a legacy id (`tcms_NN` / digits). The public `/trip/{slug}` URL falls back
+ * to the raw id when the slug is absent, which is why production shows
+ * `/trip/tcms_25` — those rows never had a slug generated.
+ *
+ * DATA-ONLY (UPDATEs existing rows; no DDL). Idempotent: a trip that already has a
+ * real slug is skipped, so a second run leaves everything untouched. Slugs are made
+ * unique against the live `trips` table (and against slugs assigned earlier in the
+ * same run), mirroring `uniqueTripSlug` in queries.ts.
+ */
+async function applyTripSlugs(): Promise<MigrationResult> {
+  const rows = await query<{ id: string; title: string | null; slug: string | null }>(
+    `SELECT id, title, slug FROM trips ORDER BY id`,
+  )
+  let updated = 0
+  let skipped = 0
+  for (const r of rows) {
+    if (!tripSlugNeedsBackfill(r.slug)) {
+      skipped++
+      continue
+    }
+    const base =
+      migTripSlugify(String(r.title ?? "")) ||
+      migTripSlugify(r.id) ||
+      `trip-${r.id}`
+    // Uniquify against the DB (excluding this row), appending -2, -3, … on clash.
+    let suffix = 0
+    let candidate = base
+    while (true) {
+      candidate = suffix === 0 ? base : `${base}-${suffix + 1}`
+      const clash = await queryOne<{ id: string }>(
+        `SELECT id FROM trips WHERE slug = $1 AND id <> $2 LIMIT 1`,
+        [candidate, r.id],
+      )
+      if (!clash) break
+      suffix++
+    }
+    await query(`UPDATE trips SET slug = $1 WHERE id = $2`, [candidate, r.id])
+    updated++
+  }
+  return {
+    inserted: 0,
+    skipped,
+    updated,
+    detail: `${updated} trip slug${updated === 1 ? "" : "s"} backfilled, ${skipped} already had a slug`,
+  }
+}
+
 export type AiConfigFieldKey =
   | "label"
   | "description"
@@ -346,6 +427,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
       "Seeds the AI System configs shown under /admin/ai-systems (blog, chat + planner chat form, help, itinerary + tips, outdoor_today, planner + behavior settings). Excludes trip_itinerary (migration 002). Idempotent by default: existing rows are left untouched. Supports opt-in overwrite (compare + overwrite per prompt, or overwrite all) to push updated dev prompts/settings.",
     overwritable: true,
     apply: applyAiSystemConfigs,
+  },
+  {
+    id: "004-trip-slugs",
+    name: "Trip URL slugs backfill",
+    description:
+      "Backfills trips.slug for trips with a missing/empty or legacy id-style slug (tcms_NN / digits), so public URLs become /trip/{slug} instead of /trip/tcms_25. DATA-only (UPDATEs rows; no DDL). Idempotent: trips that already have a real slug are skipped. Slugs are made unique against the trips table, mirroring the app's own slug rules.",
+    apply: applyTripSlugs,
   },
 ]
 
