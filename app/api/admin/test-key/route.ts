@@ -18,8 +18,6 @@ const TIMEOUT = 8000
 interface TestRequest {
   service?: string
   key?: string
-  secretKey?: string
-  apiUrl?: string
   placeId?: string
   channelId?: string
   marketplaceId?: string

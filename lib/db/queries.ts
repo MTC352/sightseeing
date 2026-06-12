@@ -4,7 +4,7 @@
  * from lib/admin-store.ts. Shape of returned objects matches AdminTrip,
  * AdminPost, etc. so existing API handlers need minimal changes.
  */
-import { query, queryOne, pool, withTransaction } from "@/lib/db"
+import { query, queryOne, pool } from "@/lib/db"
 import {
   type AiProvider,
   effectiveProvider,

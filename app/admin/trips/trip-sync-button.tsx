@@ -5,19 +5,9 @@ import { useRouter } from "next/navigation"
 import { RefreshCw, CheckCircle2, XCircle } from "lucide-react"
 
 interface Props {
-  palisisId?: string | null | undefined
+  palisisId: string | null | undefined
   variant?: "icon" | "full"
 }
-
-// Config keeps the copy/endpoint accurate in one component.
-const SOURCE = {
-  palisis: {
-    label: "Palisis",
-    endpoint: "/api/admin/palisis-import/single",
-    idKey: "palisisId",
-    accent: "blue",
-  },
-} as const
 
 export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
   const router = useRouter()
@@ -25,18 +15,14 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
   const [status, setStatus]   = useState<"idle" | "ok" | "err">("idle")
   const [message, setMessage] = useState<string>("")
 
-  const source = palisisId ? "palisis" : null
-  const id = palisisId ?? null
-  if (!source || !id) return null
-
-  const cfg = SOURCE[source]
+  if (!palisisId) return null
 
   async function sync() {
     const confirmed = window.confirm(
-      `Sync from ${cfg.label} will OVERRIDE this trip's local data.\n\n` +
-      "All static fields (title, description, pricing, images, languages, etc.) " +
-      `will be replaced with the latest data from ${cfg.label}. Any fields you edited ` +
-      "manually here will be lost.\n\n" +
+      "Sync from Palisis will OVERRIDE this trip's local data.\n\n" +
+      "All fields (title, description, pricing, classification, included/excluded, " +
+      "itinerary, policies, languages, etc.) will be replaced with the latest data " +
+      "from Palisis. Any unsaved edits and any fields you edited manually here will be lost.\n\n" +
       "This action cannot be undone.\n\n" +
       "Do you want to continue?"
     )
@@ -46,15 +32,15 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
     setStatus("idle")
     setMessage("")
     try {
-      const res = await fetch(cfg.endpoint, {
+      const res = await fetch("/api/admin/palisis-import/single", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ [cfg.idKey]: id }),
+        body:    JSON.stringify({ palisisId }),
       })
       const data = await res.json()
       if (data.ok) {
         setStatus("ok")
-        setMessage(data.action === "created" ? `Created from ${cfg.label}` : `Synced from ${cfg.label}`)
+        setMessage(data.action === "created" ? "Created from Palisis" : "Synced from Palisis")
         router.refresh()
         setTimeout(() => setStatus("idle"), 2500)
       } else {
@@ -71,8 +57,6 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
     }
   }
 
-  const hoverColor = cfg.accent === "blue" ? "hover:text-blue-600" : "hover:text-emerald-600"
-
   if (variant === "icon") {
     return (
       <button
@@ -82,14 +66,14 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
         title={
           status === "ok"  ? message
           : status === "err" ? `Error: ${message}`
-          : `Sync from ${cfg.label} (override local data)`
+          : "Sync from Palisis (override local data)"
         }
         className={`rounded-lg p-2 transition-colors disabled:opacity-50 ${
           status === "ok"
             ? "bg-emerald-500/10 text-emerald-600"
             : status === "err"
             ? "bg-destructive/10 text-destructive"
-            : `text-muted-foreground/60 hover:bg-secondary ${hoverColor}`
+            : "text-muted-foreground/60 hover:bg-secondary hover:text-blue-600"
         }`}
       >
         {status === "ok" ? (
@@ -104,21 +88,16 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
   }
 
   // Full variant
-  const fullClasses =
-    cfg.accent === "blue"
-      ? "border-blue-500/30 bg-blue-500/10 text-blue-700 hover:bg-blue-500/20"
-      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20"
-
   return (
     <div className="flex flex-col items-end gap-1.5">
       <button
         type="button"
         onClick={sync}
         disabled={pending}
-        className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${fullClasses}`}
+        className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-500/20 disabled:opacity-50"
       >
         <RefreshCw className={`h-4 w-4 ${pending ? "animate-spin" : ""}`} />
-        {pending ? "Syncing…" : `Sync from ${cfg.label}`}
+        {pending ? "Syncing…" : "Sync from Palisis"}
       </button>
       {status !== "idle" && (
         <p className={`flex items-center gap-1 text-xs ${
