@@ -27,3 +27,13 @@ then run the content migrations from `/admin/db-migrations`.
 help_articles), so it is NOT concurrency-safe under simultaneous runs. Acceptable
 because it's a manual superadmin-only button; if it ever becomes automated, add a
 uniqueness constraint + ON CONFLICT.
+
+**Media-file migrations (binary vs row split):** uploads default to LOCAL storage
+(`public/uploads/…`) when `BLOB_READ_WRITE_TOKEN` is unset — and that dir is
+committed, so the PDF/image binary reaches prod via Publish (code), NOT the
+migration. A media-library data migration therefore only inserts the `media_files`
+ROW (filename/url/mime/size/storage/content_hash). Dedup by content_hash
+(`ON CONFLICT (content_hash) WHERE content_hash IS NOT NULL DO NOTHING`); resolve
+`uploaded_by` via `(SELECT id FROM admin_users WHERE id=$N)` so a missing admin
+degrades to NULL instead of an FK violation. If blob storage is ever enabled the
+url is already absolute/durable, so the same row-only migration still works.

@@ -17,6 +17,7 @@
 import { query, queryOne, withTransaction } from "@/lib/db"
 import adminDocs from "./data/001-admin-docs.json"
 import aiSystemConfigs from "./data/003-ai-system-configs.json"
+import ebikeConditionsMedia from "./data/005-ebike-conditions-media.json"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 
 export type MigrationResult = {
@@ -71,6 +72,17 @@ type AiSystemConfig = {
   temperature: number | null
   max_tokens: number | null
   extra_config: unknown
+}
+
+type MediaFileSeed = {
+  filename: string
+  title: string | null
+  url: string
+  mime_type: string
+  size_bytes: number
+  storage: string
+  content_hash: string
+  uploaded_by: string | null
 }
 
 /** Postgres "undefined_table" — the tracking table hasn't reached this DB yet. */
@@ -292,6 +304,48 @@ async function applyTripSlugs(): Promise<MigrationResult> {
   }
 }
 
+/**
+ * Seed the "E-Bike Conditions" PDF into the media library (media_files) so it
+ * appears in /admin/files on the live site, matching dev. The PDF binary itself
+ * ships with the code (public/uploads/…); this migration only inserts the DB row
+ * that records it in the library. DATA-ONLY (no DDL).
+ *
+ * Idempotent: deduplicated by content_hash via the partial unique index, so a
+ * second run (or a file already uploaded in this DB) is left untouched.
+ * uploaded_by is resolved through a subquery so a missing admin id degrades to
+ * NULL rather than violating the foreign key.
+ */
+async function applyEbikeConditionsMedia(): Promise<MigrationResult> {
+  const rows = ebikeConditionsMedia as MediaFileSeed[]
+  let inserted = 0
+  let skipped = 0
+  for (const m of rows) {
+    const ins = await queryOne<{ id: string }>(
+      `INSERT INTO media_files (filename, title, url, mime_type, size_bytes, storage, content_hash, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT id FROM admin_users WHERE id = $8))
+       ON CONFLICT (content_hash) WHERE content_hash IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        m.filename,
+        m.title,
+        m.url,
+        m.mime_type,
+        m.size_bytes,
+        m.storage,
+        m.content_hash,
+        m.uploaded_by,
+      ],
+    )
+    if (ins) inserted++
+    else skipped++
+  }
+  return {
+    inserted,
+    skipped,
+    detail: `${inserted} media file${inserted === 1 ? "" : "s"} inserted, ${skipped} already present`,
+  }
+}
+
 export type AiConfigFieldKey =
   | "label"
   | "description"
@@ -434,6 +488,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Backfills trips.slug for trips with a missing/empty or legacy id-style slug (tcms_NN / digits), so public URLs become /trip/{slug} instead of /trip/tcms_25. DATA-only (UPDATEs rows; no DDL). Idempotent: trips that already have a real slug are skipped. Slugs are made unique against the trips table, mirroring the app's own slug rules.",
     apply: applyTripSlugs,
+  },
+  {
+    id: "005-ebike-conditions-media",
+    name: "E-Bike Conditions PDF (media library)",
+    description:
+      "Records the 'E-Bike Conditions' PDF (linked in the site footer) in the media_files library so it appears under /admin/files on the live site. The PDF binary ships with the code (public/uploads/); this only inserts the DB row. DATA-only (no DDL). Idempotent: deduplicated by content_hash, so a second run is left untouched.",
+    apply: applyEbikeConditionsMedia,
   },
 ]
 
