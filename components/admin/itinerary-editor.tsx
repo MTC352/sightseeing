@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { GripVertical, Plus, Trash2, Sparkles, Loader2, ArrowDown, AlertCircle, MapPin, X } from "lucide-react"
+import { GripVertical, Plus, Trash2, Sparkles, Loader2, ArrowDown, AlertCircle, MapPin, X, ChevronDown } from "lucide-react"
 import type { ItineraryStep } from "@/lib/admin-store"
 import { LocationPicker, type PickedLocation } from "@/components/admin/location-picker"
 
@@ -20,6 +20,7 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pickerIndex, setPickerIndex] = useState<number | null>(null)
+  const [collapsed, setCollapsed] = useState(true)
 
   const list = steps ?? []
 
@@ -130,23 +131,44 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
   return (
     <section className="rounded-xl border border-border bg-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">Itinerary</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Step-by-step stops shown on the public trip page. Drag to reorder.
-          </p>
-        </div>
         <button
           type="button"
-          onClick={generateWithAI}
-          disabled={disabled || generating}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+          className="flex flex-1 items-center gap-2 text-left"
         >
-          {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          {generating ? "Generating…" : "Generate Itinerary with AI"}
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}
+          />
+          <span>
+            <span className="block text-sm font-semibold text-foreground">
+              Itinerary
+              {list.length > 0 && (
+                <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  {list.length} {list.length === 1 ? "step" : "steps"}
+                </span>
+              )}
+            </span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Step-by-step stops shown on the public trip page. Drag to reorder.
+            </span>
+          </span>
         </button>
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={generateWithAI}
+            disabled={disabled || generating}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {generating ? "Generating…" : "Generate Itinerary with AI"}
+          </button>
+        )}
       </div>
 
+      {!collapsed && (
+      <>
       {error && (
         <div className="mt-3 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -290,6 +312,8 @@ export function ItineraryEditor({ tripId, steps, onChange, disabled }: Itinerary
       >
         <Plus className="h-3.5 w-3.5" /> Add step
       </button>
+      </>
+      )}
 
       {pickerIndex !== null && list[pickerIndex] && (
         <LocationPicker
