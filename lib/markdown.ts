@@ -25,8 +25,19 @@ function escapeHtml(s: string): string {
 /** Inline-level Markdown (links, bold, italic, code) on a single, HTML-escaped line. */
 function inline(s: string): string {
   let t = escapeHtml(s)
-  // Links: [text](url) — keep the raw url; href is re-validated by sanitizeRichText.
-  t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text: string, url: string) => `<a href="${url}">${text}</a>`)
+  // Links: [text](url). Stash each URL behind an opaque, markup-free token BEFORE
+  // running the emphasis/code passes. Otherwise underscores or asterisks inside a
+  // URL (e.g. /trip/tcms_5) get treated as emphasis markers — and with two links
+  // on one line the markers even pair up across anchors, mangling the hrefs into
+  // things like /trip/tcms<em>5. The link TEXT still flows through the passes
+  // below, so emphasis inside link text keeps working. href is re-validated by
+  // sanitizeRichText.
+  const urls: string[] = []
+  t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text: string, url: string) => {
+    const token = `\u0000U${urls.length}\u0000`
+    urls.push(url)
+    return `<a href="${token}">${text}</a>`
+  })
   // Bold: **text** or __text__
   t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
   t = t.replace(/__(.+?)__/g, "<strong>$1</strong>")
@@ -35,6 +46,8 @@ function inline(s: string): string {
   t = t.replace(/(^|[^_])_(?!\s)([^_]+?)_/g, "$1<em>$2</em>")
   // Inline code: `code`
   t = t.replace(/`([^`]+?)`/g, "<code>$1</code>")
+  // Restore the stashed URLs now that emphasis/code can no longer touch them.
+  t = t.replace(/\u0000U(\d+)\u0000/g, (_m, i: string) => urls[Number(i)] ?? "")
   return t
 }
 

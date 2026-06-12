@@ -4,10 +4,11 @@ import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { Clock, User, ArrowLeft, Calendar, Eye } from "lucide-react"
-import { dbGetPostBySlugAny } from "@/lib/db/queries"
+import { dbGetPostBySlugAny, dbListTrips } from "@/lib/db/queries"
 import { getSession } from "@/lib/auth"
 import { sanitizeRichText } from "@/lib/sanitize-html"
 import { markdownToHtml, looksLikeHtml } from "@/lib/markdown"
+import { buildTripSlugMap, rewriteTripLinksToSlugs, type TripSlugRef } from "@/lib/blog-trip-links"
 import type { Metadata } from "next"
 
 export const dynamic = "force-dynamic"
@@ -125,9 +126,22 @@ export default async function BlogPostPage({ params }: Props) {
   // those on the fly. Always sanitize before injecting — admin-authored content
   // is trusted-ish but the sanitizer also turns AI Markdown links into real,
   // safe <a> tags (relative /trip/<id> links allowed).
-  const bodyHtml = sanitizeRichText(
-    looksLikeHtml(post.body) ? post.body : markdownToHtml(post.body),
-  )
+  let rawHtml = looksLikeHtml(post.body) ? post.body : markdownToHtml(post.body)
+  // Normalize in-body trip links to the trip's canonical slug URL
+  // (/trip/<slug>) instead of the raw Palisis id (/trip/tcms_5), and repair any
+  // hrefs mangled by the legacy Markdown converter. Run this BEFORE sanitize so
+  // a malformed href (e.g. /trip/tcms<em>5) is still recoverable — sanitize then
+  // runs as the final XSS gate and re-validates the rewritten /trip/<slug> href.
+  // Cheap (~18 published trips); fail-soft so a DB hiccup never breaks the article.
+  if (rawHtml.includes("/trip/")) {
+    try {
+      const tripRows = (await dbListTrips({ publicOnly: true })) as unknown as TripSlugRef[]
+      rawHtml = rewriteTripLinksToSlugs(rawHtml, buildTripSlugMap(tripRows))
+    } catch (e) {
+      console.error(`[blog/${slug}] trip-link slug normalization failed:`, e)
+    }
+  }
+  const bodyHtml = sanitizeRichText(rawHtml)
 
   const canonical = `${BASE}/blog/${post.slug}`
   const datePublished = post.publishedAt ?? (post.created_at ? new Date(post.created_at).toISOString() : null)
