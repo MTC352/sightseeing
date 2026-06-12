@@ -395,8 +395,16 @@ export function mapTourDetailToTrip(t: TourDetail | TourSummary): MappedTrip {
   }
 }
 
-/** Build a partial update payload — only the fields safe to override on every sync. */
-export function mappedToUpdatePayload(m: MappedTrip, opts: { preservePermalink?: boolean } = {}) {
+/** Build a partial update payload — only the fields safe to override on every sync.
+ *
+ * `excludeFields` lets an admin keep specific fields untouched even during an
+ * override import (e.g. a manually-edited description). Bookkeeping fields
+ * (palisisRaw / syncSource / lastSyncedAt) are always written and can never be
+ * excluded. See `lib/palisis-import-fields.ts` for the canonical catalog. */
+export function mappedToUpdatePayload(
+  m: MappedTrip,
+  opts: { preservePermalink?: boolean; excludeFields?: string[] } = {},
+) {
   const payload: Record<string, unknown> = {
     title: m.title,
     description: m.description,
@@ -447,5 +455,13 @@ export function mappedToUpdatePayload(m: MappedTrip, opts: { preservePermalink?:
     lastSyncedAt: m.lastSyncedAt,
   }
   if (!opts.preservePermalink) payload.permalink = m.permalink
+
+  if (opts.excludeFields?.length) {
+    const ALWAYS_WRITTEN = new Set(["palisisRaw", "syncSource", "lastSyncedAt"])
+    for (const f of opts.excludeFields) {
+      if (ALWAYS_WRITTEN.has(f)) continue
+      if (f in payload) delete payload[f]
+    }
+  }
   return payload
 }

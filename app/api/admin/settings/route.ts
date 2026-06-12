@@ -7,6 +7,7 @@ import {
   dbUpdateWeglot,
   dbUpdateHeaderFooter,
   dbUpdateAnnouncement,
+  dbSetImportExcludedFields,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
@@ -61,6 +62,10 @@ export async function GET() {
       filtered.announcement = full.announcement
     }
 
+    if (perms.includes("palisis")) {
+      filtered.importExcludedFields = full.importExcludedFields
+    }
+
     return NextResponse.json(filtered)
   } catch (err) {
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -76,6 +81,7 @@ const SECTION_PERMISSION: Record<string, PermissionKey> = {
   header: "header-footer",
   footer: "header-footer",
   announcement: "header-footer",
+  importSettings: "palisis",
 }
 
 export async function PATCH(req: Request) {
@@ -83,7 +89,7 @@ export async function PATCH(req: Request) {
     const session = await requireAdminSession()
     const body = await req.json()
     const { section, data } = body as {
-      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement"
+      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement" | "importSettings"
       data: Record<string, unknown>
     }
 
@@ -116,6 +122,8 @@ export async function PATCH(req: Request) {
       await dbUpdateHeaderFooter("footer", data.customHtml as string)
     } else if (section === "announcement") {
       await dbUpdateAnnouncement(data as { enabled?: boolean; content?: string; size?: string })
+    } else if (section === "importSettings") {
+      await dbSetImportExcludedFields(data.excludedFields)
     }
 
     void logActivity({

@@ -13,6 +13,7 @@ import {
   dbCreateTrip,
   dbUpdateTrip,
   dbInsertPalisisSyncLog,
+  dbGetImportExcludedFields,
 } from "@/lib/db/queries"
 
 export interface SingleSyncResult {
@@ -89,9 +90,11 @@ export async function syncSingleTripFromPalisis(
     tripId = (created as { id: string }).id
     action = "created"
   } else {
-    // Preserve manually-set permalink if present
-    const payload = mappedToUpdatePayload(mapped, { preservePermalink: !!local.permalink })
-    payload.title = title
+    // Apply the admin-default override exclusions so manually-kept fields (e.g. a
+    // hand-edited description) survive webhook/manual single-tour re-syncs too.
+    const excludeFields = await dbGetImportExcludedFields()
+    const payload = mappedToUpdatePayload(mapped, { preservePermalink: !!local.permalink, excludeFields })
+    if (!excludeFields.includes("title")) payload.title = title
     await dbUpdateTrip(local.id, payload)
     tripId = local.id
     action = "updated"

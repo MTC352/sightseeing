@@ -2,7 +2,8 @@ import { NextResponse } from "next/server"
 import { getTourCMSClient } from "@/lib/tourcms"
 import type { TourSummary } from "@/lib/tourcms"
 import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper"
-import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog } from "@/lib/db/queries"
+import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog, dbGetImportExcludedFields } from "@/lib/db/queries"
+import { sanitizeExcludedFields, fieldLabel } from "@/lib/palisis-import-fields"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
@@ -13,8 +14,19 @@ export async function POST(req: Request) {
   let session
   try { session = await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   const startedAt = Date.now()
-  const body = await req.json().catch(() => ({})) as { override?: boolean }
+  const body = await req.json().catch(() => ({})) as { override?: boolean; excludeFields?: string[] }
   const overrideAll = body.override === true
+
+  // Resolve which fields to KEEP (exclude from override) for this run:
+  //  - a per-run list in the request body overrides everything (UI choice), else
+  //  - the admin-default list from Importer Settings.
+  // Only meaningful when overriding existing trips.
+  const defaultExcluded = await dbGetImportExcludedFields()
+  const excludeFields = overrideAll
+    ? (Array.isArray(body.excludeFields)
+        ? sanitizeExcludedFields(body.excludeFields)
+        : defaultExcluded)
+    : []
 
   // ── 1. Load TourCMS client ─────────────────────────────────────────────────
   const tourcms = await getTourCMSClient()
@@ -185,8 +197,9 @@ export async function POST(req: Request) {
 
         const mapped       = mapTourDetailToTrip(detail.tour)
         const displayTitle = String(detail.tour.tour_name_long ?? detail.tour.tour_name ?? leanTitle)
-        const payload      = mappedToUpdatePayload(mapped, { preservePermalink: !!localTrip.permalink })
-        payload.title      = displayTitle || leanTitle || mapped.title
+        const payload      = mappedToUpdatePayload(mapped, { preservePermalink: !!localTrip.permalink, excludeFields })
+        // Title is re-derived from the richest source — only set it when not excluded.
+        if (!excludeFields.includes("title")) payload.title = displayTitle || leanTitle || mapped.title
         await dbUpdateTrip(localTrip.id, payload)
         tourResults.push({ palisisId, title: displayTitle || leanTitle, action: "updated" })
         logs.push(`[${ts()}] Updated trip ${palisisId}: "${displayTitle || leanTitle}"`)
@@ -218,6 +231,9 @@ export async function POST(req: Request) {
     updated  > 0 ? `${updated} trips updated (override).` : null,
     skipped  > 0 ? `${skipped} skipped (unchanged or existing).` : null,
     apiErrors > 0 ? `${apiErrors} showTour API errors (used lean data).` : null,
+    (overrideAll && excludeFields.length > 0)
+      ? `Excluded from override: ${excludeFields.map(fieldLabel).join(", ")}.`
+      : null,
     `Completed in ${(durationMs / 1000).toFixed(1)}s.`,
   ].filter(Boolean).join(" ")
 
@@ -237,6 +253,7 @@ export async function POST(req: Request) {
       skipped,
       api_errors: apiErrors,
       override_mode: overrideAll,
+      excluded_fields: excludeFields,
       duration_ms: durationMs,
       tours: tourResults,
       log: logs,
@@ -256,6 +273,7 @@ export async function POST(req: Request) {
       skipped,
       api_errors: apiErrors,
       override_mode: overrideAll,
+      excluded_fields: excludeFields,
     },
   })
 

@@ -19,6 +19,7 @@ import {
   type SeoPrompts,
 } from "@/lib/ai/seo-prompts"
 import { sanitizeRichText } from "@/lib/sanitize-html"
+import { sanitizeExcludedFields, parseExcludedFields } from "@/lib/palisis-import-fields"
 
 // ── Announcement banner ─────────────────────────────────────────────────────
 // Structured banner stored in a single `integrations` row (key='announcement'):
@@ -714,6 +715,7 @@ export async function dbGetSettings() {
   let weglot: Record<string, unknown> = { originalLang: 'en', destinationLangs: [], showFlags: true }
 
   let announcement: Announcement = { enabled: false, content: '', size: 'md' }
+  let importExcludedFields: string[] = []
 
   for (const row of intRows as Record<string, unknown>[]) {
     const key = row.key as string
@@ -723,6 +725,10 @@ export async function dbGetSettings() {
       // Structured announcement banner — kept out of `apiKeys` (it is not a
       // credential) and surfaced as its own settings section.
       announcement = readAnnouncementRow(row.value, row.meta)
+    } else if (key === 'palisis_import_excluded_fields') {
+      // Palisis importer override-exclusion defaults — kept out of `apiKeys`
+      // (not a credential) and surfaced as its own settings field.
+      importExcludedFields = parseExcludedFields(row.value)
     } else {
       apiKeys[key] = (row.value as string) ?? ''
     }
@@ -825,7 +831,7 @@ export async function dbGetSettings() {
   const aiProviderSelected = selectedProvider(apiKeys)
   const aiProvider = effectiveProvider(apiKeys, aiEnv)
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
@@ -2158,6 +2164,31 @@ type RulesMeta = {
   maxSizeMb?: number
   allowedExtensions?: string[]
   roles?: Record<string, RuleObj>
+}
+
+// ── Palisis importer settings ───────────────────────────────────────────────
+// Admin-default list of trip fields that an OVERRIDE import must NOT overwrite
+// (kept as-is from our DB even when "Override existing trips" is checked). Stored
+// as a JSON array string in a single integrations row to avoid extra key clutter.
+
+/** Read the admin-default excluded override fields for the Palisis importer. */
+export async function dbGetImportExcludedFields(): Promise<string[]> {
+  const row = await queryOne<{ value: string | null }>(
+    `SELECT value FROM integrations WHERE key = 'palisis_import_excluded_fields'`,
+    [],
+  )
+  return parseExcludedFields(row?.value)
+}
+
+/** Upsert the admin-default excluded override fields for the Palisis importer. */
+export async function dbSetImportExcludedFields(fields: unknown): Promise<void> {
+  const clean = sanitizeExcludedFields(fields)
+  await query(
+    `INSERT INTO integrations (key, label, value, updated_at)
+     VALUES ('palisis_import_excluded_fields', 'Palisis Import — excluded override fields', $1, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [JSON.stringify(clean)],
+  )
 }
 
 /** Read the raw file-rules meta object (global + roles) from the one row. */

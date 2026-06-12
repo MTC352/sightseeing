@@ -6,12 +6,14 @@ import {
   RefreshCw, Download, CheckCircle2, XCircle,
   Info, ArrowLeft, ChevronDown, ChevronUp, Clock, Terminal,
   TriangleAlert, Webhook, Copy, Check, Gauge, ScrollText,
+  SlidersHorizontal, Save, ShieldCheck, RotateCcw,
 } from "lucide-react"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { OVERRIDABLE_FIELDS } from "@/lib/palisis-import-fields"
 
 interface ImportResult {
   ok: boolean
@@ -69,6 +71,12 @@ export default function PalisisPage() {
   const [confirmOpen, setConfirmOpen]   = useState(false)
   const [autoSync, setAutoSync]         = useState(false)
   const [autoSyncSaving, setAutoSyncSaving] = useState(false)
+  // Importer field-exclusion: admin default (persisted) + per-run override (volatile).
+  const [defaultExcluded, setDefaultExcluded] = useState<string[]>([])
+  const [runExcluded, setRunExcluded]         = useState<string[]>([])
+  const [importSettingsSaving, setImportSettingsSaving] = useState(false)
+  const [importSettingsSaved, setImportSettingsSaved]   = useState(false)
+  const [importSettingsError, setImportSettingsError]   = useState("")
   const [webhookUrl, setWebhookUrl]     = useState("")
   const [copied, setCopied]             = useState(false)
   const [rateLimit, setRateLimit]       = useState<RateLimit | null>(null)
@@ -85,6 +93,9 @@ export default function PalisisPage() {
       .then(d => {
         const enabled = d?.apiKeys?.palisis_auto_sync === "true"
         setAutoSync(enabled)
+        const excluded = Array.isArray(d?.importExcludedFields) ? d.importExcludedFields as string[] : []
+        setDefaultExcluded(excluded)
+        setRunExcluded(excluded)
       })
       .catch(() => { /* ignore */ })
   }, [])
@@ -105,6 +116,50 @@ export default function PalisisPage() {
       setAutoSync(!enabled)
     } finally {
       setAutoSyncSaving(false)
+    }
+  }
+
+  // Toggle a field in the persisted admin-default exclusion list.
+  function toggleDefaultField(key: string) {
+    setImportSettingsSaved(false)
+    setDefaultExcluded(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key],
+    )
+  }
+
+  // Toggle a field for THIS run only (does not persist).
+  function toggleRunField(key: string) {
+    setRunExcluded(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key],
+    )
+  }
+
+  async function saveImportSettings() {
+    setImportSettingsSaving(true)
+    setImportSettingsSaved(false)
+    setImportSettingsError("")
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          section: "importSettings",
+          data:    { excludedFields: defaultExcluded },
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setImportSettingsError(data?.error ?? `Save failed (${res.status}).`)
+        return
+      }
+      // Keep the per-run selection in sync with the new default.
+      setRunExcluded(defaultExcluded)
+      setImportSettingsSaved(true)
+      setTimeout(() => setImportSettingsSaved(false), 2500)
+    } catch {
+      setImportSettingsError("Save failed — network error.")
+    } finally {
+      setImportSettingsSaving(false)
     }
   }
 
@@ -285,7 +340,12 @@ export default function PalisisPage() {
             <input
               type="checkbox"
               checked={overrideMode}
-              onChange={(e) => setOverrideMode(e.target.checked)}
+              onChange={(e) => {
+                setOverrideMode(e.target.checked)
+                // Reset per-run exclusions to the admin default each time override
+                // is re-enabled, so a run always starts from the saved baseline.
+                if (e.target.checked) setRunExcluded(defaultExcluded)
+              }}
               disabled={importing}
               className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
             />
@@ -299,6 +359,70 @@ export default function PalisisPage() {
               </p>
             </div>
           </label>
+
+          {/* Per-run field selection — shown only when overriding existing trips */}
+          {overrideMode && (
+            <div className="mt-3 rounded-xl border border-border bg-secondary/20 p-3">
+              <div className="flex items-center gap-1.5">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-xs font-semibold text-foreground">Fields for this run</p>
+              </div>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                Click a field to move it between groups. Changes apply only to this run —
+                defaults come from Importer Settings below.
+              </p>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {/* Will be overridden */}
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                    <RotateCcw className="h-3 w-3" /> Will be overridden
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {OVERRIDABLE_FIELDS.filter(f => !runExcluded.includes(f.key)).map(f => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() => toggleRunField(f.key)}
+                        disabled={importing}
+                        title="Click to exclude from this run"
+                        className="rounded-full border border-amber-400/40 bg-amber-50/60 px-2 py-0.5 text-[11px] text-amber-700 transition-colors hover:bg-amber-100/70 disabled:opacity-50 dark:bg-amber-950/20 dark:text-amber-400"
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                    {OVERRIDABLE_FIELDS.filter(f => !runExcluded.includes(f.key)).length === 0 && (
+                      <span className="text-[11px] italic text-muted-foreground">All fields excluded.</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Excluded (kept as-is) */}
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                    <ShieldCheck className="h-3 w-3" /> Excluded — kept as-is
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {OVERRIDABLE_FIELDS.filter(f => runExcluded.includes(f.key)).map(f => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() => toggleRunField(f.key)}
+                        disabled={importing}
+                        title="Click to include in this run"
+                        className="rounded-full border border-emerald-400/40 bg-emerald-50/60 px-2 py-0.5 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100/70 disabled:opacity-50 dark:bg-emerald-950/20 dark:text-emerald-400"
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                    {runExcluded.length === 0 && (
+                      <span className="text-[11px] italic text-muted-foreground">Nothing excluded — every field will be overridden.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
@@ -328,9 +452,21 @@ export default function PalisisPage() {
                   <div className="space-y-3 text-sm">
                     <p>
                       All existing trips that match a TourCMS tour will be{" "}
-                      <strong className="text-foreground">overwritten</strong> — titles, descriptions, prices, images, and tags.
+                      <strong className="text-foreground">overwritten</strong> with fresh Palisis data.
                       This cannot be undone.
                     </p>
+                    {runExcluded.length > 0 ? (
+                      <p className="text-emerald-700 dark:text-emerald-400">
+                        Kept as-is (not overwritten):{" "}
+                        <strong>
+                          {OVERRIDABLE_FIELDS.filter(f => runExcluded.includes(f.key)).map(f => f.label).join(", ")}
+                        </strong>.
+                      </p>
+                    ) : (
+                      <p className="text-muted-foreground">
+                        Every field will be overwritten — no fields are excluded.
+                      </p>
+                    )}
                     <p className="text-muted-foreground">
                       New trips will be created in draft status as normal.
                     </p>
@@ -351,7 +487,7 @@ export default function PalisisPage() {
                     fetch("/api/admin/palisis-import", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ override: true }),
+                      body: JSON.stringify({ override: true, excludeFields: runExcluded }),
                     })
                       .then(r => r.json())
                       .then(async (data: ImportResult) => {
@@ -512,6 +648,71 @@ export default function PalisisPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Importer Settings — default override exclusions */}
+      <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10">
+              <SlidersHorizontal className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Importer Settings</h2>
+              <p className="text-sm text-muted-foreground">
+                Choose which fields are <strong>excluded from override by default</strong>. These stay
+                untouched on every override import &amp; auto-sync, even when “Override existing trips” is checked.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={saveImportSettings}
+            disabled={importSettingsSaving}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+          >
+            {importSettingsSaved
+              ? <><Check className="h-3.5 w-3.5" /> Saved</>
+              : <><Save className="h-3.5 w-3.5" /> {importSettingsSaving ? "Saving…" : "Save defaults"}</>}
+          </button>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {OVERRIDABLE_FIELDS.map(f => {
+            const excluded = defaultExcluded.includes(f.key)
+            return (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => toggleDefaultField(f.key)}
+                aria-pressed={excluded}
+                title={excluded ? "Excluded by default — click to allow override" : "Overridden by default — click to exclude"}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  excluded
+                    ? "border-emerald-400/50 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-100/70 dark:bg-emerald-950/20 dark:text-emerald-400"
+                    : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
+                }`}
+              >
+                {excluded ? <ShieldCheck className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5 opacity-60" />}
+                {f.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+          <ShieldCheck className="mr-1 inline h-3 w-3 text-emerald-600" />
+          Green = excluded (kept as-is). Tap to toggle, then “Save defaults”.
+          {defaultExcluded.length > 0 && (
+            <> Currently excluded by default: <strong className="text-foreground">{defaultExcluded.length}</strong> field(s).</>
+          )}
+        </p>
+
+        {importSettingsError && (
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> {importSettingsError}
+          </p>
+        )}
       </div>
 
       {/* Import run history */}
