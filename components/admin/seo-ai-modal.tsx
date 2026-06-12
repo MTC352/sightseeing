@@ -10,7 +10,7 @@
  * "Decline".
  */
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Loader2, Sparkles, X, Check, AlertTriangle, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -38,10 +38,25 @@ const FIELD_DEFS: FieldDef[] = [
   { key: "seoBody", label: "Body Content (HTML)", multiline: true },
 ]
 
+/**
+ * A snapshot of a generated session, held by the PARENT so the modal can be
+ * reopened with the previously-generated data (and the admin's per-field
+ * choices / manual edits) instead of regenerating — until the page is refreshed
+ * or the admin explicitly clicks "Regenerate".
+ */
+export interface SeoAiModalCache {
+  ai: SeoFields
+  hasImage: boolean
+  choices: Record<string, Choice>
+  manual: Record<string, string>
+}
+
 interface Props {
   tripId: string
   image: string
   current: SeoFields
+  cache?: SeoAiModalCache | null
+  onCache?: (cache: SeoAiModalCache | null) => void
   onClose: () => void
   onSaved: (result: { fields: SeoFields; score: number; seoOptimizedAt: string }) => void
 }
@@ -126,7 +141,7 @@ function textToField(def: FieldDef, text: string): string[] | string {
   return text
 }
 
-export function SeoAiModal({ tripId, image, current, onClose, onSaved }: Props) {
+export function SeoAiModal({ tripId, image, current, cache, onCache, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [ai, setAi] = useState<SeoFields | null>(null)
@@ -166,8 +181,29 @@ export function SeoAiModal({ tripId, image, current, onClose, onSaved }: Props) 
     }
   }
 
+  // On open: rehydrate the previously-generated session if one exists, otherwise
+  // generate fresh. This makes reopening a closed modal show the same data.
   useEffect(() => {
-    generate()
+    if (cache?.ai) {
+      setAi(cache.ai)
+      setHasImage(cache.hasImage)
+      setChoices(cache.choices)
+      setManual(cache.manual)
+      setLoading(false)
+    } else {
+      generate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Keep a live snapshot and flush it up to the parent when the modal closes
+  // (unmounts), so a later reopen can rehydrate without regenerating.
+  const snapshotRef = useRef<SeoAiModalCache | null>(cache ?? null)
+  useEffect(() => {
+    snapshotRef.current = ai ? { ai, hasImage, choices, manual } : null
+  }, [ai, hasImage, choices, manual])
+  useEffect(() => {
+    return () => { onCache?.(snapshotRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -230,6 +266,16 @@ export function SeoAiModal({ tripId, image, current, onClose, onSaved }: Props) 
             <h2 className="text-base font-semibold text-foreground">AI SEO Optimizer</h2>
           </div>
           <div className="flex items-center gap-4">
+            {!loading && ai && (
+              <button
+                onClick={generate}
+                disabled={saving}
+                title="Discard these suggestions and generate fresh ones"
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-secondary disabled:opacity-60"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Regenerate
+              </button>
+            )}
             {!loading && ai && (
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-muted-foreground">Score</span>

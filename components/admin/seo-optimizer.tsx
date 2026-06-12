@@ -19,7 +19,7 @@ import {
   computeSeoSections, summarizeScore, computeStaleness, scoreInputFromFields,
   stripHtml, wordCount, countOccurrences, type SeoFields, type SeoSection,
 } from "@/lib/seo/score"
-import { SeoAiModal } from "@/components/admin/seo-ai-modal"
+import { SeoAiModal, type SeoAiModalCache } from "@/components/admin/seo-ai-modal"
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -102,6 +102,9 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   const [openSections,  setOpenSections]  = useState<Set<string>>(new Set(["basic"]))
   const [visibleTip,    setVisibleTip]    = useState<string | null>(null)
   const [showAiModal,   setShowAiModal]   = useState(false)
+  // Persists the AI modal's generated session across open/close so reopening
+  // shows the previous data instead of regenerating (until page refresh).
+  const [aiModalCache,  setAiModalCache]  = useState<SeoAiModalCache | null>(null)
 
   // Manual snippet-editor save (persists to import-safe seo_* columns via /seo).
   const [savingSnippet, setSavingSnippet] = useState(false)
@@ -587,6 +590,8 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
           tripId={tripData.id}
           image={image}
           current={liveFields}
+          cache={aiModalCache}
+          onCache={setAiModalCache}
           onClose={() => setShowAiModal(false)}
           onSaved={(result) => {
             setFocusKeyword(result.fields.seoKeyword ?? "")
