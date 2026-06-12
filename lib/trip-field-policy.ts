@@ -141,3 +141,29 @@ export function resolvePolicy(stored: Partial<TripFieldPolicy> | null | undefine
   }
   return out
 }
+
+/**
+ * UI-behavior settings for the trip edit page (separate from per-field modes).
+ * Stored as a JSON blob in `integrations` under key='trip_field_settings'.
+ */
+export interface TripFieldSettings {
+  /** When true, read-only fields are hidden by default on the trip edit page
+   *  (admin can still reveal them per-session via an on-page toggle). */
+  hideReadonlyByDefault: boolean
+}
+
+export const DEFAULT_TRIP_FIELD_SETTINGS: TripFieldSettings = {
+  hideReadonlyByDefault: true,
+}
+
+/** Merge stored settings on top of the defaults so callers always get every field. */
+export function resolveTripFieldSettings(
+  stored: Partial<TripFieldSettings> | null | undefined,
+): TripFieldSettings {
+  return {
+    hideReadonlyByDefault:
+      typeof stored?.hideReadonlyByDefault === "boolean"
+        ? stored.hideReadonlyByDefault
+        : DEFAULT_TRIP_FIELD_SETTINGS.hideReadonlyByDefault,
+  }
+}

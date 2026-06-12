@@ -3,8 +3,8 @@
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
-import { isFieldEditable, resolvePolicy, type TripFieldPolicy } from "@/lib/trip-field-policy"
-import { Lock } from "lucide-react"
+import { isFieldEditable, resolvePolicy, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
+import { Lock, Eye, EyeOff } from "lucide-react"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -87,9 +87,31 @@ function stableStringify(value: unknown): string {
   })
 }
 
-export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | null; policy?: TripFieldPolicy }) {
+export function TripEditForm({
+  trip,
+  policy: policyProp,
+  hideReadonlyByDefault = true,
+}: {
+  trip: AdminTrip | null
+  policy?: TripFieldPolicy
+  hideReadonlyByDefault?: boolean
+}) {
   const policy = policyProp ?? resolvePolicy(null)
   const can = (key: string) => isFieldEditable(policy, key)
+
+  // ── Read-only field visibility ────────────────────────────────────────────
+  // Defaults to the admin setting (Settings → Manage Trip Fields). The admin can
+  // flip it per-session here without affecting the saved default.
+  const [hideReadonly, setHideReadonly] = useState(hideReadonlyByDefault)
+  /** A single field should be hidden when it's read-only and hiding is on. */
+  const roHidden = (key: string) => hideReadonly && !can(key)
+  /** A whole section is hidden only when EVERY field it owns is read-only-hidden,
+   *  so mixed sections keep showing their editable fields. */
+  const groupHidden = (...keys: string[]) =>
+    hideReadonly && keys.length > 0 && keys.every((k) => !can(k))
+  /** How many read-only fields are currently hidden (for the toggle label). */
+  const readonlyCount = TRIP_FIELDS.filter((f) => !can(f.key)).length
+
   /** Tiny inline indicator next to a section title when its primary field is read-only. */
   const ReadOnlyBadge = () => (
     <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
@@ -360,6 +382,17 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           <ArrowLeft className="h-4 w-4" /> Back to trips
         </Link>
         <div className="flex items-center gap-2">
+          {readonlyCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setHideReadonly((v) => !v)}
+              title={hideReadonly ? "Show read-only fields" : "Hide read-only fields"}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+            >
+              {hideReadonly ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              {hideReadonly ? `Show read-only (${readonlyCount})` : "Hide read-only"}
+            </button>
+          )}
           {trip && (
             <Link
               href={`/trip/${trip.slug ?? trip.id}`}
@@ -386,15 +419,15 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
 
       <div className="flex flex-col gap-6">
         {/* Core info */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("title", "description", "slug", "duration", "city", "provider") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Core Information</h2>
           <div className="flex flex-col gap-4">
-            <div>
+            <div className={cn(roHidden("title") && "hidden")}>
               <label className={labelClass}>Title {!can("title") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("title")} className={inputClass} placeholder="Trip title" value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} />
               {!can("title") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
-            <div>
+            <div className={cn(roHidden("description") && "hidden")}>
               <label className={labelClass}>Description {!can("description") && <ReadOnlyBadge />}</label>
               <div>
                 <RichTextEditor
@@ -406,7 +439,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
               </div>
               {!can("description") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only</p>}
             </div>
-            <div>
+            <div className={cn(roHidden("slug") && "hidden")}>
               <label className={labelClass}>URL Slug {!can("slug") && <ReadOnlyBadge />}</label>
               <div className="flex items-center gap-1">
                 <span className="shrink-0 text-xs text-muted-foreground">/trip/</span>
@@ -424,16 +457,16 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
               </p>
               {!can("slug") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
-            <div>
+            <div className={cn(roHidden("duration") && "hidden")}>
               <label className={labelClass}>Duration {!can("duration") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("duration")} className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div className={cn(roHidden("city") && "hidden")}>
                 <label className={labelClass}>City {!can("city") && <ReadOnlyBadge />}</label>
                 <input type="text" readOnly={!can("city")} className={inputClass} placeholder="Luxembourg City" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
               </div>
-              <div>
+              <div className={cn(roHidden("provider") && "hidden")}>
                 <label className={labelClass}>Provider {!can("provider") && <ReadOnlyBadge />}</label>
                 <input type="text" readOnly={!can("provider")} className={inputClass} placeholder="Provider name" value={form.provider ?? ""} onChange={(e) => set("provider", e.target.value)} />
               </div>
@@ -442,14 +475,14 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Pricing */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("price", "originalPrice") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Pricing</h2>
           <div className="grid grid-cols-2 gap-4">
-            <div>
+            <div className={cn(roHidden("price") && "hidden")}>
               <label className={labelClass}>Price (€) {!can("price") && <ReadOnlyBadge />}</label>
               <input type="number" min="0" step="0.01" readOnly={!can("price")} className={inputClass} value={form.price ?? 0} onChange={(e) => set("price", parseFloat(e.target.value) || 0)} />
             </div>
-            <div>
+            <div className={cn(roHidden("originalPrice") && "hidden")}>
               <label className={labelClass}>Original Price (€) — optional {!can("originalPrice") && <ReadOnlyBadge />}</label>
               <input type="number" min="0" step="0.01" readOnly={!can("originalPrice")} className={inputClass} placeholder="For strikethrough" value={form.originalPrice ?? ""} onChange={(e) => set("originalPrice", e.target.value ? parseFloat(e.target.value) : undefined)} />
             </div>
@@ -457,14 +490,14 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Media */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("image", "gallery") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground flex items-center">
             Media
             {!can("image") && !can("gallery") && <ReadOnlyBadge />}
           </h2>
 
           {/* Featured Image */}
-          <fieldset disabled={!can("image")} className={`mb-6`}>
+          <fieldset disabled={!can("image")} className={cn("mb-6", roHidden("image") && "hidden")}>
             <label className={labelClass}>Featured Image {!can("image") && <ReadOnlyBadge />}</label>
             <input ref={featuredInputRef} type="file" accept="image/*" className="hidden" onChange={handleFeaturedUpload} />
 
@@ -522,7 +555,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           </fieldset>
 
           {/* Image Gallery */}
-          <fieldset disabled={!can("gallery")}>
+          <fieldset disabled={!can("gallery")} className={cn(roHidden("gallery") && "hidden")}>
             <label className={labelClass}>Image Gallery {!can("gallery") && <ReadOnlyBadge />}</label>
             <input ref={galleryInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleGalleryUpload} />
 
@@ -574,7 +607,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Highlights */}
-        <fieldset disabled={!can("highlights")} className={`rounded-xl border border-border bg-card p-5`}>
+        <fieldset disabled={!can("highlights")} className={cn("rounded-xl border border-border bg-card p-5", groupHidden("highlights") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground flex items-center">
             Highlights {!can("highlights") && <ReadOnlyBadge />}
           </h2>
@@ -609,42 +642,42 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </fieldset>
 
         {/* Tour Type & Classification */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("tourType", "tourLeader", "grade", "commercialPriority", "accommodationRating", "country") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Tour Classification</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
+            <div className={cn(roHidden("tourType") && "hidden")}>
               <label className={labelClass}>Tour Type {!can("tourType") && <ReadOnlyBadge />}</label>
               <select disabled={!can("tourType")} className={inputClass} value={form.tourType ?? ""} onChange={(e) => set("tourType", e.target.value || null)}>
                 <option value="">—</option>
                 {TOUR_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
-            <div>
+            <div className={cn(roHidden("tourLeader") && "hidden")}>
               <label className={labelClass}>Tour Leader {!can("tourLeader") && <ReadOnlyBadge />}</label>
               <select disabled={!can("tourLeader")} className={inputClass} value={form.tourLeader ?? ""} onChange={(e) => set("tourLeader", e.target.value || null)}>
                 <option value="">—</option>
                 {TOUR_LEADER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
-            <div>
+            <div className={cn(roHidden("grade") && "hidden")}>
               <label className={labelClass}>Grade {!can("grade") && <ReadOnlyBadge />}</label>
               <select disabled={!can("grade")} className={inputClass} value={form.grade ?? ""} onChange={(e) => set("grade", e.target.value || null)}>
                 <option value="">—</option>
                 {GRADE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
-            <div>
+            <div className={cn(roHidden("commercialPriority") && "hidden")}>
               <label className={labelClass}>Commercial Priority {!can("commercialPriority") && <ReadOnlyBadge />}</label>
               <select disabled={!can("commercialPriority")} className={inputClass} value={form.commercialPriority ?? ""} onChange={(e) => set("commercialPriority", e.target.value || null)}>
                 <option value="">—</option>
                 {COMMERCIAL_PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
-            <div>
+            <div className={cn(roHidden("accommodationRating") && "hidden")}>
               <label className={labelClass}>Accommodation Rating {!can("accommodationRating") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("accommodationRating")} className={inputClass} placeholder="e.g. Luxury" value={form.accommodationRating ?? ""} onChange={(e) => set("accommodationRating", e.target.value || null)} />
             </div>
-            <div>
+            <div className={cn(roHidden("country") && "hidden")}>
               <label className={labelClass}>Country (code) {!can("country") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("country")} className={inputClass} placeholder="LU" value={form.country ?? ""} onChange={(e) => set("country", e.target.value || null)} />
             </div>
@@ -652,7 +685,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Trip Tags — vocabulary chips + free-text add (when editable) */}
-        <fieldset disabled={!can("tripTags")} className={`rounded-xl border border-border bg-card p-5`}>
+        <fieldset disabled={!can("tripTags")} className={cn("rounded-xl border border-border bg-card p-5", groupHidden("tripTags") && "hidden")}>
           <h2 className="mb-1 text-sm font-semibold text-foreground flex items-center">
             Trip Tags {!can("tripTags") && <ReadOnlyBadge />}
           </h2>
@@ -726,22 +759,22 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </fieldset>
 
         {/* Departure Location (friendly label for geocode_start_point) */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("departureLocation", "departureGeocode", "endLocation", "endGeocode") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Departure & End Location</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
+            <div className={cn(roHidden("departureLocation") && "hidden")}>
               <label className={labelClass}>Departure Location {!can("departureLocation") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("departureLocation")} className={inputClass} placeholder="e.g. Sightseeing.lu office" value={form.departureLocation ?? ""} onChange={(e) => set("departureLocation", e.target.value || null)} />
             </div>
-            <div>
+            <div className={cn(roHidden("departureGeocode") && "hidden")}>
               <label className={labelClass}>Departure Geocode (lat,lng) {!can("departureGeocode") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("departureGeocode")} className={inputClass} placeholder="49.603207,6.089869" value={form.departureGeocode ?? ""} onChange={(e) => set("departureGeocode", e.target.value || null)} />
             </div>
-            <div>
+            <div className={cn(roHidden("endLocation") && "hidden")}>
               <label className={labelClass}>End Location {!can("endLocation") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("endLocation")} className={inputClass} placeholder="Same as departure or other" value={form.endLocation ?? ""} onChange={(e) => set("endLocation", e.target.value || null)} />
             </div>
-            <div>
+            <div className={cn(roHidden("endGeocode") && "hidden")}>
               <label className={labelClass}>End Geocode (lat,lng) {!can("endGeocode") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("endGeocode")} className={inputClass} placeholder="49.603207,6.089869" value={form.endGeocode ?? ""} onChange={(e) => set("endGeocode", e.target.value || null)} />
             </div>
@@ -749,7 +782,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Languages — chip + add input */}
-        <fieldset disabled={!can("languages")} className={`rounded-xl border border-border bg-card p-5`}>
+        <fieldset disabled={!can("languages")} className={cn("rounded-xl border border-border bg-card p-5", groupHidden("languages") && "hidden")}>
           <h2 className="mb-1 text-sm font-semibold text-foreground flex items-center">
             Languages Spoken {!can("languages") && <ReadOnlyBadge />}
           </h2>
@@ -788,10 +821,10 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </fieldset>
 
         {/* Included / Excluded */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("included", "excluded") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">What's Included &amp; Excluded</h2>
           <div className="grid grid-cols-1 gap-4">
-            <div>
+            <div className={cn(roHidden("included") && "hidden")}>
               <label className={labelClass}>Included (one per line) {!can("included") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("included")}
@@ -801,7 +834,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("included", e.target.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean))}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("excluded") && "hidden")}>
               <label className={labelClass}>Excluded (one per line) {!can("excluded") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("excluded")}
@@ -815,10 +848,10 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Long-form text fields */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("shortDescription", "longDescription", "experienceHighlights", "itinerary", "essentialInformation", "hotelPickupInstructions", "voucherRedemptionInstructions", "restrictions", "extras", "receiptInformation", "cancellationPolicy") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Detailed Descriptions</h2>
           <div className="grid grid-cols-1 gap-4">
-            <div>
+            <div className={cn(roHidden("shortDescription") && "hidden")}>
               <label className={labelClass}>Short Description {!can("shortDescription") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("shortDescription")}
@@ -827,7 +860,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("shortDescription", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("longDescription") && "hidden")}>
               <label className={labelClass}>Long Description {!can("longDescription") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("longDescription")}
@@ -836,7 +869,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("longDescription", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("experienceHighlights") && "hidden")}>
               <label className={labelClass}>Experience / Highlights (raw text) {!can("experienceHighlights") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("experienceHighlights")}
@@ -845,7 +878,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("experienceHighlights", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("itinerary") && "hidden")}>
               <label className={labelClass}>Itinerary {!can("itinerary") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("itinerary")}
@@ -854,7 +887,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("itinerary", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("essentialInformation") && "hidden")}>
               <label className={labelClass}>Essential Information {!can("essentialInformation") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("essentialInformation")}
@@ -863,7 +896,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("essentialInformation", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("hotelPickupInstructions") && "hidden")}>
               <label className={labelClass}>Hotel Pickup Instructions {!can("hotelPickupInstructions") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("hotelPickupInstructions")}
@@ -872,7 +905,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("hotelPickupInstructions", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("voucherRedemptionInstructions") && "hidden")}>
               <label className={labelClass}>Voucher Redemption Instructions {!can("voucherRedemptionInstructions") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("voucherRedemptionInstructions")}
@@ -881,7 +914,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("voucherRedemptionInstructions", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("restrictions") && "hidden")}>
               <label className={labelClass}>Restrictions {!can("restrictions") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("restrictions")}
@@ -890,7 +923,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("restrictions", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("extras") && "hidden")}>
               <label className={labelClass}>Extras / Upgrades {!can("extras") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("extras")}
@@ -899,7 +932,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("extras", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("receiptInformation") && "hidden")}>
               <label className={labelClass}>Receipt Information {!can("receiptInformation") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("receiptInformation")}
@@ -908,7 +941,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                 onChange={(e) => set("receiptInformation", e.target.value || null)}
               />
             </div>
-            <div>
+            <div className={cn(roHidden("cancellationPolicy") && "hidden")}>
               <label className={labelClass}>Cancellation Policy {!can("cancellationPolicy") && <ReadOnlyBadge />}</label>
               <textarea
                 readOnly={!can("cancellationPolicy")}
@@ -921,26 +954,26 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Booking constraints */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("minBookingSize", "maxBookingSize", "nextBookableDate", "lastBookableDate", "nonRefundable") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Booking Constraints</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
+            <div className={cn(roHidden("minBookingSize") && "hidden")}>
               <label className={labelClass}>Min Booking Size {!can("minBookingSize") && <ReadOnlyBadge />}</label>
               <input type="number" min="0" readOnly={!can("minBookingSize")} className={inputClass} value={form.minBookingSize ?? ""} onChange={(e) => set("minBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
             </div>
-            <div>
+            <div className={cn(roHidden("maxBookingSize") && "hidden")}>
               <label className={labelClass}>Max Booking Size {!can("maxBookingSize") && <ReadOnlyBadge />}</label>
               <input type="number" min="0" readOnly={!can("maxBookingSize")} className={inputClass} value={form.maxBookingSize ?? ""} onChange={(e) => set("maxBookingSize", e.target.value === "" ? null : parseInt(e.target.value, 10))} />
             </div>
-            <div>
+            <div className={cn(roHidden("nextBookableDate") && "hidden")}>
               <label className={labelClass}>Next Bookable Date {!can("nextBookableDate") && <ReadOnlyBadge />}</label>
               <input type="date" readOnly={!can("nextBookableDate")} className={inputClass} value={form.nextBookableDate ?? ""} onChange={(e) => set("nextBookableDate", e.target.value || null)} />
             </div>
-            <div>
+            <div className={cn(roHidden("lastBookableDate") && "hidden")}>
               <label className={labelClass}>Last Bookable Date {!can("lastBookableDate") && <ReadOnlyBadge />}</label>
               <input type="date" readOnly={!can("lastBookableDate")} className={inputClass} value={form.lastBookableDate ?? ""} onChange={(e) => set("lastBookableDate", e.target.value || null)} />
             </div>
-            <div className="sm:col-span-2">
+            <div className={cn("sm:col-span-2", roHidden("nonRefundable") && "hidden")}>
               <label className={labelClass}>Non-refundable {!can("nonRefundable") && <ReadOnlyBadge />}</label>
               <button
                 type="button"
@@ -957,14 +990,14 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Media files: PDF + Video */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("pdfUrl", "videoUrl") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Additional Media</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
+            <div className={cn(roHidden("pdfUrl") && "hidden")}>
               <label className={labelClass}>PDF Document URL {!can("pdfUrl") && <ReadOnlyBadge />}</label>
               <input type="url" readOnly={!can("pdfUrl")} className={inputClass} placeholder="https://…" value={form.pdfUrl ?? ""} onChange={(e) => set("pdfUrl", e.target.value || null)} />
             </div>
-            <div>
+            <div className={cn(roHidden("videoUrl") && "hidden")}>
               <label className={labelClass}>Video URL {!can("videoUrl") && <ReadOnlyBadge />}</label>
               <input type="url" readOnly={!can("videoUrl")} className={inputClass} placeholder="https://…" value={form.videoUrl ?? ""} onChange={(e) => set("videoUrl", e.target.value || null)} />
             </div>
@@ -972,7 +1005,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Google Reviews */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("googleBusinessUrl") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Google Reviews</h2>
           <div>
             <label className={labelClass}>Google Business URL {!can("googleBusinessUrl") && <ReadOnlyBadge />}</label>
@@ -991,10 +1024,10 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </section>
 
         {/* Options */}
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("badge", "status", "featured") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Options</h2>
           <div className="flex flex-col gap-4">
-            <div>
+            <div className={cn(roHidden("badge") && "hidden")}>
               <label className={labelClass}>Badge text (optional) {!can("badge") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("badge")} className={inputClass} placeholder='e.g. "New", "Popular", "Free"' value={form.badge ?? ""} onChange={(e) => set("badge", e.target.value || undefined)} />
             </div>
@@ -1004,14 +1037,14 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
                   { key: "status" as const, label: "Status", type: "select", options: ["published", "draft"] },
                 ] as const
               ).map(({ key, label, options }) => (
-                <div key={key}>
+                <div key={key} className={cn(roHidden("status") && "hidden")}>
                   <label className={labelClass}>{label} {!can("status") && <ReadOnlyBadge />}</label>
                   <select disabled={!can("status")} className={inputClass} value={(form[key] as string) ?? "draft"} onChange={(e) => set(key, e.target.value as "published" | "draft")}>
                     {options.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
               ))}
-              <div>
+              <div className={cn(roHidden("featured") && "hidden")}>
                 <label className={labelClass}>Featured on homepage {!can("featured") && <ReadOnlyBadge />}</label>
                 <button
                   type="button"

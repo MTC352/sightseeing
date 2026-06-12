@@ -4,7 +4,12 @@ import { dbGetTrip, dbGetIntegration } from "@/lib/db/queries"
 import { notFound } from "next/navigation"
 import { TripEditForm } from "./trip-edit-form"
 import { TripSyncButton } from "../trip-sync-button"
-import { resolvePolicy, type TripFieldPolicy } from "@/lib/trip-field-policy"
+import {
+  resolvePolicy,
+  resolveTripFieldSettings,
+  type TripFieldPolicy,
+  type TripFieldSettings,
+} from "@/lib/trip-field-policy"
 
 async function loadPolicy(): Promise<TripFieldPolicy> {
   try {
@@ -19,11 +24,25 @@ async function loadPolicy(): Promise<TripFieldPolicy> {
   }
 }
 
+async function loadTripFieldSettings(): Promise<TripFieldSettings> {
+  try {
+    const row = (await dbGetIntegration("trip_field_settings")) as { value?: string } | null
+    let stored: Partial<TripFieldSettings> | null = null
+    if (row?.value) {
+      try { stored = JSON.parse(row.value) } catch { stored = null }
+    }
+    return resolveTripFieldSettings(stored)
+  } catch {
+    return resolveTripFieldSettings(null)
+  }
+}
+
 export default async function TripEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const [trip, policy] = await Promise.all([
+  const [trip, policy, fieldSettings] = await Promise.all([
     id === "new" ? Promise.resolve(null) : dbGetTrip(id),
     loadPolicy(),
+    loadTripFieldSettings(),
   ])
   if (id !== "new" && !trip) notFound()
 
@@ -46,7 +65,7 @@ export default async function TripEditPage({ params }: { params: Promise<{ id: s
         {palisisId && <TripSyncButton palisisId={palisisId} variant="full" />}
       </div>
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      <TripEditForm trip={trip as any} policy={policy} />
+      <TripEditForm trip={trip as any} policy={policy} hideReadonlyByDefault={fieldSettings.hideReadonlyByDefault} />
     </div>
   )
 }

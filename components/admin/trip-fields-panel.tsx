@@ -19,11 +19,17 @@ export default function TripFieldsPanel() {
   const [modeFilter, setModeFilter] = useState<"all" | "editable" | "readonly">("all")
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [hideReadonlyByDefault, setHideReadonlyByDefault] = useState(true)
 
   useEffect(() => {
     fetch("/api/admin/settings/trip-fields")
       .then(r => r.json())
-      .then(j => setPolicy(j.policy ?? {}))
+      .then(j => {
+        setPolicy(j.policy ?? {})
+        if (typeof j.settings?.hideReadonlyByDefault === "boolean") {
+          setHideReadonlyByDefault(j.settings.hideReadonlyByDefault)
+        }
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -82,11 +88,14 @@ export default function TripFieldsPanel() {
       const res = await fetch("/api/admin/settings/trip-fields", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ policy }),
+        body: JSON.stringify({ policy, settings: { hideReadonlyByDefault } }),
       })
       if (res.ok) {
         const j = await res.json()
         setPolicy(j.policy ?? policy)
+        if (typeof j.settings?.hideReadonlyByDefault === "boolean") {
+          setHideReadonlyByDefault(j.settings.hideReadonlyByDefault)
+        }
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
       }
@@ -112,6 +121,31 @@ export default function TripFieldsPanel() {
 
   return (
     <div className="space-y-3">
+      {/* Trip Edit page behavior */}
+      <div className="flex items-start justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-foreground">Hide read-only fields by default</div>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            On the Trip Edit page, read-only fields start hidden. Admins can still reveal them per-session with the on-page toggle.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={hideReadonlyByDefault}
+          onClick={() => { setHideReadonlyByDefault(v => !v); setSaved(false) }}
+          className={`mt-0.5 relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+            hideReadonlyByDefault ? "bg-primary" : "bg-border"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              hideReadonlyByDefault ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
+
       {/* Compact toolbar */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-2.5 py-2">
         <div className="relative flex-1 min-w-[180px]">
