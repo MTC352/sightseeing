@@ -345,6 +345,17 @@ export function TripEditForm({
             <p className="truncate text-sm font-semibold text-foreground">{form.title?.trim() || "Untitled trip"}</p>
             {trip && <p className="truncate text-[11px] text-muted-foreground">ID: {trip.id}</p>}
           </div>
+          {readonlyCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setHideReadonly((v) => !v)}
+              title={hideReadonly ? "Show read-only fields" : "Hide read-only fields"}
+              className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground sm:flex"
+            >
+              {hideReadonly ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              {hideReadonly ? `Show read-only (${readonlyCount})` : "Hide read-only"}
+            </button>
+          )}
           {trip && (
             <Link
               href={`/trip/${trip.slug ?? trip.id}`}
