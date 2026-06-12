@@ -13,6 +13,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { OVERRIDABLE_FIELDS } from "@/lib/palisis-import-fields"
 
 interface ImportResult {
@@ -240,85 +241,14 @@ export default function PalisisPage() {
       </div>
 
 
-      {/* API rate limit status */}
-      <div className="mb-6 rounded-2xl border border-border bg-card p-6">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
-              <Gauge className="h-5 w-5 text-emerald-600" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-foreground">API Rate Limit</h2>
-              <p className="text-sm text-muted-foreground">
-                Remaining TourCMS/Palisis requests this hour. The check itself does not count against quota.
-              </p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Link
-              href="/admin/logs?source=tourcms"
-              className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <ScrollText className="h-3.5 w-3.5" /> View API call log
-            </Link>
-            <button
-              type="button"
-              onClick={fetchRateLimit}
-              disabled={rlLoading}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${rlLoading ? "animate-spin" : ""}`} /> Check
-            </button>
-          </div>
-        </div>
+      <Tabs defaultValue="importer" className="w-full">
+        <TabsList className="mb-6">
+          <TabsTrigger value="importer">Importer</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
 
-        {rlLoading && !rateLimit ? (
-          <div className="mt-5 text-sm text-muted-foreground">Checking…</div>
-        ) : rateLimit && !rateLimit.ok ? (
-          <div className="mt-5 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
-            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>{rateLimit.error ?? "Could not read rate limit status."}</span>
-          </div>
-        ) : rateLimit ? (
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            {([
-              { label: "GET requests", remaining: rateLimit.remaining_hits ?? 0, limit: rateLimit.hourly_limit ?? 0 },
-              { label: "POST requests", remaining: rateLimit.remaining_hits_post ?? 0, limit: rateLimit.hourly_limit_post ?? 0 },
-            ]).map((row) => {
-              const pct = row.limit > 0 ? Math.max(0, Math.min(100, (row.remaining / row.limit) * 100)) : 0
-              const low = row.limit > 0 && pct <= 10
-              return (
-                <div key={row.label} className="rounded-xl border border-border bg-secondary/30 p-4">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{row.label}</span>
-                    <span className={`text-sm font-bold ${low ? "text-destructive" : "text-foreground"}`}>
-                      {row.remaining.toLocaleString()}
-                      {row.limit > 0 && <span className="text-muted-foreground"> / {row.limit.toLocaleString()}</span>}
-                    </span>
-                  </div>
-                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={`h-full rounded-full transition-all ${low ? "bg-destructive" : "bg-emerald-500"}`}
-                      style={{ width: `${row.limit > 0 ? pct : 100}%` }}
-                    />
-                  </div>
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
-                    {row.limit > 0 ? `${row.remaining.toLocaleString()} of ${row.limit.toLocaleString()} remaining this hour` : "Remaining this hour"}
-                  </p>
-                </div>
-              )
-            })}
-            {rlCheckedAt && (
-              <p className="sm:col-span-2 text-[11px] text-muted-foreground/60">
-                Last checked {rlCheckedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-              </p>
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Action cards */}
-      <div className="grid gap-5 sm:grid-cols-2">
+        {/* ─────────────────────────  IMPORTER TAB  ───────────────────────── */}
+        <TabsContent value="importer" className="mt-0">
 
         {/* Import catalog */}
         <div className="rounded-2xl border border-border bg-card p-6">
@@ -571,83 +501,130 @@ export default function PalisisPage() {
             </div>
           )}
         </div>
+        </TabsContent>
 
-        {/* Auto-Sync via Webhook */}
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
-              <Webhook className="h-5 w-5 text-violet-600" />
+        {/* ─────────────────────────  SETTINGS TAB  ───────────────────────── */}
+        <TabsContent value="settings" className="mt-0">
+
+      {/* API Rate Limit — compact */}
+      <div className="mb-6 rounded-2xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+              <Gauge className="h-4 w-4 text-emerald-600" />
             </div>
-
-            {/* Toggle switch */}
-            <label className="flex cursor-pointer items-center gap-2.5">
-              <span className={`text-xs font-semibold ${autoSync ? "text-emerald-600" : "text-muted-foreground"}`}>
-                {autoSync ? "Enabled" : "Disabled"}
+            <h2 className="text-sm font-semibold text-foreground">API Rate Limit</h2>
+            {rlLoading && !rateLimit ? (
+              <span className="text-xs text-muted-foreground">Checking…</span>
+            ) : rateLimit && !rateLimit.ok ? (
+              <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <TriangleAlert className="h-3.5 w-3.5" /> {rateLimit.error ?? "Unavailable"}
               </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={autoSync}
-                disabled={autoSyncSaving}
-                onClick={() => toggleAutoSync(!autoSync)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
-                  autoSync ? "bg-emerald-500" : "bg-muted"
-                }`}
-              >
-                <span
-                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
-                    autoSync ? "translate-x-5" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-            </label>
+            ) : rateLimit ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {([
+                  { label: "GET", remaining: rateLimit.remaining_hits ?? 0, limit: rateLimit.hourly_limit ?? 0 },
+                  { label: "POST", remaining: rateLimit.remaining_hits_post ?? 0, limit: rateLimit.hourly_limit_post ?? 0 },
+                ]).map((row) => {
+                  const low = row.limit > 0 && (row.remaining / row.limit) * 100 <= 10
+                  return (
+                    <span key={row.label} className="rounded-full border border-border bg-secondary/40 px-2 py-0.5 text-[11px]">
+                      <span className="font-semibold text-muted-foreground">{row.label}</span>{" "}
+                      <strong className={low ? "text-destructive" : "text-foreground"}>{row.remaining.toLocaleString()}</strong>
+                      {row.limit > 0 && <span className="text-muted-foreground">/{row.limit.toLocaleString()}</span>}
+                    </span>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
-
-          <h2 className="text-base font-semibold text-foreground">Auto-Sync via Webhook</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            When enabled, Palisis can push trip-update events to our webhook URL and we
-            automatically re-fetch and override that single trip. When disabled, incoming
-            webhooks are logged but ignored.
-          </p>
-
-          <p className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-blue-500/10 px-2 py-1 text-[11px] font-medium text-blue-700">
-            <Info className="h-3 w-3" /> One-way only — we never push data back to Palisis.
-          </p>
-
-          {/* Webhook URL */}
-          <div className="mt-4 rounded-xl border border-border bg-secondary/30 p-3">
-            <div className="flex items-center gap-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Webhook URL
-              </p>
-              <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                POST
+          <div className="flex shrink-0 items-center gap-2">
+            {rlCheckedAt && (
+              <span className="hidden text-[10px] text-muted-foreground/60 sm:inline">
+                {rlCheckedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </span>
-            </div>
-            <div className="mt-1.5 flex items-center gap-2">
-              <code className="flex-1 truncate rounded-lg border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] text-foreground">
-                {webhookUrl || "Loading…"}
-              </code>
-              <button
-                type="button"
-                onClick={copyWebhookUrl}
-                disabled={!webhookUrl}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
-              >
-                {copied ? (
-                  <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied</>
-                ) : (
-                  <><Copy className="h-3.5 w-3.5" /> Copy</>
-                )}
-              </button>
-            </div>
-            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-              Configure this URL in TourCMS → Webhooks. Payload should include the tour ID as{" "}
-              <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">tour_id</code>.
-              Optional auth via <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">x-palisis-secret</code> header.
-            </p>
+            )}
+            <Link
+              href="/admin/logs?source=tourcms"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <ScrollText className="h-3.5 w-3.5" /> API call log
+            </Link>
+            <button
+              type="button"
+              onClick={fetchRateLimit}
+              disabled={rlLoading}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${rlLoading ? "animate-spin" : ""}`} /> Check
+            </button>
           </div>
         </div>
+        <p className="mt-2 text-[10px] text-muted-foreground/70">
+          Remaining TourCMS/Palisis requests this hour. The check itself does not count against quota.
+        </p>
+      </div>
+
+      {/* Auto-Sync via Webhook — compact */}
+      <div className="mb-6 rounded-2xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10">
+              <Webhook className="h-4 w-4 text-violet-600" />
+            </div>
+            <h2 className="text-sm font-semibold text-foreground">Auto-Sync via Webhook</h2>
+            <span className="inline-flex items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+              <Info className="h-3 w-3" /> One-way only
+            </span>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <span className={`text-xs font-semibold ${autoSync ? "text-emerald-600" : "text-muted-foreground"}`}>
+              {autoSync ? "Enabled" : "Disabled"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoSync}
+              disabled={autoSyncSaving}
+              onClick={() => toggleAutoSync(!autoSync)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-60 ${
+                autoSync ? "bg-emerald-500" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
+                  autoSync ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </label>
+        </div>
+
+        {/* Webhook URL — compact row */}
+        <div className="mt-3 flex items-center gap-2">
+          <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">POST</span>
+          <code className="flex-1 truncate rounded-lg border border-border bg-background px-2.5 py-1.5 font-mono text-[11px] text-foreground">
+            {webhookUrl || "Loading…"}
+          </code>
+          <button
+            type="button"
+            onClick={copyWebhookUrl}
+            disabled={!webhookUrl}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+          >
+            {copied ? (
+              <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied</>
+            ) : (
+              <><Copy className="h-3.5 w-3.5" /> Copy</>
+            )}
+          </button>
+        </div>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
+          Configure in TourCMS → Webhooks with the tour ID as{" "}
+          <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">tour_id</code>{" "}
+          (optional <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">x-palisis-secret</code> header).
+          When disabled, webhooks are logged but ignored.
+        </p>
       </div>
 
       {/* Importer Settings — default override exclusions */}
@@ -849,6 +826,8 @@ export default function PalisisPage() {
           </div>
         )}
       </div>
+        </TabsContent>
+      </Tabs>
 
     </div>
   )
