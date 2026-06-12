@@ -229,7 +229,7 @@ export default function TripPlannerChatAdminPage() {
           <div>
             <h2 className="text-lg font-semibold text-foreground">Planner Conversation (/planner)</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Custom instructions appended to the planner's hardcoded system prompt. Use this to add operator-specific tone, restrictions, or seasonal nudges. Leave empty to use the defaults baked into /api/planner.
+              The planner's <strong>effective prompt = base + your override</strong>. The <em>base</em> is owned by code (a runtime-interpolated template with the planner's tool contracts, shown read-only below). Your <em>override</em> is stored in the database on the <span className="font-mono">planner</span> AI System row and appended as "CUSTOM INSTRUCTIONS FROM ADMIN". Leave it empty to run the base prompt alone.
             </p>
           </div>
 
@@ -238,8 +238,8 @@ export default function TripPlannerChatAdminPage() {
               <label className={labelClass + " mb-0"}>Planner system prompt (admin override)</label>
               <div className="flex items-center gap-2">
                 <PromptRevisions
-                  systemKey="chat"
-                  promptKind="plannerSystemPrompt"
+                  systemKey="planner"
+                  promptKind="systemPrompt"
                   currentText={plannerPrompt}
                   onActivate={(text) => setPlannerPrompt(text)}
                 />
@@ -262,7 +262,7 @@ export default function TripPlannerChatAdminPage() {
               placeholder="(optional) Extra instructions for the planner AI…"
             />
             <p className="mt-1.5 text-[11px] text-muted-foreground/60">
-              {plannerPrompt.length} chars · Appended after the hardcoded planner prompt. Dynamic context (weather, cart, group, behaviour) stays managed in code.
+              {plannerPrompt.length} chars · Saved to the <span className="font-mono">planner</span> AI System row in the database and appended after the code-owned base prompt. Empty = base prompt only. Dynamic context (weather, cart, group, behaviour) stays managed in code.
             </p>
 
             {/* Read-only view of the actual built-in base prompt so operators

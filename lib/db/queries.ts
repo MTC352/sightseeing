@@ -1230,9 +1230,14 @@ export async function dbGetChatPlannerConfig(): Promise<{
   plannerSystemPrompt: string
   plannerForm: typeof DEFAULT_PLANNER_FORM
 }> {
-  const row = await queryOne<{ extra_config: unknown }>(
-    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`
-  )
+  const [row, plannerRow] = await Promise.all([
+    queryOne<{ extra_config: unknown }>(
+      `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`
+    ),
+    queryOne<{ system_prompt: string | null }>(
+      `SELECT system_prompt FROM ai_system_configs WHERE system_key = 'planner'`
+    ),
+  ])
   const extra = (row?.extra_config && typeof row.extra_config === 'object')
     ? row.extra_config as Record<string, unknown>
     : {}
@@ -1270,8 +1275,14 @@ export async function dbGetChatPlannerConfig(): Promise<{
       console.error('[dbGetChatPlannerConfig] trip-tag fallback failed:', err)
     }
   }
+  // The planner system-prompt OVERRIDE now lives on the planner row's own
+  // `system_prompt` column (consolidated with every other AI System). Fall
+  // back to the legacy chat.extra_config.planner.systemPrompt location for
+  // any value saved before migration 006 relocated it.
+  const plannerRowPrompt = typeof plannerRow?.system_prompt === 'string' ? plannerRow.system_prompt : ''
+  const legacyPlannerPrompt = typeof plannerExtra.systemPrompt === 'string' ? plannerExtra.systemPrompt : ''
   return {
-    plannerSystemPrompt: typeof plannerExtra.systemPrompt === 'string' ? plannerExtra.systemPrompt : '',
+    plannerSystemPrompt: plannerRowPrompt.trim() ? plannerRowPrompt : legacyPlannerPrompt,
     plannerForm: {
       groups: sanitiseList(formRaw.groups, DEFAULT_PLANNER_FORM.groups),
       interests: sanitiseList(formRaw.interests, interestsFallback),
@@ -1305,54 +1316,51 @@ export async function dbGetChatPlannerConfig(): Promise<{
 }
 
 /**
- * Non-destructive merge of the planner overrides into chat.extra_config.
- * Only the fields supplied in `patch` are touched; everything else in
- * extra_config (including future / unknown keys) is preserved.
+ * Persist the planner overrides. The system-prompt override is written to the
+ * planner row's own `system_prompt` column; the onboarding form is merged
+ * non-destructively into chat.extra_config.planner.form. Only the fields
+ * supplied in `patch` are touched; everything else is preserved.
  */
 export async function dbUpdateChatPlannerConfig(patch: {
   plannerSystemPrompt?: string
   plannerForm?: Partial<typeof DEFAULT_PLANNER_FORM>
 }) {
-  const row = await queryOne<{ extra_config: unknown }>(
-    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`
-  )
-  const extra = (row?.extra_config && typeof row.extra_config === 'object')
-    ? { ...(row.extra_config as Record<string, unknown>) }
-    : {}
-  const planner = (extra.planner && typeof extra.planner === 'object')
-    ? { ...(extra.planner as Record<string, unknown>) }
-    : {}
+  // The planner system-prompt OVERRIDE now lives on the planner row's own
+  // `system_prompt` column (consolidated with every other AI System), NOT in
+  // chat.extra_config.planner.systemPrompt. Route it through dbUpdateAiSystem
+  // so it also records a revision under ('planner', 'systemPrompt') and leaves
+  // the planner row's behavior settings (extra_config) untouched.
   if (typeof patch.plannerSystemPrompt === 'string') {
-    const previousPlannerPrompt = typeof planner.systemPrompt === 'string'
-      ? (planner.systemPrompt as string)
-      : ''
-    planner.systemPrompt = patch.plannerSystemPrompt
-    // Snapshot for revision history (passes the pre-edit value so the
-    // first-ever edit is reversible).
-    await dbRecordPromptRevision(
-      'chat',
-      'plannerSystemPrompt',
-      patch.plannerSystemPrompt,
-      previousPlannerPrompt,
-    )
+    await dbUpdateAiSystem('planner', { systemPrompt: patch.plannerSystemPrompt })
   }
+  // The onboarding FORM stays where it has always lived —
+  // chat.extra_config.planner.form — so this is a non-destructive merge.
   if (patch.plannerForm && typeof patch.plannerForm === 'object') {
+    const row = await queryOne<{ extra_config: unknown }>(
+      `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`
+    )
+    const extra = (row?.extra_config && typeof row.extra_config === 'object')
+      ? { ...(row.extra_config as Record<string, unknown>) }
+      : {}
+    const planner = (extra.planner && typeof extra.planner === 'object')
+      ? { ...(extra.planner as Record<string, unknown>) }
+      : {}
     const currentForm = (planner.form && typeof planner.form === 'object')
       ? { ...(planner.form as Record<string, unknown>) }
       : {}
     planner.form = { ...currentForm, ...patch.plannerForm }
+    extra.planner = planner
+    // Upsert so the row exists even if admin has never visited /admin/ai-systems/chat before.
+    await query(`
+      INSERT INTO ai_system_configs (system_key, label, description, extra_config)
+      VALUES ('chat', 'Trip Chat',
+        'Per-trip AI assistant plus planner conversation prompt and onboarding form.',
+        $1)
+      ON CONFLICT (system_key) DO UPDATE SET
+        extra_config = $1,
+        updated_at = NOW()
+    `, [JSON.stringify(extra)])
   }
-  extra.planner = planner
-  // Upsert so the row exists even if admin has never visited /admin/ai-systems/chat before.
-  await query(`
-    INSERT INTO ai_system_configs (system_key, label, description, extra_config)
-    VALUES ('chat', 'Trip Chat',
-      'Per-trip AI assistant plus planner conversation prompt and onboarding form.',
-      $1)
-    ON CONFLICT (system_key) DO UPDATE SET
-      extra_config = $1,
-      updated_at = NOW()
-  `, [JSON.stringify(extra)])
 }
 
 // ─── AI prompt revisions ──────────────────────────────────────────────
@@ -1360,8 +1368,10 @@ export async function dbUpdateChatPlannerConfig(patch: {
 // snapshot the new text into `ai_prompt_revisions` so admins can preview
 // past versions and roll back. Keyed by (system_key, prompt_kind) where
 // prompt_kind is one of:
-//   - 'systemPrompt'         (any ai_system_configs.system_prompt)
-//   - 'plannerSystemPrompt'  (chat.extra_config.planner.systemPrompt)
+//   - 'systemPrompt'         (any ai_system_configs.system_prompt, incl. the
+//                             planner override now on the planner row)
+//   - 'plannerSystemPrompt'  (LEGACY — chat.extra_config.planner.systemPrompt;
+//                             planner overrides now record under planner/systemPrompt)
 //   - 'tipsPrompt'           (itinerary.extra_config.tipsPrompt)
 // The table is created lazily on first use so we don't need a separate
 // migration step.

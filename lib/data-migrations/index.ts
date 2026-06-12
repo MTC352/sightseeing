@@ -346,6 +346,61 @@ async function applyEbikeConditionsMedia(): Promise<MigrationResult> {
   }
 }
 
+/**
+ * Relocate any existing planner system-prompt OVERRIDE from its legacy location
+ * (chat.extra_config.planner.systemPrompt) onto the planner row's own
+ * `system_prompt` column — the consolidated location used by every other AI
+ * System. The onboarding form (chat.extra_config.planner.form) is left in place.
+ *
+ * DATA-ONLY (UPDATE/INSERT rows; no DDL). Idempotent: if the planner row already
+ * has a non-empty system_prompt, or there is no legacy override to copy, the run
+ * is a no-op. The legacy value is intentionally NOT deleted — the runtime read
+ * still falls back to it, and leaving it keeps the migration non-destructive.
+ */
+async function applyPlannerPromptRelocation(): Promise<MigrationResult> {
+  const chatRow = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`,
+  )
+  const extra =
+    chatRow?.extra_config && typeof chatRow.extra_config === "object"
+      ? (chatRow.extra_config as Record<string, unknown>)
+      : {}
+  const plannerExtra =
+    extra.planner && typeof extra.planner === "object"
+      ? (extra.planner as Record<string, unknown>)
+      : {}
+  const legacy =
+    typeof plannerExtra.systemPrompt === "string" ? plannerExtra.systemPrompt : ""
+  if (!legacy.trim()) {
+    return { inserted: 0, skipped: 1, detail: "No legacy planner override to relocate" }
+  }
+  const plannerRow = await queryOne<{ system_prompt: string | null }>(
+    `SELECT system_prompt FROM ai_system_configs WHERE system_key = 'planner'`,
+  )
+  if (
+    plannerRow &&
+    typeof plannerRow.system_prompt === "string" &&
+    plannerRow.system_prompt.trim()
+  ) {
+    return { inserted: 0, skipped: 1, detail: "planner.system_prompt already set" }
+  }
+  // Upsert only the system_prompt column; the planner row's behavior settings
+  // (extra_config) and model are left untouched by the ON CONFLICT clause.
+  const res = await queryOne<{ system_key: string }>(
+    `INSERT INTO ai_system_configs (system_key, label, system_prompt)
+     VALUES ('planner', 'Trip Planner', $1)
+     ON CONFLICT (system_key) DO UPDATE SET system_prompt = $1, updated_at = NOW()
+     RETURNING system_key`,
+    [legacy],
+  )
+  return {
+    inserted: plannerRow ? 0 : 1,
+    skipped: 0,
+    updated: plannerRow && res ? 1 : 0,
+    detail: "Relocated legacy planner override to planner.system_prompt",
+  }
+}
+
 export type AiConfigFieldKey =
   | "label"
   | "description"
@@ -495,6 +550,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Records the 'E-Bike Conditions' PDF (linked in the site footer) in the media_files library so it appears under /admin/files on the live site. The PDF binary ships with the code (public/uploads/); this only inserts the DB row. DATA-only (no DDL). Idempotent: deduplicated by content_hash, so a second run is left untouched.",
     apply: applyEbikeConditionsMedia,
+  },
+  {
+    id: "006-planner-prompt-relocation",
+    name: "Planner prompt override relocation",
+    description:
+      "Relocates any existing planner system-prompt override from the legacy chat.extra_config.planner.systemPrompt location onto the planner AI System row's own system_prompt column, consolidating it with every other AI System. The onboarding form stays in chat.extra_config. DATA-only (no DDL). Idempotent: a no-op when planner.system_prompt is already set or there is no legacy override; the legacy value is left in place (non-destructive).",
+    apply: applyPlannerPromptRelocation,
   },
 ]
 

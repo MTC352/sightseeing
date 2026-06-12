@@ -1025,17 +1025,17 @@ export async function POST(req: Request) {
     })
     
     // Append admin-configured custom system prompt if available.
-    // Precedence: the new Trip-Chat-managed override (chat.extra.planner.systemPrompt)
-    // wins over the legacy planner row. This is how the admin now controls
-    // the planner conversation from inside the "Trip Chat" admin card after
-    // the standalone "Trip Planner" card was retired.
+    // Precedence: the planner row's own `system_prompt` column wins (the
+    // consolidated location, edited on /admin/ai-systems/planner-chat). For
+    // back-compat we fall back to the legacy chat.extra.planner.systemPrompt
+    // location for any override saved before migration 006 relocated it.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const plannerRowPrompt: unknown = (settings.ai?.planner as any)?.systemPrompt
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const chatExtra: any = (settings.ai?.chat as any)?.extra ?? {}
-    const chatPlannerPrompt: unknown = chatExtra?.planner?.systemPrompt
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const legacyPlannerPrompt: unknown = (settings.ai?.planner as any)?.systemPrompt
-    const adminPrompt = typeof chatPlannerPrompt === "string" && chatPlannerPrompt.trim()
-      ? chatPlannerPrompt
+    const legacyPlannerPrompt: unknown = chatExtra?.planner?.systemPrompt
+    const adminPrompt = typeof plannerRowPrompt === "string" && plannerRowPrompt.trim()
+      ? plannerRowPrompt
       : (typeof legacyPlannerPrompt === "string" ? legacyPlannerPrompt : "")
     if (adminPrompt && adminPrompt.trim()) {
       systemPromptParts.push("", "CUSTOM INSTRUCTIONS FROM ADMIN:", adminPrompt)
