@@ -52,7 +52,6 @@ const NAV: NavItem[] = [
   { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
   { href: "/admin/db-migrations", label: "Data Migrations", icon: Database, superadminOnly: true, devOnly: true },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw, perm: "palisis" },
-  { href: "/admin/regiondo", label: "DMO Import", icon: Archive, perm: "regiondo" },
   { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
   { href: "/admin/tickets", label: "Support Tickets", icon: Ticket, perm: "tickets" },
 ]

@@ -128,36 +128,6 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
     ],
   },
   {
-    id: "regiondo",
-    title: "DMO / Regiondo",
-    icon: RefreshCw,
-    fields: [
-      {
-        key: "regiondoPublicKey",
-        label: "Public Key",
-        placeholder: "e.g. pub_abcdef123456",
-        hint: "Regiondo Platform API Public Key (sent as X-API-ID). Found in your Regiondo account → API settings.",
-        docsUrl: "https://docs.regiondo.com/",
-        testable: true,
-        secret: false,
-      },
-      {
-        key: "regiondoSecretKey",
-        label: "Secret Key",
-        placeholder: "e.g. sec_abcdef123456",
-        hint: "Regiondo Platform API Secret Key — used to HMAC-sign requests. Required for the import and the connectivity test.",
-        secret: true,
-      },
-      {
-        key: "regiondoApiUrl",
-        label: "API Base URL",
-        placeholder: "https://api.regiondo.com/v1",
-        hint: "Regiondo API base URL (no trailing slash). Leave blank to use the default https://api.regiondo.com/v1.",
-        secret: false,
-      },
-    ],
-  },
-  {
     id: "google",
     title: "Google Reviews",
     icon: Star,
@@ -457,11 +427,6 @@ export default function IntegrationsPage() {
       if (fieldKey === "palisis") {
         if (keys.palisisChannelId) payload.channelId = keys.palisisChannelId
         if (keys.palisisMarketplaceId) payload.marketplaceId = keys.palisisMarketplaceId
-      }
-      if (fieldKey === "regiondoPublicKey") {
-        payload.service = "regiondo"
-        payload.secretKey = keys.regiondoSecretKey ?? ""
-        if (keys.regiondoApiUrl) payload.apiUrl = keys.regiondoApiUrl
       }
       if (fieldKey === "googleReviews" && keys.googlePlaceId) {
         payload.placeId = keys.googlePlaceId

@@ -26,7 +26,6 @@ export type PermissionKey =
   | "integrations"
   | "header-footer"
   | "palisis"
-  | "regiondo"
   | "implementation"
   | "docs"
 
@@ -43,7 +42,6 @@ export const ADMIN_SECTIONS: { key: PermissionKey; label: string; description: s
   { key: "integrations", label: "Integrations", description: "API keys & third-party integrations" },
   { key: "header-footer", label: "Header / Footer", description: "Custom HTML injection blocks" },
   { key: "palisis", label: "Palisis Import", description: "Palisis catalog import & availability" },
-  { key: "regiondo", label: "DMO Import", description: "DMO (Regiondo) catalog import" },
   { key: "implementation", label: "DB Tracker", description: "Database health tracker" },
   { key: "docs", label: "Documentation", description: "Internal documentation" },
 ]
@@ -114,10 +112,6 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/palisis-logs", keys: ["palisis"] },
   { prefix: "/api/admin/palisis-rate-limit", keys: ["palisis"] },
   { prefix: "/api/webhooks/palisis", keys: ["palisis"] },
-  // DMO / Regiondo
-  { prefix: "/admin/regiondo", keys: ["regiondo"] },
-  { prefix: "/api/admin/regiondo-import", keys: ["regiondo"] },
-  { prefix: "/api/admin/regiondo-logs", keys: ["regiondo"] },
   // Implementation / DB tracker (+ its dashboard widgets)
   { prefix: "/admin/implementation", keys: ["implementation"] },
   { prefix: "/api/admin/impl-check", keys: ["implementation"] },
@@ -140,7 +134,7 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   // (and trip-field settings live on the Integrations screen).
   { prefix: "/api/admin/settings", keys: ["ai-systems", "integrations", "header-footer", "trips"] },
   // Shared API-key tester — used by Integrations & Palisis screens.
-  { prefix: "/api/admin/test-key", keys: ["integrations", "palisis", "regiondo"] },
+  { prefix: "/api/admin/test-key", keys: ["integrations", "palisis"] },
 ]
 
 function matchPath(pathname: string, prefix: string): boolean {

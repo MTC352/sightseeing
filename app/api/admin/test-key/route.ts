@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { pingTourCMS } from "@/lib/tourcms"
-import { pingRegiondoVerbose, getRegiondoBaseUrl, validateRegiondoBaseUrl } from "@/lib/regiondo"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logError } from "@/lib/error-log"
 
@@ -219,63 +218,6 @@ async function runTest(
           remaining_hits_post: ping.remaining_hits_post,
         },
       }
-    }
-
-    case "regiondo": {
-      // `key` carries the Public Key (X-API-ID); secretKey is the HMAC secret.
-      const secretKey = (params.secretKey ?? "").trim()
-      if (!secretKey || secretKey.length < 4) {
-        return {
-          ok: false,
-          service,
-          status: "SECRET_KEY_MISSING",
-          message: "Enter the Regiondo Secret Key above and try again.",
-        }
-      }
-      // Base URL is DB-configurable; prefer an unsaved value from the Test form,
-      // then fall back to the DB-stored / env / default URL. Reject an unsafe
-      // explicit URL up front so the admin gets a clear message (vs silently
-      // falling back to the default).
-      const apiUrl = (params.apiUrl ?? "").trim()
-      if (apiUrl) {
-        const urlCheck = validateRegiondoBaseUrl(apiUrl)
-        if (!urlCheck.ok) {
-          return {
-            ok: false,
-            service,
-            status: "INVALID_API_URL",
-            message: `The API Base URL is invalid — ${urlCheck.reason}. Fix it and try again.`,
-          }
-        }
-      }
-      const baseUrl = await getRegiondoBaseUrl(apiUrl)
-      // Verbose test — returns the exact signed request + raw response so the
-      // admin can debug a 403 directly in the Test modal.
-      const ping = await pingRegiondoVerbose({ publicKey: key, secretKey, baseUrl })
-      let message: string
-      if (ping.ok) {
-        message = "Valid — Regiondo accepted the credentials."
-      } else if (ping.httpStatus === 403) {
-        // Signing is verified correct (identical to Regiondo's own reference
-        // client, live-tested). A 403 means the key PAIR is rejected: Regiondo
-        // accepts the X-API-ID but the HMAC (made with the secret) doesn't
-        // validate — almost always a wrong/truncated secret or API access not
-        // enabled. The debug block below shows the exact request + response.
-        const creds = (ping.debug.credentials ?? {}) as Record<string, unknown>
-        const evenHex = creds.secretKey_isEvenLengthHex === true
-        message =
-          "Regiondo returned 403 Forbidden. The signature is built correctly (see the request/response below), " +
-          "so Regiondo is accepting the Public Key as the X-API-ID but rejecting the HMAC signature — which means " +
-          "the Secret Key does not match the Public Key. " +
-          (!evenHex
-            ? `The saved Secret Key is ${String(creds.secretKey_length)} characters and is NOT an even-length hex string — ` +
-              "that strongly suggests it was truncated/mis-pasted. Re-copy the FULL Secret Key and save it again. "
-            : "Re-copy the FULL matching Public + Secret pair from your Regiondo Dashboard and save again. ") +
-          "Compare the secretKey_fingerprint below against the secret in your working app to confirm they match."
-      } else {
-        message = `Rejected by Regiondo: ${ping.error ?? "authentication failed"}.`
-      }
-      return { ok: ping.ok, service, status: ping.httpStatus, message, details: ping.debug }
     }
 
     default:

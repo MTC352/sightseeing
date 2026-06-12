@@ -6,11 +6,10 @@ import { RefreshCw, CheckCircle2, XCircle } from "lucide-react"
 
 interface Props {
   palisisId?: string | null | undefined
-  regiondoId?: string | null | undefined
   variant?: "icon" | "full"
 }
 
-// Per-source config keeps the copy/endpoint accurate while sharing one component.
+// Config keeps the copy/endpoint accurate in one component.
 const SOURCE = {
   palisis: {
     label: "Palisis",
@@ -18,23 +17,16 @@ const SOURCE = {
     idKey: "palisisId",
     accent: "blue",
   },
-  regiondo: {
-    label: "DMO",
-    endpoint: "/api/admin/regiondo-import/single",
-    idKey: "regiondoId",
-    accent: "emerald",
-  },
 } as const
 
-export function TripSyncButton({ palisisId, regiondoId, variant = "icon" }: Props) {
+export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [status, setStatus]   = useState<"idle" | "ok" | "err">("idle")
   const [message, setMessage] = useState<string>("")
 
-  // Palisis takes precedence if (somehow) both are present.
-  const source = palisisId ? "palisis" : regiondoId ? "regiondo" : null
-  const id = palisisId ?? regiondoId ?? null
+  const source = palisisId ? "palisis" : null
+  const id = palisisId ?? null
   if (!source || !id) return null
 
   const cfg = SOURCE[source]
