@@ -7,6 +7,8 @@ import { isFieldEditable, resolvePolicy, type TripFieldPolicy } from "@/lib/trip
 import { Lock } from "lucide-react"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
+import { cn } from "@/lib/utils"
+import { TripSyncButton } from "../trip-sync-button"
 import { SEOOptimizer } from "@/components/admin/seo-optimizer"
 import { ItineraryEditor } from "@/components/admin/itinerary-editor"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
@@ -43,6 +45,50 @@ const COMMERCIAL_PRIORITY_OPTIONS = ["HIGH", "MEDIUM", "LOW"]
  *  (the canonical `trip_tags` table managed in /admin/trip-tags). */
 type TripTagOption = { token: string; label: string }
 
+/** Blank form used when creating a NEW trip (no `trip` prop). */
+const NEW_TRIP_DEFAULTS: Partial<AdminTrip> = {
+  title: "",
+  description: "",
+  price: 0,
+  originalPrice: undefined,
+  duration: "",
+  category: "Tours",
+  tags: [],
+  city: "Luxembourg",
+  provider: "Sightseeing.lu",
+  image: "",
+  gallery: [],
+  highlights: [],
+  badge: "",
+  googleBusinessUrl: "",
+  featured: false,
+  featuredDeparture: false,
+  status: "draft",
+  tripTags: [],
+  languages: [],
+  included: [],
+  excluded: [],
+}
+
+/**
+ * Order-insensitive JSON serializer used for dirty-tracking. Object keys are
+ * sorted recursively so a re-spread form (which can re-order keys) compares
+ * equal to its baseline; arrays keep their order (it's meaningful for tags,
+ * highlights, itinerary steps, etc.).
+ */
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      const obj = val as Record<string, unknown>
+      return Object.keys(obj).sort().reduce<Record<string, unknown>>((acc, k) => {
+        acc[k] = obj[k]
+        return acc
+      }, {})
+    }
+    return val
+  })
+}
+
 export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | null; policy?: TripFieldPolicy }) {
   const policy = policyProp ?? resolvePolicy(null)
   const can = (key: string) => isFieldEditable(policy, key)
@@ -57,31 +103,33 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  const [form, setForm] = useState<Partial<AdminTrip>>(
-    trip ?? {
-      title: "",
-      description: "",
-      price: 0,
-      originalPrice: undefined,
-      duration: "",
-      category: "Tours",
-      tags: [],
-      city: "Luxembourg",
-      provider: "Sightseeing.lu",
-      image: "",
-      gallery: [],
-      highlights: [],
-      badge: "",
-      googleBusinessUrl: "",
-      featured: false,
-      featuredDeparture: false,
-      status: "draft",
-      tripTags: [],
-      languages: [],
-      included: [],
-      excluded: [],
-    }
-  )
+  const [form, setForm] = useState<Partial<AdminTrip>>(() => trip ?? { ...NEW_TRIP_DEFAULTS })
+  // Baseline = last-saved snapshot. `isDirty` compares the live form against it
+  // (order-insensitive) to drive the floating save bar + disabled Save buttons.
+  const [baseline, setBaseline] = useState<Partial<AdminTrip>>(() => trip ?? { ...NEW_TRIP_DEFAULTS })
+  const isDirty = stableStringify(form) !== stableStringify(baseline)
+
+  // Sticky minimal header — appears once the top actions scroll out of view.
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      ([entry]) => setScrolled(!entry.isIntersecting),
+      { rootMargin: "-8px 0px 0px 0px" },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+
+  function handleDiscard() {
+    setForm(baseline)
+    setSaveError(null)
+    setTripTagInput("")
+    setHighlightInput("")
+    setLanguageInput("")
+  }
 
   const [tripTagInput, setTripTagInput] = useState("")
   // Trip-tag vocab fetched from the canonical `trip_tags` table; updates in
@@ -225,6 +273,9 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
       }
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
+      // Form is now persisted — reset the dirty baseline so the floating bar
+      // hides and Save buttons disable until the next edit.
+      setBaseline(form)
       if (!trip) {
         router.push("/admin/trips")
         router.refresh()
@@ -251,6 +302,50 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
 
   return (
     <div className="mx-auto max-w-3xl">
+      {/* Sticky minimal header — overlays the top of the scroll area once the
+          full header/top-actions scroll out of view. Lives in a zero-height
+          sticky wrapper so it never reserves layout space (no content jump). */}
+      <div className="sticky top-0 z-30 h-0">
+        <div
+          className={cn(
+            "flex items-center gap-3 rounded-b-xl border border-t-0 border-border bg-card/95 px-3 py-2 shadow-md backdrop-blur transition-all duration-200 sm:px-4",
+            scrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0",
+          )}
+        >
+          <Link
+            href="/admin/trips"
+            title="Back to trips"
+            className="shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-foreground">{form.title?.trim() || "Untitled trip"}</p>
+            {trip && <p className="truncate text-[11px] text-muted-foreground">ID: {trip.id}</p>}
+          </div>
+          {trip && (
+            <Link
+              href={`/trip/${trip.slug ?? trip.id}`}
+              target="_blank"
+              title="View on site"
+              className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground sm:flex"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> View on site
+            </Link>
+          )}
+          {trip?.palisis_id && <TripSyncButton palisisId={trip.palisis_id} variant="icon" />}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {saving ? "Saving…" : saved ? "Saved!" : "Save"}
+          </button>
+        </div>
+      </div>
+
       {saveError && (
         <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -276,14 +371,17 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            disabled={saving || !isDirty}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
             {saving ? "Saving…" : saved ? "Saved!" : "Save"}
           </button>
         </div>
       </div>
+
+      {/* Sentinel: when it scrolls past the top, the minimal header appears. */}
+      <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />
 
       <div className="flex flex-col gap-6">
         {/* Core info */}
@@ -960,18 +1058,38 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         />
       </div>
 
-      {/* Bottom save */}
-      <div className="mt-6 flex justify-end">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-        >
-          <Save className="h-4 w-4" />
-          {saving ? "Saving…" : saved ? "Saved!" : "Save Trip"}
-        </button>
-      </div>
+      {/* Floating save / discard bar — sticks to the bottom of the viewport
+          while there are unsaved changes. Hidden once everything is saved. */}
+      {isDirty && (
+        <div className="sticky bottom-0 z-30 mt-6 pb-1">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/95 px-4 py-3 shadow-lg backdrop-blur">
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
+              <span className="hidden sm:inline">You have unsaved changes</span>
+              <span className="sm:hidden">Unsaved changes</span>
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDiscard}
+                disabled={saving}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-4 w-4" /> Discard
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Save className="h-4 w-4" />
+                {saving ? "Saving…" : saved ? "Saved!" : "Save Trip"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
