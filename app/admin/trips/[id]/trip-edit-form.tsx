@@ -13,8 +13,6 @@ import { SEOOptimizer } from "@/components/admin/seo-optimizer"
 import { ItineraryEditor } from "@/components/admin/itinerary-editor"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 
-const CATEGORIES = ["Food & Events", "Sports & Nature", "Culture", "Tours", "Gift Vouchers", "Private Tours", "Dinnerhopping", "LUGA Goodies"]
-
 // ── Palisis / TourCMS friendly-label vocabularies ──────────────────────────────
 // Tour-type labels — must match the Palisis "Tour type" radio list verbatim.
 const TOUR_TYPE_OPTIONS = [
@@ -426,17 +424,9 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
               </p>
               {!can("slug") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className={labelClass}>Category {!can("category") && <ReadOnlyBadge />}</label>
-                <select disabled={!can("category")} className={inputClass} value={form.category ?? "Tours"} onChange={(e) => set("category", e.target.value)}>
-                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={labelClass}>Duration {!can("duration") && <ReadOnlyBadge />}</label>
-                <input type="text" readOnly={!can("duration")} className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />
-              </div>
+            <div>
+              <label className={labelClass}>Duration {!can("duration") && <ReadOnlyBadge />}</label>
+              <input type="text" readOnly={!can("duration")} className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
