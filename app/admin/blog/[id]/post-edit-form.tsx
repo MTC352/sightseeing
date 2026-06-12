@@ -6,6 +6,7 @@ import type { AdminPost } from "@/lib/admin-store"
 import {
   Save, ArrowLeft, Loader2, Wand2, Upload, X, AlertCircle,
   CheckCircle2, Circle, Eye, Check, Plus, ImageIcon, Sparkles,
+  Link2, ExternalLink, CalendarClock,
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -14,6 +15,16 @@ import { cn } from "@/lib/utils"
 
 function toSlug(text: string) {
   return text.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 80)
+}
+
+/** Convert an ISO timestamp (or datetime-local string) to a value a
+ *  <input type="datetime-local"> can display, in the browser's local time. */
+function toDatetimeLocal(value: string | null | undefined): string {
+  if (!value) return ""
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return ""
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
 }
 
 /** Strip the ---...--- metadata block and return just the body. */
@@ -205,12 +216,13 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
   const [saved,     setSaved]     = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [copied,    setCopied]    = useState(false)
 
   const [form, setForm] = useState<Partial<AdminPost>>(
     post ?? {
       slug: "", title: "", excerpt: "", body: "", image: "", author: "",
       category: "Travel Tips", tags: [], status: "draft",
-      publishedAt: new Date().toISOString().slice(0, 10),
+      publishedAt: toDatetimeLocal(new Date().toISOString()),
       readTime: "5 min read",
     }
   )
@@ -218,6 +230,35 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
   function set<K extends keyof AdminPost>(key: K, value: AdminPost[K]) {
     setForm((f) => ({ ...f, [key]: value }))
   }
+
+  // Absolute public URL for this post (used by "View on site" + "Copy link").
+  // Drafts/scheduled posts are still reachable here for a logged-in admin.
+  const publicPath = form.slug ? `/blog/${form.slug}` : ""
+
+  async function handleCopyLink() {
+    if (!publicPath) return
+    const url = `${window.location.origin}${publicPath}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      // Fallback for browsers/contexts without the async clipboard API.
+      const ta = document.createElement("textarea")
+      ta.value = url
+      ta.style.position = "fixed"
+      ta.style.opacity = "0"
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand("copy") } catch { /* ignore */ }
+      document.body.removeChild(ta)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Scheduling hint: a published post with a future publish time stays hidden
+  // from the public until that time is reached.
+  const publishMs = form.publishedAt ? new Date(form.publishedAt).getTime() : NaN
+  const isScheduled = form.status === "published" && !isNaN(publishMs) && publishMs > Date.now()
 
   // AI Generator state
   const [aiTopic,          setAiTopic]          = useState("")
@@ -387,7 +428,13 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
     try {
       const method = post ? "PATCH" : "POST"
       const url    = post ? `/api/admin/posts/${post.id}` : `/api/admin/posts`
-      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) })
+      // Normalize the datetime-local value (local time, no zone) to a real ISO
+      // instant so the timestamptz column stores the correct moment.
+      const payload = {
+        ...form,
+        publishedAt: form.publishedAt ? new Date(form.publishedAt).toISOString() : null,
+      }
+      const res    = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
       if (!res.ok) { setSaveError((await res.json().catch(() => ({}))).error ?? `Save failed (${res.status})`); return }
       const saved = await res.json()
       setSaved(true); setTimeout(() => setSaved(false), 2500)
@@ -425,11 +472,35 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
           <Link href="/admin/blog" className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
             <ArrowLeft className="h-4 w-4" /> Back to blog
           </Link>
-          <button type="button" onClick={handleSave} disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60">
-            <Save className="h-4 w-4" />
-            {saving ? "Saving…" : saved ? "Saved!" : "Save"}
-          </button>
+          <div className="flex items-center gap-2">
+            {post && publicPath && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  title="Copy the public post link"
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+                >
+                  {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Link2 className="h-4 w-4" />}
+                  {copied ? "Copied!" : "Copy link"}
+                </button>
+                <a
+                  href={publicPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open the post on the live site (admins can preview drafts)"
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+                >
+                  <ExternalLink className="h-4 w-4" /> View on site
+                </a>
+              </>
+            )}
+            <button type="button" onClick={handleSave} disabled={saving}
+              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60">
+              <Save className="h-4 w-4" />
+              {saving ? "Saving…" : saved ? "Saved!" : "Save"}
+            </button>
+          </div>
         </div>
 
         {saveError && (
@@ -662,7 +733,15 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClass}>Published at</label>
-                  <input type="date" className={inputClass} value={form.publishedAt ?? ""} onChange={(e) => set("publishedAt", e.target.value)} />
+                  <input
+                    type="datetime-local"
+                    className={inputClass}
+                    value={toDatetimeLocal(form.publishedAt)}
+                    onChange={(e) => set("publishedAt", e.target.value)}
+                  />
+                  <p className="mt-1 text-[10px] text-muted-foreground/60">
+                    Set a future date &amp; time to schedule. While published with a future time, the post stays hidden from the public.
+                  </p>
                 </div>
                 <div>
                   <label className={labelClass}>Read time</label>
@@ -720,6 +799,18 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
                 <option value="published">Published</option>
               </select>
             </div>
+            {form.status === "draft" && (
+              <p className="mt-3 flex items-center gap-2 text-xs text-amber-600">
+                <Eye className="h-3.5 w-3.5 shrink-0" />
+                Draft — hidden from the public. Only logged-in admins can preview it via the link above.
+              </p>
+            )}
+            {isScheduled && (
+              <p className="mt-3 flex items-center gap-2 text-xs text-amber-600">
+                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                Scheduled — goes live on {new Date(form.publishedAt as string).toLocaleString()}. Hidden from the public until then.
+              </p>
+            )}
           </section>
         </div>
 

@@ -4,7 +4,7 @@ import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { Clock, User, ArrowRight } from "lucide-react"
 import type { Metadata } from "next"
-import { dbListPosts } from "@/lib/db/queries"
+import { dbListPublicPosts } from "@/lib/db/queries"
 
 export const dynamic = "force-dynamic"
 
@@ -36,14 +36,13 @@ const FALLBACK_POST: BlogPost = {
 }
 
 export default async function BlogPage() {
-  const rawPosts = await dbListPosts() as {
+  const rawPosts = await dbListPublicPosts() as {
     slug: string; title: string; excerpt: string; image: string | null;
     author: string; publishedAt: string | null; category: string; readTime: string | null;
     status: string;
   }[]
 
   const adminPosts: BlogPost[] = rawPosts
-    .filter((p) => p.status === "published")
     .map((p) => ({
       slug: p.slug,
       title: p.title,

@@ -3,8 +3,9 @@ import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
-import { Clock, User, ArrowLeft, Calendar } from "lucide-react"
-import { dbGetPostBySlug } from "@/lib/db/queries"
+import { Clock, User, ArrowLeft, Calendar, Eye } from "lucide-react"
+import { dbGetPostBySlugAny } from "@/lib/db/queries"
+import { getSession } from "@/lib/auth"
 import type { Metadata } from "next"
 
 export const dynamic = "force-dynamic"
@@ -34,6 +35,17 @@ type PostRow = {
   updated_at?: string | Date | null
 }
 
+/**
+ * A post is publicly live only when it is published AND its scheduled publish
+ * time has been reached. Mirrors the SQL gate in lib/db/queries.ts. Drafts and
+ * future-scheduled posts are not live (only an authenticated admin may preview).
+ */
+function isPostLive(post: PostRow): boolean {
+  if (post.status !== "published") return false
+  if (!post.publishedAt) return true
+  return new Date(post.publishedAt).getTime() <= Date.now()
+}
+
 function ogImageFor(post: PostRow) {
   const params = new URLSearchParams({
     eyebrow: post.category || "Blog",
@@ -45,8 +57,20 @@ function ogImageFor(post: PostRow) {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const post = (await dbGetPostBySlug(slug)) as PostRow | null
+  const post = (await dbGetPostBySlugAny(slug)) as PostRow | null
+
+  // Hide non-live posts from anyone without an admin session — return the same
+  // generic "not found" metadata a public visitor would see for a missing post.
   if (!post) return { title: "Post Not Found | sightseeing.lu" }
+  if (!isPostLive(post)) {
+    const isAdmin = !!(await getSession())
+    if (!isAdmin) return { title: "Post Not Found | sightseeing.lu" }
+    // Admin preview: never let drafts/scheduled posts be indexed.
+    return {
+      title: `[Preview] ${post.title} | sightseeing.lu`,
+      robots: { index: false, follow: false },
+    }
+  }
 
   const title = post.seoTitle || `${post.title} | sightseeing.lu`
   const description = post.seoDescription || post.excerpt
@@ -79,9 +103,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params
-  const post = (await dbGetPostBySlug(slug)) as PostRow | null
+  const post = (await dbGetPostBySlugAny(slug)) as PostRow | null
 
-  if (!post || post.status !== "published") notFound()
+  if (!post) notFound()
+
+  // Gate: drafts and future-scheduled posts are hidden from the public. Only a
+  // logged-in admin may preview them via the direct URL.
+  const live = isPostLive(post)
+  const isAdmin = live ? false : !!(await getSession())
+  if (!live && !isAdmin) notFound()
+
+  const scheduled = post.status === "published" && !live
+  const previewLabel = scheduled
+    ? `Scheduled — goes live ${post.publishedAt ? new Date(post.publishedAt).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "soon"}`
+    : "Draft — not visible to the public"
 
   const renderBody = (body: string) => {
     const lines = body.split("\n")
@@ -148,8 +183,15 @@ export default async function BlogPostPage({ params }: Props) {
 
   return (
     <div className="min-h-screen bg-background">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
+      {live && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />}
       <Navbar />
+
+      {!live && isAdmin && (
+        <div className="sticky top-0 z-50 flex items-center justify-center gap-2 bg-amber-500 px-4 py-2 text-center text-xs font-semibold text-amber-950 shadow-md">
+          <Eye className="h-3.5 w-3.5 shrink-0" />
+          <span>Admin preview · {previewLabel}</span>
+        </div>
+      )}
 
       <section className="relative">
         <div className="absolute inset-0 h-72 lg:h-96">

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 import { categories } from "@/lib/data"
-import { dbListTrips, dbListPosts } from "@/lib/db/queries"
+import { dbListTrips, dbListPublicPosts } from "@/lib/db/queries"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -49,15 +49,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }))
 
-  // Blog posts — published only.
-  const postRows = (await dbListPosts().catch(() => [])) as Array<{
+  // Blog posts — only those whose scheduled publish time has passed.
+  const postRows = (await dbListPublicPosts().catch(() => [])) as Array<{
     slug: string
     status: string
     publishedAt?: string | Date | null
     updated_at?: string | Date | null
   }>
   const blogPages: MetadataRoute.Sitemap = postRows
-    .filter((p) => p.status === "published")
     .map((p) => ({
       url: `${BASE}/blog/${p.slug}`,
       lastModified:

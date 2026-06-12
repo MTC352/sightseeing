@@ -285,6 +285,12 @@ export async function dbDeleteTrip(id: string) {
 
 // ── Blog posts ─────────────────────────────────────────────────────────────
 
+// A blog post is publicly live only when it is published AND its scheduled
+// publish time has been reached. A NULL published_at means "publish immediately".
+// Scheduled posts (status='published' with a future published_at) and drafts
+// stay hidden from the public site, sitemap, and direct URLs.
+const POST_PUBLIC_GATE = `status = 'published' AND (published_at IS NULL OR published_at <= NOW())`
+
 export async function dbListPosts() {
   return query(`
     SELECT id, slug, title, excerpt, body, image, author, category, tags,
@@ -292,6 +298,19 @@ export async function dbListPosts() {
            seo_title as "seoTitle", seo_description as "seoDescription",
            created_at, updated_at
     FROM blog_posts ORDER BY created_at DESC
+  `)
+}
+
+/** Public-facing list — only posts whose scheduled publish time has passed. */
+export async function dbListPublicPosts() {
+  return query(`
+    SELECT id, slug, title, excerpt, body, image, author, category, tags,
+           status, published_at as "publishedAt", read_time as "readTime",
+           seo_title as "seoTitle", seo_description as "seoDescription",
+           created_at, updated_at
+    FROM blog_posts
+    WHERE ${POST_PUBLIC_GATE}
+    ORDER BY published_at DESC NULLS LAST, created_at DESC
   `)
 }
 
@@ -311,7 +330,22 @@ export async function dbGetPostBySlug(slug: string) {
             status, published_at as "publishedAt", read_time as "readTime",
             seo_title as "seoTitle", seo_description as "seoDescription",
             created_at, updated_at
-     FROM blog_posts WHERE slug = $1 AND status = 'published'`, [slug]
+     FROM blog_posts WHERE slug = $1 AND ${POST_PUBLIC_GATE}`, [slug]
+  )
+}
+
+/**
+ * Fetch a post by slug regardless of status or schedule. Used ONLY for the
+ * admin preview path on the public blog route — callers MUST verify an admin
+ * session before showing a non-live post to the requester.
+ */
+export async function dbGetPostBySlugAny(slug: string) {
+  return queryOne(
+    `SELECT id, slug, title, excerpt, body, image, author, category, tags,
+            status, published_at as "publishedAt", read_time as "readTime",
+            seo_title as "seoTitle", seo_description as "seoDescription",
+            created_at, updated_at
+     FROM blog_posts WHERE slug = $1`, [slug]
   )
 }
 

@@ -11,7 +11,11 @@ export default async function AdminBlogPage() {
     author: string; publishedAt: string | null; status: string;
   }[]
 
-  const published = posts.filter((p) => p.status === "published").length
+  const isScheduled = (p: { status: string; publishedAt: string | null }) =>
+    p.status === "published" && !!p.publishedAt && new Date(p.publishedAt).getTime() > Date.now()
+
+  const scheduled = posts.filter(isScheduled).length
+  const published = posts.filter((p) => p.status === "published" && !isScheduled(p)).length
   const drafts = posts.filter((p) => p.status === "draft").length
 
   return (
@@ -20,7 +24,7 @@ export default async function AdminBlogPage() {
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">Content</p>
           <h1 className="mt-1 text-2xl font-bold text-foreground">Blog</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">{published} published · {drafts} drafts</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{published} published · {scheduled} scheduled · {drafts} drafts</p>
         </div>
         <Link
           href="/admin/blog/new"
@@ -62,11 +66,17 @@ export default async function AdminBlogPage() {
                     {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString() : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      post.status === "published" ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600"
-                    }`}>
-                      {post.status}
-                    </span>
+                    {isScheduled(post) ? (
+                      <span className="inline-flex rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-600">
+                        scheduled
+                      </span>
+                    ) : (
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        post.status === "published" ? "bg-emerald-500/15 text-emerald-600" : "bg-amber-500/15 text-amber-600"
+                      }`}>
+                        {post.status}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
