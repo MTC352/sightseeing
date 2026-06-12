@@ -41,6 +41,8 @@ type RunResult =
     }
   | { id: string; ok: false; error: string }
 
+type MigrationFilter = "pending" | "applied" | "all"
+
 export default function DbMigrationsPage() {
   const [data, setData] = useState<StatusResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -50,6 +52,16 @@ export default function DbMigrationsPage() {
   const [showCompare, setShowCompare] = useState<Set<string>>(new Set())
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<RunResult[] | null>(null)
+  // Default to "pending" so admins immediately see what still needs running.
+  const [filter, setFilter] = useState<MigrationFilter>("pending")
+
+  // Switching filters clears any selection so admins can never accidentally
+  // "Run selected" on a migration that's hidden under the current tab.
+  function changeFilter(next: MigrationFilter) {
+    setFilter(next)
+    setSelected(new Set())
+    setOverwriteAll(new Set())
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -169,8 +181,50 @@ export default function DbMigrationsPage() {
           Loading migrations…
         </div>
       ) : (
+        <>
+        {(() => {
+          const all = data?.migrations ?? []
+          const pendingCount = all.filter((m) => !m.applied).length
+          const appliedCount = all.filter((m) => m.applied).length
+          const tabs: { key: MigrationFilter; label: string; count: number }[] = [
+            { key: "pending", label: "Pending", count: pendingCount },
+            { key: "applied", label: "Applied", count: appliedCount },
+            { key: "all", label: "All", count: all.length },
+          ]
+          return (
+            <div className="mb-4 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => changeFilter(t.key)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    filter === t.key
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {t.label}
+                  <span
+                    className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${
+                      filter === t.key
+                        ? "bg-indigo-50 text-indigo-600"
+                        : "bg-gray-200 text-gray-500"
+                    }`}
+                  >
+                    {t.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )
+        })()}
         <div className="space-y-3">
-          {data?.migrations.map((m) => (
+          {(data?.migrations ?? [])
+            .filter((m) =>
+              filter === "all" ? true : filter === "applied" ? m.applied : !m.applied,
+            )
+            .map((m) => (
             <div
               key={m.id}
               className="rounded-lg border border-gray-200 bg-white p-4 hover:border-indigo-300"
@@ -244,12 +298,21 @@ export default function DbMigrationsPage() {
             </div>
           ))}
 
-          {data?.migrations.length === 0 && (
+          {(data?.migrations ?? []).length === 0 ? (
             <p className="py-8 text-center text-sm text-gray-400">
               No data migrations defined.
             </p>
-          )}
+          ) : (data?.migrations ?? []).filter((m) =>
+              filter === "all" ? true : filter === "applied" ? m.applied : !m.applied,
+            ).length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-400">
+              {filter === "pending"
+                ? "No pending migrations — everything is applied."
+                : "No applied migrations yet."}
+            </p>
+          ) : null}
         </div>
+        </>
       )}
 
       <div className="mt-6 flex items-center gap-3">
