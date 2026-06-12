@@ -36,16 +36,38 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const body = await req.json()
     const incoming = (body?.fields ?? {}) as Partial<SeoFields>
+    // Partial mode: only the keys present in `incoming` are changed; every other
+    // SEO field keeps its CURRENT stored value (no base-content snapshotting).
+    // Used by the manual snippet editor so untouched fields are never modified.
+    const partial = body?.partial === true
+
+    const existing: SeoFields = {
+      seoKeyword: str(trip.seoKeyword).trim(),
+      seoTitle: str(trip.seoTitle).trim(),
+      seoMetaDescription: str(trip.seoMetaDescription).trim(),
+      seoBody: str(trip.seoBody),
+      seoHighlights: Array.isArray(trip.seoHighlights)
+        ? (trip.seoHighlights as unknown[]).map((h) => str(h).trim()).filter(Boolean)
+        : [],
+      seoSlug: str(trip.seoSlug).trim(),
+    }
+
+    const has = (k: keyof SeoFields) => Object.prototype.hasOwnProperty.call(incoming, k)
+    const pick = <K extends keyof SeoFields>(k: K, normalized: SeoFields[K]): SeoFields[K] =>
+      partial && !has(k) ? existing[k] : normalized
 
     const fields: SeoFields = {
-      seoKeyword: str(incoming.seoKeyword).trim(),
-      seoTitle: str(incoming.seoTitle).trim(),
-      seoMetaDescription: str(incoming.seoMetaDescription).trim(),
-      seoBody: str(incoming.seoBody),
-      seoHighlights: Array.isArray(incoming.seoHighlights)
-        ? incoming.seoHighlights.map((h) => str(h).trim()).filter(Boolean)
-        : [],
-      seoSlug: str(incoming.seoSlug).trim(),
+      seoKeyword: pick("seoKeyword", str(incoming.seoKeyword).trim()),
+      seoTitle: pick("seoTitle", str(incoming.seoTitle).trim()),
+      seoMetaDescription: pick("seoMetaDescription", str(incoming.seoMetaDescription).trim()),
+      seoBody: pick("seoBody", str(incoming.seoBody)),
+      seoHighlights: pick(
+        "seoHighlights",
+        Array.isArray(incoming.seoHighlights)
+          ? incoming.seoHighlights.map((h) => str(h).trim()).filter(Boolean)
+          : [],
+      ),
+      seoSlug: pick("seoSlug", str(incoming.seoSlug).trim()),
     }
 
     const image = str(trip.image)

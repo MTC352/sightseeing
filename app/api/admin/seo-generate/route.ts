@@ -7,6 +7,7 @@ import {
   summarizeScore,
   scoreInputFromFields,
   ensureTitleChecks,
+  ensureMeta,
   ensureHighlights,
   ensureBody,
   slugifyWithKeyword,
@@ -105,12 +106,9 @@ export async function POST(request: Request) {
     const fields: SeoFields = {
       seoKeyword: keyword,
       seoTitle: ensureTitleChecks(String(parsed.title || trip.title || ""), keyword),
-      seoMetaDescription: (() => {
-        let m = String(parsed.metaDescription || "").trim()
-        if (!m) m = `${keyword} — discover the best of Luxembourg. Book your unforgettable experience today.`
-        if (!m.toLowerCase().includes(keyword.toLowerCase())) m = `${keyword}: ${m}`
-        return m
-      })(),
+      seoMetaDescription: ensureMeta(String(parsed.metaDescription || ""), keyword, {
+        city: String(trip.city || "Luxembourg"),
+      }),
       seoBody: ensureBody(String(parsed.body || trip.description || ""), keyword, {
         city: String(trip.city || "Luxembourg"),
       }),

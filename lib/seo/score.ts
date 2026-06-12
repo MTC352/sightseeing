@@ -77,7 +77,11 @@ export function hasWordFrom(text: string, words: Set<string>): boolean {
   return false
 }
 
-// ── Scoring engine (the 21 checks) ─────────────────────────────────────────────
+// ── Scoring engine (the checks) ────────────────────────────────────────────────
+
+/** Recommended meta-description length window (chars). */
+export const META_MIN_LEN = 120
+export const META_MAX_LEN = 160
 
 export interface SeoCheck {
   id: string
@@ -130,6 +134,16 @@ export function computeSeoSections(input: SeoScoreInput): SeoSection[] {
   const basic: SeoCheck[] = [
     { id: "kw-in-title", pass: !!kw && tl.includes(kw), message: "Add Focus Keyword to the SEO title." },
     { id: "kw-in-meta", pass: !!kw && ml.includes(kw), message: "Add Focus Keyword to your SEO Meta Description." },
+    {
+      id: "meta-length",
+      pass: metaDesc.length >= META_MIN_LEN && metaDesc.length <= META_MAX_LEN,
+      message:
+        metaDesc.length === 0
+          ? `Meta description is empty. Write ${META_MIN_LEN}–${META_MAX_LEN} characters.`
+          : metaDesc.length < META_MIN_LEN
+            ? `Meta description is only ${metaDesc.length} characters. Add more (aim for ${META_MIN_LEN}–${META_MAX_LEN}).`
+            : `Meta description is ${metaDesc.length} characters. Trim it to ${META_MAX_LEN} or fewer.`,
+    },
     { id: "kw-in-url", pass: !!kw && pl.includes(kw.replace(/\s+/g, "-")), message: "Use Focus Keyword in the URL." },
     { id: "kw-in-intro", pass: !!kw && dl.slice(0, 100).includes(kw), message: "Use Focus Keyword at the beginning of your content." },
     { id: "kw-in-content", pass: !!kw && dl.includes(kw), message: "Use Focus Keyword in the content." },
@@ -319,6 +333,58 @@ export function ensureTitleChecks(rawTitle: string, keyword: string): string {
     title = `${title} (2026)`
   }
   return title.replace(/\s+/g, " ").trim()
+}
+
+/**
+ * Ensure the meta description passes both meta checks: it contains the focus
+ * keyword (kw-in-meta) AND lands in the 120–160 char window (meta-length).
+ * Pads a too-short meta with a natural CTA and trims a too-long one at a word
+ * boundary — never stuffs the keyword more than once.
+ */
+export function ensureMeta(rawMeta: string, keyword: string, opts: { city?: string } = {}): string {
+  const kw = keyword.trim()
+  const city = opts.city || "Luxembourg"
+  let m = (rawMeta || "").replace(/\s+/g, " ").trim()
+
+  // Degrade gracefully for the impossible case where the keyword alone exceeds
+  // the max length: keep the keyword (so kw-in-meta passes) and accept that
+  // meta-length cannot also pass. Realistic focus keywords are far shorter.
+  if (kw && kw.length >= META_MAX_LEN) {
+    return capitalize(kw)
+  }
+
+  if (!m) {
+    m = kw
+      ? `Discover ${kw} with sightseeing.lu.`
+      : `Discover the best of ${city} with sightseeing.lu.`
+  }
+
+  // Keyword present, near the start.
+  if (kw && !m.toLowerCase().includes(kw.toLowerCase())) {
+    m = `${capitalize(kw)}: ${m}`
+  }
+
+  // Pad up to the minimum length with on-topic call-to-action tails.
+  const tails = [
+    `Book your unforgettable ${city} experience online today.`,
+    `Easy booking, instant confirmation and friendly local guides.`,
+    `Reserve your spot and explore more with sightseeing.lu.`,
+  ]
+  let ti = 0
+  while (m.length < META_MIN_LEN && ti < tails.length) {
+    m = `${m} ${tails[ti]}`.replace(/\s+/g, " ").trim()
+    ti++
+  }
+
+  // Trim to the maximum length without cutting a word in half.
+  if (m.length > META_MAX_LEN) {
+    m = m.slice(0, META_MAX_LEN)
+    const lastSpace = m.lastIndexOf(" ")
+    if (lastSpace > META_MIN_LEN) m = m.slice(0, lastSpace)
+    m = m.replace(/[\s,;:.\-–—]+$/, "").trim()
+  }
+
+  return m
 }
 
 /** Ensure ≥3 highlights and that at least one contains the keyword. */

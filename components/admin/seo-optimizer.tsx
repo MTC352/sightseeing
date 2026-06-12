@@ -12,7 +12,7 @@ import React, { useState, useMemo, useEffect } from "react"
 import type { AdminTrip } from "@/lib/admin-store"
 import {
   ChevronDown, ChevronUp, CheckCircle2, XCircle, HelpCircle, Eye, Edit3, Search,
-  Sparkles, AlertTriangle,
+  Sparkles, AlertTriangle, Loader2, Save, Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -39,11 +39,24 @@ interface Props {
   onApplyOptimization: (field: keyof AdminTrip, value: unknown) => void
 }
 
+// Which SEO checks each editable snippet field is responsible for. Used to show
+// live, per-field suggestions in the snippet editor so the admin can see exactly
+// which checks the field they're editing affects.
+const FIELD_CHECK_IDS: Record<string, string[]> = {
+  keyword: ["kw-set"],
+  title: ["kw-in-title", "kw-at-title-start", "title-sentiment", "title-power-word", "title-number"],
+  meta: ["kw-in-meta", "meta-length"],
+  slug: ["kw-in-url", "url-length"],
+  highlights: ["kw-in-headings", "toc"],
+  body: ["kw-in-intro", "kw-in-content", "content-length", "keyword-density", "external-links", "dofollow-links", "internal-links", "short-paragraphs"],
+}
+
 // ── Tooltip copy ──────────────────────────────────────────────────────────────
 
 const TOOLTIPS: Record<string, string> = {
   "kw-in-title":       "Search engines give extra weight to keywords in the title tag. Including your focus keyword signals relevance.",
   "kw-in-meta":        "The meta description appears in search results. Having your keyword helps searchers recognise your content as relevant.",
+  "meta-length":       "Aim for a 120–160 character meta description — long enough to be descriptive, short enough that Google won't truncate it.",
   "kw-in-url":         "URLs with keywords are more readable and carry slight SEO weight. Use hyphens to separate words.",
   "kw-in-intro":       "Mentioning your keyword in the first 100 characters signals its importance to search engines.",
   "kw-in-content":     "Your focus keyword should appear naturally at least once throughout the body of your content.",
@@ -90,6 +103,16 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   const [visibleTip,    setVisibleTip]    = useState<string | null>(null)
   const [showAiModal,   setShowAiModal]   = useState(false)
 
+  // Manual snippet-editor save (persists to import-safe seo_* columns via /seo).
+  const [savingSnippet, setSavingSnippet] = useState(false)
+  const [snippetError,  setSnippetError]  = useState<string | null>(null)
+  const [snippetSaved,  setSnippetSaved]  = useState(false)
+  // SeoFields keys the admin has edited in the snippet editor — only these are
+  // persisted, so untouched fields are never modified.
+  const [dirty,         setDirty]         = useState<Set<keyof SeoFields>>(new Set())
+  const markDirty = (k: keyof SeoFields) =>
+    setDirty((prev) => (prev.has(k) ? prev : new Set(prev).add(k)))
+
   // Overlays — populated after an AI "Accept & Save All" so the widget reflects
   // the freshly-persisted SEO without a full page reload.
   const [bodyOverlay,       setBodyOverlay]       = useState<string | null>(tripData.seoBody ?? null)
@@ -134,6 +157,13 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   )
   const { passingCount, totalCount, score } = useMemo(() => summarizeScore(sections), [sections])
 
+  // Flat check lookup so the snippet editor can show per-field suggestions.
+  const checkById = useMemo(() => {
+    const map: Record<string, { id: string; pass: boolean; message: string }> = {}
+    for (const s of sections) for (const c of s.checks) map[c.id] = c
+    return map
+  }, [sections])
+
   // ── Staleness (source fields changed since last optimization) ─────────────
   const staleness = useMemo(
     () => computeStaleness({ ...tripData, seoOptimizedAt: optimizedOverlay ?? tripData.seoOptimizedAt } as Record<string, unknown>),
@@ -151,6 +181,77 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
       if (next.has(id)) { next.delete(id) } else { next.add(id) }
       return next
     })
+  }
+
+  // Live per-field suggestions: the checks a given snippet field is responsible
+  // for, with their current pass/fail state (updates as the admin edits).
+  function FieldChecks({ field }: { field: keyof typeof FIELD_CHECK_IDS }) {
+    const items = (FIELD_CHECK_IDS[field] ?? []).map((id) => checkById[id]).filter(Boolean)
+    if (items.length === 0) return null
+    return (
+      <ul className="mt-1.5 space-y-1">
+        {items.map((c) => (
+          <li key={c.id} className="flex items-start gap-1.5 text-[10px] leading-snug">
+            {c.pass
+              ? <CheckCircle2 className="mt-px h-3 w-3 shrink-0 text-emerald-500" />
+              : <XCircle className="mt-px h-3 w-3 shrink-0 text-amber-500" />}
+            <span className={cn(c.pass
+              ? "text-muted-foreground line-through decoration-muted-foreground/30"
+              : "text-foreground")}>
+              {c.message}
+            </span>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  // Persist ONLY the SEO snippet fields the admin actually edited to the
+  // import-safe seo_* columns (partial merge on the server). Fields the admin
+  // didn't touch keep their stored values — nothing else on the trip changes.
+  async function handleSaveSnippet() {
+    if (!tripData.id) return
+    if (dirty.size === 0) {
+      setSnippetError("No changes to save.")
+      return
+    }
+    // Send ONLY the fields the admin edited; the server merges them over the
+    // current stored SEO so untouched fields are never modified.
+    const payload: Partial<SeoFields> = {}
+    if (dirty.has("seoKeyword"))         payload.seoKeyword = liveFields.seoKeyword
+    if (dirty.has("seoTitle"))           payload.seoTitle = liveFields.seoTitle
+    if (dirty.has("seoMetaDescription")) payload.seoMetaDescription = liveFields.seoMetaDescription
+    if (dirty.has("seoSlug"))            payload.seoSlug = liveFields.seoSlug
+    if (dirty.has("seoHighlights"))      payload.seoHighlights = liveFields.seoHighlights
+    if (dirty.has("seoBody"))            payload.seoBody = liveFields.seoBody
+
+    setSavingSnippet(true)
+    setSnippetError(null)
+    try {
+      const res = await fetch(`/api/admin/trips/${tripData.id}/seo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: payload, partial: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || "Failed to save SEO.")
+      const saved = (data.fields ?? liveFields) as SeoFields
+      // Reflect the persisted (merged) values so the widget stays in sync without reload.
+      setFocusKeyword(saved.seoKeyword ?? "")
+      setSeoTitle(saved.seoTitle ?? "")
+      setMetaDesc(saved.seoMetaDescription ?? "")
+      setBodyOverlay(saved.seoBody ?? "")
+      setHighlightsOverlay(saved.seoHighlights ?? [])
+      setSlugOverlay(saved.seoSlug ?? "")
+      setOptimizedOverlay(data.seoOptimizedAt ?? new Date().toISOString())
+      setDirty(new Set())
+      setSnippetSaved(true)
+      window.setTimeout(() => setSnippetSaved(false), 2500)
+    } catch (e) {
+      setSnippetError(e instanceof Error ? e.message : "Failed to save SEO.")
+    } finally {
+      setSavingSnippet(false)
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -290,6 +391,26 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
           </div>
         ) : (
           <div className="space-y-3">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Edit any field below. The score and per-field suggestions update live, and
+              <span className="font-medium text-foreground"> Save SEO</span> only changes the
+              fields you touch — nothing else on the trip is modified.
+            </p>
+
+            {/* Focus Keyword */}
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Focus Keyword</label>
+              <input
+                type="text"
+                value={focusKeyword}
+                onChange={(e) => { setFocusKeyword(e.target.value); markDirty("seoKeyword") }}
+                placeholder="e.g. luxembourg city tour"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              <FieldChecks field="keyword" />
+            </div>
+
+            {/* SEO Title */}
             <div>
               <label className="mb-1 flex items-center justify-between text-[11px] font-medium text-muted-foreground">
                 SEO Title
@@ -300,31 +421,87 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
               <input
                 type="text"
                 value={seoTitle}
-                onChange={(e) => setSeoTitle(e.target.value)}
+                onChange={(e) => { setSeoTitle(e.target.value); markDirty("seoTitle") }}
                 placeholder="SEO title…"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
+              <FieldChecks field="title" />
             </div>
+
+            {/* Meta Description */}
             <div>
               <label className="mb-1 flex items-center justify-between text-[11px] font-medium text-muted-foreground">
                 Meta Description
-                <span className={cn(metaDesc.length > 160 ? "text-red-500" : "text-muted-foreground")}>
+                <span className={cn(metaDesc.length < 120 || metaDesc.length > 160 ? "text-amber-500" : "text-emerald-500")}>
                   {metaDesc.length}/160
                 </span>
               </label>
               <textarea
                 rows={3}
                 value={metaDesc}
-                onChange={(e) => setMetaDesc(e.target.value.slice(0, 160))}
-                placeholder="Meta description (max 160 chars)…"
+                onChange={(e) => { setMetaDesc(e.target.value.slice(0, 160)); markDirty("seoMetaDescription") }}
+                placeholder="Meta description (120–160 chars)…"
                 className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
+              <FieldChecks field="meta" />
             </div>
+
+            {/* URL Slug */}
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">URL Slug</label>
+              <input
+                type="text"
+                value={liveFields.seoSlug}
+                onChange={(e) => { setSlugOverlay(e.target.value); markDirty("seoSlug") }}
+                placeholder="url-slug"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              <FieldChecks field="slug" />
+            </div>
+
+            {/* Highlights */}
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Highlights (one per line)</label>
+              <textarea
+                rows={4}
+                value={liveFields.seoHighlights.join("\n")}
+                onChange={(e) => { setHighlightsOverlay(e.target.value.split("\n").map((h) => h.replace(/^\s+/, ""))); markDirty("seoHighlights") }}
+                placeholder={"Highlight one\nHighlight two\nHighlight three"}
+                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              <FieldChecks field="highlights" />
+            </div>
+
+            {/* Body */}
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Body Content (HTML)</label>
+              <textarea
+                rows={6}
+                value={liveFields.seoBody}
+                onChange={(e) => { setBodyOverlay(e.target.value); markDirty("seoBody") }}
+                placeholder="Body content…"
+                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              <FieldChecks field="body" />
+            </div>
+
+            {snippetError && (
+              <p className="flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1.5 text-[11px] font-medium text-red-600 dark:bg-red-500/15 dark:text-red-400">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                {snippetError}
+              </p>
+            )}
+
             <button
-              onClick={() => { onApplyOptimization("title", seoTitle); setEditSnippet(false) }}
-              className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              onClick={handleSaveSnippet}
+              disabled={savingSnippet || !tripData.id}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
-              Apply to Form
+              {savingSnippet
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
+                : snippetSaved
+                  ? <><Check className="h-3.5 w-3.5" /> Saved!</>
+                  : <><Save className="h-3.5 w-3.5" /> Save SEO</>}
             </button>
           </div>
         )}
