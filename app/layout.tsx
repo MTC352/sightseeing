@@ -11,8 +11,9 @@ import { SiteStoreProvider } from "@/components/providers/site-store-provider"
 import { CookieBanner } from "@/components/cookie-banner"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import { CustomHtmlBlock } from "@/components/custom-html-block"
+import { AnnouncementBanner } from "@/components/announcement-banner"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetWeglotApiKey } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement } from "@/lib/db/queries"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -89,6 +90,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const injection = await dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" }))
   const weglotApiKey = await dbGetWeglotApiKey().catch(() => "")
+  const announcement = await dbGetAnnouncement().catch(() => null)
   return (
     <html lang="en" className={instrumentSans.variable}>
       <head>
@@ -161,8 +163,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               <WeatherProvider>
                 <Suspense>
                   <EditModeProvider>
+                    {/* Structured announcement banner (accent bg + white text).
+                        Hides itself on /admin and when disabled/empty. */}
+                    <AnnouncementBanner announcement={announcement} />
                     {/* Admin-configured custom HTML injected above the navbar
-                        (announcement banners, head scripts, analytics). */}
+                        (head scripts, analytics). */}
                     <CustomHtmlBlock html={injection.header} />
                     {children}
                     {/* Admin-configured custom HTML injected below the footer

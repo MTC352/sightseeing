@@ -6,6 +6,7 @@ import {
   dbUpdateAiSystemExtra,
   dbUpdateWeglot,
   dbUpdateHeaderFooter,
+  dbUpdateAnnouncement,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
@@ -57,6 +58,7 @@ export async function GET() {
     if (perms.includes("header-footer")) {
       filtered.header = full.header
       filtered.footer = full.footer
+      filtered.announcement = full.announcement
     }
 
     return NextResponse.json(filtered)
@@ -73,6 +75,7 @@ const SECTION_PERMISSION: Record<string, PermissionKey> = {
   weglot: "integrations",
   header: "header-footer",
   footer: "header-footer",
+  announcement: "header-footer",
 }
 
 export async function PATCH(req: Request) {
@@ -80,7 +83,7 @@ export async function PATCH(req: Request) {
     const session = await requireAdminSession()
     const body = await req.json()
     const { section, data } = body as {
-      section: "apiKeys" | "ai" | "weglot" | "header" | "footer"
+      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement"
       data: Record<string, unknown>
     }
 
@@ -111,6 +114,8 @@ export async function PATCH(req: Request) {
       await dbUpdateHeaderFooter("header", data.customHtml as string)
     } else if (section === "footer") {
       await dbUpdateHeaderFooter("footer", data.customHtml as string)
+    } else if (section === "announcement") {
+      await dbUpdateAnnouncement(data as { enabled?: boolean; content?: string; size?: string })
     }
 
     void logActivity({

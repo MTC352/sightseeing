@@ -18,6 +18,27 @@ import {
   DEFAULT_SEO_ANALYZE_PROMPT,
   type SeoPrompts,
 } from "@/lib/ai/seo-prompts"
+import { sanitizeRichText } from "@/lib/sanitize-html"
+
+// ── Announcement banner ─────────────────────────────────────────────────────
+// Structured banner stored in a single `integrations` row (key='announcement'):
+//   value = sanitized rich-text HTML (the message), meta = { enabled, size }.
+export type AnnouncementSize = "sm" | "md" | "lg"
+export interface Announcement {
+  enabled: boolean
+  content: string
+  size: AnnouncementSize
+}
+
+function readAnnouncementRow(value: unknown, meta: unknown): Announcement {
+  const m = (meta && typeof meta === "object" ? meta : {}) as Record<string, unknown>
+  const size = m.size === "sm" || m.size === "lg" ? m.size : "md"
+  return {
+    enabled: m.enabled === true,
+    content: sanitizeRichText(typeof value === "string" ? value : ""),
+    size,
+  }
+}
 
 // ── Trips ──────────────────────────────────────────────────────────────────
 
@@ -692,10 +713,16 @@ export async function dbGetSettings() {
   const apiKeys: Record<string, string> = {}
   let weglot: Record<string, unknown> = { originalLang: 'en', destinationLangs: [], showFlags: true }
 
+  let announcement: Announcement = { enabled: false, content: '', size: 'md' }
+
   for (const row of intRows as Record<string, unknown>[]) {
     const key = row.key as string
     if (key === 'weglot' && row.meta && typeof row.meta === 'object' && Object.keys(row.meta as object).length > 0) {
       weglot = { ...(row.meta as Record<string, unknown>), apiKey: row.value ?? '' }
+    } else if (key === 'announcement') {
+      // Structured announcement banner — kept out of `apiKeys` (it is not a
+      // credential) and surfaced as its own settings section.
+      announcement = readAnnouncementRow(row.value, row.meta)
     } else {
       apiKeys[key] = (row.value as string) ?? ''
     }
@@ -778,7 +805,11 @@ export async function dbGetSettings() {
     }
   }
 
-  const headerBlocks = (hfRows as Record<string, unknown>[]).filter(b => b.placement !== 'body_end')
+  // Exclude the legacy `announcement_banner` row from the header code merge —
+  // the structured banner (integrations.key='announcement') now owns that job, so
+  // legacy raw banner HTML must never re-enter the admin header code state or get
+  // re-saved into `head_scripts` on the next save.
+  const headerBlocks = (hfRows as Record<string, unknown>[]).filter(b => b.placement !== 'body_end' && b.name !== 'announcement_banner')
   const footerBlocks = (hfRows as Record<string, unknown>[]).filter(b => b.placement === 'body_end')
   const mergeHtml = (blocks: Record<string, unknown>[]) =>
     blocks.filter(b => b.enabled && b.html).map(b => `<!-- ${b.label} -->\n${b.html}`).join('\n\n')
@@ -794,7 +825,7 @@ export async function dbGetSettings() {
   const aiProviderSelected = selectedProvider(apiKeys)
   const aiProvider = effectiveProvider(apiKeys, aiEnv)
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
@@ -1586,9 +1617,10 @@ export async function dbUpdatePlannerBehavior(data: Record<string, unknown>) {
 // `header` = everything not placed at body_end (head + body_start blocks),
 // `footer` = body_end blocks. Mirrors the merge semantics in dbGetSettings.
 export async function dbGetInjectionBlocks(): Promise<{ header: string; footer: string }> {
-  const rows = await query<{ label: string; placement: string; html: string | null }>(`
-    SELECT label, placement, html FROM header_footer_blocks
+  const rows = await query<{ name: string; label: string; placement: string; html: string | null }>(`
+    SELECT name, label, placement, html FROM header_footer_blocks
     WHERE enabled = true AND html IS NOT NULL AND html != ''
+      AND name != 'announcement_banner'
     ORDER BY placement, name
   `)
   const merge = (pred: (placement: string) => boolean) =>
@@ -1603,13 +1635,42 @@ export async function dbGetInjectionBlocks(): Promise<{ header: string; footer: 
 }
 
 export async function dbUpdateHeaderFooter(section: 'header' | 'footer', customHtml: string) {
-  const placement = section === 'header' ? 'body_start' : 'body_end'
-  const blockName = section === 'header' ? 'announcement_banner' : 'chat_widget'
+  // NOTE: the structured announcement banner now owns the `announcement_banner`
+  // row's job (see dbGetAnnouncement), so the header tab's raw code-injection
+  // target is `head_scripts` — keeping the two systems fully separate.
+  const blockName = section === 'header' ? 'head_scripts' : 'chat_widget'
   await query(`
     UPDATE header_footer_blocks 
     SET html = $1, enabled = ($1 != '' AND $1 IS NOT NULL), updated_at = NOW()
     WHERE name = $2
   `, [customHtml, blockName])
+}
+
+// ── Announcement banner storage ─────────────────────────────────────────────
+
+export async function dbGetAnnouncement(): Promise<Announcement> {
+  const row = await queryOne<{ value: string | null; meta: unknown }>(
+    `SELECT value, meta FROM integrations WHERE key = 'announcement'`,
+  )
+  if (!row) return { enabled: false, content: '', size: 'md' }
+  return readAnnouncementRow(row.value, row.meta)
+}
+
+export async function dbUpdateAnnouncement(data: {
+  enabled?: boolean
+  content?: string
+  size?: string
+}): Promise<Announcement> {
+  const content = sanitizeRichText(typeof data.content === 'string' ? data.content : '')
+  const size: AnnouncementSize = data.size === 'sm' || data.size === 'lg' ? data.size : 'md'
+  const meta = { enabled: data.enabled === true, size }
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('announcement', 'Announcement Banner', $1, $2::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value = $1, meta = $2::jsonb, updated_at = NOW()`,
+    [content, JSON.stringify(meta)],
+  )
+  return { enabled: meta.enabled, content, size }
 }
 
 // ── Taxonomies ─────────────────────────────────────────────────────────────

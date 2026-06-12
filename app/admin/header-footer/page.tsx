@@ -4,7 +4,13 @@ import { useState, useEffect, useRef } from "react"
 import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
+  Megaphone,
 } from "lucide-react"
+import { RichTextEditor } from "@/components/admin/rich-text-editor"
+import {
+  AnnouncementBannerContent,
+  type AnnouncementSize,
+} from "@/components/announcement-banner"
 
 /* ── Types ── */
 type Section = "header" | "footer"
@@ -19,13 +25,6 @@ interface CodeBlock {
 
 const DEFAULT_BLOCKS: Record<Section, CodeBlock[]> = {
   header: [
-    {
-      id: "header_announcement",
-      label: "Announcement Banner",
-      description: "Displayed above the navigation bar on all public pages.",
-      code: "",
-      enabled: false,
-    },
     {
       id: "header_scripts",
       label: "Head Scripts / Meta Tags",
@@ -60,10 +59,6 @@ const DEFAULT_BLOCKS: Record<Section, CodeBlock[]> = {
 }
 
 const PLACEHOLDERS: Record<string, string> = {
-  header_announcement: `<!-- Announcement bar example -->
-<div style="background:#16a34a;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:500;">
-  Spring Sale — 15% off all tours this weekend! Use code SPRING15 at checkout.
-</div>`,
   header_scripts: `<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -253,10 +248,116 @@ function BlockCard({
   )
 }
 
+/* ── Announcement banner editor ── */
+const SIZE_OPTIONS: { id: AnnouncementSize; label: string }[] = [
+  { id: "sm", label: "Small" },
+  { id: "md", label: "Medium" },
+  { id: "lg", label: "Large" },
+]
+
+function AnnouncementEditor({
+  value,
+  onChange,
+}: {
+  value: { enabled: boolean; content: string; size: AnnouncementSize }
+  onChange: (v: { enabled: boolean; content: string; size: AnnouncementSize }) => void
+}) {
+  const hasContent = value.content.replace(/<[^>]*>/g, "").trim().length > 0
+
+  return (
+    <div className={`rounded-xl border transition-all ${value.enabled ? "border-primary/30 bg-card" : "border-border bg-card/60"}`}>
+      {/* Header row */}
+      <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+        <Megaphone className="h-5 w-5 shrink-0 text-primary" />
+        <div className="flex flex-1 flex-col min-w-0">
+          <span className="text-sm font-semibold text-foreground">Announcement Banner</span>
+          <span className="text-[11px] text-muted-foreground">
+            A styled promo bar shown above the navigation on every public page. No HTML needed.
+          </span>
+        </div>
+        {value.enabled ? (
+          <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            Active
+          </span>
+        ) : (
+          <span className="rounded-full bg-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            Inactive
+          </span>
+        )}
+        <Toggle checked={value.enabled} onChange={(v) => onChange({ ...value, enabled: v })} />
+      </div>
+
+      <div className="flex flex-col gap-4 px-5 py-4">
+        {/* Live preview */}
+        <div>
+          <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Live preview
+          </span>
+          {hasContent ? (
+            <div className="overflow-hidden rounded-lg border border-border">
+              <AnnouncementBannerContent content={value.content} size={value.size} />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-3 text-center text-[11px] text-muted-foreground">
+              Add a message below to preview the banner.
+            </div>
+          )}
+        </div>
+
+        {/* Rich text editor */}
+        <div>
+          <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Message
+          </span>
+          <RichTextEditor
+            value={value.content}
+            onChange={(html) => onChange({ ...value, content: html })}
+            placeholder="e.g. Spring Sale — 15% off all tours this weekend!"
+            minHeight={100}
+          />
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Text colour is fixed to white for a consistent banner design. Links are styled
+            automatically and open in a new tab.
+          </p>
+        </div>
+
+        {/* Size selector */}
+        <div>
+          <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Size
+          </span>
+          <div className="flex gap-1.5">
+            {SIZE_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onChange({ ...value, size: opt.id })}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  value.size === opt.id
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border bg-background text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Main page ── */
 export default function HeaderFooterPage() {
   const [tab, setTab] = useState<Section>("header")
   const [blocks, setBlocks] = useState<Record<Section, CodeBlock[]>>(DEFAULT_BLOCKS)
+  const [announcement, setAnnouncement] = useState<{
+    enabled: boolean
+    content: string
+    size: AnnouncementSize
+  }>({ enabled: false, content: "", size: "md" })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
@@ -286,6 +387,15 @@ export default function HeaderFooterPage() {
             ),
           }))
         }
+        if (s?.announcement) {
+          setAnnouncement({
+            enabled: s.announcement.enabled === true,
+            content: typeof s.announcement.content === "string" ? s.announcement.content : "",
+            size: (["sm", "md", "lg"] as const).includes(s.announcement.size)
+              ? s.announcement.size
+              : "md",
+          })
+        }
       })
       .catch(() => {})
   }, [])
@@ -304,7 +414,7 @@ export default function HeaderFooterPage() {
         .map((b) => `<!-- ${b.label} -->\n${b.code.trim()}`)
         .join("\n\n")
 
-      await Promise.all([
+      const responses = await Promise.all([
         fetch("/api/admin/settings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -315,7 +425,16 @@ export default function HeaderFooterPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ section: "footer", data: { customHtml: footerHtml } }),
         }),
+        fetch("/api/admin/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ section: "announcement", data: announcement }),
+        }),
       ])
+
+      if (responses.some((r) => !r.ok)) {
+        throw new Error("save failed")
+      }
 
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -399,16 +518,21 @@ export default function HeaderFooterPage() {
       <div className="flex flex-1 gap-6 overflow-auto p-6">
         {/* Left: blocks */}
         <div className="flex flex-1 flex-col gap-4 min-w-0">
+          {/* Structured announcement banner (header tab only) */}
+          {tab === "header" && (
+            <AnnouncementEditor value={announcement} onChange={setAnnouncement} />
+          )}
+
           {/* Injection zone info */}
           <div className="flex items-start gap-3 rounded-xl border border-border bg-secondary/30 px-4 py-3">
             <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <div>
               <p className="text-sm font-medium text-foreground">
-                {tab === "header" ? "Injected above the navigation bar" : "Injected below the site footer"}
+                {tab === "header" ? "Custom code injected above the navigation bar" : "Injected below the site footer"}
               </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {tab === "header"
-                  ? "Code in enabled blocks is combined and rendered before <Navbar /> on every public page. Ideal for announcement banners, promo bars, and critical head scripts."
+                  ? "Code in enabled blocks is combined and rendered before <Navbar /> on every public page. Ideal for analytics tags and critical head scripts. For a promo bar, use the Announcement Banner above instead."
                   : "Code in enabled blocks is combined and rendered after <SiteFooter /> on every public page. Ideal for analytics, chat widgets, cookie consent, and deferred scripts."}
               </p>
             </div>
