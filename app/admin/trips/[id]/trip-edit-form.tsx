@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
 import { isFieldEditable, resolvePolicy, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
@@ -222,6 +222,20 @@ export function TripEditForm({
   function removeTripTag(tag: string) {
     set("tripTags", (form.tripTags ?? []).filter((t) => t !== tag))
   }
+
+  // Suggested tags: show a small starter set by default, then match the user's
+  // typed input (label or token). Already-selected tags are excluded (they show
+  // in the "Selected" row above).
+  const TRIP_TAG_SUGGESTION_LIMIT = 5
+  const tripTagSuggestions = useMemo(() => {
+    const q = tripTagInput.trim().toLowerCase()
+    const selected = new Set(form.tripTags ?? [])
+    const pool = tripTagVocab.filter((v) => !selected.has(v.token))
+    const filtered = q
+      ? pool.filter((v) => v.label.toLowerCase().includes(q) || v.token.toLowerCase().includes(q))
+      : pool
+    return filtered.slice(0, TRIP_TAG_SUGGESTION_LIMIT)
+  }, [tripTagInput, tripTagVocab, form.tripTags])
 
   function addLanguage(lang: string) {
     const l = lang.trim()
@@ -742,28 +756,34 @@ export function TripEditForm({
             </div>
           )}
 
-          {/* Suggested vocabulary (toggle on/off, only when editable) */}
+          {/* Suggested vocabulary — small starter set, expands by typing to match */}
           {can("tripTags") && (
             <div>
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Suggested</div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                Suggested
+                {tripTagInput.trim()
+                  ? <span className="ml-1 normal-case text-muted-foreground/50">— matching “{tripTagInput.trim()}”</span>
+                  : <span className="ml-1 normal-case text-muted-foreground/50">— type above to search more</span>}
+              </div>
               <div className="flex flex-wrap gap-1.5">
-                {tripTagVocab.map(({ token, label }) => {
-                  const selected = (form.tripTags ?? []).includes(token)
-                  return (
+                {tripTagSuggestions.length === 0 ? (
+                  <span className="text-[11px] text-muted-foreground/70">
+                    {tripTagInput.trim()
+                      ? "No matching tags — press Enter to add it as a custom tag."
+                      : "No more tags to suggest."}
+                  </span>
+                ) : (
+                  tripTagSuggestions.map(({ token, label }) => (
                     <button
                       key={token}
                       type="button"
-                      onClick={() => selected ? removeTripTag(token) : set("tripTags", [...(form.tripTags ?? []), token])}
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                        selected
-                          ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                          : "border border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                      }`}
+                      onClick={() => set("tripTags", [...(form.tripTags ?? []), token])}
+                      className="rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
                     >
-                      {selected ? "✓ " : "+ "}{label}
+                      + {label}
                     </button>
-                  )
-                })}
+                  ))
+                )}
               </div>
             </div>
           )}
