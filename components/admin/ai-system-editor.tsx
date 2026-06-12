@@ -27,7 +27,7 @@ export const SYSTEM_LABELS: Record<string, { label: string; hint: string }> = {
   },
   blog: {
     label: "Blog Content Generator",
-    hint: "Used on the blog post edit page. Generates SEO & AEO optimized articles via OpenAI GPT-4o, plus cover images via DALL-E 2. Requires an OpenAI API key in the Integrations settings.",
+    hint: "Used on the blog post edit page. Generates SEO & AEO optimized articles via the active text provider, plus a cover image via a configurable OpenAI image model (DALL·E 3 / DALL·E 2 / GPT Image 1). Image generation requires an OpenAI API key in the Integrations settings.",
   },
   outdoor_today: {
     label: "Best Outdoor Experiences",
@@ -82,6 +82,8 @@ export function AiSystemEditor({ system }: { system: string }) {
 
   const [form, setForm] = useState({ ...DEFAULT_CONFIG })
   const [displayCount, setDisplayCount] = useState(2)
+  const [imageModel, setImageModel] = useState("dall-e-3")
+  const [imagePrompt, setImagePrompt] = useState("")
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -107,6 +109,12 @@ export function AiSystemEditor({ system }: { system: string }) {
           if (system === "outdoor_today") {
             const count = config?.extra?.display_count
             if (typeof count === "number") setDisplayCount(count)
+          }
+          if (system === "blog") {
+            const im = config?.extra?.imageModel
+            if (typeof im === "string" && im) setImageModel(im)
+            const ip = config?.extra?.imagePrompt
+            if (typeof ip === "string") setImagePrompt(ip)
           }
         } else if (suggestion) {
           // No DB row at all — still show the built-in default as the starting point.
@@ -136,6 +144,10 @@ export function AiSystemEditor({ system }: { system: string }) {
     try {
       const payload: Record<string, unknown> = { system, ...form }
       if (system === "outdoor_today") payload.displayCount = displayCount
+      if (system === "blog") {
+        payload.imageModel = imageModel
+        payload.imagePrompt = imagePrompt
+      }
       const res = await fetch("/api/admin/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -305,6 +317,43 @@ export function AiSystemEditor({ system }: { system: string }) {
               <p className="mt-1 text-[11px] text-muted-foreground/60">
                 Default: 2. The section fetches up to 2× this number as candidates and shows the top-ranked ones.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Blog cover-image generation settings */}
+        {system === "blog" && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h2 className="mb-4 text-sm font-semibold text-foreground">Cover Image Generation</h2>
+            <div className="space-y-4">
+              <div>
+                <label className={labelClass}>Image Model</label>
+                <select
+                  value={imageModel}
+                  onChange={(e) => setImageModel(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="dall-e-3">DALL·E 3 (recommended)</option>
+                  <option value="dall-e-2">DALL·E 2</option>
+                  <option value="gpt-image-1">GPT Image 1</option>
+                </select>
+                <p className="mt-1 text-[11px] text-muted-foreground/60">
+                  OpenAI image model used for the generated cover image. Requires an OpenAI API key in Integrations. Generated images are saved permanently to the media library.
+                </p>
+              </div>
+              <div>
+                <label className={labelClass}>Image Style Prompt</label>
+                <textarea
+                  rows={4}
+                  value={imagePrompt}
+                  onChange={(e) => setImagePrompt(e.target.value)}
+                  className={`${inputClass} resize-y`}
+                  placeholder="e.g. Photorealistic travel photography, golden-hour lighting, vibrant colors, no text, no watermark"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground/60">
+                  Appended to every cover-image prompt to enforce a consistent house style. The article&apos;s own IMAGE_PROMPT supplies the subject matter.
+                </p>
+              </div>
             </div>
           </div>
         )}

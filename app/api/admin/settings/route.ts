@@ -109,10 +109,22 @@ export async function PATCH(req: Request) {
         clearTourCMSConfigCache()
       }
     } else if (section === "ai") {
-      const { system, displayCount, ...config } = data as { system: string; displayCount?: number } & Record<string, unknown>
+      const { system, displayCount, imageModel, imagePrompt, ...config } = data as {
+        system: string
+        displayCount?: number
+        imageModel?: string
+        imagePrompt?: string
+      } & Record<string, unknown>
       await dbUpdateAiSystem(system, config)
       if (typeof displayCount === "number") {
         await dbUpdateAiSystemExtra(system, { display_count: displayCount })
+      }
+      // Blog cover-image generation settings live in extra_config (JSONB).
+      if (typeof imageModel === "string" || typeof imagePrompt === "string") {
+        const extra: Record<string, unknown> = {}
+        if (typeof imageModel === "string") extra.imageModel = imageModel
+        if (typeof imagePrompt === "string") extra.imagePrompt = imagePrompt
+        await dbUpdateAiSystemExtra(system, extra)
       }
     } else if (section === "weglot") {
       await dbUpdateWeglot(data)

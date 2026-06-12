@@ -6,6 +6,8 @@ import { SiteFooter } from "@/components/site-footer"
 import { Clock, User, ArrowLeft, Calendar, Eye } from "lucide-react"
 import { dbGetPostBySlugAny } from "@/lib/db/queries"
 import { getSession } from "@/lib/auth"
+import { sanitizeRichText } from "@/lib/sanitize-html"
+import { markdownToHtml, looksLikeHtml } from "@/lib/markdown"
 import type { Metadata } from "next"
 
 export const dynamic = "force-dynamic"
@@ -118,16 +120,14 @@ export default async function BlogPostPage({ params }: Props) {
     ? `Scheduled — goes live ${post.publishedAt ? new Date(post.publishedAt).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "soon"}`
     : "Draft — not visible to the public"
 
-  const renderBody = (body: string) => {
-    const lines = body.split("\n")
-    return lines.map((line, i) => {
-      if (line.startsWith("## ")) return <h2 key={i} className="mt-8 mb-4 text-xl font-bold text-foreground">{line.replace("## ", "")}</h2>
-      if (line.startsWith("### ")) return <h3 key={i} className="mt-6 mb-3 text-lg font-semibold text-foreground">{line.replace("### ", "")}</h3>
-      if (line.startsWith("- ")) return <li key={i} className="ml-4 text-muted-foreground">{line.replace("- ", "")}</li>
-      if (line.trim() === "") return <br key={i} />
-      return <p key={i} className="mb-4 leading-relaxed text-muted-foreground">{line}</p>
-    })
-  }
+  // Body is stored as rich-text HTML (Tiptap RichTextEditor, same as trip
+  // descriptions). Legacy posts and AI output may still be Markdown, so convert
+  // those on the fly. Always sanitize before injecting — admin-authored content
+  // is trusted-ish but the sanitizer also turns AI Markdown links into real,
+  // safe <a> tags (relative /trip/<id> links allowed).
+  const bodyHtml = sanitizeRichText(
+    looksLikeHtml(post.body) ? post.body : markdownToHtml(post.body),
+  )
 
   const canonical = `${BASE}/blog/${post.slug}`
   const datePublished = post.publishedAt ?? (post.created_at ? new Date(post.created_at).toISOString() : null)
@@ -232,7 +232,10 @@ export default async function BlogPostPage({ params }: Props) {
 
       <article className="mx-auto max-w-3xl px-4 py-10 lg:py-14">
         <p className="mb-6 text-lg leading-relaxed text-foreground font-medium">{post.excerpt}</p>
-        <div className="prose prose-neutral max-w-none">{renderBody(post.body)}</div>
+        <div
+          className="prose prose-neutral max-w-none prose-a:text-primary prose-a:underline"
+          dangerouslySetInnerHTML={{ __html: bodyHtml }}
+        />
 
         {post.tags && post.tags.length > 0 && (
           <div className="mt-10 border-t border-border pt-6">

@@ -10,6 +10,8 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { RichTextEditor } from "@/components/admin/rich-text-editor"
+import { markdownToHtml, looksLikeHtml } from "@/lib/markdown"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -33,6 +35,17 @@ function stripMeta(content: string): string {
 }
 
 /** Minimal markdown → HTML for the preview modal (admin-only, safe). */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+}
+
+function safePreviewHref(raw: string): string | null {
+  const href = raw.trim()
+  if (href.startsWith("/") || href.startsWith("#")) return href
+  if (/^(https?:|mailto:|tel:)/i.test(href)) return href
+  return null
+}
+
 function mdToHtml(md: string): string {
   const text = stripMeta(md)
   const lines = text.split("\n")
@@ -41,11 +54,17 @@ function mdToHtml(md: string): string {
   let inOl = false
 
   function inl(s: string): string {
-    return s
+    // Escape raw HTML first so attacker-controlled content cannot inject tags,
+    // then apply markdown token replacements (which emit trusted tags).
+    return escapeHtml(s)
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
       .replace(/`(.+?)`/g, "<code style='background:#f3f4f6;padding:0.1em 0.3em;border-radius:3px;font-size:0.82em'>$1</code>")
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#4ade80;text-decoration:underline" target="_blank" rel="noopener">$1</a>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => {
+        const href = safePreviewHref(url)
+        if (!href) return label
+        return `<a href="${escapeHtml(href)}" style="color:#4ade80;text-decoration:underline" target="_blank" rel="noopener">${label}</a>`
+      })
   }
 
   for (const raw of lines) {
@@ -88,7 +107,7 @@ const MILESTONE_DEFS: Omit<MilestoneItem, "status">[] = [
   { id: "init",    label: "Initializing content structure" },
   { id: "writing", label: "Writing SEO-optimized article" },
   { id: "seo",     label: "SEO & AEO optimization applied" },
-  { id: "image",   label: "Generating cover image (DALL-E 2)" },
+  { id: "image",   label: "Generating cover image" },
   { id: "ready",   label: "Content ready" },
 ]
 
@@ -150,7 +169,7 @@ function PreviewModal({ content, image, meta, onAccept, onAppend, onClose }: Pre
             <div className="flex h-40 items-center justify-center bg-secondary/30 text-muted-foreground">
               <div className="flex flex-col items-center gap-2 text-center">
                 <ImageIcon className="h-8 w-8 opacity-30" />
-                <p className="text-xs">No cover image (add OpenAI key in Integrations to enable DALL-E 2)</p>
+                <p className="text-xs">No cover image (add an OpenAI key in Integrations to enable image generation)</p>
               </div>
             </div>
           )}
@@ -218,14 +237,21 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
   const [uploading, setUploading] = useState(false)
   const [copied,    setCopied]    = useState(false)
 
-  const [form, setForm] = useState<Partial<AdminPost>>(
-    post ?? {
+  const [form, setForm] = useState<Partial<AdminPost>>(() => {
+    if (post) {
+      // The Body field is now the Tiptap RichTextEditor (HTML), same as trip
+      // descriptions. Migrate any legacy Markdown body to HTML on load so the
+      // editor renders it correctly instead of showing raw Markdown syntax.
+      const body = post.body ?? ""
+      return { ...post, body: looksLikeHtml(body) ? body : markdownToHtml(body) }
+    }
+    return {
       slug: "", title: "", excerpt: "", body: "", image: "", author: "",
       category: "Travel Tips", tags: [], status: "draft",
       publishedAt: toDatetimeLocal(new Date().toISOString()),
       readTime: "5 min read",
     }
-  )
+  })
 
   function set<K extends keyof AdminPost>(key: K, value: AdminPost[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -388,9 +414,11 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
 
   // ── Apply content ────────────────────────────────────────────────────────
   function applyContent(appendOnly = false) {
-    const body = stripMeta(generatedContent)
+    // Generated content is Markdown — convert to HTML so it drops cleanly into
+    // the RichTextEditor (and renders trip links as real anchors on the site).
+    const body = markdownToHtml(stripMeta(generatedContent))
     if (appendOnly) {
-      set("body", ((form.body ?? "").trim() ? form.body + "\n\n" : "") + body)
+      set("body", ((form.body ?? "").trim() ? form.body + "\n" : "") + body)
     } else {
       if (generatedMeta?.title)    set("title",    generatedMeta.title)
       if (generatedMeta?.slug)     set("slug",     generatedMeta.slug)
@@ -526,7 +554,7 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">AI Content Generator</h2>
-                  <p className="text-[11px] text-muted-foreground">GPT-4o · SEO &amp; AEO optimized · DALL-E 2 cover image</p>
+                  <p className="text-[11px] text-muted-foreground">SEO &amp; AEO optimized · auto cover image</p>
                 </div>
               </div>
               <button
@@ -553,7 +581,7 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
                     disabled={generating}
                   />
                   <p className="mt-1.5 text-[10px] text-muted-foreground/60">
-                    Describe the blog topic. The AI will write a full article with SEO title, meta, and optimized content, then generate a DALL-E 2 cover image.
+                    Describe the blog topic. The AI will write a full article with SEO title, meta, and optimized content, then generate a cover image.
                   </p>
                 </div>
 
@@ -779,13 +807,12 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
 
           {/* ── Body ──────────────────────────────────────────────────────── */}
           <section className="rounded-xl border border-border bg-card p-5">
-            <h2 className="mb-4 text-sm font-semibold text-foreground">Body (Markdown)</h2>
-            <textarea
-              rows={16}
-              className={`${inputClass} font-mono text-xs leading-relaxed`}
-              placeholder="Write your article content here. Markdown is supported."
+            <h2 className="mb-4 text-sm font-semibold text-foreground">Body</h2>
+            <RichTextEditor
               value={form.body ?? ""}
-              onChange={(e) => set("body", e.target.value)}
+              onChange={(html) => set("body", html)}
+              placeholder="Write your article content here…"
+              minHeight={360}
             />
           </section>
 
