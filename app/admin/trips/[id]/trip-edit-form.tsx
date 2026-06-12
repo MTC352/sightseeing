@@ -301,14 +301,16 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
   const labelClass = "mb-1.5 block text-xs font-medium text-muted-foreground"
 
   return (
-    <div className="mx-auto max-w-3xl">
-      {/* Sticky minimal header — overlays the top of the scroll area once the
-          full header/top-actions scroll out of view. Lives in a zero-height
-          sticky wrapper so it never reserves layout space (no content jump). */}
-      <div className="sticky top-0 z-30 h-0">
+    <div>
+      {/* Sticky minimal header — full-bleed across the whole content area;
+          appears once the top actions scroll out of view. Zero-height sticky
+          wrapper so it never reserves layout space (no content jump). Negative
+          margins cancel the page's p-6 / lg:p-10 padding so it spans the full
+          width of the content column, edge-to-edge. */}
+      <div className="sticky top-0 z-30 -mx-6 h-0 lg:-mx-10">
         <div
           className={cn(
-            "flex items-center gap-3 rounded-b-xl border border-t-0 border-border bg-card/95 px-3 py-2 shadow-md backdrop-blur transition-all duration-200 sm:px-4",
+            "flex items-center gap-3 border-b border-border bg-card/95 px-6 py-2.5 shadow-md backdrop-blur transition-all duration-200 lg:px-10",
             scrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0",
           )}
         >
@@ -346,6 +348,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
         </div>
       </div>
 
+      <div className="mx-auto max-w-3xl">
       {saveError && (
         <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -1059,10 +1062,12 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
       </div>
 
       {/* Floating save / discard bar — sticks to the bottom of the viewport
-          while there are unsaved changes. Hidden once everything is saved. */}
+          while there are unsaved changes. Hidden once everything is saved.
+          Sits a bit above the bottom edge (bottom-4) and slightly wider than
+          the form column (-mx-3) with a strong shadow so it reads as floating. */}
       {isDirty && (
-        <div className="sticky bottom-0 z-30 mt-6 pb-1">
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/95 px-4 py-3 shadow-lg backdrop-blur">
+        <div className="sticky bottom-4 z-30 -mx-3 mt-6 sm:-mx-4">
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card/95 px-5 py-3.5 shadow-2xl ring-1 ring-black/5 backdrop-blur dark:ring-white/5">
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
               <span className="hidden sm:inline">You have unsaved changes</span>
@@ -1090,6 +1095,7 @@ export function TripEditForm({ trip, policy: policyProp }: { trip: AdminTrip | n
           </div>
         </div>
       )}
+      </div>
 
     </div>
   )
