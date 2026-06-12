@@ -16,6 +16,20 @@ function isUnauthorized(err: unknown): boolean {
  * client or hand-crafted request must NEVER overwrite a read-only field
  * (these are typically owned by Palisis one-way sync).
  */
+/**
+ * SEO is owned exclusively by the AI optimizer route (`/api/admin/trips/[id]/seo`),
+ * exactly like Palisis owns the base catalog fields. The trip edit form spreads its
+ * whole `form` object into this PATCH, and that `form` is seeded once at mount — so
+ * after an "Optimize SEO via AI → Accept & Save" it still carries the STALE (pre-
+ * optimize, usually null) seo_* values. Letting them through would clobber the freshly
+ * persisted SEO (the "saved SEO still shows No SEO / old data" bug). We therefore strip
+ * every SEO-owned key here before writing; the score is still recomputed below.
+ */
+const SEO_OWNED_KEYS = new Set([
+  "seoKeyword", "seoTitle", "seoMetaDescription", "seoBody", "seoHighlights",
+  "seoSlug", "seoScore", "seoOptimizedAt", "seoOptimizedBy", "seoSourceHashes",
+])
+
 async function filterByPolicy<T extends Record<string, unknown>>(data: T): Promise<{ filtered: Partial<T>; stripped: string[] }> {
   let policy: TripFieldPolicy
   try {
@@ -57,6 +71,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const session = await requireAdminSession()
     const { id } = await params
     const data = await req.json()
+    // Defense-in-depth: SEO-owned columns are written ONLY by the /seo route.
+    for (const k of SEO_OWNED_KEYS) {
+      if (k in (data as Record<string, unknown>)) delete (data as Record<string, unknown>)[k]
+    }
     const { filtered, stripped } = await filterByPolicy(data as Record<string, unknown>)
     if (stripped.length) {
       console.warn(`[admin/trips/${id}] PATCH: stripped read-only fields:`, stripped)

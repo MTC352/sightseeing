@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { dbListTrips } from "@/lib/db/queries"
-import { Pencil, ExternalLink, AlertTriangle } from "lucide-react"
+import { Pencil, ExternalLink } from "lucide-react"
 import { computeStaleness } from "@/lib/seo/score"
+import { TripSeoCell } from "@/components/admin/trip-seo-cell"
 import { TripDeleteButton } from "./trip-delete-button"
 import { TripToggleButton } from "./trip-toggle-button"
 import { TripStatusButton } from "./trip-status-button"
@@ -112,33 +113,15 @@ export default async function AdminTripsPage() {
                           )}
                           {(() => {
                             const st = computeStaleness(trip)
-                            if (!st.optimized) {
-                              return (
-                                <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-slate-400/10 text-slate-500 ring-1 ring-inset ring-slate-400/20" title="SEO not optimised yet">
-                                  No SEO
-                                </span>
-                              )
-                            }
-                            if (st.stale) {
-                              return (
-                                <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-px text-[10px] font-semibold bg-amber-500/12 text-amber-600 ring-1 ring-inset ring-amber-500/20" title="Source content changed since last optimization — re-run the AI SEO optimizer">
-                                  <AlertTriangle className="h-2.5 w-2.5" /> SEO stale
-                                </span>
-                              )
-                            }
-                            const score = typeof trip.seoScore === "number" ? trip.seoScore : null
                             return (
-                              <span
-                                className={
-                                  "inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold ring-1 ring-inset " +
-                                  (score != null && score >= 80
-                                    ? "bg-emerald-500/12 text-emerald-600 ring-emerald-500/20"
-                                    : "bg-amber-500/12 text-amber-600 ring-amber-500/20")
-                                }
-                                title="SEO optimised"
-                              >
-                                SEO {score ?? "✓"}
-                              </span>
+                              <TripSeoCell
+                                tripId={trip.id}
+                                tripTitle={trip.title}
+                                tripImage={trip.image}
+                                optimized={st.optimized}
+                                stale={st.stale}
+                                seoScore={typeof trip.seoScore === "number" ? trip.seoScore : null}
+                              />
                             )
                           })()}
                         </div>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
 import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
+import { QuickSeoProvider } from "@/components/admin/quick-seo-context"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
   Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity, Menu, X, Database,
@@ -145,6 +146,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AdminStoreProvider>
+    <QuickSeoProvider>
     <div className="fixed inset-0 flex h-screen overflow-hidden bg-background">
       {/* Mobile drawer backdrop */}
       {mobileOpen && (
@@ -325,6 +327,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="flex-1 overflow-auto">{children}</div>
       </main>
     </div>
+    </QuickSeoProvider>
     </AdminStoreProvider>
   )
 }
