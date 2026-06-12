@@ -132,7 +132,7 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/page-content", keys: ["pages", "trips", "blog"] },
   // Shared settings endpoint — touched by AI/Integrations/Header-Footer screens
   // (and trip-field settings live on the Integrations screen).
-  { prefix: "/api/admin/settings", keys: ["ai-systems", "integrations", "header-footer", "trips"] },
+  { prefix: "/api/admin/settings", keys: ["ai-systems", "integrations", "header-footer", "trips", "palisis"] },
   // Shared API-key tester — used by Integrations & Palisis screens.
   { prefix: "/api/admin/test-key", keys: ["integrations", "palisis"] },
 ]

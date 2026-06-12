@@ -40,3 +40,11 @@ superadmin-only.
   duplicate inserts surface as Postgres `23505` → API returns 409.
 - Schema is created idempotently in `scripts/seed-db.mjs` (`ensureUserManagementSchema`)
   for prod reproducibility.
+
+## Shared-endpoint key drift
+When a NEW permission domain starts reusing an EXISTING shared endpoint, you must add
+that perm to the endpoint's `keys: [...]` array too — not just gate the route logic.
+Example: the Palisis importer-settings feature stored its defaults via the shared
+`/api/admin/settings` (section `importSettings`, gated `palisis` in the route), but the
+proxy rule for `/api/admin/settings` lacked `palisis`, so a `palisis`-only employee got
+a false 403 before the handler ran. Route-level perm checks are invisible to the proxy.
