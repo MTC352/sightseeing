@@ -250,6 +250,8 @@ export default function PalisisPage() {
         {/* ─────────────────────────  IMPORTER TAB  ───────────────────────── */}
         <TabsContent value="importer" className="mt-0">
 
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+
         {/* Import catalog */}
         <div className="rounded-2xl border border-border bg-card p-6">
           <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -501,6 +503,143 @@ export default function PalisisPage() {
             </div>
           )}
         </div>
+
+        {/* Import run history (beside Import Catalog) */}
+        <div className="rounded-2xl border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-muted-foreground/50" />
+            <h2 className="text-sm font-semibold text-foreground">Import History</h2>
+            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">Latest 5</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={fetchLogs}
+              disabled={logsLoading}
+              className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3 w-3 ${logsLoading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+            <Link
+              href="/admin/palisis/history"
+              className="flex items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              View All
+            </Link>
+          </div>
+        </div>
+
+        {logsLoading ? (
+          <div className="px-5 py-8 text-center text-xs text-muted-foreground">Loading…</div>
+        ) : logs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-xs text-muted-foreground">
+            No import runs yet. Click "Run Import" to get started.
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {logs.map((entry) => {
+              const ok      = entry.changes?.ok !== false
+              const isOpen  = expandedLog === entry.id
+              const ch      = entry.changes ?? {}
+
+              return (
+                <div key={entry.id}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedLog(isOpen ? null : entry.id)}
+                    className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-secondary/30"
+                  >
+                    {ok
+                      ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      : <XCircle className="h-4 w-4 shrink-0 text-destructive" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-foreground">
+                          {entry.action === "import_run" ? "Import Run" : entry.action}
+                        </span>
+                        {ch.import_mode && (
+                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            {ch.import_mode === "operator" ? "Operator" : "Marketplace"}
+                          </span>
+                        )}
+                        {ok && ch.total != null && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {ch.total} tours · {ch.imported ?? 0} imported · {ch.skipped ?? 0} skipped
+                            {ch.duration_ms ? ` · ${(ch.duration_ms / 1000).toFixed(1)}s` : ""}
+                          </span>
+                        )}
+                      </div>
+                      {entry.note && (
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">{entry.note}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground/50">
+                      <span>{new Date(entry.created_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>
+                      {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-border bg-secondary/20 px-5 pb-4 pt-3">
+                      {ch.error && (
+                        <div className="mb-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                          {ch.error}
+                        </div>
+                      )}
+
+                      {ch.tours && ch.tours.length > 0 && (
+                        <div className="mb-3 overflow-hidden rounded-lg border border-border">
+                          <table className="w-full text-[10px]">
+                            <thead>
+                              <tr className="border-b border-border bg-secondary/50">
+                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Palisis ID</th>
+                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Trip</th>
+                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ch.tours.slice(0, 20).map((t, i) => (
+                                <tr key={i} className="border-b border-border last:border-0">
+                                  <td className="px-2 py-1 font-mono text-muted-foreground">{t.palisisId}</td>
+                                  <td className="max-w-[200px] truncate px-2 py-1 text-muted-foreground">{t.title}</td>
+                                  <td className={`px-2 py-1 font-medium ${
+                                    t.action === "created" ? "text-emerald-600"
+                                    : t.action === "updated" ? "text-blue-600"
+                                    : t.action.includes("error") ? "text-destructive"
+                                    : "text-muted-foreground"
+                                  }`}>
+                                    {t.action}{t.error ? ` (${t.error})` : ""}
+                                  </td>
+                                </tr>
+                              ))}
+                              {ch.tours.length > 20 && (
+                                <tr>
+                                  <td colSpan={3} className="px-2 py-1.5 text-center text-muted-foreground/60">
+                                    +{ch.tours.length - 20} more — check full log below
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {ch.log && ch.log.length > 0 && (
+                        <pre className="max-h-48 overflow-y-auto rounded-lg bg-secondary/60 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                          {ch.log.join("\n")}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        </div>
+
+        </div>
         </TabsContent>
 
         {/* ─────────────────────────  SETTINGS TAB  ───────────────────────── */}
@@ -654,7 +793,7 @@ export default function PalisisPage() {
           </button>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-5 columns-2 gap-2 sm:columns-3 lg:columns-4">
           {OVERRIDABLE_FIELDS.map(f => {
             const excluded = defaultExcluded.includes(f.key)
             return (
@@ -664,14 +803,14 @@ export default function PalisisPage() {
                 onClick={() => toggleDefaultField(f.key)}
                 aria-pressed={excluded}
                 title={excluded ? "Excluded by default — click to allow override" : "Overridden by default — click to exclude"}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                className={`mb-2 flex w-full break-inside-avoid items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
                   excluded
                     ? "border-emerald-400/50 bg-emerald-50/70 text-emerald-700 hover:bg-emerald-100/70 dark:bg-emerald-950/20 dark:text-emerald-400"
                     : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"
                 }`}
               >
-                {excluded ? <ShieldCheck className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5 opacity-60" />}
-                {f.label}
+                {excluded ? <ShieldCheck className="h-3.5 w-3.5 shrink-0" /> : <RotateCcw className="h-3.5 w-3.5 shrink-0 opacity-60" />}
+                <span className="truncate">{f.label}</span>
               </button>
             )
           })}
@@ -689,141 +828,6 @@ export default function PalisisPage() {
           <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">
             <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> {importSettingsError}
           </p>
-        )}
-      </div>
-
-      {/* Import run history */}
-      <div className="mt-6 rounded-2xl border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground/50" />
-            <h2 className="text-sm font-semibold text-foreground">Import History</h2>
-            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">Latest 5</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={fetchLogs}
-              disabled={logsLoading}
-              className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-40"
-            >
-              <RefreshCw className={`h-3 w-3 ${logsLoading ? "animate-spin" : ""}`} /> Refresh
-            </button>
-            <Link
-              href="/admin/palisis/history"
-              className="flex items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-            >
-              View All
-            </Link>
-          </div>
-        </div>
-
-        {logsLoading ? (
-          <div className="px-5 py-8 text-center text-xs text-muted-foreground">Loading…</div>
-        ) : logs.length === 0 ? (
-          <div className="px-5 py-8 text-center text-xs text-muted-foreground">
-            No import runs yet. Click "Run Import" to get started.
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {logs.map((entry) => {
-              const ok      = entry.changes?.ok !== false
-              const isOpen  = expandedLog === entry.id
-              const ch      = entry.changes ?? {}
-
-              return (
-                <div key={entry.id}>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedLog(isOpen ? null : entry.id)}
-                    className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-secondary/30"
-                  >
-                    {ok
-                      ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                      : <XCircle className="h-4 w-4 shrink-0 text-destructive" />}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-foreground">
-                          {entry.action === "import_run" ? "Import Run" : entry.action}
-                        </span>
-                        {ch.import_mode && (
-                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                            {ch.import_mode === "operator" ? "Operator" : "Marketplace"}
-                          </span>
-                        )}
-                        {ok && ch.total != null && (
-                          <span className="text-[10px] text-muted-foreground">
-                            {ch.total} tours · {ch.imported ?? 0} imported · {ch.skipped ?? 0} skipped
-                            {ch.duration_ms ? ` · ${(ch.duration_ms / 1000).toFixed(1)}s` : ""}
-                          </span>
-                        )}
-                      </div>
-                      {entry.note && (
-                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">{entry.note}</p>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground/50">
-                      <span>{new Date(entry.created_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>
-                      {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    </div>
-                  </button>
-
-                  {isOpen && (
-                    <div className="border-t border-border bg-secondary/20 px-5 pb-4 pt-3">
-                      {ch.error && (
-                        <div className="mb-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                          {ch.error}
-                        </div>
-                      )}
-
-                      {ch.tours && ch.tours.length > 0 && (
-                        <div className="mb-3 overflow-hidden rounded-lg border border-border">
-                          <table className="w-full text-[10px]">
-                            <thead>
-                              <tr className="border-b border-border bg-secondary/50">
-                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Palisis ID</th>
-                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Trip</th>
-                                <th className="px-2 py-1.5 text-left text-muted-foreground/60">Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {ch.tours.slice(0, 20).map((t, i) => (
-                                <tr key={i} className="border-b border-border last:border-0">
-                                  <td className="px-2 py-1 font-mono text-muted-foreground">{t.palisisId}</td>
-                                  <td className="max-w-[200px] truncate px-2 py-1 text-muted-foreground">{t.title}</td>
-                                  <td className={`px-2 py-1 font-medium ${
-                                    t.action === "created" ? "text-emerald-600"
-                                    : t.action === "updated" ? "text-blue-600"
-                                    : t.action.includes("error") ? "text-destructive"
-                                    : "text-muted-foreground"
-                                  }`}>
-                                    {t.action}{t.error ? ` (${t.error})` : ""}
-                                  </td>
-                                </tr>
-                              ))}
-                              {ch.tours.length > 20 && (
-                                <tr>
-                                  <td colSpan={3} className="px-2 py-1.5 text-center text-muted-foreground/60">
-                                    +{ch.tours.length - 20} more — check full log below
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {ch.log && ch.log.length > 0 && (
-                        <pre className="max-h-48 overflow-y-auto rounded-lg bg-secondary/60 p-2 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                          {ch.log.join("\n")}
-                        </pre>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
         )}
       </div>
         </TabsContent>
