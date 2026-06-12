@@ -4,12 +4,13 @@ import { useState, useEffect, useRef } from "react"
 import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
-  Megaphone,
+  Megaphone, AlignLeft, AlignCenter, AlignRight, RotateCcw,
 } from "lucide-react"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 import {
   AnnouncementBannerContent,
   type AnnouncementSize,
+  type AnnouncementAlign,
 } from "@/components/announcement-banner"
 
 /* ── Types ── */
@@ -255,12 +256,32 @@ const SIZE_OPTIONS: { id: AnnouncementSize; label: string }[] = [
   { id: "lg", label: "Large" },
 ]
 
+const ALIGN_OPTIONS: { id: AnnouncementAlign; label: string; Icon: typeof AlignLeft }[] = [
+  { id: "left", label: "Left", Icon: AlignLeft },
+  { id: "center", label: "Center", Icon: AlignCenter },
+  { id: "right", label: "Right", Icon: AlignRight },
+]
+
+// Display defaults shown in the colour pickers when the admin hasn't chosen a
+// custom value yet (empty string = "use theme default").
+const DEFAULT_BG_HEX = "#10b981"
+const DEFAULT_TEXT_HEX = "#ffffff"
+
+interface AnnouncementValue {
+  enabled: boolean
+  content: string
+  size: AnnouncementSize
+  align: AnnouncementAlign
+  bgColor: string
+  textColor: string
+}
+
 function AnnouncementEditor({
   value,
   onChange,
 }: {
-  value: { enabled: boolean; content: string; size: AnnouncementSize }
-  onChange: (v: { enabled: boolean; content: string; size: AnnouncementSize }) => void
+  value: AnnouncementValue
+  onChange: (v: AnnouncementValue) => void
 }) {
   const hasContent = value.content.replace(/<[^>]*>/g, "").trim().length > 0
 
@@ -296,7 +317,13 @@ function AnnouncementEditor({
           </span>
           {hasContent ? (
             <div className="overflow-hidden rounded-lg border border-border">
-              <AnnouncementBannerContent content={value.content} size={value.size} />
+              <AnnouncementBannerContent
+                content={value.content}
+                size={value.size}
+                align={value.align}
+                bgColor={value.bgColor}
+                textColor={value.textColor}
+              />
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-3 text-center text-[11px] text-muted-foreground">
@@ -317,33 +344,129 @@ function AnnouncementEditor({
             minHeight={100}
           />
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Text colour is fixed to white for a consistent banner design. Links are styled
-            automatically and open in a new tab.
+            Bold, italics, headings, lists, colours and links all render exactly as shown in
+            the live preview. Text colour from the editor overrides the default below. Links
+            open in a new tab.
           </p>
         </div>
 
-        {/* Size selector */}
-        <div>
-          <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Size
-          </span>
-          <div className="flex gap-1.5">
-            {SIZE_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => onChange({ ...value, size: opt.id })}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  value.size === opt.id
-                    ? "bg-primary text-primary-foreground"
-                    : "border border-border bg-background text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {/* Size + alignment selectors */}
+        <div className="flex flex-wrap gap-6">
+          <div>
+            <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Size
+            </span>
+            <div className="flex gap-1.5">
+              {SIZE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => onChange({ ...value, size: opt.id })}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    value.size === opt.id
+                      ? "bg-primary text-primary-foreground"
+                      : "border border-border bg-background text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Text alignment
+            </span>
+            <div className="flex gap-1.5">
+              {ALIGN_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  title={opt.label}
+                  onClick={() => onChange({ ...value, align: opt.id })}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    value.align === opt.id
+                      ? "bg-primary text-primary-foreground"
+                      : "border border-border bg-background text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <opt.Icon className="h-3.5 w-3.5" />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
+        {/* Colour controls */}
+        <div className="flex flex-wrap gap-6">
+          <ColorControl
+            label="Banner colour"
+            value={value.bgColor}
+            fallbackHex={DEFAULT_BG_HEX}
+            defaultLabel="Theme colour"
+            onChange={(c) => onChange({ ...value, bgColor: c })}
+          />
+          <ColorControl
+            label="Text colour"
+            value={value.textColor}
+            fallbackHex={DEFAULT_TEXT_HEX}
+            defaultLabel="White (default)"
+            onChange={(c) => onChange({ ...value, textColor: c })}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Colour picker control (with reset-to-default) ── */
+function ColorControl({
+  label,
+  value,
+  fallbackHex,
+  defaultLabel,
+  onChange,
+}: {
+  label: string
+  value: string
+  fallbackHex: string
+  defaultLabel: string
+  onChange: (color: string) => void
+}) {
+  return (
+    <div>
+      <span className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <div className="flex items-center gap-2">
+        <label className="relative h-8 w-10 cursor-pointer overflow-hidden rounded-lg border border-border">
+          <span
+            className="block h-full w-full"
+            style={{ backgroundColor: value || fallbackHex }}
+          />
+          <input
+            type="color"
+            value={value || fallbackHex}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 h-0 w-0 cursor-pointer opacity-0"
+          />
+        </label>
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {value || defaultLabel}
+        </span>
+        {value && (
+          <button
+            type="button"
+            title="Reset to default"
+            onClick={() => onChange("")}
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset
+          </button>
+        )}
       </div>
     </div>
   )
@@ -353,11 +476,9 @@ function AnnouncementEditor({
 export default function HeaderFooterPage() {
   const [tab, setTab] = useState<Section>("header")
   const [blocks, setBlocks] = useState<Record<Section, CodeBlock[]>>(DEFAULT_BLOCKS)
-  const [announcement, setAnnouncement] = useState<{
-    enabled: boolean
-    content: string
-    size: AnnouncementSize
-  }>({ enabled: false, content: "", size: "md" })
+  const [announcement, setAnnouncement] = useState<AnnouncementValue>({
+    enabled: false, content: "", size: "md", align: "center", bgColor: "", textColor: "",
+  })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
@@ -388,12 +509,14 @@ export default function HeaderFooterPage() {
           }))
         }
         if (s?.announcement) {
+          const a = s.announcement
           setAnnouncement({
-            enabled: s.announcement.enabled === true,
-            content: typeof s.announcement.content === "string" ? s.announcement.content : "",
-            size: (["sm", "md", "lg"] as const).includes(s.announcement.size)
-              ? s.announcement.size
-              : "md",
+            enabled: a.enabled === true,
+            content: typeof a.content === "string" ? a.content : "",
+            size: (["sm", "md", "lg"] as const).includes(a.size) ? a.size : "md",
+            align: (["left", "center", "right"] as const).includes(a.align) ? a.align : "center",
+            bgColor: typeof a.bgColor === "string" ? a.bgColor : "",
+            textColor: typeof a.textColor === "string" ? a.textColor : "",
           })
         }
       })

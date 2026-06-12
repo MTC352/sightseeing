@@ -133,7 +133,7 @@ export async function PATCH(req: Request) {
     } else if (section === "footer") {
       await dbUpdateHeaderFooter("footer", data.customHtml as string)
     } else if (section === "announcement") {
-      await dbUpdateAnnouncement(data as { enabled?: boolean; content?: string; size?: string })
+      await dbUpdateAnnouncement(data as { enabled?: boolean; content?: string; size?: string; align?: string; bgColor?: string; textColor?: string })
     } else if (section === "importSettings") {
       await dbSetImportExcludedFields(data.excludedFields)
     }

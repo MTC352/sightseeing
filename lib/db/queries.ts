@@ -18,26 +18,34 @@ import {
   DEFAULT_SEO_ANALYZE_PROMPT,
   type SeoPrompts,
 } from "@/lib/ai/seo-prompts"
-import { sanitizeRichText } from "@/lib/sanitize-html"
+import { sanitizeRichText, sanitizeCssColor } from "@/lib/sanitize-html"
 import { sanitizeExcludedFields, parseExcludedFields } from "@/lib/palisis-import-fields"
 
 // ── Announcement banner ─────────────────────────────────────────────────────
 // Structured banner stored in a single `integrations` row (key='announcement'):
 //   value = sanitized rich-text HTML (the message), meta = { enabled, size }.
 export type AnnouncementSize = "sm" | "md" | "lg"
+export type AnnouncementAlign = "left" | "center" | "right"
 export interface Announcement {
   enabled: boolean
   content: string
   size: AnnouncementSize
+  align: AnnouncementAlign
+  bgColor: string
+  textColor: string
 }
 
 function readAnnouncementRow(value: unknown, meta: unknown): Announcement {
   const m = (meta && typeof meta === "object" ? meta : {}) as Record<string, unknown>
-  const size = m.size === "sm" || m.size === "lg" ? m.size : "md"
+  const size: AnnouncementSize = m.size === "sm" || m.size === "lg" ? m.size : "md"
+  const align: AnnouncementAlign = m.align === "left" || m.align === "right" ? m.align : "center"
   return {
     enabled: m.enabled === true,
     content: sanitizeRichText(typeof value === "string" ? value : ""),
     size,
+    align,
+    bgColor: sanitizeCssColor(typeof m.bgColor === "string" ? m.bgColor : ""),
+    textColor: sanitizeCssColor(typeof m.textColor === "string" ? m.textColor : ""),
   }
 }
 
@@ -748,7 +756,7 @@ export async function dbGetSettings() {
   const apiKeys: Record<string, string> = {}
   let weglot: Record<string, unknown> = { originalLang: 'en', destinationLangs: [], showFlags: true }
 
-  let announcement: Announcement = { enabled: false, content: '', size: 'md' }
+  let announcement: Announcement = { enabled: false, content: '', size: 'md', align: 'center', bgColor: '', textColor: '' }
   let importExcludedFields: string[] = []
 
   for (const row of intRows as Record<string, unknown>[]) {
@@ -1692,7 +1700,7 @@ export async function dbGetAnnouncement(): Promise<Announcement> {
   const row = await queryOne<{ value: string | null; meta: unknown }>(
     `SELECT value, meta FROM integrations WHERE key = 'announcement'`,
   )
-  if (!row) return { enabled: false, content: '', size: 'md' }
+  if (!row) return { enabled: false, content: '', size: 'md', align: 'center', bgColor: '', textColor: '' }
   return readAnnouncementRow(row.value, row.meta)
 }
 
@@ -1700,17 +1708,23 @@ export async function dbUpdateAnnouncement(data: {
   enabled?: boolean
   content?: string
   size?: string
+  align?: string
+  bgColor?: string
+  textColor?: string
 }): Promise<Announcement> {
   const content = sanitizeRichText(typeof data.content === 'string' ? data.content : '')
   const size: AnnouncementSize = data.size === 'sm' || data.size === 'lg' ? data.size : 'md'
-  const meta = { enabled: data.enabled === true, size }
+  const align: AnnouncementAlign = data.align === 'left' || data.align === 'right' ? data.align : 'center'
+  const bgColor = sanitizeCssColor(typeof data.bgColor === 'string' ? data.bgColor : '')
+  const textColor = sanitizeCssColor(typeof data.textColor === 'string' ? data.textColor : '')
+  const meta = { enabled: data.enabled === true, size, align, bgColor, textColor }
   await query(
     `INSERT INTO integrations (key, label, value, meta)
      VALUES ('announcement', 'Announcement Banner', $1, $2::jsonb)
      ON CONFLICT (key) DO UPDATE SET value = $1, meta = $2::jsonb, updated_at = NOW()`,
     [content, JSON.stringify(meta)],
   )
-  return { enabled: meta.enabled, content, size }
+  return { enabled: meta.enabled, content, size, align, bgColor, textColor }
 }
 
 // ── Taxonomies ─────────────────────────────────────────────────────────────
