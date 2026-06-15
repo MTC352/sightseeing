@@ -341,8 +341,15 @@ export async function POST(req: Request) {
   return new Response(stream, {
     headers: {
       "Content-Type":  "text/event-stream",
-      "Cache-Control": "no-cache",
+      // `no-transform` + `X-Accel-Buffering: no` stop the Replit/nginx edge
+      // proxy from BUFFERING the whole stream and only releasing it at the end
+      // — without these the browser shows every milestone as "pending" with the
+      // "Waking up the model…" placeholder until generation finishes, then all
+      // flip to done at once (events arrive direct via curl but get buffered
+      // through the proxy).
+      "Cache-Control": "no-cache, no-transform",
       Connection:      "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   })
   } catch (err) {

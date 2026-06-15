@@ -1,9 +1,19 @@
 ---
 name: SSE streaming route hardening
-description: How to make ReadableStream SSE routes (blog generator etc.) survive proxy idle-timeouts and client disconnects without 502s or spurious error logs.
+description: How to make ReadableStream SSE routes (blog generator etc.) survive proxy idle-timeouts, client disconnects, AND proxy buffering — without 502s, spurious error logs, or all-at-once delivery.
 ---
 
 # SSE streaming route hardening
+
+**0. Proxy BUFFERS the whole stream → all events arrive at the end at once.**
+   Symptom: progress milestones/streamed text stay pending in the BROWSER until
+   generation finishes, then flip done all at once — but `curl -N localhost:5000`
+   streams fine (curl bypasses the proxy; the browser goes through it).
+   **Fix:** on the SSE `Response`, set `Cache-Control: "no-cache, no-transform"`
+   AND `X-Accel-Buffering: "no"`. `no-transform` stops compression-based buffering;
+   `X-Accel-Buffering:no` tells the nginx/Replit edge proxy not to buffer. Verify
+   through `$REPLIT_DEV_DOMAIN` (the proxy), not localhost. The client parser needs
+   no change — it already updates per-event.
 
 Long-running AI SSE endpoints behind Replit's edge/dev proxy fail two ways:
 
