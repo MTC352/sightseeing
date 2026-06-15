@@ -77,7 +77,7 @@ function DynamicDealCard({ item }: { item: DealItem }) {
   const urgencyBg   = isVeryUrgent ? "bg-destructive text-white" : "bg-amber-500 text-white"
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-destructive/20 bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div data-no-edit className="group flex flex-col overflow-hidden rounded-xl border border-destructive/20 bg-card shadow-sm transition-shadow hover:shadow-md">
       {/* Image wrapper — same aspect + rounded-b-none as TripCard */}
       <Link href={href} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
         <img
@@ -157,7 +157,7 @@ function PreviewDealCard({ item }: { item: DealItem }) {
 
   return (
     /* Exact same wrapper classes as TripCard default */
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div data-no-edit className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
 
       {/* Image — rounded-b-none Link, same aspect-[4/3] */}
       <Link href={href} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
