@@ -42,3 +42,13 @@ Apply/Cancel inside an explicit editor opens the generic popover instead.
   path resolution / `[data-edit-key]`, debounced MutationObserver, equality-guarded.
 - `lib/page-content-store.ts` (in-memory Map) was DELETED. Edits now persist across
   restarts and go live for all visitors.
+
+**Array/list-valued keys → use `mutateChange`, NOT `addChange`.** `addChange(key,value)`
+takes a precomputed value, so building it from render-captured state (e.g.
+`addChange(K, JSON.stringify([...explicit, url]))`) loses updates on rapid successive
+edits — two quick clicks both compose off the same stale base and the 2nd clobbers the
+1st. The context also exposes `mutateChange(key, (current)=>next)` which composes from
+the LATEST pending value via the functional `setPendingChanges` updater. Re-derive the
+list inside the callback (`current ?? savedChanges[key]` + legacy fallback) so add/remove
+compose. The hero slideshow editor (`components/editable-hero-background.tsx`, keys
+`home:hero:images` JSON array + `home:hero:interval`) uses this pattern.

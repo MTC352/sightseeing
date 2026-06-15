@@ -12,6 +12,12 @@ interface EditModeCtx {
   pendingChanges: Record<string, string>
   savedChanges: Record<string, string>
   addChange: (key: string, value: string) => void
+  /**
+   * State-safe update: computes the next value from the LATEST pending value
+   * (or `undefined` when there is no pending change yet) so rapid successive
+   * edits to the same key compose instead of clobbering one another.
+   */
+  mutateChange: (key: string, mutate: (current: string | undefined) => string) => void
 }
 
 const EditModeContext = createContext<EditModeCtx>({
@@ -19,6 +25,7 @@ const EditModeContext = createContext<EditModeCtx>({
   pendingChanges: {},
   savedChanges: {},
   addChange: () => {},
+  mutateChange: () => {},
 })
 
 export function useEditMode() {
@@ -98,6 +105,13 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
     setPendingChanges((prev) => ({ ...prev, [key]: value }))
   }, [])
 
+  const mutateChange = useCallback(
+    (key: string, mutate: (current: string | undefined) => string) => {
+      setPendingChanges((prev) => ({ ...prev, [key]: mutate(prev[key]) }))
+    },
+    [],
+  )
+
   // Reset pending changes when edit mode is toggled off.
   useEffect(() => {
     if (!isEditMode) {
@@ -137,7 +151,7 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   const changeCount = Object.keys(pendingChanges).length
 
   return (
-    <EditModeContext.Provider value={{ isEditMode, pendingChanges, savedChanges, addChange }}>
+    <EditModeContext.Provider value={{ isEditMode, pendingChanges, savedChanges, addChange, mutateChange }}>
       {isEditMode && (
         <>
           {/* Amber top banner */}

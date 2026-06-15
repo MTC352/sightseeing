@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Search, Calendar, CloudSun, CloudRain, Sun, Users, Plus, Minus, X } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 import { EditableText } from "@/components/editable-text"
-import { EditableImage } from "@/components/editable-image"
+import { EditableHeroBackground } from "@/components/editable-hero-background"
 import { DateTimeModal } from "@/components/date-time-modal"
 import type { DateTimeValue } from "@/components/date-time-modal"
 
@@ -59,22 +59,7 @@ export function HeroSection() {
     />
     <section className="relative overflow-hidden">
       <div className="absolute inset-0">
-        <EditableImage
-          id="home:hero:background-image"
-          defaultValue="https://media.tacdn.com/media/attractions-splice-spp-674x446/0b/0f/41/0d.jpg"
-          label="Change hero image"
-          className="absolute inset-0"
-        >
-          {(src) => (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={src}
-              alt="Luxembourg City panoramic view"
-              className="absolute inset-0 h-full w-full object-cover"
-              fetchPriority="high"
-            />
-          )}
-        </EditableImage>
+        <EditableHeroBackground />
         <div className="absolute inset-0 bg-gradient-to-b from-foreground/60 via-foreground/40 to-foreground/70" />
       </div>
       <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-20 lg:px-8 lg:pb-24 lg:pt-32">
