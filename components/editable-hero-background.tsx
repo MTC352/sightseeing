@@ -86,8 +86,12 @@ export function EditableHeroBackground() {
   // Re-derive the current image list from the LATEST pending value at write
   // time (falling back to saved/legacy), so rapid add/remove clicks compose
   // instead of each one overwriting the previous from stale render state.
+  // When nothing is explicitly stored the hero shows DEFAULT_HERO_IMAGE, so we
+  // treat that default as the first selected image — this way "Add image"
+  // APPENDS to it instead of replacing it. The admin can still remove it after.
   function currentImages(pendingRaw: string | undefined): string[] {
-    return parseExplicitImages(pendingRaw ?? savedChanges[IMAGES_KEY], savedChanges[LEGACY_KEY])
+    const parsed = parseExplicitImages(pendingRaw ?? savedChanges[IMAGES_KEY], savedChanges[LEGACY_KEY])
+    return parsed.length > 0 ? parsed : [DEFAULT_HERO_IMAGE]
   }
 
   function addImage(url: string): boolean {
@@ -147,7 +151,7 @@ export function EditableHeroBackground() {
     return <HeroSlideshow images={displayImages} intervalSeconds={intervalSeconds} />
   }
 
-  const isSlideshow = explicit.length > 1
+  const isSlideshow = displayImages.length > 1
 
   return (
     <div data-editable="true" className="absolute inset-0">
@@ -161,7 +165,7 @@ export function EditableHeroBackground() {
             className="flex items-center gap-1.5 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-lg transition-colors hover:bg-amber-300"
           >
             <Images className="h-3.5 w-3.5" />
-            Hero images{explicit.length > 0 ? ` (${explicit.length})` : ""}
+            Hero images ({displayImages.length})
           </button>
         ) : (
           <div className="w-80 rounded-xl border border-amber-300 bg-white shadow-2xl">
@@ -184,9 +188,9 @@ export function EditableHeroBackground() {
               {/* Mode hint */}
               <div className="px-3 pt-2.5">
                 <p className="rounded-md bg-zinc-50 px-2 py-1.5 text-[10px] leading-snug text-zinc-500">
-                  {explicit.length <= 1
+                  {displayImages.length <= 1
                     ? "One image shows as a static background. Add a second image to turn it into a slideshow."
-                    : `Slideshow active — ${explicit.length} images cross-fade automatically.`}
+                    : `Slideshow active — ${displayImages.length} images cross-fade automatically.`}
                 </p>
               </div>
 
@@ -195,13 +199,13 @@ export function EditableHeroBackground() {
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                   Current images
                 </p>
-                {explicit.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-center text-[11px] text-zinc-400">
-                    Showing the default image. Add one below to replace it.
-                  </p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {explicit.map((src, i) => (
+                <ul className="space-y-1.5">
+                  {displayImages.map((src, i) => {
+                    // When nothing is explicitly stored, displayImages holds the
+                    // baked-in default — surface that so the admin knows it's the
+                    // current first image (and can keep or remove it).
+                    const isDefault = explicit.length === 0
+                    return (
                       <li
                         key={`${i}-${src}`}
                         className="flex items-center gap-2 rounded-lg border border-zinc-100 p-1.5"
@@ -214,6 +218,11 @@ export function EditableHeroBackground() {
                         />
                         <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-600">
                           {i + 1}. {src.split("/").pop() || src}
+                          {isDefault && (
+                            <span className="ml-1 rounded bg-zinc-100 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-zinc-400">
+                              default
+                            </span>
+                          )}
                         </span>
                         <button
                           type="button"
@@ -224,9 +233,9 @@ export function EditableHeroBackground() {
                           <X className="h-3.5 w-3.5" />
                         </button>
                       </li>
-                    ))}
-                  </ul>
-                )}
+                    )
+                  })}
+                </ul>
               </div>
 
               {/* Add image */}
