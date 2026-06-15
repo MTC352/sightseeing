@@ -7,13 +7,20 @@ description: How to make ReadableStream SSE routes (blog generator etc.) survive
 
 **0. Proxy BUFFERS the whole stream → all events arrive at the end at once.**
    Symptom: progress milestones/streamed text stay pending in the BROWSER until
-   generation finishes, then flip done all at once — but `curl -N localhost:5000`
-   streams fine (curl bypasses the proxy; the browser goes through it).
-   **Fix:** on the SSE `Response`, set `Cache-Control: "no-cache, no-transform"`
-   AND `X-Accel-Buffering: "no"`. `no-transform` stops compression-based buffering;
-   `X-Accel-Buffering:no` tells the nginx/Replit edge proxy not to buffer. Verify
-   through `$REPLIT_DEV_DOMAIN` (the proxy), not localhost. The client parser needs
-   no change — it already updates per-event.
+   generation finishes, then flip done all at once.
+   **Two layers, BOTH needed:**
+   (a) On the SSE `Response`, set `Cache-Control: "no-cache, no-transform"` AND
+   `X-Accel-Buffering: "no"` (nginx/edge proxy + compression buffering).
+   (b) **Prime the stream with a ~2KB `:`-comment as the FIRST bytes.** The Replit
+   **workspace-preview iframe** proxy (`__replco/workspace_iframe.html`) holds the
+   first bytes until an internal ~2KB buffer fills before flushing anything — so
+   headers alone are NOT enough for the iframe view. The padding pushes past the
+   threshold and forces an immediate flush.
+   **Verification gotcha:** `curl` (even through `$REPLIT_DEV_DOMAIN` with the
+   browser's `Accept-Encoding`) and a clean Playwright browser BOTH stream fine
+   without the padding — only the canvas/workspace **iframe** buffers. So curl
+   PASSING does NOT prove the iframe works; the 2KB prime is what fixes the iframe.
+   Client parser needs no change — it updates per-event and ignores `:` comments.
 
 Long-running AI SSE endpoints behind Replit's edge/dev proxy fail two ways:
 

@@ -28,6 +28,13 @@ function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
 }
 
+// PROXY-SPECIFIC — do not remove. A ~2KB SSE comment frame sent as the very
+// first bytes of the stream, to push past the Replit workspace-preview iframe
+// proxy's internal buffer threshold and force an immediate flush so subsequent
+// milestone/chunk events stream to the browser live instead of all-at-once.
+// (`:`-prefixed comment → ignored by the client's `data:`-only parser.)
+const SSE_FLUSH_PRELUDE_BYTES = new TextEncoder().encode(`: ${" ".repeat(2048)}\n\n`)
+
 // Sanitize a free-text field coming from the trip catalog before injecting
 // it into the system prompt. Trip descriptions are admin-editable AND
 // upstream-synced from Palisis — neither source is fully trusted from a
@@ -168,6 +175,20 @@ export async function POST(req: Request) {
           try { controller.close() } catch { /* already closed */ }
         }
       }
+
+      // ── Anti-buffering prelude (PROXY-SPECIFIC — do not remove) ────────────
+      // The Replit workspace-preview iframe proxy holds the first bytes of a
+      // streamed response until an internal buffer threshold (~2KB) is reached
+      // before flushing anything to the browser — so without this, every
+      // milestone + chunk arrives at the client all-at-once at the very end
+      // (curl, which negotiates a different connection, gets them live; the
+      // iframe does not). Sending a ~2KB SSE comment as the FIRST bytes pushes
+      // the connection past that threshold and forces an immediate flush, so
+      // the real events that follow stream through live. The client parser
+      // only reads `data:` lines, so this `:`-prefixed comment is ignored.
+      try {
+        controller.enqueue(SSE_FLUSH_PRELUDE_BYTES)
+      } catch { closed = true }
 
       // Keepalive heartbeat: proxies (incl. Replit's dev/edge proxy) drop a
       // streaming connection that sends NO bytes for too long. Two long idle
