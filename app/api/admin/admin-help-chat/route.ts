@@ -8,6 +8,19 @@ export const dynamic = "force-dynamic"
 export const revalidate = 0
 export const maxDuration = 30
 
+/** Graceful in-band error for the SSE chat stream (keeps the UI from breaking
+ *  on a non-200 JSON response). Mirrors the "not configured" branch below. */
+function sseError(message: string): Response {
+  const sse =
+    `data: ${JSON.stringify({ type: "start" })}\n\n` +
+    `data: ${JSON.stringify({ type: "error", errorText: message })}\n\n` +
+    `data: [DONE]\n\n`
+  return new Response(sse, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
+  })
+}
+
 function sanitise(s: unknown, max = 2000): string {
   if (typeof s !== "string") return ""
   const cleaned = s.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, " ").trim()
@@ -101,13 +114,28 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = await req.json()
+    let body: { messages?: UIMessage[] }
+    try {
+      body = await req.json()
+    } catch {
+      // Empty / malformed body (e.g. an aborted or cold-start request).
+      // Don't 500 — return a graceful in-band SSE message instead.
+      void logCaughtError("ai:admin-help", new Error("Empty or invalid request body"), {
+        ...reqMeta,
+        phase: "parse-body",
+      })
+      return sseError("No message received. Please type your question and try again.")
+    }
 
     let messages: UIMessage[]
     try {
       messages = await validateUIMessages<UIMessage>({ messages: body.messages, tools: {} })
     } catch {
       messages = body.messages ?? []
+    }
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return sseError("No message received. Please type your question and try again.")
     }
 
     const { text: knowledgeBase, count: kbCount } = await buildAdminKnowledgeBase()
@@ -119,15 +147,9 @@ export async function POST(req: Request) {
     // Task #15 — resolve provider + model centrally. Fail-soft when no key.
     const ai = await resolveAi({ defaultTier: "fast", settings })
     if (!ai.model) {
-      const msg = "Admin AI is not configured. Please add an Anthropic or OpenAI API key in Admin → Integrations."
-      const sse =
-        `data: ${JSON.stringify({ type: "start" })}\n\n` +
-        `data: ${JSON.stringify({ type: "error", errorText: msg })}\n\n` +
-        `data: [DONE]\n\n`
-      return new Response(sse, {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
-      })
+      return sseError(
+        "Admin AI is not configured. Please add an Anthropic or OpenAI API key in Admin → Integrations.",
+      )
     }
 
     const result = streamText({
