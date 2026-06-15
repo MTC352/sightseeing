@@ -6,7 +6,7 @@ import type { AdminPost } from "@/lib/admin-store"
 import {
   Save, ArrowLeft, Loader2, Wand2, Upload, X, AlertCircle,
   CheckCircle2, Circle, Eye, Check, Plus, ImageIcon, Sparkles,
-  Link2, ExternalLink, CalendarClock,
+  Link2, ExternalLink, CalendarClock, ZoomIn,
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -302,6 +302,7 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
     title: string; slug: string; excerpt: string; readTime: string
   } | null>(null)
   const [showPreview,      setShowPreview]       = useState(false)
+  const [showCoverPreview, setShowCoverPreview]  = useState(false)
 
   const streamRef = useRef<AbortController | null>(null)
   const streamBoxRef = useRef<HTMLDivElement>(null)
@@ -311,6 +312,14 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
     const el = streamBoxRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [generatedContent])
+
+  // Close the cover-image lightbox on Escape
+  useEffect(() => {
+    if (!showCoverPreview) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowCoverPreview(false) }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [showCoverPreview])
 
   // ── Event handler ───────────────────────────────────────────────────────
   const handleSseEvent = useCallback((event: Record<string, unknown>) => {
@@ -536,6 +545,33 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
           onAppend={() => { applyContent(true); setShowPreview(false) }}
           onClose={() => setShowPreview(false)}
         />
+      )}
+
+      {/* Cover-image lightbox — full-size preview of the cover image */}
+      {showCoverPreview && form.image && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setShowCoverPreview(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Cover image preview"
+        >
+          <button
+            type="button"
+            onClick={() => setShowCoverPreview(false)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+            aria-label="Close preview"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={form.image}
+            alt="Cover preview"
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
 
       <div className="mx-auto max-w-3xl">
@@ -843,11 +879,22 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
                   </p>
                 )}
                 {form.image ? (
-                  <div className="relative mt-2">
+                  <div className="relative mt-2 group">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={form.image} alt="Cover preview" className="h-40 w-full rounded-lg object-cover" />
+                    {/* Click overlay → opens full-size lightbox preview */}
+                    <button
+                      type="button"
+                      onClick={() => setShowCoverPreview(true)}
+                      className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/0 transition-colors hover:bg-background/30 focus:outline-none focus-visible:bg-background/30"
+                      aria-label="Preview cover image"
+                    >
+                      <span className="flex items-center gap-1.5 rounded-full bg-background/85 px-3 py-1.5 text-xs font-medium text-foreground opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-hover:opacity-100">
+                        <ZoomIn className="h-3.5 w-3.5" /> Click to preview
+                      </span>
+                    </button>
                     {regenImage && (
-                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-sm">
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-sm">
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
                       </div>
                     )}
