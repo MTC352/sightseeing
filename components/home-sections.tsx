@@ -36,12 +36,31 @@ function extractApiTrips(data: unknown): ApiTrip[] {
   return Array.isArray(obj.trips) ? obj.trips : []
 }
 
+/**
+ * /api/trips absolutizes our own static assets (`/uploads/...`, `/images/...`)
+ * to the production host (`https://sightseeing.lu/...`) for external/SEO
+ * consumers. For internal <next/image> rendering those must stay same-origin
+ * relative paths — otherwise next/image rejects the unconfigured host. Strip
+ * the origin from our own static paths; leave external CDN URLs (Vercel Blob,
+ * tacdn, TourCMS) untouched so they still render through their configured hosts.
+ */
+function toRelativeLocalAsset(src: string): string {
+  if (!src) return src
+  try {
+    const u = new URL(src)
+    if (/^\/(uploads|images)\//.test(u.pathname)) return u.pathname
+    return src
+  } catch {
+    return src // already a relative path (or not a URL) — leave as-is
+  }
+}
+
 /** Convert one /api/trips row into the Trip shape TripCard expects. */
 function apiToTrip(t: ApiTrip): Trip {
   return {
     id: String(t.id),
     title: t.title,
-    image: t.image || "/placeholder.svg",
+    image: toRelativeLocalAsset(t.image || "/placeholder.svg"),
     price: Number(t.price ?? 0),
     originalPrice: t.originalPrice != null ? Number(t.originalPrice) : undefined,
     rating: Number(t.rating ?? 0),
@@ -739,7 +758,7 @@ export function RecentlyViewed() {
       title: String(t.title ?? ""),
       category: String(t.category ?? "Tours"),
       city: t.city ? String(t.city) : undefined,
-      image: String(t.image ?? "/placeholder.svg"),
+      image: toRelativeLocalAsset(String(t.image ?? "/placeholder.svg")),
       price: typeof t.price === "number" ? t.price : Number(t.price ?? 0),
       rating: typeof t.rating === "number" ? t.rating : Number(t.rating ?? 0),
       reviewCount: typeof t.reviewCount === "number" ? t.reviewCount : Number(t.reviewCount ?? 0),
