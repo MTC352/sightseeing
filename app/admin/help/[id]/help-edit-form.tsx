@@ -25,7 +25,15 @@ function formatBytes(n: number): string {
   return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
-export function HelpEditForm({ article, canUseFiles = false }: { article: HelpArticle | null; canUseFiles?: boolean }) {
+export function HelpEditForm({
+  article,
+  canUseFiles = false,
+  defaultAudience = "public",
+}: {
+  article: HelpArticle | null
+  canUseFiles?: boolean
+  defaultAudience?: HelpArticle["audience"]
+}) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -35,10 +43,10 @@ export function HelpEditForm({ article, canUseFiles = false }: { article: HelpAr
     article ?? {
       question: "",
       answer: "",
-      category: "General",
+      category: defaultAudience === "admin" ? "Getting Started" : "General",
       status: "draft",
       order: 99,
-      audience: "public",
+      audience: defaultAudience,
     }
   )
   const [attachments, setAttachments] = useState<HelpAttachment[]>(article?.attachments ?? [])

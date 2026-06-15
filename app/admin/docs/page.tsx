@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from "react"
+import Link from "next/link"
 import {
   Search, X, ChevronDown, ChevronRight, Bot, Send, MessageCircle,
   HelpCircle, BookOpen, LayoutDashboard, Map as MapIcon, FileText, Briefcase,
   Ticket, Layout, Plug, Code2, RefreshCw, CheckSquare,
-  Settings, Sparkles, Shield, type LucideIcon,
+  Settings, Sparkles, Shield, Plus, type LucideIcon,
 } from "lucide-react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
@@ -206,9 +207,14 @@ export default function AdminDocsPage() {
               Everything you need to manage sightseeing.lu — search articles or ask the AI assistant below.
             </p>
           </div>
-          <div className="hidden shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 p-3 dark:border-violet-500/20 dark:bg-violet-500/10 sm:flex">
-            <Sparkles className="h-5 w-5 text-violet-500" />
-          </div>
+          <Link
+            href="/admin/help/new?audience=admin"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-violet-700"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span className="hidden sm:inline">New article (AI)</span>
+            <Plus className="h-4 w-4 sm:hidden" />
+          </Link>
         </div>
 
         {/* Search */}
@@ -285,8 +291,14 @@ export default function AdminDocsPage() {
           <BookOpen className="mx-auto mb-3 h-9 w-9 text-muted-foreground/30" />
           <p className="font-medium text-foreground">No admin articles found</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Add articles via Help &amp; FAQ → New Article (set audience to Admin).
+            Use the &quot;New article&quot; button above to write one — the AI can draft it from your goal or notes.
           </p>
+          <Link
+            href="/admin/help/new?audience=admin"
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-violet-700"
+          >
+            <Sparkles className="h-4 w-4" /> New article (AI)
+          </Link>
         </div>
       )}
 
