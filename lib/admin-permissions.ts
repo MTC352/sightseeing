@@ -127,6 +127,8 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/admin-help-chat", keys: ["docs"] },
   // Blog AI authoring helper
   { prefix: "/api/admin/generate-blog", keys: ["blog"] },
+  // Standalone blog cover-image (re)generator — used by the blog editor.
+  { prefix: "/api/admin/generate-blog-image", keys: ["blog"] },
   // Shared content endpoints — used by trip/blog editors and the frontend edit mode.
   { prefix: "/api/admin/trips/upload", keys: ["trips", "blog", "pages"] },
   { prefix: "/api/admin/page-content", keys: ["pages", "trips", "blog"] },

@@ -235,6 +235,8 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
   const [saved,     setSaved]     = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [regenImage, setRegenImage] = useState(false)
+  const [regenImageError, setRegenImageError] = useState<string | null>(null)
   const [copied,    setCopied]    = useState(false)
 
   const [form, setForm] = useState<Partial<AdminPost>>(() => {
@@ -446,6 +448,48 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
       alert(err instanceof Error ? err.message : "Failed to upload image")
     } finally {
       setUploading(false)
+    }
+  }
+
+  // ── Regenerate cover image only (AI) ──────────────────────────────────────
+  // Independent of the full-article generator: re-creates ONLY the cover image
+  // via the admin's configured OpenAI image model. Subject = current title, or
+  // the AI topic box, or the article excerpt.
+  async function handleRegenerateImage() {
+    const title = (form.title ?? "").trim()
+    const topic = aiTopic.trim()
+    const excerpt = (form.excerpt ?? "").trim()
+    const subject = title || topic || excerpt
+    if (!subject) {
+      setRegenImageError("Add a title (or an AI topic) first so the image has a subject.")
+      return
+    }
+    setRegenImage(true)
+    setRegenImageError(null)
+    try {
+      const res = await fetch("/api/admin/generate-blog-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Fall back to the excerpt as an explicit prompt when there's no title/topic,
+        // so the request subject matches the client-side validation above.
+        body: JSON.stringify({
+          title: title || topic,
+          topic,
+          ...(!title && !topic && excerpt ? { imagePrompt: excerpt } : {}),
+        }),
+      })
+      if (!res.ok) {
+        let msg = `Image generation failed (HTTP ${res.status})`
+        try { const b = await res.json(); if (b?.error) msg = b.error } catch { /* keep generic */ }
+        throw new Error(msg)
+      }
+      const { url } = await res.json()
+      if (!url) throw new Error("No image returned")
+      set("image", url)
+    } catch (err) {
+      setRegenImageError(err instanceof Error ? err.message : "Failed to generate image")
+    } finally {
+      setRegenImage(false)
     }
   }
 
@@ -777,11 +821,36 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
                 </div>
               </div>
               <div>
-                <label className={labelClass}>Cover Image</label>
+                <div className="flex items-center justify-between">
+                  <label className={labelClass}>Cover Image</label>
+                  <button
+                    type="button"
+                    onClick={handleRegenerateImage}
+                    disabled={regenImage}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Generate a new cover image with AI (does not touch the article)"
+                  >
+                    {regenImage ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin text-primary" /> Generating…</>
+                    ) : (
+                      <><Wand2 className="h-3.5 w-3.5 text-primary" /> {form.image ? "Regenerate with AI" : "Generate with AI"}</>
+                    )}
+                  </button>
+                </div>
+                {regenImageError && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {regenImageError}
+                  </p>
+                )}
                 {form.image ? (
                   <div className="relative mt-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={form.image} alt="Cover preview" className="h-40 w-full rounded-lg object-cover" />
+                    {regenImage && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/60 backdrop-blur-sm">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => set("image", "")}
@@ -797,7 +866,7 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
                     {uploading ? (
                       <><Loader2 className="h-8 w-8 animate-spin text-primary" /><span className="mt-2 text-sm text-muted-foreground">Uploading...</span></>
                     ) : (
-                      <><Upload className="h-8 w-8 text-muted-foreground" /><span className="mt-2 text-sm font-medium text-foreground">Click to upload cover image</span><span className="mt-1 text-xs text-muted-foreground">JPEG, PNG, WebP or GIF</span></>
+                      <><Upload className="h-8 w-8 text-muted-foreground" /><span className="mt-2 text-sm font-medium text-foreground">Click to upload cover image</span><span className="mt-1 text-xs text-muted-foreground">JPEG, PNG, WebP or GIF · or generate with AI above</span></>
                     )}
                   </label>
                 )}

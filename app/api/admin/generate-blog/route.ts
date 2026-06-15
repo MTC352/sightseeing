@@ -2,7 +2,7 @@ import { streamText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
-import { processUploadFile } from "@/lib/media-upload"
+import { generateAndSaveBlogCover, loadBlogImageConfig, defaultSubjectPrompt } from "@/lib/blog-image"
 import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 120
@@ -117,26 +117,9 @@ export async function POST(req: Request) {
   const maxOutputTokens = typeof blogCfg.maxTokens === "number" ? blogCfg.maxTokens : 4000
 
   // Cover-image generation settings (admin-configurable in AI Systems → Blog,
-  // persisted in ai_system_configs.extra_config).
-  const blogExtra = (blogCfg.extra && typeof blogCfg.extra === "object" ? blogCfg.extra : {}) as Record<string, unknown>
-  const ALLOWED_IMAGE_MODELS = ["dall-e-3", "dall-e-2", "gpt-image-1"] as const
-  const requestedImageModel =
-    typeof blogExtra.imageModel === "string" ? blogExtra.imageModel.trim() : ""
-  const imageModel = (ALLOWED_IMAGE_MODELS as readonly string[]).includes(requestedImageModel)
-    ? requestedImageModel
-    : "dall-e-3"
-  const imageStyle = typeof blogExtra.imagePrompt === "string" ? blogExtra.imagePrompt.trim() : ""
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const apiKeys = (settings as any)?.apiKeys as Record<string, string> | undefined
-
-  // OpenAI key for DALL-E (env var takes priority over integrations table).
-  // NOTE (Task #15): image generation stays on OpenAI DALL·E regardless of the
-  // active text provider — it is intentionally NOT routed through resolveAi.
-  const openaiKey =
-    process.env.OPENAI_API_KEY ||
-    apiKeys?.openai ||
-    ""
+  // persisted in ai_system_configs.extra_config). Shared with the standalone
+  // "regenerate cover image" endpoint via lib/blog-image.ts so they never drift.
+  const { imageModel, imageStyle, openaiKey } = loadBlogImageConfig(settings)
 
   // ── Resolve the active text provider + model centrally (Task #15) ──────
   // The stored blog model only picks the TIER; the concrete model id always
@@ -293,83 +276,28 @@ export async function POST(req: Request) {
 
         if (openaiKey) {
           try {
-            const basePrompt =
-              meta.imagePrompt ||
-              `Professional travel photography for a Luxembourg tourism blog post: "${meta.title || topic}". Vibrant, scenic, high-quality photorealistic image, golden hour lighting, welcoming atmosphere.`
-            const fullPrompt = imageStyle ? `${basePrompt}\n\nStyle: ${imageStyle}` : basePrompt
-            // DALL·E 2 caps prompts at 1000 chars; DALL·E 3 / gpt-image-1 allow up to 4000.
-            const promptCap = imageModel === "dall-e-2" ? 1000 : 4000
-
-            const reqBody: Record<string, unknown> = {
-              model:  imageModel,
-              prompt: fullPrompt.slice(0, promptCap),
-              n:      1,
-              size:   "1024x1024",
-            }
-            // gpt-image-1 always returns base64 and REJECTS response_format; the
-            // DALL·E models need it set explicitly so we get bytes to persist.
-            if (imageModel !== "gpt-image-1") reqBody.response_format = "b64_json"
-
-            const imgRes = await fetch("https://api.openai.com/v1/images/generations", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${openaiKey}`,
-              },
-              body: JSON.stringify(reqBody),
+            const subject = meta.imagePrompt || defaultSubjectPrompt(meta.title || topic)
+            const img = await generateAndSaveBlogCover({
+              openaiKey,
+              imageModel,
+              imageStyle,
+              subject,
+              title: meta.title || topic,
+              userId: session.id,
             })
-
-            if (imgRes.ok) {
-              const imgData = await imgRes.json()
-              const b64 = imgData.data?.[0]?.b64_json as string | undefined
-              const remoteUrl = imgData.data?.[0]?.url as string | undefined
-
-              // Get raw bytes either from the inline base64 or by downloading
-              // the (short-lived) remote URL.
-              let bytes: Buffer | null = null
-              if (b64) {
-                bytes = Buffer.from(b64, "base64")
-              } else if (remoteUrl) {
-                const dl = await fetch(remoteUrl)
-                if (dl.ok) bytes = Buffer.from(await dl.arrayBuffer())
-              }
-
-              if (bytes) {
-                const file = new File([bytes], `blog-cover-${Date.now()}.png`, { type: "image/png" })
-                const result = await processUploadFile(file, session.id, {
-                  restrictImage: true,
-                  title: meta.title || topic,
-                })
-                const savedUrl = (result.body as { url?: string })?.url
-                if (result.status < 400 && savedUrl) {
-                  emit({ type: "image", url: savedUrl })
-                  emit({ type: "milestone", id: "image", label: "Cover image generated & saved", status: "done" })
-                } else {
-                  const errMsg = (result.body as { error?: string })?.error || "could not save"
-                  console.error("[generate-blog] image persist failed:", result.status, errMsg)
-                  void logError({
-                    source: "ai:blog",
-                    level: "warn",
-                    message: `Blog cover image not saved: ${errMsg}`,
-                    statusCode: result.status,
-                    context: { ...reqMeta, phase: "image-persist" },
-                  })
-                  emit({ type: "milestone", id: "image", label: `Cover image not saved (${errMsg})`, status: "done" })
-                }
-              } else {
-                emit({ type: "milestone", id: "image", label: "Cover image skipped (no image data returned)", status: "done" })
-              }
+            if (img.ok) {
+              emit({ type: "image", url: img.url })
+              emit({ type: "milestone", id: "image", label: "Cover image generated & saved", status: "done" })
             } else {
-              const errText = await imgRes.text().catch(() => "")
-              console.error("[generate-blog] image error:", imgRes.status, errText)
+              console.error("[generate-blog] image error:", img.status, img.error, img.detail)
               void logError({
                 source: "ai:blog",
                 level: "warn",
-                message: `Blog cover image generation failed (OpenAI ${imgRes.status}).`,
-                statusCode: imgRes.status,
-                context: { ...reqMeta, phase: "image-generate", detail: errText.slice(0, 500) },
+                message: `Blog cover image failed: ${img.error}`,
+                statusCode: img.status,
+                context: { ...reqMeta, phase: "image-generate", detail: img.detail },
               })
-              emit({ type: "milestone", id: "image", label: `Cover image skipped (${imgRes.status})`, status: "done" })
+              emit({ type: "milestone", id: "image", label: `Cover image skipped (${img.error})`, status: "done" })
             }
           } catch (imgErr) {
             console.error("[generate-blog] image fetch error:", imgErr)
