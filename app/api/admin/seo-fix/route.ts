@@ -17,6 +17,7 @@ import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbGetSeoPrompts } from "@/lib/db/queries"
+import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[seo-fix] error:", err)
+    void logCaughtError("ai:seo", err, { ...requestMeta(request), phase: "fix" })
     return Response.json(
       { error: err instanceof Error ? err.message : "AI request failed" },
       { status: 500 },

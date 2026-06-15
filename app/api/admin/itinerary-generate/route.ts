@@ -3,6 +3,7 @@ import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbGetTrip, dbGetSettings } from "@/lib/db/queries"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
+import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 45
 export const dynamic = "force-dynamic"
@@ -242,6 +243,13 @@ export async function POST(request: Request) {
     const parsed = extractJson(result.text)
     const steps = normalizeSteps(parsed?.steps)
     if (steps.length === 0) {
+      void logError({
+        source: "ai:itinerary-generate",
+        level: "error",
+        message: "Trip itinerary generation: AI returned no usable steps.",
+        statusCode: 502,
+        context: { ...requestMeta(request), phase: "parse" },
+      })
       return Response.json({ error: "The AI returned an unexpected response. Please try again." }, { status: 502 })
     }
 
@@ -258,6 +266,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[itinerary-generate] error:", err)
+    void logCaughtError("ai:itinerary-generate", err, { ...requestMeta(request), phase: "generate" })
     return Response.json({ error: "Failed to generate itinerary." }, { status: 500 })
   }
 }

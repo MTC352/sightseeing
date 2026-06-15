@@ -3,6 +3,7 @@ import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { processUploadFile } from "@/lib/media-upload"
+import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 120
 
@@ -79,14 +80,35 @@ function buildTripCatalogPrompt(trips: any[]): string {
 }
 
 export async function POST(req: Request) {
+  // Captured up-front so every error log records which page/method/path the
+  // failing generation came from (shows on /admin/logs).
+  const reqMeta = requestMeta(req)
+
   let session
   try { session = await requireAdminSession() } catch { return Response.json({ error: "Unauthorized" }, { status: 401 }) }
-  const { topic, category } = await req.json()
+
+  // Parse the body defensively. An empty/invalid body previously threw an
+  // uncaught SyntaxError here, crashing the handler (surfaced as a 500/502 to
+  // the client) and leaving NO trace in the error logs.
+  let topic: string | undefined
+  let category: string | undefined
+  try {
+    const body = (await req.json()) as { topic?: string; category?: string }
+    topic = body?.topic
+    category = body?.category
+  } catch (err) {
+    void logCaughtError("ai:blog", err, { ...reqMeta, phase: "parse-body" })
+    return Response.json({ error: "Invalid request body" }, { status: 400 })
+  }
 
   if (!topic?.trim()) {
     return Response.json({ error: "Topic is required" }, { status: 400 })
   }
 
+  // Everything from settings load → stream construction runs inside this guard
+  // so a throw in any pre-stream await (dbGetSettings, resolveAi, etc.) is
+  // logged + returns a controlled 500 instead of a silent uncaught 500.
+  try {
   // Load blog system config from DB
   const settings = await dbGetSettings()
   const blogCfg = (settings.ai as Record<string, Record<string, unknown>>)?.blog ?? {}
@@ -121,6 +143,13 @@ export async function POST(req: Request) {
   // belongs to the effective provider. Fail-soft: `.model === null` → no key.
   const ai = await resolveAi({ systemKey: "blog", defaultTier: "fast", settings })
   if (!ai.model) {
+    void logError({
+      source: "ai:blog",
+      level: "error",
+      message: "Blog generation blocked: no AI provider configured (Anthropic/OpenAI key missing).",
+      statusCode: 503,
+      context: { ...reqMeta, phase: "resolveAi" },
+    })
     return Response.json(
       {
         error:
@@ -142,11 +171,13 @@ export async function POST(req: Request) {
   const catalogPrompt = buildTripCatalogPrompt(trips)
   const systemPrompt = baseSystemPrompt + (catalogPrompt ? "\n\n" + catalogPrompt : "")
 
+  let closed = false
+  let heartbeat: ReturnType<typeof setInterval> | undefined
   const stream = new ReadableStream({
     async start(controller) {
-      let closed = false
       const emit = (data: object) => {
-        if (!closed) controller.enqueue(sse(data))
+        if (closed) return
+        try { controller.enqueue(sse(data)) } catch { closed = true }
       }
       const close = () => {
         if (!closed) {
@@ -154,6 +185,19 @@ export async function POST(req: Request) {
           try { controller.close() } catch { /* already closed */ }
         }
       }
+
+      // Keepalive heartbeat: proxies (incl. Replit's dev/edge proxy) drop a
+      // streaming connection that sends NO bytes for too long. Two long idle
+      // gaps exist here — the model "waking up" before the first token, and the
+      // cover-image generation fetch — which previously surfaced to the client
+      // as an HTTP 502 mid-generation. A periodic SSE comment keeps the
+      // connection warm. The client parser only reads `data:` lines, so a
+      // `:`-prefixed comment is safely ignored.
+      heartbeat = setInterval(() => {
+        if (!closed) {
+          try { controller.enqueue(new TextEncoder().encode(`: keepalive\n\n`)) } catch { /* closed */ }
+        }
+      }, 15000)
 
       try {
         // ── Step 1: init ─────────────────────────────────────────────────
@@ -187,6 +231,12 @@ export async function POST(req: Request) {
         // Guard against silent empty streams — surface a real error instead
         // of pretending the article was written.
         if (!fullContent.trim()) {
+          void logError({
+            source: "ai:blog",
+            level: "error",
+            message: "Blog generation: the AI model returned an empty response.",
+            context: { ...reqMeta, phase: "empty-response", topic },
+          })
           emit({
             type: "milestone",
             id: "writing",
@@ -297,6 +347,13 @@ export async function POST(req: Request) {
                 } else {
                   const errMsg = (result.body as { error?: string })?.error || "could not save"
                   console.error("[generate-blog] image persist failed:", result.status, errMsg)
+                  void logError({
+                    source: "ai:blog",
+                    level: "warn",
+                    message: `Blog cover image not saved: ${errMsg}`,
+                    statusCode: result.status,
+                    context: { ...reqMeta, phase: "image-persist" },
+                  })
                   emit({ type: "milestone", id: "image", label: `Cover image not saved (${errMsg})`, status: "done" })
                 }
               } else {
@@ -305,10 +362,18 @@ export async function POST(req: Request) {
             } else {
               const errText = await imgRes.text().catch(() => "")
               console.error("[generate-blog] image error:", imgRes.status, errText)
+              void logError({
+                source: "ai:blog",
+                level: "warn",
+                message: `Blog cover image generation failed (OpenAI ${imgRes.status}).`,
+                statusCode: imgRes.status,
+                context: { ...reqMeta, phase: "image-generate", detail: errText.slice(0, 500) },
+              })
               emit({ type: "milestone", id: "image", label: `Cover image skipped (${imgRes.status})`, status: "done" })
             }
           } catch (imgErr) {
             console.error("[generate-blog] image fetch error:", imgErr)
+            void logCaughtError("ai:blog", imgErr, { ...reqMeta, phase: "image-fetch" })
             emit({ type: "milestone", id: "image", label: "Cover image skipped (network error)", status: "done" })
           }
         } else {
@@ -322,6 +387,7 @@ export async function POST(req: Request) {
 
       } catch (err) {
         console.error("[generate-blog] error:", err)
+        void logCaughtError("ai:blog", err, { ...reqMeta, phase: "streamText", topic })
         emit({
           type: "milestone",
           id: "writing",
@@ -330,8 +396,17 @@ export async function POST(req: Request) {
         })
         emit({ type: "error", message: err instanceof Error ? err.message : String(err) })
       } finally {
+        if (heartbeat) clearInterval(heartbeat)
         close()
       }
+    },
+    // Client disconnected (tab closed, navigation, aborted fetch). Mark the
+    // stream closed and stop the heartbeat so in-flight emits/heartbeats don't
+    // throw "Controller is already closed" — which would otherwise surface as a
+    // spurious logged AI error on every mid-generation disconnect.
+    cancel() {
+      closed = true
+      if (heartbeat) clearInterval(heartbeat)
     },
   })
 
@@ -342,4 +417,9 @@ export async function POST(req: Request) {
       Connection:      "keep-alive",
     },
   })
+  } catch (err) {
+    console.error("[generate-blog] setup error:", err)
+    void logCaughtError("ai:blog", err, { ...reqMeta, phase: "setup" })
+    return Response.json({ error: "Failed to start blog generation." }, { status: 500 })
+  }
 }

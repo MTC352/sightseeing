@@ -3,11 +3,13 @@ import { dbGetTrip, dbGetSettings, dbListTrips, dbListPosts, dbListJobs, dbTripS
 import { resolveAi } from "@/lib/ai/provider"
 import { getTripById, getTripDetail } from "@/lib/data"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
+  const reqMeta = requestMeta(req)
   schedulePrune()
   const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
   if (!limit.allowed) return limit.response
@@ -243,11 +245,15 @@ ${jobLines || "(none)"}
       messages: await convertToModelMessages(messages),
       maxOutputTokens: maxTokens,
       temperature,
+      onError: ({ error }) => {
+        void logCaughtError("ai:chat", error, { ...reqMeta, phase: "stream" })
+      },
     })
 
     return result.toUIMessageStreamResponse()
   } catch (error) {
     console.error("[trip-chat] POST error:", error)
+    void logCaughtError("ai:chat", error, { ...reqMeta, phase: "POST" })
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

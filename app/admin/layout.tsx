@@ -7,7 +7,7 @@ import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import { QuickSeoProvider } from "@/components/admin/quick-seo-context"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity, Menu, X, Database,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity, Menu, X, Database, ScrollText,
 } from "lucide-react"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 import { cn } from "@/lib/utils"
@@ -52,6 +52,7 @@ const NAV: NavItem[] = [
   { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
   { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
   { href: "/admin/db-migrations", label: "Data Migrations", icon: Database, superadminOnly: true, devOnly: true },
+  { href: "/admin/logs", label: "Error Logs", icon: ScrollText, superadminOnly: true, devOnly: true },
   { href: "/admin/palisis", label: "Palisis Import", icon: RefreshCw, perm: "palisis" },
   { href: "/admin/docs", label: "Documentation", icon: BookOpen, perm: "docs" },
   { href: "/admin/tickets", label: "Support Tickets", icon: Ticket, perm: "tickets" },

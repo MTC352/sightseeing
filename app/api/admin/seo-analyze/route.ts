@@ -2,6 +2,7 @@ import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbGetSeoPrompts } from "@/lib/db/queries"
+import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -98,6 +99,7 @@ Provide SEO analysis and optimization suggestions. Return ONLY the JSON object, 
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[seo-analyze] POST error:", error)
+    void logCaughtError("ai:seo", error, { ...requestMeta(request), phase: "analyze" })
     return Response.json({ error: "Analysis failed. Please try again." }, { status: 500 })
   }
 }

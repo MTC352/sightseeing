@@ -2,6 +2,7 @@ import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { requireAdminSession } from "@/lib/auth-server"
 import { dbGetTrip, dbGetSeoPrompts } from "@/lib/db/queries"
+import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 import {
   computeSeoSections,
   summarizeScore,
@@ -95,6 +96,13 @@ export async function POST(request: Request) {
 
     const parsed = extractJson(result.text)
     if (!parsed) {
+      void logError({
+        source: "ai:seo",
+        level: "error",
+        message: "SEO generate: AI returned an unparseable response.",
+        statusCode: 502,
+        context: { ...requestMeta(request), phase: "parse" },
+      })
       return Response.json({ error: "The AI returned an unexpected response. Please try again." }, { status: 502 })
     }
 
@@ -135,6 +143,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[seo-generate] error:", err)
+    void logCaughtError("ai:seo", err, { ...requestMeta(request), phase: "generate" })
     return Response.json({ error: "Failed to generate SEO suggestions." }, { status: 500 })
   }
 }

@@ -2,6 +2,7 @@ import { convertToModelMessages, streamText, UIMessage, validateUIMessages } fro
 import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListHelpArticles } from "@/lib/db/queries"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 // Never cache — every request must see the latest published help articles
 // (newly added articles in /admin/help must be immediately usable by the chat).
@@ -68,6 +69,7 @@ async function buildKnowledgeBase(): Promise<{ text: string; count: number }> {
 }
 
 export async function POST(req: Request) {
+  const reqMeta = requestMeta(req)
   schedulePrune()
   const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
   if (!limit.allowed) return limit.response
@@ -136,11 +138,15 @@ If the user asks something not covered by the knowledgebase, acknowledge it hone
       messages: await convertToModelMessages(messages),
       temperature,
       maxOutputTokens,
+      onError: ({ error }) => {
+        void logCaughtError("ai:help", error, { ...reqMeta, phase: "stream" })
+      },
     })
 
     return result.toUIMessageStreamResponse()
   } catch (error) {
     console.error("[help-chat] POST error:", error)
+    void logCaughtError("ai:help", error, { ...reqMeta, phase: "POST" })
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

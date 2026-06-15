@@ -2,6 +2,7 @@ import { convertToModelMessages, streamText, UIMessage, validateUIMessages } fro
 import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListTrips, dbListPosts } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
+import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -87,6 +88,7 @@ When asked about the roadmap or next steps, prioritize:
 Always tie recommendations back to measurable outcomes (conversions, bookings, engagement, revenue).`
 
 export async function POST(request: Request) {
+  const reqMeta = requestMeta(request)
   try {
     await requireAdminSession()
     const body = await request.json()
@@ -116,6 +118,9 @@ export async function POST(request: Request) {
       messages: await convertToModelMessages(messages),
       temperature: 0.7,
       maxOutputTokens: 2000,
+      onError: ({ error }) => {
+        void logCaughtError("ai:advisor", error, { ...reqMeta, phase: "stream" })
+      },
     })
 
     return result.toUIMessageStreamResponse()
@@ -127,6 +132,7 @@ export async function POST(request: Request) {
       })
     }
     console.error("[ai-advisor] POST error:", error)
+    void logCaughtError("ai:advisor", error, { ...reqMeta, phase: "POST" })
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

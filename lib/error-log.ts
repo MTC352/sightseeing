@@ -47,6 +47,36 @@ function ensureTable(): Promise<void> {
   return tableReady
 }
 
+/**
+ * Extract debugging metadata from an incoming Request so error logs record
+ * WHERE a failing API/AI call came from: the HTTP method, the endpoint path,
+ * the page it was triggered from (Referer), and the client (User-Agent). This
+ * makes "Generation failed" rows actionable — the admin can see exactly which
+ * page and which method produced the failure. Fail-soft: never throws.
+ *
+ * The query string is intentionally dropped (some routes carry sensitive args)
+ * — only the pathname is recorded.
+ */
+export function requestMeta(req: Request): Record<string, unknown> {
+  try {
+    const h = req.headers
+    let path = ""
+    try {
+      path = new URL(req.url).pathname
+    } catch {
+      path = ""
+    }
+    return {
+      method: req.method,
+      path,
+      referer: h.get("referer") || h.get("referrer") || null,
+      userAgent: h.get("user-agent") || null,
+    }
+  } catch {
+    return {}
+  }
+}
+
 /** Pull a human message + HTTP status out of an unknown thrown value. */
 export function describeError(err: unknown): { message: string; statusCode: number | null } {
   if (err && typeof err === "object") {
