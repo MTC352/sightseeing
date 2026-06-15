@@ -290,6 +290,7 @@ function AnnouncementEditor({
     <div className={`rounded-xl border transition-all ${value.enabled ? "border-primary/30 bg-card" : "border-border bg-card/60"}`}>
       {/* Header row */}
       <div className={`flex items-center gap-3 px-5 py-4 ${expanded ? "border-b border-border" : ""}`}>
+        <Toggle checked={value.enabled} onChange={(v) => onChange({ ...value, enabled: v })} />
         <Megaphone className="h-5 w-5 shrink-0 text-primary" />
         <div className="flex flex-1 flex-col min-w-0">
           <span className="text-sm font-semibold text-foreground">Announcement Banner</span>
@@ -297,26 +298,27 @@ function AnnouncementEditor({
             A styled promo bar shown above the navigation on every public page. No HTML needed.
           </span>
         </div>
-        {value.enabled ? (
-          <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Active
-          </span>
-        ) : (
-          <span className="rounded-full bg-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-            Inactive
-          </span>
-        )}
-        <Toggle checked={value.enabled} onChange={(v) => onChange({ ...value, enabled: v })} />
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? "Collapse" : "Expand"}
-          aria-expanded={expanded}
-          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-        >
-          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
+        <div className="flex items-center gap-2">
+          {value.enabled ? (
+            <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Active
+            </span>
+          ) : (
+            <span className="rounded-full bg-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              Inactive
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-label={expanded ? "Collapse" : "Expand"}
+            aria-expanded={expanded}
+            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
 
       {expanded && (
