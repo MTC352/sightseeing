@@ -8,6 +8,8 @@
     "temperature": 0.75,
     "max_tokens": 4000,
     "extra_config": {
+      "imageModel": "gpt-image-1",
+      "imagePrompt": "Professional travel photography, photorealistic, vibrant natural colors, soft natural lighting, sharp focus, high detail, no text, no watermark, no logos.",
       "providerModels": {
         "openai": "openai/gpt-4o-mini",
         "anthropic": "anthropic/claude-haiku-4-5-20251001"

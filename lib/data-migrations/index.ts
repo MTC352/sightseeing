@@ -401,6 +401,47 @@ async function applyPlannerPromptRelocation(): Promise<MigrationResult> {
   }
 }
 
+async function applyBlogCoverImageConfig(): Promise<MigrationResult> {
+  const row = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'blog'`,
+  )
+  if (!row) {
+    return { inserted: 0, skipped: 1, detail: "blog ai_system_configs row not found" }
+  }
+  const extra =
+    row.extra_config && typeof row.extra_config === "object"
+      ? (row.extra_config as Record<string, unknown>)
+      : {}
+  const hasImageModel = typeof extra.imageModel === "string" && extra.imageModel.trim() !== ""
+  const hasImagePrompt = typeof extra.imagePrompt === "string" && extra.imagePrompt.trim() !== ""
+  if (hasImageModel && hasImagePrompt) {
+    return { inserted: 0, skipped: 1, detail: "blog extra_config.imageModel and imagePrompt already set" }
+  }
+  // Build patch for only the missing fields so we never clobber admin-edited values
+  const patch: Record<string, string> = {}
+  if (!hasImageModel) patch.imageModel = "gpt-image-1"
+  if (!hasImagePrompt)
+    patch.imagePrompt =
+      "Professional travel photography, photorealistic, vibrant natural colors, soft natural lighting, sharp focus, high detail, no text, no watermark, no logos."
+  // COALESCE guards against a NULL extra_config column (jsonb || jsonb returns NULL when left side is NULL)
+  const updated = await query<{ system_key: string }>(
+    `UPDATE ai_system_configs
+     SET extra_config = COALESCE(extra_config, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+     WHERE system_key = 'blog'
+     RETURNING system_key`,
+    [JSON.stringify(patch)],
+  )
+  const count = updated.length
+  return {
+    inserted: count,
+    skipped: count === 0 ? 1 : 0,
+    detail:
+      count > 0
+        ? `Set blog extra_config fields: ${Object.keys(patch).join(", ")}`
+        : "blog row not updated (unexpected)",
+  }
+}
+
 export type AiConfigFieldKey =
   | "label"
   | "description"
@@ -557,6 +598,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Relocates any existing planner system-prompt override from the legacy chat.extra_config.planner.systemPrompt location onto the planner AI System row's own system_prompt column, consolidating it with every other AI System. The onboarding form stays in chat.extra_config. DATA-only (no DDL). Idempotent: a no-op when planner.system_prompt is already set or there is no legacy override; the legacy value is left in place (non-destructive).",
     apply: applyPlannerPromptRelocation,
+  },
+  {
+    id: "007-blog-cover-image-config",
+    name: "Blog cover image AI config",
+    description:
+      "Adds imageModel ('gpt-image-1') and imagePrompt (base style guide) to the blog AI System's extra_config. These fields drive cover image generation in the Blog editor. DATA-only (no DDL). Idempotent: skipped when imageModel is already set.",
+    apply: applyBlogCoverImageConfig,
   },
 ]
 
