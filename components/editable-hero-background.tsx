@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { Upload, Link2, Loader2, X, Check, Plus, Images, Clock, FolderOpen } from "lucide-react"
+import { Upload, Link2, Loader2, X, Check, Plus, Images, Clock, FolderOpen, Search } from "lucide-react"
 import { useEditMode } from "@/components/edit-mode-provider"
 import { HeroSlideshow } from "@/components/hero-slideshow"
 import { cn } from "@/lib/utils"
@@ -90,6 +90,9 @@ export function EditableHeroBackground() {
   const [library, setLibrary] = useState<LibraryImage[] | null>(null)
   const [libraryLoading, setLibraryLoading] = useState(false)
   const [libraryError, setLibraryError] = useState<string | null>(null)
+  const [librarySearch, setLibrarySearch] = useState("")
+  const LIBRARY_PAGE = 18
+  const [libraryLimit, setLibraryLimit] = useState(LIBRARY_PAGE)
 
   async function loadLibrary() {
     setLibraryLoading(true)
@@ -118,6 +121,8 @@ export function EditableHeroBackground() {
   function openLibrary() {
     setMode("library")
     setError(null)
+    setLibrarySearch("")
+    setLibraryLimit(LIBRARY_PAGE)
     if (!library && !libraryLoading) loadLibrary()
   }
 
@@ -195,15 +200,26 @@ export function EditableHeroBackground() {
 
   const isSlideshow = displayImages.length > 1
 
-  // Library images that aren't already part of the hero selection (no duplicates).
+  // Library images that aren't already part of the hero selection (no duplicates),
+  // narrowed by the search box. Render is paged so huge libraries stay fast.
   const selectedSet = new Set(displayImages)
-  const availableLibrary = (library ?? []).filter((f) => !selectedSet.has(f.url))
+  const librarySearchQuery = librarySearch.trim().toLowerCase()
+  const availableLibrary = (library ?? []).filter((f) => {
+    if (selectedSet.has(f.url)) return false
+    if (!librarySearchQuery) return true
+    return (
+      (f.title ?? "").toLowerCase().includes(librarySearchQuery) ||
+      f.filename.toLowerCase().includes(librarySearchQuery)
+    )
+  })
+  const visibleLibrary = availableLibrary.slice(0, libraryLimit)
+  const remainingLibrary = availableLibrary.length - visibleLibrary.length
 
   return (
     <div data-editable="true" className="absolute inset-0">
       <HeroSlideshow images={displayImages} intervalSeconds={intervalSeconds} />
 
-      <div className="absolute bottom-3 left-3 z-30">
+      <div className="absolute bottom-3 left-3 z-[60]">
         {!open ? (
           <button
             type="button"
@@ -384,32 +400,69 @@ export function EditableHeroBackground() {
                       </div>
                     ) : libraryError ? (
                       <p className="py-4 text-center text-[11px] text-red-600">{libraryError}</p>
-                    ) : availableLibrary.length === 0 ? (
+                    ) : !library || library.length === 0 ? (
                       <p className="py-4 text-center text-[11px] text-zinc-400">
-                        {library && library.length > 0
-                          ? "All your library images are already added."
-                          : "No images in your files yet — upload some under Files first."}
+                        No images in your files yet — upload some under Files first.
                       </p>
                     ) : (
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {availableLibrary.map((f) => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => addImage(f.url)}
-                            title={f.title || f.filename}
-                            className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-zinc-200 transition-colors hover:border-amber-400"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={f.url} alt={f.title || f.filename} className="h-full w-full object-cover" />
-                            <span className="absolute inset-0 flex items-center justify-center bg-amber-400/0 opacity-0 transition-opacity group-hover:bg-amber-400/25 group-hover:opacity-100">
-                              <Plus className="h-4 w-4 text-amber-950" />
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+                      <>
+                        <div className="relative mb-2">
+                          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-zinc-400" />
+                          <input
+                            type="text"
+                            value={librarySearch}
+                            onChange={(e) => { setLibrarySearch(e.target.value); setLibraryLimit(LIBRARY_PAGE) }}
+                            placeholder="Search files…"
+                            className="w-full rounded-lg border border-zinc-200 py-1.5 pl-7 pr-2.5 text-xs text-zinc-800 placeholder:text-zinc-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400/30"
+                          />
+                        </div>
+                        {availableLibrary.length === 0 ? (
+                          <p className="py-4 text-center text-[11px] text-zinc-400">
+                            {librarySearchQuery
+                              ? "No files match your search."
+                              : "All your library images are already added."}
+                          </p>
+                        ) : (
+                          <>
+                            <div className="max-h-56 overflow-y-auto">
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {visibleLibrary.map((f) => (
+                                  <button
+                                    key={f.id}
+                                    type="button"
+                                    onClick={() => addImage(f.url)}
+                                    title={f.title || f.filename}
+                                    className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-zinc-200 transition-colors hover:border-amber-400"
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={f.url}
+                                      alt={f.title || f.filename}
+                                      loading="lazy"
+                                      decoding="async"
+                                      className="h-full w-full object-cover"
+                                    />
+                                    <span className="absolute inset-0 flex items-center justify-center bg-amber-400/0 opacity-0 transition-opacity group-hover:bg-amber-400/25 group-hover:opacity-100">
+                                      <Plus className="h-4 w-4 text-amber-950" />
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            {remainingLibrary > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setLibraryLimit((n) => n + LIBRARY_PAGE)}
+                                className="mt-1.5 w-full rounded-lg border border-zinc-200 py-1.5 text-[11px] font-medium text-zinc-600 transition-colors hover:border-amber-400 hover:text-amber-700"
+                              >
+                                Show more ({remainingLibrary} more)
+                              </button>
+                            )}
+                          </>
+                        )}
+                        <p className="mt-1.5 text-center text-[10px] text-zinc-400">Only image files from your library are shown.</p>
+                      </>
                     )}
-                    <p className="mt-1.5 text-center text-[10px] text-zinc-400">Only image files from your library are shown.</p>
                   </div>
                 )}
               </div>
