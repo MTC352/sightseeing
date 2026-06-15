@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { ImageIcon, Upload, Link2, Loader2, X, Check, Plus, Images, Clock } from "lucide-react"
+import { Upload, Link2, Loader2, X, Check, Plus, Images, Clock, FolderOpen } from "lucide-react"
 import { useEditMode } from "@/components/edit-mode-provider"
 import { HeroSlideshow } from "@/components/hero-slideshow"
 import { cn } from "@/lib/utils"
@@ -17,6 +17,9 @@ const LEGACY_KEY = "home:hero:background-image"
 const DEFAULT_INTERVAL = 5
 const MIN_INTERVAL = 2
 const MAX_INTERVAL = 30
+
+/** Minimal shape of a media-library row needed by the picker. */
+type LibraryImage = { id: string; url: string; title: string | null; filename: string; mime_type: string }
 
 /**
  * Parse the admin's EXPLICIT hero images (no default fallback baked in).
@@ -77,11 +80,46 @@ export function EditableHeroBackground() {
   const displayImages = explicit.length > 0 ? explicit : [DEFAULT_HERO_IMAGE]
 
   const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState<"upload" | "url">("upload")
+  const [mode, setMode] = useState<"upload" | "url" | "library">("upload")
   const [urlDraft, setUrlDraft] = useState("")
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Media library picker state.
+  const [library, setLibrary] = useState<LibraryImage[] | null>(null)
+  const [libraryLoading, setLibraryLoading] = useState(false)
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+
+  async function loadLibrary() {
+    setLibraryLoading(true)
+    setLibraryError(null)
+    try {
+      const res = await fetch("/api/admin/media", { cache: "no-store" })
+      if (!res.ok) throw new Error("Could not load files")
+      const data: LibraryImage[] = await res.json()
+      // Only image files are selectable; dedupe by URL so the same file never
+      // appears twice in the picker.
+      const seen = new Set<string>()
+      const images = data.filter((f) => {
+        if (!f?.mime_type?.startsWith("image/")) return false
+        if (!f.url || seen.has(f.url)) return false
+        seen.add(f.url)
+        return true
+      })
+      setLibrary(images)
+    } catch (err) {
+      setLibraryError(err instanceof Error ? err.message : "Could not load files")
+    } finally {
+      setLibraryLoading(false)
+    }
+  }
+
+  function openLibrary() {
+    setMode("library")
+    setError(null)
+    if (!library && !libraryLoading) loadLibrary()
+  }
 
   // Re-derive the current image list from the LATEST pending value at write
   // time (falling back to saved/legacy), so rapid add/remove clicks compose
@@ -101,7 +139,11 @@ export function EditableHeroBackground() {
       setError("Enter a valid image URL (https://… or an uploaded /uploads/… path).")
       return false
     }
-    mutateChange(IMAGES_KEY, (cur) => JSON.stringify([...currentImages(cur), u]))
+    // Never add the same image twice (skip the write if it's already present).
+    mutateChange(IMAGES_KEY, (cur) => {
+      const list = currentImages(cur)
+      return list.includes(u) ? JSON.stringify(list) : JSON.stringify([...list, u])
+    })
     setError(null)
     return true
   }
@@ -152,6 +194,10 @@ export function EditableHeroBackground() {
   }
 
   const isSlideshow = displayImages.length > 1
+
+  // Library images that aren't already part of the hero selection (no duplicates).
+  const selectedSet = new Set(displayImages)
+  const availableLibrary = (library ?? []).filter((f) => !selectedSet.has(f.url))
 
   return (
     <div data-editable="true" className="absolute inset-0">
@@ -257,6 +303,17 @@ export function EditableHeroBackground() {
                   </button>
                   <button
                     type="button"
+                    onClick={openLibrary}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                      mode === "library" ? "bg-white text-zinc-800 shadow-sm" : "text-zinc-500 hover:text-zinc-700",
+                    )}
+                  >
+                    <FolderOpen className="h-3 w-3" />
+                    Files
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setMode("url")}
                     className={cn(
                       "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
@@ -264,11 +321,11 @@ export function EditableHeroBackground() {
                     )}
                   >
                     <Link2 className="h-3 w-3" />
-                    Paste URL
+                    URL
                   </button>
                 </div>
 
-                {mode === "upload" ? (
+                {mode === "upload" && (
                   <div className="pt-2">
                     <input
                       ref={fileInputRef}
@@ -291,7 +348,9 @@ export function EditableHeroBackground() {
                     </button>
                     <p className="mt-1 text-center text-[10px] text-zinc-400">JPEG, PNG, WebP or GIF · max 8 MB</p>
                   </div>
-                ) : (
+                )}
+
+                {mode === "url" && (
                   <div className="pt-2">
                     <div className="flex gap-1.5">
                       <input
@@ -314,6 +373,43 @@ export function EditableHeroBackground() {
                         <Check className="h-3 w-3" /> Add
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {mode === "library" && (
+                  <div className="pt-2">
+                    {libraryLoading ? (
+                      <div className="flex items-center justify-center gap-2 py-6 text-xs text-zinc-400">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading files…
+                      </div>
+                    ) : libraryError ? (
+                      <p className="py-4 text-center text-[11px] text-red-600">{libraryError}</p>
+                    ) : availableLibrary.length === 0 ? (
+                      <p className="py-4 text-center text-[11px] text-zinc-400">
+                        {library && library.length > 0
+                          ? "All your library images are already added."
+                          : "No images in your files yet — upload some under Files first."}
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {availableLibrary.map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => addImage(f.url)}
+                            title={f.title || f.filename}
+                            className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-zinc-200 transition-colors hover:border-amber-400"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={f.url} alt={f.title || f.filename} className="h-full w-full object-cover" />
+                            <span className="absolute inset-0 flex items-center justify-center bg-amber-400/0 opacity-0 transition-opacity group-hover:bg-amber-400/25 group-hover:opacity-100">
+                              <Plus className="h-4 w-4 text-amber-950" />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <p className="mt-1.5 text-center text-[10px] text-zinc-400">Only image files from your library are shown.</p>
                   </div>
                 )}
               </div>
