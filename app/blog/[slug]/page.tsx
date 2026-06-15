@@ -218,7 +218,7 @@ export default async function BlogPostPage({ params }: Props) {
           />
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-background" />
         </div>
-        <div className="relative mx-auto max-w-3xl px-4 pb-10 pt-32 lg:pt-44 lg:pb-14">
+        <div data-no-edit className="relative mx-auto max-w-3xl px-4 pb-10 pt-32 lg:pt-44 lg:pb-14">
           <Link
             href="/blog"
             className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/20"
@@ -245,14 +245,15 @@ export default async function BlogPostPage({ params }: Props) {
       </section>
 
       <article className="mx-auto max-w-3xl px-4 py-10 lg:py-14">
-        <p className="mb-6 text-lg leading-relaxed text-foreground font-medium">{post.excerpt}</p>
+        <p data-no-edit className="mb-6 text-lg leading-relaxed text-foreground font-medium">{post.excerpt}</p>
         <div
+          data-no-edit
           className="prose prose-neutral max-w-none prose-a:text-primary prose-a:underline"
           dangerouslySetInnerHTML={{ __html: bodyHtml }}
         />
 
         {post.tags && post.tags.length > 0 && (
-          <div className="mt-10 border-t border-border pt-6">
+          <div data-no-edit className="mt-10 border-t border-border pt-6">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">Tags</p>
             <div className="flex flex-wrap gap-2">
               {post.tags.map((tag) => (

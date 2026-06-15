@@ -203,6 +203,7 @@ export function DeparturesSoonSection() {
                 `/trip/${dep.tripId}?date=${encodeURIComponent(dep.date)}&time=${encodeURIComponent(dep.time)}&from=departing#booking`
               return (
                 <Link
+                  data-no-edit
                   key={`${dep.tripId}-${dep.date}-${dep.time}`}
                   href={slotHref}
                   className="group relative flex w-64 shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"

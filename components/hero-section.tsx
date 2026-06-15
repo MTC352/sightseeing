@@ -79,7 +79,7 @@ export function HeroSection() {
             />
           </p>
 
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-sm">
+          <div data-no-edit className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-sm">
             {isLoading ? (
               <div className="h-4 w-32 animate-pulse rounded bg-white/20" />
             ) : weather ? (

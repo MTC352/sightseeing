@@ -14,7 +14,7 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
 
   if (variant === "small") {
     return (
-      <Link href={`/trip/${trip.slug ?? trip.id}`} className="group flex gap-3 rounded-lg border border-border bg-card p-2 transition-colors hover:border-primary/30">
+      <Link data-no-edit href={`/trip/${trip.slug ?? trip.id}`} className="group flex gap-3 rounded-lg border border-border bg-card p-2 transition-colors hover:border-primary/30">
         <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md">
           <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} className="object-cover" sizes="80px" />
         </div>
@@ -32,7 +32,7 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
 
   if (variant === "horizontal") {
     return (
-      <div className="group flex overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+      <div data-no-edit className="group flex overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
         <Link href={`/trip/${trip.slug ?? trip.id}`} className="relative h-36 w-40 shrink-0 overflow-hidden sm:w-48">
           <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="200px" />
           {trip.badge && <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">{trip.badge}</span>}
@@ -57,7 +57,7 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
 
   /* default card */
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div data-no-edit className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
       {/* Image — bottom corners are square so card body sits flush */}
       <Link href={`/trip/${trip.slug ?? trip.id}`} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
         <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />

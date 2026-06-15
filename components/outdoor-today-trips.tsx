@@ -65,6 +65,7 @@ function TripCard({ trip, fill = false }: { trip: OutdoorTodayTrip; fill?: boole
 
   return (
     <Link
+      data-no-edit
       href={`/trip/${trip.id}`}
       className={`group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md ${
         fill ? "w-full" : "w-[calc(100vw-5rem)] shrink-0 sm:w-64"

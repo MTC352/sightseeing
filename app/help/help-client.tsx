@@ -290,7 +290,7 @@ export function HelpClient({ articles }: Props) {
 
         {/* Search results indicator */}
         {searchQuery && (
-          <div className="mb-6">
+          <div data-no-edit className="mb-6">
             <p className="text-sm text-muted-foreground">
               Found <span className="font-semibold text-foreground">{totalResults}</span> result{totalResults !== 1 ? "s" : ""} for &quot;{searchQuery}&quot;
             </p>
@@ -312,7 +312,7 @@ export function HelpClient({ articles }: Props) {
         {!searchQuery && !activeCategory && categories.length > 0 && (
           <div className="mb-12">
             <h2 className="mb-6 text-xl font-bold text-foreground">Browse by Category</h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="help-categories">
+            <div data-no-edit className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="help-categories">
               {categories.map((cat) => (
                 <button
                   key={cat.id}
@@ -352,7 +352,7 @@ export function HelpClient({ articles }: Props) {
               if (!cat) return null
               return (
                 <>
-                  <div className="mb-6 flex items-center gap-3">
+                  <div data-no-edit className="mb-6 flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                       <cat.icon className="h-5 w-5" />
                     </div>
@@ -361,7 +361,7 @@ export function HelpClient({ articles }: Props) {
                       <p className="text-sm text-muted-foreground">{cat.items.length} article{cat.items.length !== 1 ? "s" : ""}</p>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-2">
+                  <div data-no-edit className="flex flex-col gap-2">
                     {cat.items.map((item) => (
                       <div key={item.id} className="rounded-xl border border-border bg-card overflow-hidden">
                         <button
@@ -394,7 +394,7 @@ export function HelpClient({ articles }: Props) {
 
         {/* Search results */}
         {searchQuery && (
-          <div className="mb-12">
+          <div data-no-edit className="mb-12">
             {filteredCategories.length === 0 ? (
               <div className="rounded-xl border border-border bg-card p-8 text-center">
                 <HelpCircle className="mx-auto h-10 w-10 text-muted-foreground/50" />
@@ -474,7 +474,7 @@ export function HelpClient({ articles }: Props) {
           )}
 
           {chatActive && messages.length > 0 && (
-            <div ref={scrollRef} className="max-h-80 overflow-y-auto px-5 py-4">
+            <div data-no-edit ref={scrollRef} className="max-h-80 overflow-y-auto px-5 py-4">
               <div className="space-y-3">
                 {messages.map((msg) => {
                   const text = getMessageText(msg)
@@ -584,7 +584,7 @@ export function HelpClient({ articles }: Props) {
         {popularArticles.length > 0 && (
           <section className="mt-12">
             <h2 className="mb-6 text-xl font-bold text-foreground">Popular Articles</h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div data-no-edit className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {popularArticles.map(({ article, category }) => (
                 <button
                   key={article.id}

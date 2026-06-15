@@ -23,7 +23,7 @@ function JobCard({ job }: { job: JobListing }) {
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
+    <div data-no-edit className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
       <div className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -77,7 +77,7 @@ export function CareersClient({ jobs }: { jobs: JobListing[] }) {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
-      <div className="flex flex-wrap gap-2">
+      <div data-no-edit className="flex flex-wrap gap-2">
         {departments.map((dept) => (
           <button
             key={dept}

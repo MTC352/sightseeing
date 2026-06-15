@@ -74,7 +74,7 @@ export default async function BlogPage() {
 
       <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
         {/* Featured post */}
-        <Link href={`/blog/${featured.slug}`} className="group mb-10 flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md lg:flex-row">
+        <Link data-no-edit href={`/blog/${featured.slug}`} className="group mb-10 flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md lg:flex-row">
           <div className="relative h-56 shrink-0 lg:h-auto lg:w-[480px]">
             <Image src={featured.image} alt={featured.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="(max-width: 1024px) 100vw, 480px" priority />
           </div>
@@ -97,7 +97,7 @@ export default async function BlogPage() {
         {rest.length > 0 && (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {rest.map((post) => (
-              <Link key={post.slug} href={`/blog/${post.slug}`} className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+              <Link data-no-edit key={post.slug} href={`/blog/${post.slug}`} className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
                 <div className="relative aspect-video overflow-hidden">
                   <Image src={post.image} alt={post.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" loading="lazy" />
                   <span className="absolute left-3 top-3 rounded-full bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground backdrop-blur-sm">

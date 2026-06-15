@@ -262,6 +262,7 @@ export default function TripDetailClient({
               hurt; the rest load eagerly because they're inside the viewport.
             */}
             <div
+              data-no-edit
               className="group relative aspect-[16/9] overflow-hidden rounded-2xl bg-muted"
               data-testid="trip-gallery"
             >
@@ -319,7 +320,7 @@ export default function TripDetailClient({
 
             {/* Thumbnail strip */}
             {gallery.length > 1 && (
-              <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              <div data-no-edit className="mt-2 flex gap-2 overflow-x-auto pb-1">
                 {gallery.map((src, i) => (
                   <button
                     key={i}
@@ -335,7 +336,7 @@ export default function TripDetailClient({
             )}
 
             {/* Title & meta */}
-            <div className="mt-6">
+            <div data-no-edit className="mt-6">
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-0.5">
                   <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
@@ -354,7 +355,7 @@ export default function TripDetailClient({
             </div>
 
             {/* Description */}
-            <div className="mt-6">
+            <div data-no-edit className="mt-6">
               <p className="text-sm text-muted-foreground leading-relaxed trip-answer-first" data-testid="trip-description">
                 {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}.{mergedDescription ? ` ${mergedDescription}` : ""}
               </p>
@@ -364,7 +365,7 @@ export default function TripDetailClient({
             {(detail?.guides ?? []).length > 0 && (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Meet your guides</h2>
-                <div className="mt-4 flex flex-col gap-4">
+                <div data-no-edit className="mt-4 flex flex-col gap-4">
                   {(detail!.guides).map((g) => (
                     <div key={g.id} className="flex gap-4 rounded-xl border border-border bg-card p-4">
                       <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full">
@@ -395,7 +396,7 @@ export default function TripDetailClient({
             {(detail?.reasons ?? []).length > 0 && (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Reasons to book</h2>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <div data-no-edit className="mt-4 grid gap-2 sm:grid-cols-2">
                   {detail!.reasons.map((r, i) => (
                     <div key={i} className="flex items-start gap-2 rounded-lg border border-border bg-card p-3">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -410,7 +411,7 @@ export default function TripDetailClient({
             {!hasStaticItinerary && highlightsList.length > 0 && (
               <div className="mt-8 trip-highlights">
                 <h2 className="text-lg font-bold text-foreground">Highlights</h2>
-                <ul className="mt-4 flex flex-col gap-2" data-testid="trip-highlights">
+                <ul data-no-edit className="mt-4 flex flex-col gap-2" data-testid="trip-highlights">
                   {highlightsList.map((h, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{h}
@@ -424,12 +425,14 @@ export default function TripDetailClient({
             {structuredSteps.length > 0 ? (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Itinerary</h2>
-                <TripItinerary steps={structuredSteps} />
+                <div data-no-edit>
+                  <TripItinerary steps={structuredSteps} />
+                </div>
               </div>
             ) : hasStaticItinerary ? (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Itinerary</h2>
-                <div className="mt-4 flex flex-col">
+                <div data-no-edit className="mt-4 flex flex-col">
                   {detail!.itinerary.map((step, i) => (
                     <div key={i} className="flex gap-4">
                       <div className="flex flex-col items-center">
@@ -448,7 +451,7 @@ export default function TripDetailClient({
             ) : dbItineraryText ? (
               <div className="mt-8">
                 <h2 className="text-lg font-bold text-foreground">Itinerary</h2>
-                <p className="mt-3 whitespace-pre-line text-sm text-muted-foreground leading-relaxed" data-testid="trip-itinerary">
+                <p data-no-edit className="mt-3 whitespace-pre-line text-sm text-muted-foreground leading-relaxed" data-testid="trip-itinerary">
                   {dbItineraryText}
                 </p>
               </div>
@@ -460,7 +463,7 @@ export default function TripDetailClient({
                 {includes.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">{"What's included"}</h3>
-                    <ul className="mt-2 flex flex-col gap-1.5" data-testid="trip-includes">
+                    <ul data-no-edit className="mt-2 flex flex-col gap-1.5" data-testid="trip-includes">
                       {includes.map((item) => (
                         <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Check className="h-3.5 w-3.5 text-primary" />{item}
@@ -472,7 +475,7 @@ export default function TripDetailClient({
                 {notIncludes.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-foreground">Not included</h3>
-                    <ul className="mt-2 flex flex-col gap-1.5" data-testid="trip-excludes">
+                    <ul data-no-edit className="mt-2 flex flex-col gap-1.5" data-testid="trip-excludes">
                       {notIncludes.map((item) => (
                         <li key={item} className="flex items-center gap-2 text-sm text-muted-foreground">
                           <span className="h-3.5 w-3.5 text-center text-xs text-destructive">&times;</span>{item}
@@ -490,7 +493,7 @@ export default function TripDetailClient({
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <Shield className="h-4 w-4 text-primary" /> Cancellation policy
                 </h3>
-                <ul className="mt-2 flex flex-col gap-1">
+                <ul data-no-edit className="mt-2 flex flex-col gap-1">
                   {cancellationPolicyItems.map((p) => (
                     <li key={p} className="text-sm text-muted-foreground whitespace-pre-line">&bull; {p}</li>
                   ))}
@@ -514,7 +517,7 @@ export default function TripDetailClient({
           <div id="calendar" className="shrink-0 lg:w-[400px]">
             <div className="sticky top-20 flex flex-col gap-3">
               <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-                <div className="flex items-baseline gap-2">
+                <div data-no-edit className="flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-foreground">{trip.price.toFixed(2)} &euro;</span>
                   {trip.originalPrice && <span className="text-sm text-muted-foreground line-through">{trip.originalPrice.toFixed(2)} &euro;</span>}
                   <span className="text-xs text-muted-foreground">/ person</span>
@@ -533,7 +536,7 @@ export default function TripDetailClient({
               {trip.permalink ? (
                 <div id="booking" className="space-y-3">
                   {selectedDate && selectedTime && (
-                    <div className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
+                    <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
                       <p
                         className="text-[11px] font-semibold uppercase tracking-wider text-primary"
                         data-testid="selected-slot-eyebrow"
@@ -560,7 +563,7 @@ export default function TripDetailClient({
 
               {/* Live weather */}
               {(weatherLoading || weather) && (
-                <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                <div data-no-edit className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-foreground">Right now in Luxembourg</span>
                   </div>

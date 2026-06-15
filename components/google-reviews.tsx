@@ -155,7 +155,7 @@ export function GoogleReviews({
         </a>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-3 md:overflow-visible md:pb-0">
+      <div data-no-edit className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-3 md:overflow-visible md:pb-0">
         {data.reviews.slice(0, 3).map((review, idx) => (
           <div key={idx} className="min-w-[280px] flex flex-col justify-between rounded-lg border border-border bg-card p-4 md:min-w-0">
             <div>

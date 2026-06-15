@@ -206,6 +206,7 @@ export function WeatherSection() {
         <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
           {/* Weather card — minimal white design */}
           <div
+            data-no-edit
             className={`shrink-0 overflow-hidden rounded-2xl border border-border shadow-sm lg:w-72 ${theme.bg}`}
           >
             {/* Content */}
@@ -325,7 +326,7 @@ export function CategoriesSection() {
       <p className="mt-1 text-sm text-muted-foreground">
         <EditableText id="home:categories:subheading" defaultValue="From cultural tours to adventurous activities." />
       </p>
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
+      <div data-no-edit className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => <CategoryTileSkeleton key={`sk-${i}`} />)
           : tags.map((t) => {
@@ -535,7 +536,7 @@ export function ReviewsSection() {
               </h2>
 
               {/* Overall rating badge */}
-              <div className="mt-2.5 flex items-center gap-2.5">
+              <div data-no-edit className="mt-2.5 flex items-center gap-2.5">
                 {isLoading ? (
                   <>
                     <div className="h-9 w-14 animate-pulse rounded-lg bg-muted" />
@@ -571,6 +572,7 @@ export function ReviewsSection() {
           </div>
 
           {/* ── Review cards: carousel on mobile, grid on desktop ── */}
+          <div data-no-edit>
           {isLoading ? (
             <div className="mt-6 flex gap-4 overflow-x-auto pb-3 md:grid md:grid-cols-2 md:overflow-visible md:pb-0 xl:grid-cols-3">
               {[1, 2, 3].map((i) => (
@@ -614,6 +616,7 @@ export function ReviewsSection() {
             /* Live reviews — auto-advancing slider (loops the latest 5) */
             <ReviewSlider reviews={liveReviews.slice(0, 5)} />
           )}
+          </div>
         </div>
 
         {/* ── Bestseller sidebar ── */}
