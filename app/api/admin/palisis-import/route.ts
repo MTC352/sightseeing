@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getTourCMSClient } from "@/lib/tourcms"
 import type { TourSummary } from "@/lib/tourcms"
 import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper"
+import { localizeMappedImages } from "@/lib/palisis-sync"
 import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog, dbGetImportExcludedFields } from "@/lib/db/queries"
 import { sanitizeExcludedFields, fieldLabel } from "@/lib/palisis-import-fields"
 import { requireAdminSession } from "@/lib/auth-server"
@@ -169,12 +170,14 @@ export async function POST(req: Request) {
           // Fall back to lean (list) data — fewer fields but always available
           logs.push(`[${ts()}] WARN: showTour failed for ${palisisId} (${detail.error}) — using lean data`)
           const mapped = mapTourDetailToTrip(lean)
+          await localizeMappedImages(mapped, session.id)
           await dbCreateTrip({ ...mapped, palisisId, title: leanTitle || mapped.title })
           tourResults.push({ palisisId, title: leanTitle || palisisId, action: "created_lean", error: detail.error })
           apiErrors++
         } else {
           // Use full detail, but ALWAYS use the lean tour_id as the DB key
           const mapped      = mapTourDetailToTrip(detail.tour)
+          await localizeMappedImages(mapped, session.id)
           const displayTitle = String(detail.tour.tour_name_long ?? detail.tour.tour_name ?? leanTitle)
           await dbCreateTrip({ ...mapped, palisisId, title: displayTitle || leanTitle })
           tourResults.push({ palisisId, title: displayTitle || leanTitle, action: "created" })
@@ -196,6 +199,7 @@ export async function POST(req: Request) {
         }
 
         const mapped       = mapTourDetailToTrip(detail.tour)
+        await localizeMappedImages(mapped, session.id)
         const displayTitle = String(detail.tour.tour_name_long ?? detail.tour.tour_name ?? leanTitle)
         const payload      = mappedToUpdatePayload(mapped, { preservePermalink: !!localTrip.permalink, excludeFields })
         // Title is re-derived from the richest source — only set it when not excluded.

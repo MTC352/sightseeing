@@ -2348,6 +2348,7 @@ export interface MediaFileRow {
   size_bytes: number
   storage: string
   content_hash: string | null
+  source_url: string | null
   uploaded_by: string | null
   uploader_name: string | null
   created_at: string
@@ -2355,7 +2356,7 @@ export interface MediaFileRow {
 
 const MEDIA_SELECT = `
   id, filename, title, url, mime_type, size_bytes::int AS size_bytes,
-  storage, content_hash, uploaded_by,
+  storage, content_hash, source_url, uploaded_by,
   (SELECT name FROM admin_users WHERE id = media_files.uploaded_by) AS uploader_name,
   created_at`
 
@@ -2395,6 +2396,7 @@ export async function dbCreateMedia(input: {
   sizeBytes: number
   storage: string
   contentHash?: string | null
+  sourceUrl?: string | null
   uploadedBy?: string | null
 }): Promise<{ row: MediaFileRow; created: boolean }> {
   const params = [
@@ -2405,13 +2407,14 @@ export async function dbCreateMedia(input: {
     Math.round(input.sizeBytes),
     input.storage,
     input.contentHash ?? null,
+    input.sourceUrl ?? null,
     input.uploadedBy ?? null,
   ]
   // ON CONFLICT targets the partial unique index; a NULL hash never conflicts
   // (NULLs are distinct) so hashless inserts always succeed.
   const inserted = await queryOne<MediaFileRow>(
-    `INSERT INTO media_files (filename, title, url, mime_type, size_bytes, storage, content_hash, uploaded_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO media_files (filename, title, url, mime_type, size_bytes, storage, content_hash, source_url, uploaded_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (content_hash) WHERE content_hash IS NOT NULL DO NOTHING
      RETURNING ${MEDIA_SELECT}`,
     params,
@@ -2422,6 +2425,27 @@ export async function dbCreateMedia(input: {
   const existing = input.contentHash ? await dbFindMediaByHash(input.contentHash) : null
   if (existing) return { row: existing, created: false }
   throw new Error("Failed to record uploaded file")
+}
+
+// Lookup used by the URL-import pipeline to skip re-downloading a remote asset
+// we've already imported (e.g. a Palisis CDN image fetched on a prior sync).
+export async function dbFindMediaBySourceUrl(sourceUrl: string): Promise<MediaFileRow | null> {
+  if (!sourceUrl) return null
+  return queryOne<MediaFileRow>(
+    `SELECT ${MEDIA_SELECT} FROM media_files WHERE source_url = $1 ORDER BY created_at ASC LIMIT 1`,
+    [sourceUrl],
+  )
+}
+
+// Record where an existing media row was originally fetched from, but only when
+// it isn't already attributed to a source — so a later import of the same bytes
+// from a different URL doesn't clobber the first attribution.
+export async function dbSetMediaSourceUrlIfNull(id: string, sourceUrl: string): Promise<void> {
+  if (!id || !sourceUrl) return
+  await query(
+    `UPDATE media_files SET source_url = $2 WHERE id = $1 AND source_url IS NULL`,
+    [id, sourceUrl],
+  )
 }
 
 export interface MediaUsageRef {

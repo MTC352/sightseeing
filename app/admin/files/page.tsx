@@ -101,6 +101,8 @@ export default function FilesPage() {
   const [pendingDelete, setPendingDelete] = useState<MediaFile | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [preview, setPreview] = useState<MediaFile | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillMsg, setBackfillMsg] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -140,6 +142,28 @@ export default function FilesPage() {
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ""
+    }
+  }, [load])
+
+  const backfillTripImages = useCallback(async () => {
+    setBackfilling(true)
+    setBackfillMsg("")
+    setError("")
+    try {
+      const res = await fetch("/api/admin/media/backfill-trips", { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Import failed")
+      const { imagesImported = 0, tripsUpdated = 0, imagesFailed = 0 } = data
+      setBackfillMsg(
+        imagesImported === 0 && tripsUpdated === 0
+          ? "All trip images are already in your library."
+          : `Imported ${imagesImported} trip image${imagesImported === 1 ? "" : "s"} from ${tripsUpdated} trip${tripsUpdated === 1 ? "" : "s"}.${imagesFailed ? ` ${imagesFailed} could not be downloaded.` : ""}`,
+      )
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed")
+    } finally {
+      setBackfilling(false)
     }
   }, [load])
 
@@ -193,15 +217,32 @@ export default function FilesPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">
-      <div className="mb-6 flex items-center gap-3">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
           <FolderOpen className="h-5 w-5 text-primary" />
         </div>
-        <div>
+        <div className="mr-auto">
           <h1 className="text-xl font-bold text-foreground">Files</h1>
           <p className="text-sm text-muted-foreground">Upload files and copy a shareable link — your media library.</p>
         </div>
+        <button
+          type="button"
+          onClick={backfillTripImages}
+          disabled={backfilling}
+          title="Download images attached to trips (e.g. imported from Palisis) into your media library"
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+        >
+          {backfilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+          {backfilling ? "Importing…" : "Import trip images"}
+        </button>
       </div>
+
+      {backfillMsg && (
+        <p className="mb-4 flex items-center justify-between gap-2 rounded-lg bg-primary/10 px-4 py-3 text-sm text-foreground">
+          {backfillMsg}
+          <button type="button" onClick={() => setBackfillMsg("")}><X className="h-4 w-4" /></button>
+        </p>
+      )}
 
       {/* Upload dropzone */}
       <div

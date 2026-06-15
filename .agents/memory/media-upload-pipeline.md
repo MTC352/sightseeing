@@ -27,3 +27,25 @@ store duplicate copies of identical files. Centralizing fixes both.
   LIKE is safe here only because upload URLs are unique tokens (`/uploads/<ts>-<rand>.<ext>`);
   array/exact columns (trips.gallery, image/pdf/video) use exact match, not LIKE.
 - `careers/apply` CV upload is **public**, intentionally NOT routed through this pipeline.
+
+## Remote-URL image import (Palisis trip images)
+- `processImageFromUrl(url, opts)` + `localizeImageUrls(urls, uploadedBy)` download a
+  remote IMAGE onto our system and record it in `media_files`. Used so Palisis/TourCMS
+  trip images live locally instead of hot-linking `cdn.tourcms.com`, and so they appear
+  in the Files library. Fail-soft: returns `{url:null}` so a failed import keeps the
+  original remote URL rather than breaking the trip.
+- **Two-layer dedup:** by `media_files.source_url` (skips the network fetch on re-sync)
+  AND by sha256 content_hash. `dbFindMediaBySourceUrl` / `dbSetMediaSourceUrlIfNull`.
+- **Wired into every Palisis write path:** `localizeMappedImages(mapped, uploadedBy)` in
+  `lib/palisis-sync.ts` (mutates `image`/`gallery` → local) is called in
+  `syncSingleTripFromPalisis` (covers webhook) and at all 3 write sites in the bulk
+  `palisis-import` route. ONE-WAY preserved — only READS the CDN, never pushes back.
+- **Backfill existing trips:** `POST /api/admin/media/backfill-trips` (`files` perm,
+  under /api/admin/media prefix) + "Import trip images" button on `/admin/files`.
+  Idempotent (source_url/hash dedup), fail-soft per image.
+- **SSRF guard (REQUIRED, do not remove):** `processImageFromUrl` fetches arbitrary
+  admin-supplied URLs (backfill uses editable trip image/gallery URLs), so it MUST go
+  through `safeImageFetch`: resolves DNS + blocks loopback/private/link-local
+  (incl. 169.254.169.254 metadata)/ULA/reserved via `isBlockedIp`+`assertPublicHost`,
+  uses manual redirects and re-validates every hop. Verified blocks 127.0.0.1, ::1,
+  RFC1918, metadata IP; allows cdn.tourcms.com.

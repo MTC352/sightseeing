@@ -8,6 +8,7 @@
 
 import { getTourCMSClient } from "@/lib/tourcms"
 import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper"
+import { localizeImageUrls } from "@/lib/media-upload"
 import {
   dbListTrips,
   dbCreateTrip,
@@ -15,6 +16,34 @@ import {
   dbInsertPalisisSyncLog,
   dbGetImportExcludedFields,
 } from "@/lib/db/queries"
+
+/**
+ * Download a mapped trip's remote Palisis/TourCMS images onto our own system and
+ * rewrite `mapped.image` / `mapped.gallery` to the stored local URLs, so the
+ * imported trip references our media library instead of hot-linking the upstream
+ * CDN. Mutates `mapped` in place. Fail-soft: any image that can't be downloaded
+ * keeps its original remote URL.
+ *
+ * ⚠️ ONE-WAY: this only READS images from Palisis — it never pushes anything back.
+ */
+export async function localizeMappedImages(
+  mapped: { image?: string; gallery?: string[] },
+  uploadedBy: string | null = null,
+): Promise<void> {
+  const gallery = Array.isArray(mapped.gallery) ? mapped.gallery : []
+  const all = [mapped.image, ...gallery].filter((u): u is string => typeof u === "string" && u.length > 0)
+  if (all.length === 0) return
+
+  const map = await localizeImageUrls(all, uploadedBy)
+  if (map.size === 0) return
+
+  if (gallery.length > 0) {
+    mapped.gallery = gallery.map((u) => map.get(u) ?? u)
+  }
+  if (mapped.image) {
+    mapped.image = map.get(mapped.image) ?? mapped.image
+  }
+}
 
 export interface SingleSyncResult {
   ok: boolean
@@ -76,6 +105,9 @@ export async function syncSingleTripFromPalisis(
   }
 
   const mapped = mapTourDetailToTrip(detail.tour)
+  // Download the tour's images onto our system (recorded in the media library)
+  // and rewrite the URLs to local copies before persisting. Fail-soft.
+  await localizeMappedImages(mapped)
   const title  = mapped.title || `Tour ${id}`
 
   // Find existing trip by palisis_id
