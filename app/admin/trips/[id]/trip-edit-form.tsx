@@ -1039,17 +1039,19 @@ export function TripEditForm({
         <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("googleBusinessUrl") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Google Reviews</h2>
           <div>
-            <label className={labelClass}>Google Business URL {!can("googleBusinessUrl") && <ReadOnlyBadge />}</label>
+            <label className={labelClass}>Google Place ID or Business URL {!can("googleBusinessUrl") && <ReadOnlyBadge />}</label>
             <input
-              type="url"
+              type="text"
               readOnly={!can("googleBusinessUrl")}
               className={inputClass}
-              placeholder="https://www.google.com/maps/place/..."
+              placeholder="ChIJ… (Place ID) or https://www.google.com/maps/place/..."
               value={form.googleBusinessUrl ?? ""}
               onChange={(e) => set("googleBusinessUrl", e.target.value || undefined)}
             />
             <p className="mt-1.5 text-[10px] text-muted-foreground">
-              <strong>How to get the correct link:</strong> Open the location on Google Maps, copy the full URL from the address bar (e.g., <code className="inline bg-secondary px-1">https://www.google.com/maps/place/Business+Name/...</code>). The business name must be visible in the URL.
+              <strong>Most reliable:</strong> paste the business <strong>Place ID</strong> (starts with <code className="inline bg-secondary px-1">ChIJ…</code>) — find it at <code className="inline bg-secondary px-1">developers.google.com/maps/documentation/places/web-service/place-id</code>.
+              <br />
+              <strong>Or</strong> open the location on Google Maps and copy the full URL from the address bar (e.g., <code className="inline bg-secondary px-1">https://www.google.com/maps/place/Business+Name/...</code>) — the business name must be visible in the URL. Each trip shows reviews from its own profile.
             </p>
           </div>
         </section>

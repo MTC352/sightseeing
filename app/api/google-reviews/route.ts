@@ -17,7 +17,9 @@ function extractPlaceId(url: string): string | null {
     const cid = u.searchParams.get("cid")
     if (cid) return cid
 
-    const match = u.pathname.match(/!1s([^!]+)!/) || url.match(/!1s([^!]+)!/)
+    // `!1s<id>` token in the `data=` segment. May be terminated by another `!`
+    // token OR sit at the very end of the string, so don't require a trailing `!`.
+    const match = url.match(/!1s([^!?&]+)/)
     if (match) return decodeURIComponent(match[1])
 
     return null
@@ -41,6 +43,38 @@ async function findPlaceIdByName(name: string, apiKey: string): Promise<string |
   } catch {
     return null
   }
+}
+
+interface PlaceDetails {
+  name?: string
+  rating?: number
+  user_ratings_total?: number
+  reviews?: Array<Record<string, unknown>>
+}
+
+/* Fetch place details + reviews. Returns `{ ok:false, status }` for resolvable
+   "bad place id" responses (NOT_FOUND / INVALID_REQUEST) so the caller can retry
+   with a text-search-derived id; throws on transport / quota errors. */
+async function fetchPlaceDetails(
+  placeId: string,
+  apiKey: string,
+): Promise<{ ok: true; result: PlaceDetails } | { ok: false; status: string }> {
+  const fields = "name,rating,user_ratings_total,reviews"
+  const apiUrl =
+    `https://maps.googleapis.com/maps/api/place/details/json` +
+    `?place_id=${encodeURIComponent(placeId)}&fields=${fields}&key=${apiKey}&language=en`
+
+  const res = await fetch(apiUrl)
+  if (!res.ok) throw new Error(`Places API HTTP ${res.status}`)
+  const json = await res.json()
+
+  if (json.status === "OK") return { ok: true, result: json.result as PlaceDetails }
+  // Bad/stale place id — recoverable via text search
+  if (json.status === "NOT_FOUND" || json.status === "INVALID_REQUEST" || json.status === "ZERO_RESULTS") {
+    return { ok: false, status: json.status }
+  }
+  // Quota / auth / server errors — not recoverable by retrying with another id
+  throw new Error(`Places API: ${json.status} — ${json.error_message ?? "unknown error"}`)
 }
 
 /* Allowlist of hostnames that are valid Google shortlink input domains */
@@ -198,46 +232,59 @@ export async function GET(request: NextRequest) {
   }
 
   /* ── Resolve Place ID ─────────────────────────────────────────────────
-     Priority order:
-       1. `googlePlaceId` stored in Admin → Integrations (most reliable)
-       2. Raw Place ID passed directly in the URL param
-       3. Place ID extracted from a resolved Google Maps URL
-       4. Text search using the place name from the URL
-       5. Text search for "Sightseeing Luxembourg" (final fallback)
-  ───────────────────────────────────────────────────────────────────── */
-  let placeId: string | null =
-    ((settings.apiKeys as Record<string, string> | undefined)?.googlePlaceId ?? "").trim() ||
-    null
+     Two scopes:
+       • Homepage / global (default): the admin's stored `googlePlaceId` is the
+         single business identity and takes top priority.
+       • Per-trip (`scope=trip`): resolve strictly from THIS trip's own url /
+         Place ID — never fall back to the global id or the house business, so
+         each trip shows its OWN Google profile reviews.
 
-  // Cache key: prefer the stored Place ID, otherwise the raw URL
-  const cacheKey = placeId ?? rawUrl
+     Resolution order:
+       1. (global scope only) `googlePlaceId` stored in Admin → Integrations
+       2. Raw Place ID pasted directly (ChIJ… / EI…)
+       3. Place ID / CID extracted from a resolved Google Maps URL
+       4. Text search using the place name from the URL
+       5. (global scope only) Text search for "Sightseeing Luxembourg"
+  ───────────────────────────────────────────────────────────────────── */
+  const isTrip = searchParams.get("scope") === "trip"
+
+  let placeId: string | null = isTrip
+    ? null
+    : ((settings.apiKeys as Record<string, string> | undefined)?.googlePlaceId ?? "").trim() || null
+
+  // Cache key: trip-scoped requests cache per-url so they never collide with the
+  // global homepage entry; global requests prefer the stored Place ID.
+  const cacheKey = isTrip ? `trip:${rawUrl}` : placeId ?? rawUrl
 
   const cached = _reviewsCache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json(cached.data)
   }
 
+  // Place name from the (resolved) URL — used both for text-search resolution
+  // and as a recovery path if a directly-extracted id is rejected by the API.
+  let placeName: string | null = null
+
   try {
     if (!placeId && rawUrl) {
       // Try direct extraction from the raw URL first (works for full Maps URLs)
       placeId = extractPlaceId(rawUrl)
+      placeName = extractPlaceName(rawUrl)
 
       // Follow the shortlink redirect and try again
       if (!placeId) {
         const resolvedUrl = await resolveShortlink(rawUrl)
         placeId = extractPlaceId(resolvedUrl)
-
-        // Try text search with the place name embedded in the resolved URL
-        if (!placeId) {
-          const placeName = extractPlaceName(resolvedUrl)
-          if (placeName) {
-            placeId = await findPlaceIdByName(placeName, apiKey)
-          }
-        }
+        placeName = placeName ?? extractPlaceName(resolvedUrl)
       }
 
-      // Final fallback: text search for the known business name
-      if (!placeId) {
+      // Try text search with the place name embedded in the URL
+      if (!placeId && placeName) {
+        placeId = await findPlaceIdByName(placeName, apiKey)
+      }
+
+      // Final fallback (global scope only): the known house business name
+      if (!placeId && !isTrip) {
         placeId = await findPlaceIdByName("Sightseeing Luxembourg", apiKey)
       }
     }
@@ -245,52 +292,47 @@ export async function GET(request: NextRequest) {
     if (!placeId) {
       return NextResponse.json(
         {
-          error:
-            "Could not resolve a Google Place ID. Go to Admin → Integrations → Google Reviews " +
-            "and paste your Place ID directly (find it at developers.google.com/maps/documentation/places/web-service/place-id).",
+          error: isTrip
+            ? "Could not resolve a Google Place ID for this trip. In the trip editor, paste the " +
+              "business Place ID (most reliable) or a full Google Maps place URL that includes the business name."
+            : "Could not resolve a Google Place ID. Go to Admin → Integrations → Google Reviews " +
+              "and paste your Place ID directly (find it at developers.google.com/maps/documentation/places/web-service/place-id).",
           reviews: [],
         },
         { status: 400 },
       )
     }
 
-    // Fetch place details + reviews from the Places API
-    const fields = "name,rating,user_ratings_total,reviews"
-    const apiUrl =
-      `https://maps.googleapis.com/maps/api/place/details/json` +
-      `?place_id=${encodeURIComponent(placeId)}&fields=${fields}&key=${apiKey}&language=en`
-
-    const res = await fetch(apiUrl)
-    if (!res.ok) throw new Error(`Places API HTTP ${res.status}`)
-
-    const json = await res.json()
-    if (json.status !== "OK") {
-      throw new Error(`Places API: ${json.status} — ${json.error_message ?? "unknown error"}`)
+    // Fetch place details + reviews. If a directly-extracted id (e.g. a hex
+    // feature id from a Maps URL) is rejected, recover via text-search-by-name.
+    let details = await fetchPlaceDetails(placeId, apiKey)
+    if (!details.ok && placeName) {
+      const alt = await findPlaceIdByName(placeName, apiKey)
+      if (alt && alt !== placeId) details = await fetchPlaceDetails(alt, apiKey)
+    }
+    if (!details.ok) {
+      throw new Error(`Places API: ${details.status}`)
     }
 
-    const { name, rating, user_ratings_total, reviews } = json.result
+    const { name, rating, user_ratings_total, reviews } = details.result as {
+      name?: string
+      rating?: number
+      user_ratings_total?: number
+      reviews?: Array<Record<string, unknown>>
+    }
 
     const payload = {
       name,
       rating,
       totalReviews: user_ratings_total,
-      reviews: (reviews ?? []).slice(0, 5).map(
-        (r: {
-          author_name: string
-          profile_photo_url: string
-          rating: number
-          relative_time_description: string
-          text: string
-          author_url: string
-        }) => ({
-          author: r.author_name,
-          avatar: r.profile_photo_url,
-          rating: r.rating,
-          date: r.relative_time_description,
-          text: r.text,
-          url: r.author_url,
-        }),
-      ),
+      reviews: (reviews ?? []).slice(0, 5).map((r) => ({
+        author: r.author_name as string,
+        avatar: r.profile_photo_url as string,
+        rating: r.rating as number,
+        date: r.relative_time_description as string,
+        text: r.text as string,
+        url: r.author_url as string,
+      })),
     }
 
     _reviewsCache.set(cacheKey, { data: payload, expiresAt: Date.now() + 30 * 60_000 })

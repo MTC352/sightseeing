@@ -74,17 +74,15 @@ export function GoogleReviews({
   rating,
   reviewCount,
 }: GoogleReviewsProps) {
-  console.log("[v0] GoogleReviews received googleBusinessUrl:", googleBusinessUrl)
-  
   // If no URL is provided, don't render anything
   if (!googleBusinessUrl) {
-    console.log("[v0] GoogleReviews: No URL provided, returning null")
     return null
   }
 
-  // Fetch reviews from the API
+  // Fetch reviews for THIS trip's own Google profile (scope=trip → resolved from
+  // the trip's url/Place ID, never the global homepage business).
   const { data, isLoading, error } = useSWR<ReviewsData>(
-    `/api/google-reviews?url=${encodeURIComponent(googleBusinessUrl)}`,
+    `/api/google-reviews?scope=trip&url=${encodeURIComponent(googleBusinessUrl)}`,
     fetcher,
     { revalidateOnFocus: false, dedupingInterval: 3600000 } // Cache for 1 hour
   )
@@ -140,6 +138,11 @@ export function GoogleReviews({
     return null
   }
 
+  // Live average from this trip's Google profile (falls back to the trip's
+  // stored rating/count when the API omits them).
+  const avgRating = typeof data.rating === "number" ? data.rating : rating
+  const totalReviews = typeof data.totalReviews === "number" ? data.totalReviews : reviewCount
+
   return (
     <div className="mt-8">
       <div className="mb-5 flex items-center justify-between">
@@ -154,6 +157,21 @@ export function GoogleReviews({
           <ExternalLink className="h-3.5 w-3.5" />
         </a>
       </div>
+
+      {avgRating > 0 && (
+        <div className="mb-5 flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-4">
+          <GoogleIcon className="h-6 w-6 shrink-0" />
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-foreground">{avgRating.toFixed(1)}</span>
+            <StarRow rating={Math.round(avgRating)} />
+          </div>
+          {totalReviews > 0 && (
+            <span className="text-xs text-muted-foreground">
+              Based on {totalReviews.toLocaleString()} Google review{totalReviews === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+      )}
 
       <div data-no-edit className="flex gap-4 overflow-x-auto pb-2 md:grid md:grid-cols-3 md:overflow-visible md:pb-0">
         {data.reviews.slice(0, 3).map((review, idx) => (

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import type { HelpArticle, HelpAttachment } from "@/lib/admin-store"
-import { Save, ArrowLeft, Check, AlertCircle, X, Upload, FolderOpen, FileText, Loader2, Trash2 } from "lucide-react"
+import { Save, ArrowLeft, Check, AlertCircle, X, Upload, FolderOpen, FileText, Loader2, Trash2, Sparkles } from "lucide-react"
 import Link from "next/link"
 
 const PUBLIC_CATEGORIES = ["Booking", "Payments", "Cancellation", "Accessibility", "General", "Getting Here", "Tickets", "Groups", "App", "City Tours", "Meeting Points", "Languages"]
@@ -45,6 +45,49 @@ export function HelpEditForm({ article, canUseFiles = false }: { article: HelpAr
 
   const audience = form.audience ?? "public"
   const CATEGORIES = audience === "admin" ? ADMIN_CATEGORIES : PUBLIC_CATEGORIES
+
+  // ── AI article writer ──────────────────────────────────────────────────────
+  const [showAi, setShowAi] = useState(false)
+  const [aiGoal, setAiGoal] = useState("")
+  const [aiNotes, setAiNotes] = useState("")
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  async function handleGenerate() {
+    if (!aiGoal.trim() && !aiNotes.trim()) {
+      setAiError("Describe the article's goal (or paste notes) so the AI knows what to write.")
+      return
+    }
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const res = await fetch("/api/admin/help/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal: aiGoal,
+          notes: aiNotes,
+          audience,
+          category: form.category,
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAiError(body.error ?? `Generation failed (${res.status})`)
+        return
+      }
+      setForm((f) => ({
+        ...f,
+        question: body.question ?? f.question,
+        answer: body.answer ?? f.answer,
+      }))
+      setShowAi(false)
+    } catch {
+      setAiError("Network error — please try again.")
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   function set<K extends keyof HelpArticle>(key: K, value: HelpArticle[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -213,6 +256,72 @@ export function HelpEditForm({ article, canUseFiles = false }: { article: HelpAr
               className={inputClass}
             />
           </div>
+        </div>
+
+        {/* AI article writer */}
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+          {!showAi ? (
+            <button
+              type="button"
+              onClick={() => { setShowAi(true); setAiError(null) }}
+              className="flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+            >
+              <Sparkles className="h-4 w-4" />
+              Write this article with AI
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Sparkles className="h-4 w-4 text-primary" /> Generate with AI
+                </p>
+                <button type="button" onClick={() => setShowAi(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Describe what the article should cover. Optionally paste rough notes or draft text and the AI will turn it into a clean {audience === "admin" ? "admin documentation" : "help"} article. It fills the title and answer below — you can edit before saving.
+              </p>
+
+              {aiError && (
+                <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span className="flex-1">{aiError}</span>
+                  <button type="button" onClick={() => setAiError(null)} className="shrink-0 opacity-60 hover:opacity-100"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              )}
+
+              <div>
+                <label className={labelClass}>Goal of the article</label>
+                <input
+                  type="text"
+                  value={aiGoal}
+                  onChange={(e) => setAiGoal(e.target.value)}
+                  placeholder="e.g. Explain how to add Google reviews to a single trip"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Notes or draft text (optional)</label>
+                <textarea
+                  rows={4}
+                  value={aiNotes}
+                  onChange={(e) => setAiNotes(e.target.value)}
+                  placeholder="Paste any bullet points, steps, or rough text the AI should base the article on..."
+                  className={`${inputClass} resize-y`}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={aiLoading || (!aiGoal.trim() && !aiNotes.trim())}
+                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {aiLoading ? "Generating..." : "Generate article"}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Question */}
