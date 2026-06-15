@@ -56,9 +56,25 @@ export function Navbar() {
   const [open, setOpen] = useState(false)
   const [currentLang, setCurrentLang] = useState("en")
   const [weglotReady, setWeglotReady] = useState(false)
+  // When the admin hides the planner from the public, drop its nav link for
+  // non-logged-in visitors. The endpoint already factors in admin sessions.
+  const [plannerHidden, setPlannerHidden] = useState(false)
   const pathname = usePathname()
   const cartCtx = useContext(CartContext)
   const totalItems = cartCtx?.totalItems ?? 0
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/planner/visibility", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setPlannerHidden(data?.hidden === true) })
+      .catch(() => { /* fail-open: keep the link */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const navLinks = plannerHidden
+    ? NAV_LINKS.filter((l) => l.href !== "/planner")
+    : NAV_LINKS
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -89,7 +105,7 @@ export function Navbar() {
 
         {/* Desktop nav */}
         <div className="hidden items-center gap-1 md:flex">
-          {NAV_LINKS.map((link) => {
+          {navLinks.map((link) => {
             const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href.split("?")[0])
             return (
               <Link
@@ -161,7 +177,7 @@ export function Navbar() {
       {/* Mobile menu */}
       {open && (
         <div className="border-t border-border bg-background px-4 pb-4 pt-2 md:hidden">
-          {NAV_LINKS.map((link) => {
+          {navLinks.map((link) => {
             const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href.split("?")[0])
             return (
               <Link

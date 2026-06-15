@@ -22,6 +22,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 // The planner starts empty and is populated by /api/planner/trips (publicOnly).
 const staticTripsFallback: Trip[] = []
 import Image from "next/image"
+import Link from "next/link"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,
@@ -456,6 +457,43 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
   }
   const hasPrev = (i: number) => enabledIdxs.some((e) => e < i)
 
+  /** Skip ONLY the current step: apply its sensible default and advance to
+   *  the next enabled step (or finish). Other steps' selections are untouched. */
+  function skipStep() {
+    setAskParty(false)
+    setAskDays(false)
+    goNext(step, defaultsForSkippedStep(step, prefs))
+  }
+
+  /** Skip the current step AND all remaining ones — jump straight to the chat.
+   *  Any step the visitor already answered keeps its value; only empty fields
+   *  get a default so the AI still receives a complete Preferences object. */
+  function skipAll() {
+    let merged: Preferences = { ...prefs }
+    for (let i = step; i < 5; i++) {
+      if (!stepEnabled(i)) continue
+      switch (STEP_KEYS[i]) {
+        case "groups":
+          if (!merged.group) { const dp = defaultPartyFor("solo"); merged = { ...merged, group: "solo", adults: dp.adults, children: dp.children } }
+          break
+        case "interests":
+          break // keep whatever (if anything) was already chosen
+        case "durations":
+          if (!merged.duration) merged = { ...merged, duration: "any", dayCount: 1 }
+          break
+        case "budgets":
+          if (!merged.budget) merged = { ...merged, budget: "any" }
+          break
+        case "dates":
+          if (!merged.startDate) merged = { ...merged, startDate: todayYMD() }
+          break
+      }
+    }
+    setAskParty(false)
+    setAskDays(false)
+    onComplete(merged)
+  }
+
   function selectGroup(value: string) {
     const party = defaultPartyFor(value)
     const next = { ...prefs, group: value, adults: party.adults, children: party.children }
@@ -537,6 +575,36 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
           <div key={i} className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i <= step ? "bg-primary" : "bg-border"}`} />
         ))}
       </div>
+      {/* Shared navigation bar — Back (when there's a previous step) on the
+          left, Skip / Skip all on the right. Hidden during the party / days
+          sub-steppers, which carry their own Back + Continue controls. */}
+      {!(step === 0 && askParty) && !(step === 2 && askDays) && step >= 0 && (
+        <div className="flex items-center justify-between px-4 pt-3">
+          {hasPrev(step) ? (
+            <BackButton onClick={() => goPrev(step)} />
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={skipStep}
+              className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              data-testid="onboarding-skip-step"
+            >
+              Skip
+            </button>
+            <button
+              type="button"
+              onClick={skipAll}
+              className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              data-testid="onboarding-skip-all"
+            >
+              Skip all
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5">
         <div className="mb-5 flex gap-2.5">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
@@ -610,8 +678,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
               })}
             </div>
             <p className="text-center text-[10px] text-muted-foreground" data-testid="interest-count">{prefs.interests.length}/{maxInterests} selected</p>
-            <div className="flex items-center justify-between gap-2 pt-1">
-              {hasPrev(1) ? <BackButton onClick={() => goPrev(1)} /> : <span />}
+            <div className="flex items-center justify-end gap-2 pt-1">
               <button type="button" disabled={prefs.interests.length === 0} onClick={() => goNext(1, prefs)}
                 className="flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
                 Continue <ChevronRight className="h-4 w-4" />
@@ -630,11 +697,6 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
                 )}
               </button>
             ))}
-            {hasPrev(2) && (
-              <div className="pt-1">
-                <BackButton onClick={() => goPrev(2)} />
-              </div>
-            )}
           </div>
         )}
         {step === 2 && askDays && (
@@ -672,11 +734,6 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
               className="mt-1 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border px-4 py-3 text-sm font-medium text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground">
               Skip — show all trips
             </button>
-            {hasPrev(3) && (
-              <div className="pt-1">
-                <BackButton onClick={() => goPrev(3)} />
-              </div>
-            )}
           </div>
         )}
         {step === 4 && (
@@ -723,11 +780,6 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
                 Start planning <ChevronRight className="h-4 w-4" />
               </button>
             </div>
-            {hasPrev(4) && (
-              <div className="pt-1">
-                <BackButton onClick={() => goPrev(4)} />
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -1155,7 +1207,7 @@ export default function PlannerPage() {
   // Working "My Trip" list (planner-local, persists across refreshes) — the
   // itinerary builds from THIS. Separate from the site-wide Saved Trips library.
   const planner = usePlannerList()
-  const { addItem, totalItems, items, hydrated: cartHydrated } = planner
+  const { addItem, totalItems, items, removeItem, clearList, hydrated: cartHydrated } = planner
   const isInCart = planner.isInList
   // Site-wide Saved Trips library (the bookmark button) — long-lived collection.
   const savedLibrary = useCart()
@@ -1171,6 +1223,19 @@ export default function PlannerPage() {
   // the public /api/planner/form-config endpoint so admin changes flow
   // through without a deploy. Falls back to bundled defaults on error.
   const [formOptions, setFormOptions] = useState<FormOptions>(DEFAULT_FORM_OPTIONS)
+  // Public-visibility gate. The admin can hide the planner from non-logged-in
+  // visitors. `null` = still checking, `true` = hidden for this visitor.
+  const [plannerHidden, setPlannerHidden] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/planner/visibility", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { hidden?: boolean } | null) => {
+        if (!cancelled) setPlannerHidden(data?.hidden === true)
+      })
+      .catch(() => { if (!cancelled) setPlannerHidden(false) })
+    return () => { cancelled = true }
+  }, [])
   useEffect(() => {
     let cancelled = false
     fetch("/api/planner/form-config", { cache: "no-store" })
@@ -1268,6 +1333,9 @@ export default function PlannerPage() {
   // "Build" even though the plan was already built. We now only flip
   // this flag on close and keep the data intact for re-opening / reload.
   const [centerItineraryOpen, setCenterItineraryOpen] = useState(false)
+  // Confirmation gate for the "reset chat" button — wiping the chat, prefs,
+  // trip list and itinerary is destructive, so we ask first.
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [itineraryRegenerating, setItineraryRegenerating] = useState(false)
   const itineraryRestoredRef = useRef(false)
   // Bidirectional list↔map sync. activeStopIndex/activeLegIndex are indexed
@@ -2357,6 +2425,22 @@ export default function PlannerPage() {
     return null
   }, [messages])
 
+  // The FIRST weather-alert tool call across the whole conversation. The AI
+  // can emit `showWeatherAlert` on several turns (and the same card can appear
+  // in re-renders), which previously stacked duplicate weather cards in the
+  // chat. We render the card only for this first occurrence.
+  const firstWeatherToolCallId = useMemo(() => {
+    for (const msg of messages) {
+      for (const part of msg.parts) {
+        const p = part as { type?: string; state?: string; toolCallId?: string }
+        if (p?.type === "tool-showWeatherAlert" && p?.state === "output-available" && p?.toolCallId) {
+          return String(p.toolCallId)
+        }
+      }
+    }
+    return null
+  }, [messages])
+
   /* Apply a prefs patch coming from the sidebar's plan-conflict buttons
      ("Make it a full-day trip" / "Spread across N days"). We mirror the
      same persist+propagate flow used by onboarding so the next /api/
@@ -2990,7 +3074,36 @@ export default function PlannerPage() {
     setCenterItinerary(null)
     setCenterItineraryOpen(false)
     try { window.localStorage.removeItem("sightseeing_itinerary_v2") } catch { /* ignore */ }
+    // Wipe the working "My Trip" list too — a true fresh start keeps the
+    // chat, canvas and trip list in sync (an empty chat with a populated
+    // trip list would otherwise immediately re-seed recommendations).
+    clearList()
+    setShowResetConfirm(false)
   }
+
+  /* ── Remove a single stop from the itinerary ──
+     Removing a stop from the Day Itinerary also removes that trip from the
+     working "My Trip" list (3-way sync: chat / canvas / list). The drift
+     guard then clears the canvas plan; we re-build it from the remaining
+     trips on the next render once the list state has settled (or clear it
+     outright when nothing is left). */
+  const pendingItineraryRebuildRef = useRef(false)
+  const handleRemoveItineraryStep = useCallback((tripId: string) => {
+    if (!tripId) return
+    pendingItineraryRebuildRef.current = true
+    removeItem(tripId)
+  }, [removeItem])
+  useEffect(() => {
+    if (!pendingItineraryRebuildRef.current) return
+    pendingItineraryRebuildRef.current = false
+    if (items.length > 0) {
+      void handleRegenerateItinerary()
+    } else {
+      setCenterItinerary(null)
+      setCenterItineraryOpen(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
 
   /* ── Extract trips from AI Gen UI tool results ── */
   const aiTrips = useMemo(() => {
@@ -3417,6 +3530,46 @@ export default function PlannerPage() {
 
   if (!hydrated) return null
 
+  // Wait for the visibility check before rendering the planner so a hidden
+  // planner never flashes to a non-logged-in visitor (and the gate is
+  // deterministic for tests).
+  if (plannerHidden === null) {
+    return (
+      <div className="flex h-screen flex-col bg-background">
+        <Navbar />
+        <div className="flex flex-1 items-center justify-center">
+          <div
+            className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-primary"
+            aria-label="Loading"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // Admin hid the planner from the public — show an "unavailable" screen to
+  // non-logged-in visitors (the visibility endpoint already lets admins through).
+  if (plannerHidden === true) {
+    return (
+      <div className="flex h-screen flex-col bg-background">
+        <Navbar />
+        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <h1 className="text-2xl font-bold text-foreground">Trip Planner unavailable</h1>
+          <p className="mt-3 max-w-md text-sm text-muted-foreground">
+            The Trip Planner isn&apos;t available right now. Browse our experiences or
+            check back soon.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Back to home
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   /* ────────────────────────── */
   /* RENDER                     */
   /* ────────────────────────── */
@@ -3476,7 +3629,7 @@ export default function PlannerPage() {
                 prefs={prefs}
                 formOptions={formOptions}
                 onPatch={applyDirectPref}
-                onReset={resetPrefs}
+                onReset={() => setShowResetConfirm(true)}
               />
 
               {/* Chat messages -- TEXT and DATA only, never trip listings */}
@@ -3697,6 +3850,13 @@ export default function PlannerPage() {
                         }
                         case "tool-showWeatherAlert": {
                           if (part.state === "output-available") {
+                            // Dedupe: only the first weather alert in the whole
+                            // conversation renders — later ones (and re-renders
+                            // of the same call) are suppressed.
+                            const weatherToolCallId = (part as { toolCallId?: string }).toolCallId ?? ""
+                            if (firstWeatherToolCallId && weatherToolCallId !== firstWeatherToolCallId) {
+                              break
+                            }
                             const alert = part.output as { alertType: string; title: string; message: string; suggestedTags: string[] }
                             const alertStyles: Record<string, { bg: string; border: string; icon: React.ReactNode }> = {
                               rainy: { bg: "from-blue-500/10 to-blue-600/5", border: "border-blue-400/30", icon: <Umbrella className="h-4 w-4 text-blue-500" /> },
@@ -4165,6 +4325,7 @@ export default function PlannerPage() {
                 regenerating={itineraryRegenerating}
                 onFocusStop={handleFocusStop}
                 onFocusLeg={handleFocusLeg}
+                onRemoveStep={handleRemoveItineraryStep}
                 activeStopIndex={activeStopIndex}
                 activeLegIndex={activeLegIndex}
                 legMethods={legMethods}
@@ -4536,6 +4697,49 @@ export default function PlannerPage() {
           </div>
         )}
       </div>
+
+      {/* Reset confirmation — wiping chat + prefs + trip list + itinerary is
+          destructive, so we confirm first. */}
+      {showResetConfirm && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-confirm-title"
+          onClick={() => setShowResetConfirm(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-background p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="reset-confirm-title" className="text-lg font-bold text-foreground">
+              Start over?
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              This clears your chat, preferences, the current itinerary and your
+              My&nbsp;Trip list. This can&apos;t be undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                data-testid="reset-cancel"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={resetPrefs}
+                data-testid="reset-confirm"
+                className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90"
+              >
+                Reset everything
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

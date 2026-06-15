@@ -7,7 +7,7 @@ import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bike, Car, Building2, ArrowRight, Check,
   Star, Lightbulb, Maximize2, Loader2, UtensilsCrossed, Coffee, ExternalLink, Calendar,
-  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin, Plus, Download,
+  CheckCircle2, AlertTriangle, CircleDashed, Search, Zap, ListChecks, Wand2, Tag, Users, Info, MapPin, Plus, Download, X,
 } from "lucide-react"
 import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"
@@ -1456,6 +1456,7 @@ export function ItineraryPanel({
   regenerating,
   onFocusStop,
   onFocusLeg,
+  onRemoveStep,
   activeStopIndex = null,
   activeLegIndex = null,
   legMethods,
@@ -1467,6 +1468,9 @@ export function ItineraryPanel({
   regenerating: boolean
   /** Fired when a stop's location is clicked — parent highlights the map pin. */
   onFocusStop?: (index: number) => void
+  /** Fired when a stop's remove (×) button is clicked — parent removes the
+   *  trip from the working "My Trip" list and re-builds the remaining plan. */
+  onRemoveStep?: (tripId: string) => void
   /** Fired when a "Travel to next stop" location is clicked — parent highlights
    *  the route leg on the map. */
   onFocusLeg?: (index: number) => void
@@ -1617,6 +1621,23 @@ export function ItineraryPanel({
               <div className="absolute -left-[104px] top-1 w-16 text-right">
                 <span className="text-sm font-bold text-primary tabular-nums">{step.time}</span>
               </div>
+
+              {/* Remove-stop control — drops this trip from the My Trip list
+                  (and re-builds the plan) so chat / canvas / list stay in
+                  sync. Only rendered when a handler + a real trip id exist
+                  (meal breaks have no tripId). */}
+              {onRemoveStep && step.tripId && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveStep(step.tripId)}
+                  aria-label={`Remove ${step.tripTitle ?? "this stop"} from your trip`}
+                  title="Remove from your trip"
+                  data-testid={`itinerary-remove-${step.tripId}`}
+                  className="absolute right-0 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
 
               <ItineraryStepCard
                 step={step}

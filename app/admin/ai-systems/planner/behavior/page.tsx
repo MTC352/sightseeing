@@ -40,6 +40,7 @@ interface PlannerBehaviorSettings {
   travelTimeMethod: "walking" | "driving" | "public_transport"
   pace: "relaxed" | "balanced" | "packed"
   mapProvider: "mapbox" | "google"
+  hidePublicPlanner: boolean
 }
 
 const DEFAULT_SETTINGS: PlannerBehaviorSettings = {
@@ -61,6 +62,7 @@ const DEFAULT_SETTINGS: PlannerBehaviorSettings = {
   travelTimeMethod: "public_transport",
   pace: "balanced",
   mapProvider: "mapbox",
+  hidePublicPlanner: false,
 }
 
 const PACE_OPTIONS = [
@@ -179,6 +181,39 @@ export default function PlannerBehaviorPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {/* Public Visibility */}
+        <section className="rounded-2xl border border-border bg-card p-6 lg:col-span-2">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                <Sliders className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Public Visibility</h2>
+                <p className="text-xs text-muted-foreground">
+                  Hide the Trip Planner page and its navigation link from visitors who aren&apos;t logged in.
+                  Logged-in admins can still open it to preview.
+                </p>
+              </div>
+            </div>
+            <label className="relative inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={settings.hidePublicPlanner}
+                onChange={(e) => setSettings({ ...settings, hidePublicPlanner: e.target.checked })}
+                className="peer sr-only"
+                data-testid="hide-public-planner-toggle"
+              />
+              <div className="peer h-6 w-11 rounded-full bg-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full" />
+            </label>
+          </div>
+          {settings.hidePublicPlanner && (
+            <p className="mt-4 rounded-xl bg-amber-500/10 px-4 py-3 text-xs font-medium text-amber-700 dark:text-amber-400">
+              The Trip Planner is currently hidden from the public. Only logged-in admins can access it.
+            </p>
+          )}
+        </section>
+
         {/* AI Planner Behavior */}
         <section className="rounded-2xl border border-border bg-card p-6">
           <div className="mb-5 flex items-center gap-3">
