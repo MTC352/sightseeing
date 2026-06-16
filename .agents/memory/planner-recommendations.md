@@ -16,7 +16,7 @@ on reload. Decoupling fixed the infinite-loading reload bug and satisfies the pr
 that the canvas shows EVERY preference-matching trip, not an AI subset.
 
 **How to apply:**
-- Recommendations require `prefs.interests.length > 0`; empty interests → empty canvas (shows onboarding-style empty state).
+- Empty interests must STILL populate the canvas. Skipping all onboarding (`skipAll`) leaves `interests` empty by design, but `fallbackTrips` already degrades to weather/budget-scored top trips, so the canvas shows those. The interest gate exists in TWO places that must stay in lockstep: the `recommendedTrips` useMemo guard AND the canvas render branch (the `planner-recs-empty` "Tell the AI what you like" fallback). Gate the empty-state ONLY on `recommendedTrips.length === 0`, never on `interests.length`, or skip-all pins the canvas on "Finding your perfect trips…" while the chat claims it has options.
 - Date is VISUAL GROUPING ONLY (no clickable filter): available-on-selected-date trips group on top, others below with their own available-date chips.
 - Availability comes from `/api/planner/availability` (admin-configurable window, default 30 days). The fetch effect must **clear `plannerAvail` to `{}` on every new scan and on failure** (fail-soft) so grouping never reflects a stale date.
 - Single-pref editing: pills go through `applyDirectPref` (one field at a time). It supports wholesale `interests` array replacement (incl. empty) and includes interests in its unchanged-check. Editing a pill must NEVER restart onboarding or wipe chat history.

@@ -3275,7 +3275,13 @@ export default function PlannerPage() {
      top so trips bookable on the selected date float to the top. */
   const hasSelectedDate = !!prefs?.startDate
   const recommendedTrips = useMemo(() => {
-    if (!prefs || prefs.interests.length === 0 || fallbackTrips.length === 0) return []
+    // NOTE: do NOT bail when `prefs.interests` is empty. Skipping all
+    // onboarding leaves interests empty by design, but `fallbackTrips` already
+    // degrades gracefully in that case (weather/budget-scored top trips), so it
+    // is non-empty whenever any trips exist. Returning [] here was what pinned
+    // the canvas on "Finding your perfect trips…" with nothing rendered even
+    // though the AI chat said the canvas had options.
+    if (!prefs || fallbackTrips.length === 0) return []
     const arr = fallbackTrips.map((trip, idx) => {
       const av = plannerAvail[trip.id]
       return {
@@ -4534,35 +4540,45 @@ export default function PlannerPage() {
                   )}
                 </div>
 
-                {!prefs || prefs.interests.length === 0 ? (
-                  <div
-                    className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
-                    data-testid="planner-recs-empty"
-                  >
-                    <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
-                    <p className="text-sm font-medium text-foreground">Tell the AI what you like</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Pick one or more interests in the chat (Food, Culture, Outdoor, Nightlife…) and we'll analyse the catalog to suggest trips that genuinely match.
-                    </p>
-                  </div>
-                ) : recommendedTrips.length === 0 ? (
-                  /* Interests are picked but nothing matched — most often
-                     because the selected "time available" duration cap filters
-                     out every catalog trip (e.g. only full-day tours match the
-                     chosen interests but the visitor has 1-2 hours). Make the
-                     cause explicit instead of rendering a blank panel. */
-                  <div
-                    className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
-                    data-testid="planner-recs-none-fit"
-                  >
-                    <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
-                    <p className="text-sm font-medium text-foreground">No trips fit those filters</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {durationCapHours(prefs.duration) != null
-                        ? "Nothing in the catalog matches your interests within the time you have. Try allowing more time (Half day / Full day) or picking another interest."
-                        : "Nothing in the catalog matches your interests yet. Try picking another interest in the chat."}
-                    </p>
-                  </div>
+                {/* Whenever we have recommendations to show, show them —
+                    regardless of whether the visitor explicitly picked interests.
+                    Skipping all onboarding leaves interests empty by design but
+                    still yields weather/budget-scored fallback trips, so gating
+                    the render on `interests.length` here was the second half of
+                    the "canvas stuck / blank after Skip all" bug. Only fall back
+                    to an empty-state message when there is genuinely nothing to
+                    render. */}
+                {recommendedTrips.length === 0 ? (
+                  !prefs || prefs.interests.length === 0 ? (
+                    <div
+                      className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
+                      data-testid="planner-recs-empty"
+                    >
+                      <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
+                      <p className="text-sm font-medium text-foreground">Tell the AI what you like</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Pick one or more interests in the chat (Food, Culture, Outdoor, Nightlife…) and we'll analyse the catalog to suggest trips that genuinely match.
+                      </p>
+                    </div>
+                  ) : (
+                    /* Interests are picked but nothing matched — most often
+                       because the selected "time available" duration cap filters
+                       out every catalog trip (e.g. only full-day tours match the
+                       chosen interests but the visitor has 1-2 hours). Make the
+                       cause explicit instead of rendering a blank panel. */
+                    <div
+                      className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
+                      data-testid="planner-recs-none-fit"
+                    >
+                      <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
+                      <p className="text-sm font-medium text-foreground">No trips fit those filters</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {durationCapHours(prefs.duration) != null
+                          ? "Nothing in the catalog matches your interests within the time you have. Try allowing more time (Half day / Full day) or picking another interest."
+                          : "Nothing in the catalog matches your interests yet. Try picking another interest in the chat."}
+                      </p>
+                    </div>
+                  )
                 ) : (() => {
                   /* Date feature = VISUAL GROUPING ONLY (no clickable filter).
                      When a date is selected, trips bookable on that date show

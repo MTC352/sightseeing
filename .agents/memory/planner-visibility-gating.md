@@ -24,8 +24,9 @@ client `fetch` (navbar + page). Without it the browser serves a stale cached
 still rendered — caused by (a) the navbar fetch lacking no-store and (b) the
 page flashing during the null window. Fixing both made the gate deterministic.
 
-**How to test:** complete-onboarding-with-an-interest is required to populate the
-deterministic recommendations canvas — `recommendedTrips` returns `[]` when
-`prefs.interests.length === 0`, so "Skip all" yields an empty canvas and you
-cannot reach the itinerary/add-trip flows. Keep the visibility contract stable
+**How to test:** "Skip all" onboarding (empty interests) now DOES populate the
+deterministic recommendations canvas with weather/budget-scored fallback trips, so
+it's a valid way to reach the add-trip/itinerary flows quickly. (Previously
+`recommendedTrips` and the render branch both bailed on empty interests — fixed; see
+`planner-recommendations.md`.) Keep the visibility contract stable
 (`{hidden: boolean}` + no-store).
