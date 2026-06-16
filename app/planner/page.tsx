@@ -2375,6 +2375,26 @@ export default function PlannerPage() {
   // can push truthful failure messages without ordering gymnastics.
   useEffect(() => { setMessagesRef.current = (updater) => setMessages(updater) }, [setMessages])
 
+  /* DEDUPE BY id — the AI SDK's streaming + auto-tool-loop (and restored
+     localStorage history) can occasionally land two message objects that
+     share the same generated id in `messages`. Rendering them directly
+     throws React's "two children with the same key" error AND visually
+     duplicates whatever the message contains (e.g. the showWeatherAlert
+     "Perfect Day…" card stacks up every time the chat re-renders, such as
+     when the trip-detail modal opens). Collapse duplicates to the FIRST
+     occurrence before we render or persist so the key is always unique and
+     each card appears exactly once. */
+  const dedupedMessages = useMemo(() => {
+    const seen = new Set<string>()
+    const out: PlannerMessage[] = []
+    for (const m of messages) {
+      if (seen.has(m.id)) continue
+      seen.add(m.id)
+      out.push(m)
+    }
+    return out
+  }, [messages])
+
   /* Restored-session rehydration: when the chat is reloaded from
      localStorage, every previously-built itinerary card is historical and
      already cleared preflight in a past session. The preflight state map is
@@ -2430,7 +2450,7 @@ export default function PlannerPage() {
   // in re-renders), which previously stacked duplicate weather cards in the
   // chat. We render the card only for this first occurrence.
   const firstWeatherToolCallId = useMemo(() => {
-    for (const msg of messages) {
+    for (const msg of dedupedMessages) {
       for (const part of msg.parts) {
         const p = part as { type?: string; state?: string; toolCallId?: string }
         if (p?.type === "tool-showWeatherAlert" && p?.state === "output-available" && p?.toolCallId) {
@@ -2439,7 +2459,7 @@ export default function PlannerPage() {
       }
     }
     return null
-  }, [messages])
+  }, [dedupedMessages])
 
   /* Apply a prefs patch coming from the sidebar's plan-conflict buttons
      ("Make it a full-day trip" / "Spread across N days"). We mirror the
@@ -2997,13 +3017,13 @@ export default function PlannerPage() {
   useEffect(() => {
     if (typeof window === "undefined") return
     try {
-      if (messages.length > 0) {
-        window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages))
+      if (dedupedMessages.length > 0) {
+        window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(dedupedMessages))
       } else {
         window.localStorage.removeItem(CHAT_STORAGE_KEY)
       }
     } catch { /* quota / privacy-mode — silently skip */ }
-  }, [messages, CHAT_STORAGE_KEY])
+  }, [dedupedMessages, CHAT_STORAGE_KEY])
 
   /* Send initial message after onboarding */
   const didSendInitial = useRef(false)
@@ -3635,7 +3655,7 @@ export default function PlannerPage() {
               {/* Chat messages -- TEXT and DATA only, never trip listings */}
               <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
                 <div className="flex flex-col gap-4">
-                  {messages.map((msg, msgIdx) => {
+                  {dedupedMessages.map((msg, msgIdx) => {
                     if (msgIdx === 0 && msg.role === "user") return null
                     const textParts: React.ReactNode[] = []
                     /* CONTRADICTION GUARD: if this assistant message contains
