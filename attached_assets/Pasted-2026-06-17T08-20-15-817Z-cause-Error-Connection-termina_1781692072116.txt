@@ -1,0 +1,96 @@
+2026-06-17T08:20:15.817Z   [cause]: Error: Connection terminated unexpectedly
+2026-06-17T08:20:15.817Z     at async s (.next/server/chunks/_0bogxcq._.js:18:56) {
+2026-06-17T08:20:15.817Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T08:20:15.817Z       at ignore-listed frames
+2026-06-17T08:20:15.817Z     at async r (.next/server/chunks/_0g0wsuw._.js:1:343)
+2026-06-17T08:52:53.557Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": dial tcp 127.0.0.1:1104: connect: connection refused
+2026-06-17T08:52:53.571Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T08:52:53.586Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T08:52:53.605Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T08:52:53.714Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T08:52:53.882Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T08:52:54.336Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T08:52:54.517Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T08:52:56.954Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T08:52:59.004Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T08:53:00.388Z See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+2026-06-17T08:53:00.388Z (Use `node --trace-warnings ...` to show where the warning was created)
+2026-06-17T08:53:00.388Z To prepare for this change:
+2026-06-17T08:53:00.388Z In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+2026-06-17T08:53:00.388Z - If you want the current behavior, explicitly use 'sslmode=verify-full'
+2026-06-17T08:53:00.388Z (node:33) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+2026-06-17T08:53:00.388Z - If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+2026-06-17T08:53:01.554Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T08:53:07.015Z command finished with error [pnpm start]: exit status 143
+2026-06-17T08:56:27.120Z     ok: true,
+2026-06-17T08:56:27.120Z   level: 'info',
+2026-06-17T08:56:27.120Z   statusCode: 200,
+2026-06-17T08:56:27.120Z     attempts: 1,
+2026-06-17T08:56:27.120Z   message: 'GET /c/tour/datesprices/checkavail.xml?id=14&date=2026-06-17&r1=1',
+2026-06-17T08:56:27.120Z   }
+2026-06-17T08:56:27.120Z     path: '/c/tour/datesprices/checkavail.xml?id=14&date=2026-06-17&r1=1',
+2026-06-17T08:56:27.120Z   context: {
+2026-06-17T08:56:27.120Z     at async s (.next/server/chunks/[root-of-the-server]__0ti~uzn._.js:1:582)
+2026-06-17T08:56:27.120Z }
+2026-06-17T08:56:27.120Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T08:56:27.120Z     verb: 'GET',
+2026-06-17T08:56:27.120Z     channelId: 13407
+2026-06-17T08:56:27.420Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T08:56:27.420Z } original: {
+2026-06-17T08:56:27.420Z     at async s (.next/server/chunks/_0bogxcq._.js:18:56) {
+2026-06-17T08:56:27.420Z   [cause]: Error: Connection terminated unexpectedly
+2026-06-17T08:56:27.420Z       at ignore-listed frames
+2026-06-17T08:56:27.420Z   source: 'tourcms',
+2026-06-17T08:56:27.420Z     at async s (.next/server/chunks/[root-of-the-server]__0ti~uzn._.js:1:582)
+2026-06-17T09:55:59.921Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": dial tcp 127.0.0.1:1104: connect: connection refused
+2026-06-17T09:55:59.929Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:55:59.946Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:55:59.973Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.027Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.174Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.319Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.791Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:01.971Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:02.026Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:04.427Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T09:56:07.588Z (Use `node --trace-warnings ...` to show where the warning was created)
+2026-06-17T09:56:07.588Z See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+2026-06-17T09:56:07.588Z - If you want the current behavior, explicitly use 'sslmode=verify-full'
+2026-06-17T09:56:07.588Z (node:33) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+2026-06-17T09:56:07.588Z In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+2026-06-17T09:56:07.588Z - If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+2026-06-17T09:56:07.588Z To prepare for this change:
+2026-06-17T09:56:08.240Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T09:56:13.907Z command finished with error [pnpm start]: exit status 143
+2026-06-17T10:00:58.112Z     verb: 'GET',
+2026-06-17T10:00:58.112Z   source: 'tourcms',
+2026-06-17T10:00:58.112Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T10:00:58.112Z   }
+2026-06-17T10:00:58.112Z   statusCode: null,
+2026-06-17T10:00:58.112Z   level: 'error',
+2026-06-17T10:00:58.112Z     channelId: 13407
+2026-06-17T10:00:58.112Z   message: 'GET /c/tour/datesprices/checkavail.xml?id=19&date=2026-06-17&r1=1 failed: The operation was aborted due to timeout',
+2026-06-17T10:00:58.112Z   [cause]: Error: Connection terminated unexpectedly
+2026-06-17T10:00:58.112Z     attempts: 3,
+2026-06-17T10:00:58.112Z     at async s (.next/server/chunks/_0bogxcq._.js:18:56) {
+2026-06-17T10:00:58.112Z   context: {
+2026-06-17T10:00:58.112Z     at async s (.next/server/chunks/[root-of-the-server]__0ti~uzn._.js:1:582)
+2026-06-17T10:00:58.112Z     durationMs: 59800,
+2026-06-17T10:00:58.112Z } original: {
+2026-06-17T10:00:58.112Z     ok: false,
+2026-06-17T10:00:58.112Z     path: '/c/tour/datesprices/checkavail.xml?id=19&date=2026-06-17&r1=1',
+2026-06-17T10:00:58.112Z }
+2026-06-17T10:00:58.112Z       at ignore-listed frames
+2026-06-17T10:00:59.709Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T10:25:16.089Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": dial tcp 127.0.0.1:1104: connect: connection refused
+2026-06-17T10:25:16.098Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.107Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.121Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.189Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.221Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.367Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.548Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.694Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:18.048Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:20.686Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T10:25:27.631Z command finished with error [pnpm start]: exit status 143

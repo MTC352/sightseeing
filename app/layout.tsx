@@ -94,9 +94,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // three sequential connection acquisitions. Each falls back gracefully so a
   // cold or slow DB never blocks first paint.
   const [injection, weglotApiKey, announcement] = await Promise.all([
-    withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 1000, { header: "", footer: "" }),
-    withTimeout(dbGetWeglotApiKey().catch(() => ""), 1000, ""),
-    withTimeout(dbGetAnnouncement().catch(() => null), 1000, null),
+    withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 600, { header: "", footer: "" }),
+    withTimeout(dbGetWeglotApiKey().catch(() => ""), 600, ""),
+    withTimeout(dbGetAnnouncement().catch(() => null), 600, null),
   ])
   return (
     <html lang="en" className={instrumentSans.variable}>

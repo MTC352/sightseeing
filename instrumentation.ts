@@ -18,6 +18,35 @@ const DISCOVERY_BOOTSTRAP_DELAY_MS = 15_000
 export async function register() {
   // Only run in the Node.js runtime (not edge), and only on the server
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Wake the (possibly suspended/serverless) database IMMEDIATELY at boot.
+    // The managed prod DB cold-starts in ~8s; the deploy healthcheck hits `/`
+    // ~0.3s after boot, so without this the first connection races the wake and
+    // gets "Connection terminated unexpectedly". This fire-and-forget ping starts
+    // the wake in the background while `/` returns 200 from its bounded fallbacks,
+    // so the instance survives the healthcheck AND the DB is warm by the time real
+    // traffic (and later healthchecks) arrive. A few retries cover the first
+    // dropped connection during wake. Non-blocking — never delays server start.
+    void (async () => {
+      try {
+        const { pool } = await import("./lib/db")
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            await pool.query("SELECT 1")
+            console.log(`[instrumentation] DB warm-up ok (attempt ${attempt})`)
+            return
+          } catch (e) {
+            console.warn(
+              `[instrumentation] DB warm-up attempt ${attempt} failed:`,
+              e instanceof Error ? e.message : e,
+            )
+            await new Promise((r) => setTimeout(r, 1500))
+          }
+        }
+      } catch (e) {
+        console.warn("[instrumentation] DB warm-up could not start:", e)
+      }
+    })()
+
     setTimeout(() => {
       void (async () => {
         try {

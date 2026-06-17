@@ -39,7 +39,7 @@ export default async function Page() {
   // on DB error so we never expose archived/draft trip references.
   const rows = (await withTimeout(
     dbListTrips({ publicOnly: true }).catch(() => []),
-    1000,
+    600,
     [],
   )) as Array<{
     slug?: string | null
