@@ -40,7 +40,6 @@ export const ADMIN_SECTIONS: { key: PermissionKey; label: string; description: s
   { key: "files", label: "Files", description: "Media library — upload & share files" },
   { key: "ai-systems", label: "AI Systems", description: "AI prompts, models & planner behavior" },
   { key: "integrations", label: "Integrations", description: "API keys & third-party integrations" },
-  { key: "header-footer", label: "Header / Footer", description: "Custom HTML injection blocks" },
   { key: "palisis", label: "Palisis Import", description: "Palisis catalog import & availability" },
   { key: "implementation", label: "DB Tracker", description: "Database health tracker" },
   { key: "docs", label: "Documentation", description: "Internal documentation" },
@@ -103,8 +102,7 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/integrations", keys: ["integrations"] },
   { prefix: "/api/admin/refresh-availability", keys: ["integrations"] },
   { prefix: "/api/admin/refresh-discovery", keys: ["integrations"] },
-  // Header / footer
-  { prefix: "/admin/header-footer", keys: ["header-footer"] },
+  // Header / footer — superadmin-only (see explicit check in canAccessPath below)
   // Palisis
   { prefix: "/admin/palisis", keys: ["palisis"] },
   { prefix: "/api/admin/palisis-import", keys: ["palisis"] },
@@ -132,9 +130,9 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   // Shared content endpoints — used by trip/blog editors and the frontend edit mode.
   { prefix: "/api/admin/trips/upload", keys: ["trips", "blog", "pages"] },
   { prefix: "/api/admin/page-content", keys: ["pages", "trips", "blog"] },
-  // Shared settings endpoint — touched by AI/Integrations/Header-Footer screens
-  // (and trip-field settings live on the Integrations screen).
-  { prefix: "/api/admin/settings", keys: ["ai-systems", "integrations", "header-footer", "trips", "palisis"] },
+  // Shared settings endpoint — touched by AI/Integrations screens
+  // (header/footer/announcement writes are superadmin-only at the route level).
+  { prefix: "/api/admin/settings", keys: ["ai-systems", "integrations", "trips", "palisis"] },
   // Shared API-key tester — used by Integrations & Palisis screens.
   { prefix: "/api/admin/test-key", keys: ["integrations", "palisis"] },
 ]
@@ -161,6 +159,15 @@ export function canAccessPath(
 
   // User management is superadmin-only and never grantable to employees.
   if (matchPath(pathname, "/admin/users") || matchPath(pathname, "/api/admin/users")) {
+    return false
+  }
+
+  // Header/footer injection writes arbitrary script to every public page —
+  // superadmin-only and never grantable to employees.
+  if (
+    matchPath(pathname, "/admin/header-footer") ||
+    matchPath(pathname, "/api/admin/header-footer")
+  ) {
     return false
   }
 

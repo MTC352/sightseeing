@@ -78,11 +78,15 @@ const SECTION_PERMISSION: Record<string, PermissionKey> = {
   apiKeys: "integrations",
   ai: "ai-systems",
   weglot: "integrations",
-  header: "header-footer",
-  footer: "header-footer",
-  announcement: "header-footer",
   importSettings: "palisis",
 }
+
+/**
+ * Sections that inject content or arbitrary script into every public page.
+ * Only superadmins may write to them — the permission is never grantable to
+ * employee accounts.
+ */
+const SUPERADMIN_ONLY_SECTIONS = new Set(["header", "footer", "announcement"])
 
 export async function PATCH(req: Request) {
   try {
@@ -93,13 +97,24 @@ export async function PATCH(req: Request) {
       data: Record<string, unknown>
     }
 
-    const required = SECTION_PERMISSION[section]
-    if (!required) {
+    if (!section) {
       return NextResponse.json({ error: "Unknown section" }, { status: 400 })
     }
 
-    if (!hasPermission(session.role, session.permissions, required)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    // header / footer / announcement require superadmin regardless of any
+    // permission grants, because they can inject arbitrary script site-wide.
+    if (SUPERADMIN_ONLY_SECTIONS.has(section)) {
+      if (session.role !== FULL_ACCESS_ROLE) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+    } else {
+      const required = SECTION_PERMISSION[section]
+      if (!required) {
+        return NextResponse.json({ error: "Unknown section" }, { status: 400 })
+      }
+      if (!hasPermission(session.role, session.permissions, required)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
     }
 
     if (section === "apiKeys") {

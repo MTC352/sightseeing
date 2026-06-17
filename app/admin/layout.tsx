@@ -46,7 +46,7 @@ const NAV: NavItem[] = [
   { href: "/admin/help", label: "Help & FAQ", icon: HelpCircle, perm: "help" },
   { href: "/admin/pages", label: "Pages", icon: Layout, perm: "pages" },
   { href: "/admin/files", label: "Files", icon: FolderOpen, perm: "files" },
-  { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, perm: "header-footer" },
+  { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, superadminOnly: true },
   { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, badge: "Experimental", perm: "ai-systems" },
   { href: "/admin/integrations", label: "Admin Settings", icon: Plug, perm: "integrations" },
   { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },

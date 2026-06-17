@@ -28,6 +28,13 @@ export async function GET() {
   }
 }
 
+/**
+ * Keys that must not be written via this route because they control public
+ * storefront content and require elevated (superadmin / header-footer)
+ * permission managed through /api/admin/settings instead.
+ */
+const PROTECTED_INTEGRATION_KEYS = new Set(["announcement"])
+
 export async function PATCH(req: Request) {
   try {
     const session = await requirePermission("integrations")
@@ -37,6 +44,9 @@ export async function PATCH(req: Request) {
 
     for (const item of items) {
       if (!item.key) continue
+      if (PROTECTED_INTEGRATION_KEYS.has(item.key)) {
+        return NextResponse.json({ error: "Forbidden: that key cannot be changed via this endpoint" }, { status: 403 })
+      }
       const existing = await dbGetIntegration(item.key)
       await dbUpsertIntegration(
         item.key,
