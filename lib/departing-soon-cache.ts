@@ -328,6 +328,60 @@ export async function refreshAvailability(): Promise<void> {
   return availabilityRefreshLock
 }
 
+// ── DB-backed cross-instance discovery cache ───────────────────────────────
+// Persists the full DiscoveryCache to the `integrations` table so that fresh
+// process instances (cold starts, horizontal scale-out) can hydrate themselves
+// from DB instead of launching a full TourCMS fan-out.
+//
+// Storage: integrations row
+//   key   = "departing_soon_discovery_cache"
+//   value = expiresAt timestamp (ms) — quick freshness check before deserializing
+//   meta  = full DiscoveryCache serialized as JSONB
+//
+// No schema changes needed — reuses the existing integrations table + ON CONFLICT.
+
+const DB_DISCOVERY_KEY = "departing_soon_discovery_cache"
+
+async function dbGetDiscoveryCache(): Promise<DiscoveryCache | null> {
+  try {
+    const { queryOne } = await import("@/lib/db")
+    const row = await queryOne<{ value: string; meta: unknown }>(
+      `SELECT value, meta FROM integrations WHERE key = $1`,
+      [DB_DISCOVERY_KEY],
+    )
+    if (!row?.meta) return null
+    const expiresAt = parseInt(row.value as string, 10)
+    if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) return null
+    // Deserialize and validate shape minimally before trusting it.
+    const parsed = row.meta as Partial<DiscoveryCache>
+    if (!Array.isArray(parsed.allSlots)) return null
+    return parsed as DiscoveryCache
+  } catch {
+    return null
+  }
+}
+
+async function dbPersistDiscoveryCache(cache: DiscoveryCache): Promise<void> {
+  try {
+    const { query } = await import("@/lib/db")
+    await query(
+      `INSERT INTO integrations (key, label, value, meta, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, meta = EXCLUDED.meta, updated_at = NOW()`,
+      [
+        DB_DISCOVERY_KEY,
+        "Departing Soon Discovery Cache (internal)",
+        String(cache.expiresAt),
+        JSON.stringify(cache),
+      ],
+    )
+  } catch {
+    // Fail-soft: if the write fails, other instances don't get the warm data
+    // for this cycle, but correctness is not affected.
+  }
+}
+
 // ── Cron auth ──────────────────────────────────────────────────────────────
 
 import type { NextRequest } from "next/server"
@@ -380,6 +434,34 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
       daysFetched: discoveryCache.daysFetched,
       durationMs: 0,
       rateLimitSkipped: false,
+    }
+  }
+
+  // ── Cross-instance cold-start guard ─────────────────────────────────────
+  // On a fresh process (cold start, scale-out) the in-memory cache is empty
+  // or expired, so the window-based gate above does not fire even if another
+  // instance completed a sweep very recently.  Check the DB for a full cached
+  // DiscoveryCache snapshot before running a new TourCMS fan-out.
+  //
+  // When a fresh DB snapshot exists we hydrate the local in-memory cache from
+  // it directly — the instance immediately has usable data without any upstream
+  // call.  When the snapshot is missing or expired we fall through to the live
+  // TourCMS fetch below.
+  if (!force) {
+    const dbSnapshot = await dbGetDiscoveryCache()
+    if (dbSnapshot !== null) {
+      // Hydrate the local in-memory cache and return — no TourCMS sweep needed.
+      discoveryCache = dbSnapshot
+      return {
+        ok: true,
+        slotsFound: dbSnapshot.allSlots.length,
+        tripsWithSlots: new Set(dbSnapshot.allSlots.map((s) => s.tripId)).size,
+        failedTripCount: dbSnapshot.failedTripCount,
+        tripsChecked: dbSnapshot.tripsChecked,
+        daysFetched: dbSnapshot.daysFetched,
+        durationMs: Date.now() - start,
+        rateLimitSkipped: true,
+      }
     }
   }
 
@@ -489,14 +571,19 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   collected.sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
 
   const now = Date.now()
+  const newExpiresAt = now + windowDays * 86_400_000
   discoveryCache = {
     allSlots: collected,
     refreshedAt: now,
-    expiresAt: now + windowDays * 86_400_000,
+    expiresAt: newExpiresAt,
     daysFetched: windowDays,
     failedTripCount,
     tripsChecked: synced.length,
   }
+
+  // Persist the full cache snapshot to DB so other process instances (cold
+  // starts, horizontally-scaled peers) can hydrate from it without sweeping.
+  void dbPersistDiscoveryCache(discoveryCache)
 
   // Window changed → previous availability records may now refer to slots that
   // are no longer displayed. Drop and refresh.

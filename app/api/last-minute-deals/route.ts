@@ -5,8 +5,7 @@
  * running low on seats, sorted by fewest seats first (strongest FOMO first).
  *
  * Data flow:
- *   1. Availability cache covers ALL trips' first slots (refreshAvailability
- *      now uses computeAllFirstSlots instead of the Departing Soon top-N).
+ *   1. Availability cache covers ALL trips' first slots.
  *   2. For each trip's first slot we check live spaces from the avail cache,
  *      falling back to the discovery snapshot when the cache is cold.
  *   3. Only slots with 0 < spacesRemaining ≤ lmd_max_spaces qualify.
@@ -16,6 +15,10 @@
  *      (soonest upcoming slots, same TripCard design, no urgency rule).
  *
  * On cold start returns cacheWarming:true → client retries with back-off.
+ *
+ * This public endpoint NEVER triggers TourCMS refresh work. Discovery and
+ * availability refreshes are performed exclusively by the privileged cron/admin
+ * routes so unauthenticated callers cannot drive upstream quota consumption.
  */
 
 import { NextResponse } from "next/server"
@@ -28,9 +31,6 @@ import {
   getLmdMaxHours,
   getLmdMaxCards,
   getShowAvailability,
-  isDiscoveryExpired,
-  triggerDiscoveryBootstrap,
-  refreshAvailability,
   computeAllFirstSlots,
 } from "@/lib/departing-soon-cache"
 import { dbGetTrip } from "@/lib/db/queries"
@@ -126,9 +126,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, enabled: false, deals: [], previewDeals: [] })
     }
 
-    // Trigger bootstrap if stale (non-blocking when stale data exists)
-    if (isDiscoveryExpired()) triggerDiscoveryBootstrap()
-
+    // Serve from cache only — no TourCMS refresh triggered from this public route.
     if (!discoveryCache) {
       return NextResponse.json({
         ok: true, enabled: true, cacheWarming: true,
@@ -141,17 +139,8 @@ export async function GET(req: Request) {
       getLmdMaxSpaces(), getLmdMaxHours(), getLmdMaxCards(), getShowAvailability(),
     ])
 
-    // ── Refresh availability for ALL trips so cache is complete ──────────
-    // Fire-and-forget: a public request must NOT synchronously drive (or block
-    // on) the upstream checkAvailability fan-out. The refresh is deduped +
-    // TTL-gated + quota-guarded inside refreshAvailability; this request reads
-    // whatever is currently cached (falling back to the discovery snapshot when
-    // the availability cache is cold).
-    if (showAvail) {
-      void refreshAvailability().catch((e) =>
-        console.warn("[last-minute-deals] background availability refresh failed:", e),
-      )
-    }
+    // Availability is served from the in-process cache only.
+    // The cron/admin availability refresh routes maintain that cache.
 
     const nowUtc     = Math.floor(Date.now() / 1000)
     const horizonUtc = nowUtc + maxHours * 3600

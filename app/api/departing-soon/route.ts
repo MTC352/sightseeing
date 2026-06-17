@@ -2,9 +2,13 @@
  * GET /api/departing-soon
  *
  * READ-ONLY endpoint consumed by the homepage widget.
- * Never calls TourCMS directly — only `refreshAvailability()` (TTL-gated, deduped)
- * and `triggerDiscoveryBootstrap()` (non-blocking, fires when the discovery
- * window has expired).
+ * Serves from in-process cache only — never triggers TourCMS refresh work.
+ * Discovery bootstrap and availability refresh are performed exclusively by
+ * the privileged cron/admin routes:
+ *   POST /api/cron/refresh-discovery          (cron secret)
+ *   POST /api/admin/refresh-discovery         (admin JWT)
+ *   POST /api/cron/auto-update-availability   (cron secret)
+ *   POST /api/admin/refresh-availability      (admin JWT)
  */
 
 import { NextResponse } from "next/server"
@@ -13,10 +17,7 @@ import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import {
   discoveryCache,
   availabilityCache,
-  refreshAvailability,
-  triggerDiscoveryBootstrap,
   computeDisplayedSlots,
-  isDiscoveryExpired,
   getAutoUpdateEnabled,
   getAutoUpdateIntervalSeconds,
   getWidgetEnabled,
@@ -79,26 +80,26 @@ export async function GET(req: Request) {
       )
     }
 
-    // 2. Lazy bootstrap / expiry refresh — non-blocking when we have stale data,
-    //    blocking 503 only on cold start.
-    if (isDiscoveryExpired()) {
-      triggerDiscoveryBootstrap()
-      if (!discoveryCache) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "DISCOVERY_NOT_INITIALIZED",
-            departures: [],
-            widgetEnabled: true,
-            tourcmsConfigured: true,
-            hint: "Discovery refresh has been triggered in the background. Reload in a few seconds.",
-          },
-          { status: 503 },
-        )
-      }
-      // else: cache is past expiresAt but we'll serve stale slots while the
-      // background refresh runs — much better UX than a 503.
+    // 2. Discovery cache check — serve from cache only.
+    //    This public endpoint NEVER triggers a discovery bootstrap or
+    //    availability refresh. All TourCMS fan-out work is handled exclusively
+    //    by the privileged cron/admin routes so unauthenticated callers cannot
+    //    drive upstream quota consumption.
+    if (!discoveryCache) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "DISCOVERY_NOT_INITIALIZED",
+          departures: [],
+          widgetEnabled: true,
+          tourcmsConfigured: true,
+          hint: "Discovery cache is warming. An admin or scheduled job must refresh it.",
+        },
+        { status: 503 },
+      )
     }
+    // If cache is past its expiry window but still present, serve stale data.
+    // The cron/admin refresh routes will repopulate it on their next run.
 
     const showAvailability = await getShowAvailability()
     const slotCount = await getSlotCount()
@@ -122,17 +123,9 @@ export async function GET(req: Request) {
       publishedIds = null
     }
 
-    // 3. Refresh availability only when the toggle says so. Fire-and-forget:
-    //    a public request must NOT synchronously drive (or block on) the
-    //    upstream checkAvailability fan-out. The refresh is deduped + TTL-gated
-    //    + quota-guarded inside refreshAvailability, so concurrent public hits
-    //    collapse to at most one background call cluster; this request serves
-    //    whatever is currently cached (stale-while-revalidate).
-    if (showAvailability) {
-      void refreshAvailability().catch((e) =>
-        console.warn("[departing-soon] background availability refresh failed:", e),
-      )
-    }
+    // 3. Availability is served from the in-process cache only.
+    //    The cron/admin availability refresh routes maintain that cache.
+    //    No TourCMS fan-out is initiated from this public route.
 
     // 4. Build response — check ALL trips through the filters, then cap at slotCount.
     //    This ensures availability filtering happens before the count limit so that

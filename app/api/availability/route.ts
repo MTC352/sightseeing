@@ -32,8 +32,70 @@ export interface AvTripAvailability {
 
 export type AvailabilityMap = Record<string, AvTripAvailability>
 
-// Multi-key cache: keyed by "startDate|endDate"
+// ── Process-local cache: keyed by "startDate|endDate" ─────────────────────
 const _cache = new Map<string, { data: AvailabilityMap; expiresAt: number }>()
+
+// Per-key in-flight promises — deduplicates concurrent requests for the same
+// cold cache key so N simultaneous callers share one TourCMS sweep instead of
+// each launching their own.
+const _inFlight = new Map<string, Promise<AvailabilityMap>>()
+
+// Global one-at-a-time sweep guard — even sequential requests for different
+// date keys can't launch concurrent sweeps. If a sweep is already running for
+// any key, new cache-miss requests first try the DB before returning empty.
+let _anySweepInProgress = false
+
+// ── DB-backed cross-instance cache ─────────────────────────────────────────
+// Persists sweep results so fresh process instances (cold starts, horizontal
+// scale-out) can serve from DB instead of triggering a new TourCMS fan-out.
+// Uses the existing `integrations` table: key = availability_cache:{cacheKey},
+// value = expiresAt timestamp (ms), meta = AvailabilityMap as JSONB.
+
+const DB_AVAIL_KEY_PREFIX = "availability_cache:"
+
+async function dbGetAvailability(
+  cacheKey: string,
+): Promise<{ data: AvailabilityMap; expiresAt: number } | null> {
+  try {
+    const { queryOne } = await import("@/lib/db")
+    const row = await queryOne<{ value: string; meta: unknown }>(
+      `SELECT value, meta FROM integrations WHERE key = $1`,
+      [`${DB_AVAIL_KEY_PREFIX}${cacheKey}`],
+    )
+    if (!row?.meta) return null
+    const expiresAt = parseInt(row.value as string, 10)
+    if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) return null
+    return { data: row.meta as AvailabilityMap, expiresAt }
+  } catch {
+    return null
+  }
+}
+
+async function dbPersistAvailability(
+  cacheKey: string,
+  data: AvailabilityMap,
+  ttlMs: number,
+): Promise<void> {
+  try {
+    const { query } = await import("@/lib/db")
+    const expiresAt = Date.now() + ttlMs
+    await query(
+      `INSERT INTO integrations (key, label, value, meta, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, meta = EXCLUDED.meta, updated_at = NOW()`,
+      [
+        `${DB_AVAIL_KEY_PREFIX}${cacheKey}`,
+        "Availability Cache (internal)",
+        String(expiresAt),
+        JSON.stringify(data),
+      ],
+    )
+  } catch {
+    // Fail-soft: if the write fails, other instances don't get the warm data
+    // for this cycle, but correctness is not affected.
+  }
+}
 
 function pruneAvailabilityCache() {
   const now = Date.now()
@@ -117,91 +179,129 @@ export async function GET(req: Request) {
   const startDate = dateParam || todayStr
   const endDate   = dateParam || horizonStr
   const dateMode  = dateParam !== ""
+  const ttlMs     = dateMode ? 60_000 : 5 * 60_000
 
   const cacheKey = `${startDate}|${endDate}`
-  const cached   = _cache.get(cacheKey)
+
+  // ── 1. Process-local cache (fastest path) ─────────────────────────────────
+  const cached = _cache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json(cached.data)
   }
 
-  const [config, rows] = await Promise.all([
-    getTourCMSConfig(),
-    dbListTrips({ publicOnly: true }).catch(() => [] as unknown[]),
-  ])
+  // ── 2. In-flight dedup: join an ongoing sweep for the same key ─────────────
+  const existing = _inFlight.get(cacheKey)
+  if (existing) {
+    return NextResponse.json(await existing)
+  }
 
-  const tcmsTrips = (rows as { id: string }[]).filter(r => r.id.startsWith("tcms_"))
+  // ── 3. DB cache: check for a fresh result written by another instance ───────
+  // This is the primary cross-instance protection. A cold instance that finds
+  // fresh DB data serves it immediately without triggering a new TourCMS sweep.
+  const dbEntry = await dbGetAvailability(cacheKey)
+  if (dbEntry) {
+    _cache.set(cacheKey, dbEntry)     // warm the process-local cache
+    return NextResponse.json(dbEntry.data)
+  }
 
-  if (!config || tcmsTrips.length === 0) {
+  // ── 4. Global one-at-a-time sweep guard ────────────────────────────────────
+  // If any sweep is currently running (for a different key), return empty rather
+  // than stacking another fan-out. The caller gets `{}` and can retry; the
+  // running sweep will write its result to both the process-local cache and DB,
+  // so the next request for any key benefits from the DB guard above.
+  if (_anySweepInProgress) {
     return NextResponse.json({})
   }
 
-  const result: AvailabilityMap = {}
+  // ── 5. Run a sweep — at most one at a time globally ────────────────────────
+  _anySweepInProgress = true
+  const sweepPromise: Promise<AvailabilityMap> = (async () => {
+    try {
+      const [config, rows] = await Promise.all([
+        getTourCMSConfig(),
+        dbListTrips({ publicOnly: true }).catch(() => [] as unknown[]),
+      ])
 
-  await Promise.all(
-    tcmsTrips.map(async (row) => {
-      const tourId = row.id.replace("tcms_", "")
-      try {
-        const { dates } = await showTourDatesAndDeals(config, tourId, {
-          startdate_start: startDate,
-          startdate_end:   endDate,
-        })
+      const tcmsTrips = (rows as { id: string }[]).filter(r => r.id.startsWith("tcms_"))
 
-        const todayRaw: AvTimeslot[]    = []
-        const tomorrowRaw: AvTimeslot[] = []
-        let nextAvailableDate: string | null = null
+      if (!config || tcmsTrips.length === 0) {
+        return {}
+      }
 
-        for (const d of dates) {
-          if (!d.start_time) continue
+      const result: AvailabilityMap = {}
 
-          const raw      = d.spaces_remaining
-          const unlimited = raw === "UNLIMITED"
-          const spotsLeft  = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
-          const spotsTotal = unlimited ? 100 : Math.max(spotsLeft + 8, 15)
+      await Promise.all(
+        tcmsTrips.map(async (row) => {
+          const tourId = row.id.replace("tcms_", "")
+          try {
+            const { dates } = await showTourDatesAndDeals(config, tourId, {
+              startdate_start: startDate,
+              startdate_end:   endDate,
+            })
 
-          const slot: AvTimeslot = {
-            time:      d.start_time.slice(0, 5),
-            spotsLeft,
-            spotsTotal,
-            rateName:  d.note?.trim() || undefined,
-          }
+            const todayRaw: AvTimeslot[]    = []
+            const tomorrowRaw: AvTimeslot[] = []
+            let nextAvailableDate: string | null = null
 
-          if (dateMode) {
-            todayRaw.push(slot)
-          } else {
-            if (d.start_date === todayStr)         todayRaw.push(slot)
-            else if (d.start_date === tomorrowStr) tomorrowRaw.push(slot)
-            else if (
-              d.start_date &&
-              d.start_date > tomorrowStr &&
-              (unlimited || spotsLeft > 0)
-            ) {
-              // Track the earliest ACTUALLY-BOOKABLE date beyond tomorrow
-              // (skip sold-out departures so the card never points users at
-              // a date they can't book).
-              if (!nextAvailableDate || d.start_date < nextAvailableDate) {
-                nextAvailableDate = d.start_date
+            for (const d of dates) {
+              if (!d.start_time) continue
+
+              const raw      = d.spaces_remaining
+              const unlimited = raw === "UNLIMITED"
+              const spotsLeft  = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
+              const spotsTotal = unlimited ? 100 : Math.max(spotsLeft + 8, 15)
+
+              const slot: AvTimeslot = {
+                time:      d.start_time.slice(0, 5),
+                spotsLeft,
+                spotsTotal,
+                rateName:  d.note?.trim() || undefined,
+              }
+
+              if (dateMode) {
+                todayRaw.push(slot)
+              } else {
+                if (d.start_date === todayStr)         todayRaw.push(slot)
+                else if (d.start_date === tomorrowStr) tomorrowRaw.push(slot)
+                else if (
+                  d.start_date &&
+                  d.start_date > tomorrowStr &&
+                  (unlimited || spotsLeft > 0)
+                ) {
+                  // Track the earliest ACTUALLY-BOOKABLE date beyond tomorrow
+                  // (skip sold-out departures so the card never points users at
+                  // a date they can't book).
+                  if (!nextAvailableDate || d.start_date < nextAvailableDate) {
+                    nextAvailableDate = d.start_date
+                  }
+                }
               }
             }
+
+            result[row.id] = {
+              today:          deduplicateByTime(todayRaw),
+              tomorrow:       deduplicateByTime(tomorrowRaw),
+              todayGroups:    buildGroups(todayRaw),
+              tomorrowGroups: buildGroups(tomorrowRaw),
+              nextAvailableDate: dateMode ? null : nextAvailableDate,
+            }
+          } catch {
+            // skip — card falls back to dummy
           }
-        }
+        })
+      )
 
-        result[row.id] = {
-          today:          deduplicateByTime(todayRaw),
-          tomorrow:       deduplicateByTime(tomorrowRaw),
-          todayGroups:    buildGroups(todayRaw),
-          tomorrowGroups: buildGroups(tomorrowRaw),
-          nextAvailableDate: dateMode ? null : nextAvailableDate,
-        }
-      } catch {
-        // skip — card falls back to dummy
-      }
-    })
-  )
+      // Persist to both process-local cache and DB so other instances benefit.
+      _cache.set(cacheKey, { data: result, expiresAt: Date.now() + ttlMs })
+      void dbPersistAvailability(cacheKey, result, ttlMs)
 
-  _cache.set(cacheKey, {
-    data:      result,
-    expiresAt: Date.now() + (dateMode ? 60_000 : 5 * 60_000),
-  })
+      return result
+    } finally {
+      _inFlight.delete(cacheKey)
+      _anySweepInProgress = false
+    }
+  })()
 
-  return NextResponse.json(result)
+  _inFlight.set(cacheKey, sweepPromise)
+  return NextResponse.json(await sweepPromise)
 }
