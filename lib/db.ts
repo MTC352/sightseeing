@@ -10,13 +10,47 @@ declare global {
   var __pgPool: Pool | undefined
 }
 
-function createPool(): Pool {
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+/**
+ * Build the pg Pool config from DATABASE_URL.
+ *
+ * SSL handling: we set `ssl` EXPLICITLY and strip `sslmode` from the connection
+ * string rather than letting pg-connection-string interpret it. As of
+ * pg-connection-string >=2.x, `sslmode=require|prefer|verify-ca` are treated as
+ * `verify-full` (full CA chain + hostname verification). Production's
+ * DATABASE_URL uses `sslmode=require`, so the parser applies strict
+ * verification; any trust-store / hostname mismatch in the deploy environment
+ * then terminates the connection ("Connection terminated unexpectedly"). We
+ * encrypt in transit but skip chain verification (`rejectUnauthorized: false`)
+ * — the historical meaning of `sslmode=require` and the standard pattern for
+ * Replit-managed Postgres. `sslmode=disable` (the dev DB) keeps SSL off.
+ */
+function buildPoolConfig() {
+  const raw = process.env.DATABASE_URL
+  const base = {
     max: 10,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
-  })
+    // Generous connect timeout so a cold/suspended managed DB has time to wake
+    // on the first connection instead of failing fast during a deploy.
+    connectionTimeoutMillis: 15000,
+  }
+  if (!raw) return base
+  try {
+    const u = new URL(raw)
+    const mode = u.searchParams.get("sslmode")
+    const ssl: false | { rejectUnauthorized: boolean } =
+      mode && mode !== "disable" ? { rejectUnauthorized: false } : false
+    u.searchParams.delete("sslmode")
+    return { ...base, connectionString: u.toString(), ssl }
+  } catch {
+    // Non-URL connection string: pass it through untouched and let the driver /
+    // libpq apply its own SSL behavior. Do NOT force ssl:false here — that could
+    // silently downgrade an otherwise-encrypted connection to plaintext.
+    return { ...base, connectionString: raw }
+  }
+}
+
+function createPool(): Pool {
+  const pool = new Pool(buildPoolConfig())
   pool.on("error", (err) => {
     console.error("[db] Unexpected pool error:", err)
   })
