@@ -1,11 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { getSession } from '@/lib/auth'
+import { requireAnyPermission } from '@/lib/auth-server'
 import { processUpload } from '@/lib/media-upload'
 
 export async function POST(request: NextRequest) {
-  const session = await getSession()
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  let session
+  try {
+    session = await requireAnyPermission(['blog', 'trips', 'pages', 'files'])
+  } catch (err: unknown) {
+    const status = (err as { status?: number }).status ?? 401
+    const message = status === 403 ? 'Forbidden' : 'Unauthorized'
+    return NextResponse.json({ error: message }, { status })
   }
 
   try {
