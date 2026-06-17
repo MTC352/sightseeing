@@ -23,7 +23,31 @@ did NOT solve the cold-start race. External TourCMS timeouts in the same logs ar
 a SEPARATE concern (the deferred discovery bootstrap hammering TourCMS), not the
 healthcheck blocker.
 
-## Two-part fix that actually works
+## DECISIVE fix: serve `/` as ISR, not force-dynamic (render time, not just DB)
+
+The cold-DB race is real, but bounding the DB reads was **not enough**. A failed
+publish whose build INCLUDED the warm-up ping + 250ms timeouts still died: deploy
+runtime logs showed `✓ Ready in 470ms`, then `healthcheck / context deadline
+exceeded` at **+2.3s**, while `[instrumentation] DB warm-up ok` didn't fire until
+**+7s**. So at probe time the DB was still cold — but the 250ms timeouts cap that
+at ~500ms. The remaining >1.5s is the **first-request full SSR of the large
+homepage client-component tree + cold module evaluation** on a 2-vCPU autoscale
+instance. That render cost is independent of the DB and the DB timeouts can't
+touch it.
+
+**Fix that removes ALL per-request work from the probe path:** make `/` an **ISR
+page** — `export const revalidate = 300` in `app/page.tsx` instead of
+`export const dynamic = "force-dynamic"`. The startup probe then gets prebuilt/
+cached HTML (a file read, ~instant 200) with zero SSR and zero DB on the request.
+The page regenerates every 5 min in the background, so JSON-LD/announcement pick
+up DB data once warm. This is safe to prerender at build ONLY because the layout +
+page DB reads are fail-soft (`.catch` + `withTimeout`) — see
+`deploy-build-force-dynamic.md` (this REVERSES the old "`/` must be force-dynamic"
+rule for the probe-critical home route). The two-part fix below is still good
+defense-in-depth (keeps `/` cheap if it ever does render dynamically), but ISR is
+what actually makes the probe pass.
+
+## Two-part fix (defense-in-depth, keep it)
 
 1. **`/` must return 200 fast regardless of DB state.** Bound every additive read
    with `withTimeout(promise, ms, fallback)` (`lib/db.ts`). CRITICAL: the root

@@ -9,9 +9,17 @@ import { safeJsonLd } from "@/lib/json-ld"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
-// Dynamic — itemListLd reflects only currently-published trips so archived
-// items disappear from homepage structured data immediately.
-export const dynamic = "force-dynamic"
+// ISR (NOT force-dynamic). The deploy startup probe hits `GET /` ~0.3s after
+// boot; full per-request SSR of this large component tree on a cold autoscale
+// instance takes >2s (independent of the DB), which blew the probe deadline and
+// failed every publish. Serving `/` as prebuilt/cached HTML gives the probe an
+// instant 200 with zero per-request render or DB work. The page regenerates in
+// the background every 5 minutes, so archived trips drop out of the ItemList
+// structured data within that window. All *visible* homepage content is
+// client-fetched (RTK Query), so it stays live regardless of this page cache;
+// only the JSON-LD reflects the ISR snapshot. The DB read below is fail-soft so
+// the build-time prerender succeeds even when no database is reachable.
+export const revalidate = 300
 
 const organizationLd = {
   "@context": "https://schema.org",
