@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { sanitizeExternalUrl } from "@/lib/sanitize-html"
 import { 
   ArrowLeft, 
   User, 
@@ -52,6 +53,10 @@ function ApplicationCard({ app, onUpdate, onDelete }: {
   const [expanded, setExpanded] = useState(false)
   const [notes, setNotes] = useState(app.notes || "")
   const statusOption = STATUS_OPTIONS.find((s) => s.value === app.status) || STATUS_OPTIONS[0]
+  // Defensive final guard: never render an unsafe-scheme URL into an href, even
+  // if a poisoned value somehow reaches the client (e.g. a legacy stored row).
+  const safeLinkedinUrl = sanitizeExternalUrl(app.linkedinUrl)
+  const safePortfolioUrl = sanitizeExternalUrl(app.portfolioUrl)
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -122,9 +127,9 @@ function ApplicationCard({ app, onUpdate, onDelete }: {
                 <ExternalLink className="h-3 w-3" />
               </a>
             )}
-            {app.linkedinUrl && (
+            {safeLinkedinUrl && (
               <a
-                href={app.linkedinUrl}
+                href={safeLinkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 rounded-lg bg-[#0077B5]/10 px-3 py-1.5 text-xs font-medium text-[#0077B5] transition-colors hover:bg-[#0077B5]/20"
@@ -134,9 +139,9 @@ function ApplicationCard({ app, onUpdate, onDelete }: {
                 <ExternalLink className="h-3 w-3" />
               </a>
             )}
-            {app.portfolioUrl && (
+            {safePortfolioUrl && (
               <a
-                href={app.portfolioUrl}
+                href={safePortfolioUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 rounded-lg bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-600 transition-colors hover:bg-purple-500/20"

@@ -77,6 +77,34 @@ export function sanitizeCssColor(input: string | null | undefined): string {
   return safeColorValue(String(input)) ?? ""
 }
 
+// Public helper: validate an externally-supplied URL (e.g. an applicant's
+// LinkedIn / portfolio link) that will later be rendered into an admin-page
+// anchor `href`. Returns the normalized URL only when it is an absolute
+// http(s) URL; returns null for everything else — most importantly dangerous
+// schemes such as `javascript:`, `data:`, and `vbscript:`. Pure JS (uses the
+// WHATWG URL parser), so it is safe to import in both server and client code.
+export function sanitizeExternalUrl(input: string | null | undefined): string | null {
+  if (!input) return null
+  let v = String(input).trim()
+  if (!v) return null
+  // Reject control/whitespace/markup chars that can be used to obfuscate or
+  // smuggle a dangerous scheme (e.g. "java\tscript:" or embedded newlines).
+  if (/[\u0000-\u001F\u007F<>]/.test(v)) return null
+  // When no scheme is present (and it is not protocol-relative), assume https
+  // so a bare domain still resolves to a safe absolute link instead of being
+  // dropped or treated as a same-origin relative path.
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v) && !v.startsWith("//")) {
+    v = `https://${v}`
+  }
+  try {
+    const u = new URL(v)
+    if (u.protocol === "http:" || u.protocol === "https:") return u.toString()
+  } catch {
+    return null
+  }
+  return null
+}
+
 export function sanitizeRichText(input: string | null | undefined): string {
   if (!input) return ""
   let html = String(input)

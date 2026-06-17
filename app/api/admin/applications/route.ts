@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { dbListApplications, dbUpdateApplication, dbDeleteApplication } from "@/lib/db/queries"
 import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { sanitizeExternalUrl } from "@/lib/sanitize-html"
 
 export const dynamic = "force-dynamic"
 
@@ -22,6 +23,12 @@ function proxyFileUrls(
   return apps.map((app) => {
     const id = app.id as string
     const result = { ...app }
+
+    // Defense-in-depth: even though links are validated on ingestion, re-drop
+    // any unsafe-scheme URL (javascript:, data:, …) before returning it to the
+    // admin UI so legacy/pre-validation rows can never produce a poisoned href.
+    result.linkedinUrl = sanitizeExternalUrl(app.linkedinUrl as string | null | undefined) ?? undefined
+    result.portfolioUrl = sanitizeExternalUrl(app.portfolioUrl as string | null | undefined) ?? undefined
 
     if (app.resumeUrl) {
       result.resumeUrl = `/api/admin/applications/download?id=${encodeURIComponent(id)}&type=resume`

@@ -3,6 +3,7 @@ import { put } from "@vercel/blob"
 import { dbCreateApplication } from "@/lib/db/queries"
 import { queryOne } from "@/lib/db"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { sanitizeExternalUrl } from "@/lib/sanitize-html"
 import { randomBytes } from "crypto"
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -194,8 +195,11 @@ export async function POST(request: Request) {
       phone: phone ?? null,
       coverLetter,
       resumeUrl: resumeUrl ?? null,
-      linkedinUrl: linkedinUrl ?? null,
-      portfolioUrl: portfolioUrl ?? null,
+      // Validate applicant-supplied links at the trust boundary: only absolute
+      // http(s) URLs are stored. Dangerous schemes (javascript:, data:, …) are
+      // dropped to null so they can never reach an admin-page href.
+      linkedinUrl: sanitizeExternalUrl(linkedinUrl),
+      portfolioUrl: sanitizeExternalUrl(portfolioUrl),
       attachments,
     })
 
