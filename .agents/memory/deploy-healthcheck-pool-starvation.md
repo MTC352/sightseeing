@@ -23,29 +23,33 @@ did NOT solve the cold-start race. External TourCMS timeouts in the same logs ar
 a SEPARATE concern (the deferred discovery bootstrap hammering TourCMS), not the
 healthcheck blocker.
 
-## DECISIVE fix: serve `/` as ISR, not force-dynamic (render time, not just DB)
+## DECISIVE fix: exclude `/` from MIDDLEWARE (the real per-request cost on a static `/`)
 
-The cold-DB race is real, but bounding the DB reads was **not enough**. A failed
-publish whose build INCLUDED the warm-up ping + 250ms timeouts still died: deploy
-runtime logs showed `✓ Ready in 470ms`, then `healthcheck / context deadline
-exceeded` at **+2.3s**, while `[instrumentation] DB warm-up ok` didn't fire until
-**+7s**. So at probe time the DB was still cold — but the 250ms timeouts cap that
-at ~500ms. The remaining >1.5s is the **first-request full SSR of the large
-homepage client-component tree + cold module evaluation** on a 2-vCPU autoscale
-instance. That render cost is independent of the DB and the DB timeouts can't
-touch it.
+ISR alone did **NOT** fix the promote. A force-dynamic build and an ISR build
+(`export const revalidate = 300`, route table `○ /` = static) failed **identically**.
+That decisively rules out page render-time: serving a static `/` is just a file
+read. Yet runtime logs still showed `✓ Ready in 380ms`, then `healthcheck GET /
+context deadline exceeded` at **+1–2s after Ready**.
 
-**Fix that removes ALL per-request work from the probe path:** make `/` an **ISR
-page** — `export const revalidate = 300` in `app/page.tsx` instead of
-`export const dynamic = "force-dynamic"`. The startup probe then gets prebuilt/
-cached HTML (a file read, ~instant 200) with zero SSR and zero DB on the request.
-The page regenerates every 5 min in the background, so JSON-LD/announcement pick
-up DB data once warm. This is safe to prerender at build ONLY because the layout +
-page DB reads are fail-soft (`.catch` + `withTimeout`) — see
-`deploy-build-force-dynamic.md` (this REVERSES the old "`/` must be force-dynamic"
-rule for the probe-critical home route). The two-part fix below is still good
-defense-in-depth (keeps `/` cheap if it ever does render dynamically), but ISR is
-what actually makes the probe pass.
+**The only per-request code left on a static `/` is `proxy.ts` MIDDLEWARE.** Next
+runs middleware in its Edge runtime; the **first** matched request cold-compiles
+the middleware bundle (it imports `jose` + `lib/auth` + admin-permissions). On a
+contended cold 2-vCPU autoscale instance that one-time compile overruns the tight
+probe deadline → "context deadline exceeded" → every publish fails.
+
+**Fix:** exclude the bare root `/` from the middleware `matcher` by changing its
+trailing `.*` → **`.+`** (the root has zero chars after the leading slash, so `.+`
+won't match it; every other route ≥1 char still runs middleware). The healthcheck
+`GET /` is then served as pure static HTML with **zero per-request JS and no
+Edge-runtime cold start**. Admin authz is unchanged (`/admin*`, `/api/admin*` still
+match). `/` only loses the AEO `X-Robots-Tag`/`Link` headers (redundant with the
+layout's robots metadata). ISR on `/` is still correct/kept (build prerenders it),
+but the **matcher exclusion is what makes the probe pass**, not ISR.
+
+> Pre-Ready `500`/`connection refused` healthcheck lines are normal forwarder noise
+> while port 5000 has no listener yet (pnpm adds ~1.3s before `next start` runs).
+> The signal is the **post-Ready** error: 500 = app/middleware error, `context
+> deadline exceeded` = too slow. If `/` is static, suspect middleware, not render.
 
 ## Two-part fix (defense-in-depth, keep it)
 
@@ -72,7 +76,9 @@ what actually makes the probe pass.
    `register()`.
 
 Also still defer heavy warm-up: `triggerDiscoveryBootstrap()` stays behind a
-`setTimeout(...).unref()` (~15s), separate from the lightweight SELECT 1 ping.
+`setTimeout(...).unref()` (**~45s**, raised from 15s so the CPU/IO-heavy TourCMS
+sweep can't contend with the probe window on a cold instance), separate from the
+lightweight SELECT 1 ping.
 
 ## The dev-vs-prod `sslmode` trap (secondary fix, keep it)
 

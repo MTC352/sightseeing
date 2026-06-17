@@ -13,7 +13,12 @@
  * fails to become healthy. Delaying the sweep lets the healthcheck acquire a
  * free connection and return 200 first; warming then proceeds in the background.
  */
-const DISCOVERY_BOOTSTRAP_DELAY_MS = 15_000
+// Push the CPU/IO-heavy TourCMS discovery sweep well past the autoscale startup
+// probe window. On a cold 2-vCPU instance the sweep pegs the CPU and writes to a
+// still-waking DB; if it fires while the deploy healthcheck is still retrying
+// `GET /`, it starves the probe and the publish fails. 45s clears the typical
+// probe window before any heavy work begins.
+const DISCOVERY_BOOTSTRAP_DELAY_MS = 45_000
 
 export async function register() {
   // Only run in the Node.js runtime (not edge), and only on the server

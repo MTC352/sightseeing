@@ -98,7 +98,17 @@ export async function proxy(request: NextRequest) {
 export { proxy as default }
 
 export const config = {
+  // The trailing `.+` (NOT `.*`) deliberately EXCLUDES the bare root path `/`
+  // from middleware. The autoscale deploy startup probe hits `GET /`, and `/` is
+  // a statically-prerendered (ISR) page — so with `/` excluded the probe is
+  // served pure static HTML with ZERO per-request JS. Running middleware on `/`
+  // forces the Edge runtime to cold-compile its bundle (jose + auth + perms) on
+  // the first request, which on a contended 2-vCPU cold instance overruns the
+  // probe deadline ("context deadline exceeded") and fails every publish. Every
+  // other route (≥1 char after the leading slash) still runs middleware, so the
+  // admin auth/permission gate is unchanged. `/` only loses the AEO `X-Robots-Tag`
+  // / `Link` headers, which are redundant with the layout's robots metadata.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|images/|.*\\.svg$|.*\\.png$|.*\\.jpg$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|images/|.*\\.svg$|.*\\.png$|.*\\.jpg$).+)",
   ],
 }
