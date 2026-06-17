@@ -1,8 +1,12 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListHelpArticles } from "@/lib/db/queries"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
+
+// Per-request cost cap: the help assistant has no large tool payloads, so a
+// legitimate transcript stays small. Bound count + size before the paid model.
+const CHAT_BUDGET = { maxMessages: 40, maxChars: 60_000, maxBytes: 262_144 }
 
 // Never cache — every request must see the latest published help articles
 // (newly added articles in /admin/help must be immediately usable by the chat).
@@ -73,9 +77,15 @@ export async function POST(req: Request) {
   schedulePrune()
   const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
   if (!limit.allowed) return limit.response
+  const tooBig = oversizedBody(req, CHAT_BUDGET.maxBytes)
+  if (tooBig) return tooBig
 
   try {
     const body = await req.json()
+
+    // Reject oversized chat history before any model call (cost amplification).
+    const overBudget = oversizedChat(body?.messages, CHAT_BUDGET)
+    if (overBudget) return overBudget
 
     let messages: UIMessage[]
     try {

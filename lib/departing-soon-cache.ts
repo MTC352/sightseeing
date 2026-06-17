@@ -273,6 +273,18 @@ export async function refreshAvailability(): Promise<void> {
       const tourcms = await getTourCMSClient()
       if (!tourcms) return
 
+      // Quota guard: this fans out one checkAvailability per slot (~18 calls).
+      // Since this path is reachable indirectly from public widget endpoints,
+      // skip the fan-out entirely when the last-known TourCMS quota is
+      // critically low so a burst of public traffic can't drive us over the
+      // upstream limit. getLastKnownRateLimit() is populated by refreshDiscovery
+      // (and the admin rate-limit poller); when no snapshot exists we proceed.
+      const rl = getLastKnownRateLimit()
+      if (rl !== null && rl.remaining < 200) {
+        console.warn(`[departing-soon] Skipping availability refresh — rate-limit remaining=${rl.remaining} < 200`)
+        return
+      }
+
       const results = await Promise.allSettled(
         allFirst.map((s) => tourcms.checkAvailability(s.palisisId, { date: s.date, r1: 1 })),
       )
@@ -374,6 +386,19 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   const tourcms = await getTourCMSClient()
   if (!tourcms) {
     return { ok: false, error: "TOURCMS_NOT_CONFIGURED" }
+  }
+
+  // Refresh the rate-limit snapshot from TourCMS before deciding whether to run.
+  // ping() hits /api/rate_limit_status.xml which is FREE (does not count against
+  // quota), so this is safe to call on every discovery refresh. Recording it
+  // here makes the guard below — and the one in refreshAvailability — actually
+  // protective: previously recordRateLimit() was never called, so the guard was
+  // inert and public-triggered refreshes could run even with quota exhausted.
+  try {
+    const status = await tourcms.ping()
+    if (status.ok) recordRateLimit(status.remaining_hits)
+  } catch {
+    // Fail-soft: keep whatever snapshot we already have.
   }
 
   // Rate-limit guard

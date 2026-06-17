@@ -13,11 +13,20 @@ import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
 import { logError, logCaughtError } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
+
+// Per-request cost cap for the planner. This budget is deliberately GENEROUS
+// relative to the trip-/help-chat ones: the planner's searchTrips tool embeds
+// full Palisis trip data for ~17 trips back into the message history, so a
+// legitimate multi-turn planning session legitimately carries large tool-result
+// payloads. The cap exists only to block pathological abuse (thousands of
+// messages / multi-MB transcripts forwarded to the paid model), not to constrain
+// normal use.
+const PLANNER_BUDGET = { maxMessages: 80, maxChars: 600_000, maxBytes: 1_048_576 }
 
 /* ── Live weather fetch ── */
 type WeatherSnapshot = { temp: number; condition: string; wx: "rainy" | "sunny" | "cloudy" }
@@ -880,9 +889,17 @@ export async function POST(req: Request) {
   schedulePrune()
   const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
   if (!limit.allowed) return limit.response
+  const tooBig = oversizedBody(req, PLANNER_BUDGET.maxBytes)
+  if (tooBig) return tooBig
 
   try {
     const body = await req.json()
+
+    // Reject pathologically large chat history before any model call (cost
+    // amplification). Generous budget — see PLANNER_BUDGET rationale above.
+    const overBudget = oversizedChat(body?.messages, PLANNER_BUDGET)
+    if (overBudget) return overBudget
+
     const { preferences, cartItems, groupMembers, itinerarySummary } = body as {
       preferences?: TravelerPreferences
       cartItems?: { id: string; title: string }[]

@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server"
 import { getTourCMSConfig } from "@/lib/tourcms"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import {
   discoveryCache,
   availabilityCache,
@@ -43,7 +44,14 @@ export interface DepartingSoonItem {
   spacesRemaining?: number | "UNLIMITED"
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Route-level abuse control: this public endpoint can indirectly drive
+  // upstream TourCMS refresh work, so cap per-IP request volume (production
+  // only — see lib/rate-limit.ts for the dev/preview bypass rationale).
+  schedulePrune()
+  const limit = rateLimit(req, { limit: 30, windowMs: 60_000 })
+  if (!limit.allowed) return limit.response
+
   try {
     // 0. Master toggle
     if (!(await getWidgetEnabled())) {
@@ -114,9 +122,16 @@ export async function GET() {
       publishedIds = null
     }
 
-    // 3. Refresh availability only when the toggle says so (TTL-gated, deduped)
+    // 3. Refresh availability only when the toggle says so. Fire-and-forget:
+    //    a public request must NOT synchronously drive (or block on) the
+    //    upstream checkAvailability fan-out. The refresh is deduped + TTL-gated
+    //    + quota-guarded inside refreshAvailability, so concurrent public hits
+    //    collapse to at most one background call cluster; this request serves
+    //    whatever is currently cached (stale-while-revalidate).
     if (showAvailability) {
-      await refreshAvailability()
+      void refreshAvailability().catch((e) =>
+        console.warn("[departing-soon] background availability refresh failed:", e),
+      )
     }
 
     // 4. Build response — check ALL trips through the filters, then cap at slotCount.

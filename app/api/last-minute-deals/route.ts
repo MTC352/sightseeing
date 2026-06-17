@@ -19,6 +19,7 @@
  */
 
 import { NextResponse } from "next/server"
+import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import {
   discoveryCache,
   availabilityCache,
@@ -111,7 +112,14 @@ async function enrichSlot(
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Route-level abuse control: this public endpoint can indirectly drive
+  // upstream TourCMS refresh work, so cap per-IP request volume (production
+  // only — see lib/rate-limit.ts for the dev/preview bypass rationale).
+  schedulePrune()
+  const limit = rateLimit(req, { limit: 30, windowMs: 60_000 })
+  if (!limit.allowed) return limit.response
+
   try {
     const widgetEnabled = await getLmdWidgetEnabled()
     if (!widgetEnabled) {
@@ -134,7 +142,16 @@ export async function GET() {
     ])
 
     // ── Refresh availability for ALL trips so cache is complete ──────────
-    if (showAvail) await refreshAvailability()
+    // Fire-and-forget: a public request must NOT synchronously drive (or block
+    // on) the upstream checkAvailability fan-out. The refresh is deduped +
+    // TTL-gated + quota-guarded inside refreshAvailability; this request reads
+    // whatever is currently cached (falling back to the discovery snapshot when
+    // the availability cache is cold).
+    if (showAvail) {
+      void refreshAvailability().catch((e) =>
+        console.warn("[last-minute-deals] background availability refresh failed:", e),
+      )
+    }
 
     const nowUtc     = Math.floor(Date.now() / 1000)
     const horizonUtc = nowUtc + maxHours * 3600

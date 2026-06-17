@@ -92,6 +92,78 @@ export function rateLimit(
   return { allowed: true }
 }
 
+// ── Chat payload size guards (cost-amplification defense) ───────────────────
+// Public AI chat endpoints forward `body.messages` to paid model providers.
+// The per-IP request limiter caps request COUNT but not per-request COST, so a
+// single request can still smuggle a huge synthetic transcript that is
+// expensive to tokenize. These guards bound the size of an individual request
+// (message count + serialized characters) BEFORE the model call. They are
+// per-request (not per-IP), so unlike `rateLimit` they are safe to enforce in
+// every environment without collapsing into a shared dev bucket.
+
+export interface ChatBudget {
+  /** Max number of messages allowed in the conversation history. */
+  maxMessages: number
+  /** Max total serialized characters across all messages. */
+  maxChars: number
+  /** Max raw request body size in bytes (Content-Length quick reject). */
+  maxBytes: number
+}
+
+/**
+ * Reject obviously oversized request bodies up front using the Content-Length
+ * header. Cheap first line of defense; the post-parse `oversizedChat` guard is
+ * authoritative because Content-Length can be omitted or chunked.
+ */
+export function oversizedBody(
+  request: NextRequest | Request,
+  maxBytes: number,
+): NextResponse | null {
+  const len = Number(request.headers.get("content-length") ?? 0)
+  if (Number.isFinite(len) && len > maxBytes) {
+    return NextResponse.json(
+      { error: "Request payload too large." },
+      { status: 413 },
+    )
+  }
+  return null
+}
+
+/**
+ * Reject chat payloads whose message count or total serialized size exceeds the
+ * supplied budget. Returns a 413 response when over-budget, otherwise null.
+ * Serialized length (JSON.stringify per message) is a provider-agnostic proxy
+ * for token cost that also accounts for tool-call/result payloads.
+ */
+export function oversizedChat(
+  messages: unknown,
+  budget: ChatBudget,
+): NextResponse | null {
+  if (!Array.isArray(messages)) return null
+  if (messages.length > budget.maxMessages) {
+    return NextResponse.json(
+      { error: "Conversation history is too long. Please start a new chat." },
+      { status: 413 },
+    )
+  }
+  let chars = 0
+  for (const m of messages) {
+    try {
+      chars += JSON.stringify(m).length
+    } catch {
+      // Unserializable entry — count a nominal cost so it can't slip the cap.
+      chars += budget.maxChars
+    }
+    if (chars > budget.maxChars) {
+      return NextResponse.json(
+        { error: "Conversation history is too large. Please start a new chat." },
+        { status: 413 },
+      )
+    }
+  }
+  return null
+}
+
 // Periodically prune expired entries to prevent unbounded memory growth.
 // Runs every 5 minutes, safe to call multiple times (self-throttles).
 let pruneScheduled = false

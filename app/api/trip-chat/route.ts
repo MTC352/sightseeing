@@ -2,21 +2,32 @@ import { convertToModelMessages, streamText, UIMessage, validateUIMessages } fro
 import { dbGetTrip, dbGetSettings, dbListTrips, dbListPosts, dbListJobs, dbTripStatus } from "@/lib/db/queries"
 import { resolveAi } from "@/lib/ai/provider"
 import { getTripById, getTripDetail } from "@/lib/data"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
+
+// Per-request cost cap: this is a single-trip concierge with no large tool
+// payloads, so a legitimate transcript stays small. Bound count + size before
+// forwarding to the paid model.
+const CHAT_BUDGET = { maxMessages: 40, maxChars: 60_000, maxBytes: 262_144 }
 
 export async function POST(req: Request) {
   const reqMeta = requestMeta(req)
   schedulePrune()
   const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
   if (!limit.allowed) return limit.response
+  const tooBig = oversizedBody(req, CHAT_BUDGET.maxBytes)
+  if (tooBig) return tooBig
 
   try {
     const body = await req.json()
     const { tripId } = body as { tripId: string }
+
+    // Reject oversized chat history before any model call (cost amplification).
+    const overBudget = oversizedChat(body?.messages, CHAT_BUDGET)
+    if (overBudget) return overBudget
 
     let messages: UIMessage[]
     try {

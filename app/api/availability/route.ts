@@ -76,7 +76,7 @@ export async function GET(req: Request) {
   if (!rl.allowed) return rl.response
 
   const { searchParams } = new URL(req.url)
-  const dateParam = searchParams.get("date")    ?? ""
+  const rawDate = (searchParams.get("date") ?? "").trim()
 
   const now         = new Date()
   const todayStr    = toYMD(now)
@@ -85,6 +85,35 @@ export async function GET(req: Request) {
   // Non-date mode scans a 30-day window (not just today/tomorrow) so we can
   // surface the next bookable date for trips with no today/tomorrow slots.
   const horizonStr = toYMD(new Date(now.getTime() + 30 * 86_400_000))
+
+  // ── Validate + clamp the attacker-controlled `date` param ─────────────────
+  // This endpoint is public and unauthenticated. The `date` value feeds both
+  // the in-process cache key AND the upstream TourCMS date range, so an
+  // unvalidated value lets a caller bust the cache with unlimited unique /
+  // malformed strings and force a fresh ~18-call fan-out on every request.
+  // We accept ONLY a real calendar date in YYYY-MM-DD form within the scan
+  // window [today, today+30d]; anything else is rejected up front. This bounds
+  // the number of distinct cache keys to the valid date window so repeated
+  // requests collapse onto the cache instead of amplifying upstream calls.
+  let dateParam = ""
+  if (rawDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+      return NextResponse.json({ error: "Invalid date format. Use YYYY-MM-DD." }, { status: 400 })
+    }
+    const parsed = new Date(`${rawDate}T00:00:00Z`)
+    // Reject non-real dates (e.g. 2026-02-31 rolls over) by round-tripping.
+    if (isNaN(parsed.getTime()) || toYMD(parsed) !== rawDate) {
+      return NextResponse.json({ error: "Invalid date." }, { status: 400 })
+    }
+    if (rawDate < todayStr || rawDate > horizonStr) {
+      return NextResponse.json(
+        { error: "Date out of range. Only the next 30 days are available." },
+        { status: 400 },
+      )
+    }
+    dateParam = rawDate
+  }
+
   const startDate = dateParam || todayStr
   const endDate   = dateParam || horizonStr
   const dateMode  = dateParam !== ""
