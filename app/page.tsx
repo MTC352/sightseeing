@@ -4,6 +4,7 @@ import { TrendingSection, WeatherSection, CategoriesSection, ReviewsSection, Rec
 import { LastMinuteDealsSection } from "@/components/last-minute-deals-section"
 import { SiteFooter } from "@/components/site-footer"
 import { dbListTrips } from "@/lib/db/queries"
+import { withTimeout } from "@/lib/db"
 import { safeJsonLd } from "@/lib/json-ld"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
@@ -36,7 +37,11 @@ const websiteLd = {
 export default async function Page() {
   // Top-5 published trips for the ItemList JSON-LD. Fail-closed: empty list
   // on DB error so we never expose archived/draft trip references.
-  const rows = (await dbListTrips({ publicOnly: true }).catch(() => [])) as Array<{
+  const rows = (await withTimeout(
+    dbListTrips({ publicOnly: true }).catch(() => []),
+    2500,
+    [],
+  )) as Array<{
     slug?: string | null
     id: string
     title: string

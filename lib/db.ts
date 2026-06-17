@@ -85,6 +85,31 @@ export async function withTransaction<T>(
   }
 }
 
+/**
+ * Resolve `promise`, but fall back to `fallback` if it does not settle within
+ * `ms`. Used to keep server-rendered, healthcheck-critical pages (e.g. the
+ * homepage `/`) fast and deploy-safe: a cold/slow/contended DB connection can
+ * otherwise block render for up to `connectionTimeoutMillis` per query, which
+ * makes `/` exceed the deploy healthcheck deadline. These reads are all
+ * additive (structured data, header/footer injection) and degrade gracefully.
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  fallback: T,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms)
+    timer.unref?.()
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /** Check if the DB is reachable */
 export async function checkConnection(): Promise<boolean> {
   try {

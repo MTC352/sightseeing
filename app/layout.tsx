@@ -14,6 +14,7 @@ import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
 import { isIndexingEnabled } from "@/lib/seo"
 import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement } from "@/lib/db/queries"
+import { withTimeout } from "@/lib/db"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -88,9 +89,15 @@ export const viewport: Viewport = {
 }
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const injection = await dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" }))
-  const weglotApiKey = await dbGetWeglotApiKey().catch(() => "")
-  const announcement = await dbGetAnnouncement().catch(() => null)
+  // Run independent DB reads concurrently so the root layout (and the deploy
+  // healthcheck that renders `/`) is bounded by a single round-trip rather than
+  // three sequential connection acquisitions. Each falls back gracefully so a
+  // cold or slow DB never blocks first paint.
+  const [injection, weglotApiKey, announcement] = await Promise.all([
+    withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 2500, { header: "", footer: "" }),
+    withTimeout(dbGetWeglotApiKey().catch(() => ""), 2500, ""),
+    withTimeout(dbGetAnnouncement().catch(() => null), 2500, null),
+  ])
   return (
     <html lang="en" className={instrumentSans.variable}>
       <head>
