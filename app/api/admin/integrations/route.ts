@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListIntegrations, dbUpsertIntegration, dbGetIntegration } from "@/lib/db/queries"
 import { clearTourCMSConfigCache } from "@/lib/tourcms"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -11,12 +11,17 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
+}
+
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission("integrations")
     const rows = await dbListIntegrations()
     return NextResponse.json(rows)
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/integrations] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -25,7 +30,7 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("integrations")
     const body = await req.json() as { key: string; label?: string; value: string } | Array<{ key: string; label?: string; value: string }>
 
     const items = Array.isArray(body) ? body : [body]
@@ -58,6 +63,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ ok: true })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/integrations] PATCH error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

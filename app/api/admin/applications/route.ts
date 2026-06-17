@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server"
 import { dbListApplications, dbUpdateApplication, dbDeleteApplication } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 // Replace raw blob storage URLs with admin-authenticated proxy URLs so
@@ -38,13 +42,14 @@ function proxyFileUrls(
 
 export async function GET(req: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("jobs")
     const { searchParams } = new URL(req.url)
     const jobId = searchParams.get("jobId") ?? undefined
     const status = searchParams.get("status") ?? undefined
     const apps = await dbListApplications({ jobId, status })
     return NextResponse.json(proxyFileUrls(apps as Array<Record<string, unknown>>))
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/applications] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -53,7 +58,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("jobs")
     const body = await req.json()
     const { id, ...data } = body
     if (!id) return NextResponse.json({ error: "Missing application id" }, { status: 400 })
@@ -69,6 +74,7 @@ export async function PATCH(req: Request) {
     })
     return NextResponse.json(updated)
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/applications] PATCH error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -77,7 +83,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("jobs")
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
     if (!id) return NextResponse.json({ error: "Missing application id" }, { status: 400 })
@@ -91,6 +97,7 @@ export async function DELETE(req: Request) {
     })
     return NextResponse.json({ success: true })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/applications] DELETE error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

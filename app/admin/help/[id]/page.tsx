@@ -3,8 +3,9 @@ export const dynamic = "force-dynamic"
 import { dbGetHelpArticle } from "@/lib/db/queries"
 import { HelpEditForm } from "./help-edit-form"
 import { notFound } from "next/navigation"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { redirect } from "next/navigation"
 
 export default async function AdminHelpEditPage({
   params,
@@ -13,10 +14,21 @@ export default async function AdminHelpEditPage({
   params: Promise<{ id: string }>
   searchParams: Promise<{ audience?: string }>
 }) {
+  // requirePermission throws on auth failure; redirect() throws a NEXT_REDIRECT
+  // so control never reaches the code below if it fires. The `!` assertion
+  // avoids a TypeScript "used before assigned" error since TS can't infer that
+  // redirect() is a "never" function.
+  // eslint-disable-next-line prefer-const
+  let session!: Awaited<ReturnType<typeof requirePermission>>
+  try {
+    session = await requirePermission("help")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const { id } = await params
   const { audience } = await searchParams
   const defaultAudience = audience === "admin" ? "admin" : "public"
-  const session = await requireAdminSession()
   // "Select from Files" is only offered to users who can access the media
   // library; everyone else gets upload-only.
   const canUseFiles =

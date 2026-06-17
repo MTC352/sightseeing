@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { dbListPalisisSyncLogs, dbCountPalisisSyncLogs } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
@@ -10,14 +10,15 @@ export async function GET(req: Request) {
   const offset = Math.max(parseInt(searchParams.get("offset") ?? "0",  10), 0)
 
   try {
-    await requireAdminSession()
+    await requirePermission("palisis")
     const [logs, total] = await Promise.all([
       dbListPalisisSyncLogs(limit, offset),
       dbCountPalisisSyncLogs(),
     ])
     return NextResponse.json({ ok: true, logs, total, limit, offset })
   } catch (err: unknown) {
-    if (err instanceof Error && (err as { status?: number }).status === 401) {
+        if (err instanceof Error && (err as { status?: number }).status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        if (err instanceof Error && (err as { status?: number }).status === 401) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[palisis-logs] GET error:", err)

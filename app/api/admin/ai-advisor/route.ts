@@ -1,7 +1,7 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListTrips, dbListPosts } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
@@ -90,7 +90,7 @@ Always tie recommendations back to measurable outcomes (conversions, bookings, e
 export async function POST(request: Request) {
   const reqMeta = requestMeta(request)
   try {
-    await requireAdminSession()
+    await requirePermission("implementation")
     const body = await request.json()
     
     let messages: UIMessage[]
@@ -125,6 +125,12 @@ export async function POST(request: Request) {
 
     return result.toUIMessageStreamResponse()
   } catch (error) {
+    if (error instanceof Error && (error as { status?: number }).status === 403) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
     if (error instanceof Error && (error as { status?: number }).status === 401) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -142,7 +148,7 @@ export async function POST(request: Request) {
 
 // GET endpoint to fetch current app state for widgets
 export async function GET() {
-  try { await requireAdminSession() } catch { return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } }) }
+  try { await requirePermission("implementation") } catch (authErr: unknown) { if ((authErr as { status?: number })?.status === 403) return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } }); return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } }) }
   const appState = await getAppState()
   
   // Calculate roadmap items based on current state

@@ -14,7 +14,7 @@ import {
   type TripFieldSettings,
   type FieldMode,
 } from "@/lib/trip-field-policy"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
@@ -25,6 +25,10 @@ const SETTINGS_LABEL = "Trip Field Settings"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 async function loadSettings(): Promise<TripFieldSettings> {
@@ -38,7 +42,7 @@ async function loadSettings(): Promise<TripFieldSettings> {
 
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission("integrations")
     const row = await dbGetIntegration(KEY) as { value?: string } | null
     let stored: Partial<TripFieldPolicy> | null = null
     if (row?.value) {
@@ -47,6 +51,7 @@ export async function GET() {
     const settings = await loadSettings()
     return NextResponse.json({ policy: resolvePolicy(stored), fields: TRIP_FIELDS, settings })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/settings/trip-fields] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -55,7 +60,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("integrations")
     const body = await req.json() as {
       policy?: Record<string, FieldMode>
       settings?: Partial<TripFieldSettings>
@@ -87,6 +92,7 @@ export async function PUT(req: Request) {
     const settings = await loadSettings()
     return NextResponse.json({ ok: true, policy: resolvePolicy(stored), settings })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/settings/trip-fields] PUT error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

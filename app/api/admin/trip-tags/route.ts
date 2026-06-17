@@ -5,13 +5,17 @@ import {
   dbListTripTagOptions,
   dbListTripTagsWithCounts,
 } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 /**
@@ -27,7 +31,7 @@ function isUnauthorized(err: unknown): boolean {
  */
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission("trips")
     // `tags` now carries a per-tag published-trip count so the admin
     // listing can render a "Trips" column.  `options` keeps the same
     // legacy shape consumed by the planner-chat admin's "Load from
@@ -39,6 +43,7 @@ export async function GET() {
     ])
     return NextResponse.json({ tags, options })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trip-tags] GET error:", err)
     return NextResponse.json({ tags: [], options: [] })
@@ -53,7 +58,7 @@ function slugify(s: string): string {
 
 export async function POST(req: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const body = await req.json()
     const label = String(body?.label ?? "").trim()
     if (!label) {
@@ -83,6 +88,7 @@ export async function POST(req: Request) {
     revalidatePath("/admin/trip-tags")
     return NextResponse.json(tag, { status: 201 })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trip-tags] POST error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

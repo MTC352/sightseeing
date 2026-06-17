@@ -8,10 +8,18 @@ import { TripToggleButton } from "./trip-toggle-button"
 import { TripStatusButton } from "./trip-status-button"
 import { TripArchiveButton } from "./trip-archive-button"
 import { TripSyncButton } from "./trip-sync-button"
+import { requirePermission } from "@/lib/auth-server"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic"
 
 export default async function AdminTripsPage() {
+  try {
+    await requirePermission("trips")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const trips = await dbListTrips() as ({
     id: string; palisis_id: string | null; title: string; city: string; category: string; price: number;
     originalPrice: number | null; image: string; featured: boolean;

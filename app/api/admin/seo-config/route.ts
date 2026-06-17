@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { dbGetSettings, dbUpdateSeoConfig } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 /**
@@ -15,10 +19,11 @@ function isUnauthorized(err: unknown): boolean {
  */
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission("ai-systems")
     const s = await dbGetSettings()
     return NextResponse.json(s.seoBehavior ?? {})
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[seo-config] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -31,7 +36,7 @@ export async function GET() {
  */
 export async function PUT(req: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("ai-systems")
     const raw = await req.json()
     const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
 
@@ -44,6 +49,7 @@ export async function PUT(req: Request) {
     const s = await dbGetSettings()
     return NextResponse.json(s.seoBehavior ?? {})
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[seo-config] PUT error:", err)
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 })

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { unlink } from "fs/promises"
 import path from "path"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { dbDeleteMedia, dbUpdateMediaTitle } from "@/lib/db/queries"
 import { logError } from "@/lib/error-log"
 import { logActivity } from "@/lib/activity-log"
@@ -12,9 +12,13 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
+}
+
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("files")
     const { id } = await params
     const body = await req.json().catch(() => ({}))
     const updated = await dbUpdateMediaTitle(id, typeof body.title === "string" ? body.title : null)
@@ -28,6 +32,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     })
     return NextResponse.json(updated)
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/media/:id] PATCH error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -36,7 +41,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("files")
     const { id } = await params
     const removed = await dbDeleteMedia(id)
     if (!removed) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -78,6 +83,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
     return NextResponse.json({ ok: true })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/media/:id] DELETE error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

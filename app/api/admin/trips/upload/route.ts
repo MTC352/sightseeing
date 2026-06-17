@@ -1,10 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requireAnyPermission } from "@/lib/auth-server"
 import { processUpload } from "@/lib/media-upload"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireAdminSession()
+    const session = await requireAnyPermission(["trips","blog","pages"])
 
     // Route through the central media pipeline so every trip image upload is
     // recorded in the Files library and deduplicated. Restricted to images.
@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ url: body.url })
   } catch (error: unknown) {
+    if (error instanceof Error && (error as { status?: number }).status === 403) return Response.json({ error: "Forbidden" }, { status: 403 })
     if (error instanceof Error && (error as { status?: number }).status === 401) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }

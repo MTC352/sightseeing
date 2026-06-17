@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { dbListTaxonomies, dbCreateTaxonomy, dbUpsertTaxonomies } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -9,11 +9,16 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
+}
+
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission("trips")
     return NextResponse.json(await dbListTaxonomies())
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/taxonomies] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -22,7 +27,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const data = await req.json()
     if (!data.key) return NextResponse.json({ error: "key is required" }, { status: 400 })
     const taxonomy = await dbCreateTaxonomy({
@@ -40,6 +45,7 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(taxonomy, { status: 201 })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/taxonomies] POST error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -48,7 +54,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const data = await req.json()
     if (!Array.isArray(data)) return NextResponse.json({ error: "Expected array of {key, value}" }, { status: 400 })
     const count = await dbUpsertTaxonomies(data as { key: string; value: string }[])
@@ -60,6 +66,7 @@ export async function PATCH(req: Request) {
     })
     return NextResponse.json({ updated: count })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/taxonomies] PATCH error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

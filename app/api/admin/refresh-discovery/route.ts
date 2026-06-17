@@ -12,12 +12,12 @@
 
 import { NextResponse } from "next/server"
 import { refreshDiscovery, discoveryCache } from "@/lib/departing-soon-cache"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
 export async function POST() {
-  try { await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+  try { await requirePermission("integrations") } catch (authErr: unknown) { if ((authErr as { status?: number })?.status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 }); return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   const result = await refreshDiscovery(true)
   if (!("ok" in result) || !result.ok) {
     return NextResponse.json(result, { status: 500 })

@@ -5,7 +5,7 @@ import { mapTourDetailToTrip, mappedToUpdatePayload } from "@/lib/palisis-mapper
 import { localizeMappedImages } from "@/lib/palisis-sync"
 import { dbGetSettings, dbCreateTrip, dbUpdateTrip, dbListTrips, dbInsertPalisisSyncLog, dbGetImportExcludedFields } from "@/lib/db/queries"
 import { sanitizeExcludedFields, fieldLabel } from "@/lib/palisis-import-fields"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic"
 // ── POST /api/admin/palisis-import ────────────────────────────────────────────
 export async function POST(req: Request) {
   let session
-  try { session = await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+  try { session = await requirePermission("palisis") } catch (authErr: unknown) { if ((authErr as { status?: number })?.status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 }); return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   const startedAt = Date.now()
   const body = await req.json().catch(() => ({})) as { override?: boolean; excludeFields?: string[] }
   const overrideAll = body.override === true

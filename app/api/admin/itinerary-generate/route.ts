@@ -1,6 +1,6 @@
 import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { dbGetTrip, dbGetSettings } from "@/lib/db/queries"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
@@ -16,6 +16,10 @@ const DEFAULT_COUNTRY = "lu"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 function stripHtml(html: string): string {
@@ -203,7 +207,7 @@ async function attachLocations(steps: Step[], token: string, baseCountry: string
  */
 export async function POST(request: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("trips")
     const { tripId } = await request.json()
     if (!tripId || typeof tripId !== "string") {
       return Response.json({ error: "tripId is required." }, { status: 400 })
@@ -262,6 +266,7 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, steps })
   } catch (err) {
+    if (isForbidden(err)) return Response.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) {
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }

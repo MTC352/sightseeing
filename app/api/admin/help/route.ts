@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListHelpArticles, dbCreateHelpArticle } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 import { sanitizeAttachments } from "@/lib/file-rules"
 
@@ -11,11 +11,16 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
+}
+
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission("help")
     return NextResponse.json(await dbListHelpArticles("all"))
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/help] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -24,7 +29,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("help")
     const data = await req.json()
     if (!data.question?.trim() || !data.answer?.trim()) {
       return NextResponse.json({ error: "Question and answer are required" }, { status: 400 })
@@ -48,6 +53,7 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(article, { status: 201 })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/help] POST error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

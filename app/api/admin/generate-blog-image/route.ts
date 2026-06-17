@@ -1,5 +1,5 @@
 import { dbGetSettings } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import {
   generateAndSaveBlogCover,
   loadBlogImageConfig,
@@ -24,8 +24,9 @@ export async function POST(req: Request) {
 
   let session
   try {
-    session = await requireAdminSession()
-  } catch {
+    session = await requirePermission("blog")
+  } catch (authErr: unknown) {
+    if ((authErr as { status?: number })?.status === 403) return Response.json({ error: "Forbidden" }, { status: 403 })
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
 

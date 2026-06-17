@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { dbRestorePageRevision } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -10,7 +10,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string; revisionId: string }> }
 ) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("pages")
     const { id, revisionId } = await params
     const result = await dbRestorePageRevision(id, revisionId)
     if (!result) return NextResponse.json({ error: "Revision not found" }, { status: 404 })
@@ -23,7 +23,8 @@ export async function POST(
     })
     return NextResponse.json(result)
   } catch (err: unknown) {
-    if (err instanceof Error && (err as { status?: number }).status === 401) {
+        if (err instanceof Error && (err as { status?: number }).status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        if (err instanceof Error && (err as { status?: number }).status === 401) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[admin/pages/[id]/revisions/[revisionId]/restore] POST error:", err)

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import { getTourCMSClient } from "@/lib/tourcms"
 import { dbListTrips } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
 export async function POST() {
-  try { await requireAdminSession() } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
+  try { await requirePermission("palisis") } catch (authErr: unknown) { if ((authErr as { status?: number })?.status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 }); return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   const tourcms = await getTourCMSClient()
 
   if (!tourcms) {

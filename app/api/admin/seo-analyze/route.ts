@@ -1,6 +1,6 @@
 import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { dbGetSeoPrompts } from "@/lib/db/queries"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
 
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("implementation")
     const { tripData } = await request.json()
 
     // Build the SEO input from BOTH the basic fields and the Palisis-imported
@@ -95,6 +95,7 @@ Provide SEO analysis and optimization suggestions. Return ONLY the JSON object, 
     
     return Response.json(analysis)
   } catch (error) {
+    if (error instanceof Error && (error as { status?: number }).status === 403) return Response.json({ error: "Forbidden" }, { status: 403 })
     if (error instanceof Error && (error as { status?: number }).status === 401) {
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }

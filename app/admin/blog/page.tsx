@@ -2,10 +2,18 @@ import Link from "next/link"
 import { dbListPosts } from "@/lib/db/queries"
 import { Plus, Pencil, ExternalLink, FileText } from "lucide-react"
 import { PostDeleteButton } from "./post-delete-button"
+import { requirePermission } from "@/lib/auth-server"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic"
 
 export default async function AdminBlogPage() {
+  try {
+    await requirePermission("blog")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const posts = await dbListPosts() as {
     id: string; title: string; slug: string; category: string;
     author: string; publishedAt: string | null; status: string;

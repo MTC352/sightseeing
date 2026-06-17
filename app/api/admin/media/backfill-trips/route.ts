@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { dbListTrips, dbUpdateTrip } from "@/lib/db/queries"
 import { localizeImageUrls } from "@/lib/media-upload"
 import { logActivity } from "@/lib/activity-log"
@@ -10,6 +10,10 @@ export const maxDuration = 120
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 /**
@@ -27,8 +31,9 @@ function isUnauthorized(err: unknown): boolean {
 export async function POST() {
   let session
   try {
-    session = await requireAdminSession()
+    session = await requirePermission("files")
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

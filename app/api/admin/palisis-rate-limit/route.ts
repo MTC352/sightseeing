@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { getTourCMSConfig, pingTourCMS } from "@/lib/tourcms"
 
 export const dynamic = "force-dynamic"
@@ -13,8 +13,9 @@ export const dynamic = "force-dynamic"
  */
 export async function GET() {
   try {
-    await requireAdminSession()
-  } catch {
+    await requirePermission("palisis")
+  } catch (authErr: unknown) {
+    if ((authErr as { status?: number })?.status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

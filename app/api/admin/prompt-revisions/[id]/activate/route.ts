@@ -6,7 +6,7 @@ import {
   dbUpdateItineraryConfig,
   dbUpdateSeoConfig,
 } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
@@ -24,7 +24,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid revision id" }, { status: 400 })
   }
   try {
-    await requireAdminSession()
+    await requirePermission("ai-systems")
     const revision = await dbGetPromptRevision(id)
     if (!revision) {
       return NextResponse.json({ error: "Revision not found" }, { status: 404 })
@@ -54,7 +54,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     }
     return NextResponse.json({ ok: true, activated: { id, systemKey, promptKind } })
   } catch (err: unknown) {
-    if (err instanceof Error && (err as { status?: number }).status === 401) {
+        if (err instanceof Error && (err as { status?: number }).status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+        if (err instanceof Error && (err as { status?: number }).status === 401) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[prompt-revisions] activate error:", err)

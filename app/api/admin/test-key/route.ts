@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { pingTourCMS } from "@/lib/tourcms"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requireAnyPermission } from "@/lib/auth-server"
 import { logError } from "@/lib/error-log"
 
 export const dynamic = "force-dynamic"
@@ -28,8 +28,9 @@ interface TestRequest {
 // and observability traces.
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
-  } catch {
+    await requireAnyPermission(["integrations","palisis"])
+  } catch (authErr: unknown) {
+    if ((authErr as { status?: number })?.status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

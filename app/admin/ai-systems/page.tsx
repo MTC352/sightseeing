@@ -2,6 +2,8 @@ import Link from "next/link"
 import { dbGetSettings } from "@/lib/db/queries"
 import { Bot, ChevronRight, MessageSquare, HelpCircle, TriangleAlert, FlaskConical, PenLine, Route, Sun, MapPinned } from "lucide-react"
 import { PROVIDER_LABELS, type AiProvider } from "@/lib/ai/models"
+import { requirePermission } from "@/lib/auth-server"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic"
 
@@ -66,6 +68,12 @@ const SYSTEM_META: Record<string, { label: string; description: string; icon: ty
 }
 
 export default async function AiSystemsPage() {
+  try {
+    await requirePermission("ai-systems")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const settings = await dbGetSettings()
   const activeProvider = (settings.aiProvider as AiProvider) ?? "anthropic"
 

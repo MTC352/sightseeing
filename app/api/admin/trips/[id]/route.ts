@@ -2,12 +2,16 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbGetTrip, dbUpdateTrip, dbDeleteTrip, dbGetIntegration } from "@/lib/db/queries"
 import { resolvePolicy, isFieldEditable, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 import { liveScoreForTrip } from "@/lib/seo/score"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 /**
@@ -54,12 +58,13 @@ async function filterByPolicy<T extends Record<string, unknown>>(data: T): Promi
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    await requirePermission("trips")
     const { id } = await params
     const trip = await dbGetTrip(id)
     if (!trip) return NextResponse.json({ error: "Not found" }, { status: 404 })
     return NextResponse.json(trip)
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trips/:id] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -68,7 +73,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const { id } = await params
     const data = await req.json()
     // Defense-in-depth: SEO-owned columns are written ONLY by the /seo route.
@@ -108,6 +113,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     })
     return NextResponse.json({ ...finalTrip, _strippedReadOnly: stripped.length ? stripped : undefined })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trips/:id] PATCH error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -116,7 +122,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const { id } = await params
     await dbDeleteTrip(id)
     revalidatePath("/admin/trips")
@@ -130,6 +136,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trips/:id] DELETE error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic"
 
 import { dbGetTrip, dbGetIntegration } from "@/lib/db/queries"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { TripEditForm } from "./trip-edit-form"
 import { TripSyncButton } from "../trip-sync-button"
 import {
@@ -10,6 +10,7 @@ import {
   type TripFieldPolicy,
   type TripFieldSettings,
 } from "@/lib/trip-field-policy"
+import { requirePermission } from "@/lib/auth-server"
 
 async function loadPolicy(): Promise<TripFieldPolicy> {
   try {
@@ -38,6 +39,12 @@ async function loadTripFieldSettings(): Promise<TripFieldSettings> {
 }
 
 export default async function TripEditPage({ params }: { params: Promise<{ id: string }> }) {
+  try {
+    await requirePermission("trips")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const { id } = await params
   const [trip, policy, fieldSettings] = await Promise.all([
     id === "new" ? Promise.resolve(null) : dbGetTrip(id),

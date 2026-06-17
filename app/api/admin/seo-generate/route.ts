@@ -1,6 +1,6 @@
 import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { dbGetTrip, dbGetSeoPrompts } from "@/lib/db/queries"
 import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 import {
@@ -21,6 +21,10 @@ export const dynamic = "force-dynamic"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 function buildSource(trip: Record<string, unknown>): string {
@@ -63,7 +67,7 @@ function extractJson(text: string): Record<string, unknown> | null {
 
 export async function POST(request: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("trips")
     const { tripId } = await request.json()
     if (!tripId || typeof tripId !== "string") {
       return Response.json({ error: "tripId is required." }, { status: 400 })
@@ -139,6 +143,7 @@ export async function POST(request: Request) {
       hasImage: !!image,
     })
   } catch (err) {
+    if (isForbidden(err)) return Response.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) {
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { processUpload } from "@/lib/media-upload"
 
 export const dynamic = "force-dynamic"
@@ -8,6 +8,10 @@ export const maxDuration = 60
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
+}
+
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
 }
 
 /**
@@ -19,10 +23,11 @@ function isUnauthorized(err: unknown): boolean {
  */
 export async function POST(request: Request) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("help")
     const { status, body } = await processUpload(request, session.id)
     return NextResponse.json(body, { status })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/help/upload] POST error:", err)
     return NextResponse.json(

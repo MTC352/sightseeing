@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requireSuperAdmin } from "@/lib/auth-server"
 import {
   dbListErrorLogs,
   dbListErrorLogSources,
@@ -22,9 +22,10 @@ function parseLevels(raw: string | null): LogLevel[] | undefined {
 
 export async function GET(req: Request) {
   try {
-    await requireAdminSession()
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    await requireSuperAdmin()
+  } catch (err) {
+    const status = (err instanceof Error && (err as { status?: number }).status === 403) ? 403 : 401
+    return NextResponse.json({ error: status === 403 ? "Forbidden" : "Unauthorized" }, { status })
   }
 
   const { searchParams } = new URL(req.url)
@@ -56,9 +57,10 @@ export async function GET(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireAdminSession()
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    await requireSuperAdmin()
+  } catch (err) {
+    const status = (err instanceof Error && (err as { status?: number }).status === 403) ? 403 : 401
+    return NextResponse.json({ error: status === 403 ? "Forbidden" : "Unauthorized" }, { status })
   }
 
   const { searchParams } = new URL(req.url)

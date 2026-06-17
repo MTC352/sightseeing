@@ -1,7 +1,7 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { dbListHelpArticles, dbGetSettings } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const dynamic = "force-dynamic"
@@ -105,8 +105,14 @@ RULES:
 export async function POST(req: Request) {
   const reqMeta = requestMeta(req)
   try {
-    await requireAdminSession()
-  } catch {
+    await requirePermission("docs")
+  } catch (authErr: unknown) {
+    if ((authErr as { status?: number })?.status === 403) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },

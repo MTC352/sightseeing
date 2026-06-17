@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbUpdateTripTag, dbDeleteTripTag } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -10,12 +10,16 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const { slug } = await params
     const body = await req.json()
     const patch: Record<string, unknown> = {}
@@ -35,6 +39,7 @@ export async function PATCH(
     revalidatePath("/admin/trip-tags")
     return NextResponse.json(tag)
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trip-tags/:slug] PATCH error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -46,7 +51,7 @@ export async function DELETE(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const { slug } = await params
     await dbDeleteTripTag(slug)
     void logActivity({
@@ -60,6 +65,7 @@ export async function DELETE(
     revalidatePath("/admin/trip-tags")
     return NextResponse.json({ success: true })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/trip-tags/:slug] DELETE error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

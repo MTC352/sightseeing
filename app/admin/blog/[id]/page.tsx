@@ -1,10 +1,17 @@
 export const dynamic = "force-dynamic"
 
 import { dbGetPost } from "@/lib/db/queries"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { PostEditForm } from "./post-edit-form"
+import { requirePermission } from "@/lib/auth-server"
 
 export default async function PostEditPage({ params }: { params: Promise<{ id: string }> }) {
+  try {
+    await requirePermission("blog")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const { id } = await params
   const post = id === "new" ? null : await dbGetPost(id)
   if (id !== "new" && !post) notFound()

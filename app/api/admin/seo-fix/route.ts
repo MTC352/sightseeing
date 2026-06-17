@@ -15,7 +15,7 @@
 
 import { generateText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { dbGetSeoPrompts } from "@/lib/db/queries"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
 
@@ -65,7 +65,7 @@ const PROMPTS: Record<string, (p: { currentValue: string; focusKeyword: string; 
 
 export async function POST(request: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("implementation")
     const body = await request.json()
     const { fixType, currentValue, focusKeyword = "", tripData = {} } = body
 
@@ -103,7 +103,8 @@ export async function POST(request: Request) {
 
     return Response.json({ result: text.trim() })
   } catch (err) {
-    if (err instanceof Error && (err as { status?: number }).status === 401) {
+        if (err instanceof Error && (err as { status?: number }).status === 403) return Response.json({ error: "Forbidden" }, { status: 403 })
+        if (err instanceof Error && (err as { status?: number }).status === 401) {
       return Response.json({ error: "Unauthorized" }, { status: 401 })
     }
     console.error("[seo-fix] error:", err)

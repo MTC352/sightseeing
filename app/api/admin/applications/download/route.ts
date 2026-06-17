@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { get } from "@vercel/blob"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { queryOne } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
@@ -9,9 +9,13 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
+}
+
 export async function GET(req: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission("jobs")
 
     const { searchParams } = new URL(req.url)
     const id = searchParams.get("id")
@@ -74,6 +78,7 @@ export async function GET(req: Request) {
 
     return new Response(result.stream, { status: 200, headers })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     console.error("[admin/applications/download] GET error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

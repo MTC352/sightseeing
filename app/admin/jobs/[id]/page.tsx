@@ -1,10 +1,17 @@
 export const dynamic = "force-dynamic"
 
 import { dbGetJob } from "@/lib/db/queries"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { JobEditForm } from "./job-edit-form"
+import { requirePermission } from "@/lib/auth-server"
 
 export default async function JobEditPage({ params }: { params: Promise<{ id: string }> }) {
+  try {
+    await requirePermission("jobs")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const { id } = await params
   const job = id === "new" ? null : await dbGetJob(id)
   if (id !== "new" && !job) notFound()

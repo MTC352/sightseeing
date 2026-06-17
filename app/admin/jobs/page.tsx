@@ -3,10 +3,18 @@ import { dbListJobs } from "@/lib/db/queries"
 import { Plus, Pencil, Briefcase } from "lucide-react"
 import { JobDeleteButton } from "./job-delete-button"
 import { JobStatusButton } from "./job-status-button"
+import { requirePermission } from "@/lib/auth-server"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic"
 
 export default async function AdminJobsPage() {
+  try {
+    await requirePermission("jobs")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const jobs = await dbListJobs()
 
   const typedJobs = jobs as { id: string; title: string; department: string; type: string; location: string; status: string; createdAt: string }[]

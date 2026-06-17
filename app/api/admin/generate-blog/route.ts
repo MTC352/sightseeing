@@ -1,7 +1,7 @@
 import { streamText } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListTrips } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { generateAndSaveBlogCover, loadBlogImageConfig, defaultSubjectPrompt } from "@/lib/blog-image"
 import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
   const reqMeta = requestMeta(req)
 
   let session
-  try { session = await requireAdminSession() } catch { return Response.json({ error: "Unauthorized" }, { status: 401 }) }
+  try { session = await requirePermission("blog") } catch (authErr: unknown) { if ((authErr as { status?: number })?.status === 403) return Response.json({ error: "Forbidden" }, { status: 403 }); return Response.json({ error: "Unauthorized" }, { status: 401 }) }
 
   // Parse the body defensively. An empty/invalid body previously threw an
   // uncaught SyntaxError here, crashing the handler (surfaced as a 500/502 to

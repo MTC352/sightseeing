@@ -3,6 +3,8 @@ import { dbListHelpArticles, dbCountDuplicateHelpArticles } from "@/lib/db/queri
 import { Plus, Pencil, HelpCircle, Globe, ShieldCheck } from "lucide-react"
 import { HelpArticleDeleteButton } from "./help-delete-button"
 import { HelpDedupeButton } from "./help-dedupe-button"
+import { requirePermission } from "@/lib/auth-server"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic"
 
@@ -12,6 +14,12 @@ type HelpArticle = {
 }
 
 export default async function AdminHelpPage() {
+  try {
+    await requirePermission("help")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const [articles, duplicateCount] = await Promise.all([
     dbListHelpArticles("all") as Promise<HelpArticle[]>,
     dbCountDuplicateHelpArticles(),

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbGetTrip, dbUpdateTrip } from "@/lib/db/queries"
-import { requireAdminSession } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 import {
   computeSeoSections,
@@ -17,6 +17,10 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
 }
 
+function isForbidden(err: unknown): boolean {
+  return err instanceof Error && (err as { status?: number }).status === 403
+}
+
 function str(v: unknown): string {
   return typeof v === "string" ? v : v == null ? "" : String(v)
 }
@@ -28,7 +32,7 @@ function str(v: unknown): string {
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission("trips")
     const { id } = await params
 
     const trip = (await dbGetTrip(id)) as Record<string, unknown> | null
@@ -109,6 +113,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       fields,
     })
   } catch (err) {
+    if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
