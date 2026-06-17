@@ -62,8 +62,12 @@ The platform exposes public and semi-public endpoints that can consume blob stor
 
 In this codebase, special attention belongs on public upload handlers, job-application attachment flows, AI/planner endpoints that can fan out into TourCMS and model-provider requests from a single caller action, and public provider-backed utility routes such as weather, reviews, map configuration, availability, and discovery refresh paths.
 
+Because the production deployment is public and can run across multiple processes or cold starts, process-local caches and in-memory per-instance rate limits are not sufficient as the sole abuse control for expensive public routes. Public endpoints that warm caches, fan out into TourCMS, or forward large prompts to paid AI providers need safeguards that still hold across cache-busting input, restarts, and horizontal scaling.
+
 ### Elevation of Privilege
 
 The core elevation-of-privilege concern is movement from public/deployment-accessible user to admin capabilities. Protected admin pages and APIs must remain secure even if perimeter assumptions fail, and insecure defaults must not let an attacker mint their own admin session.
 
 Within the admin surface, role-bearing session data should only grant the privileges actually intended by the server. Any functionality that can inject script into public pages or update integrations is effectively full-site compromise and must be treated as such.
+
+Administrative revocation must take effect immediately on both server-rendered admin pages and admin APIs. Edge middleware may use JWT claims for coarse routing, but every sensitive page or handler must enforce fresh database-backed role, permission, and active-user checks before loading data or performing mutations.
