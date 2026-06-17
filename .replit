@@ -33,13 +33,45 @@ outputType = "webview"
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 5050
+externalPort = 3003
+
+[[ports]]
+localPort = 5051
+externalPort = 4200
+
+[[ports]]
+localPort = 5053
+externalPort = 3000
+
+[[ports]]
+localPort = 5062
+externalPort = 3001
+
+[[ports]]
+localPort = 5063
+externalPort = 3002
+
+[[ports]]
+localPort = 5064
+externalPort = 5000
+
+[[ports]]
+localPort = 5071
+externalPort = 5173
+
+[[ports]]
+localPort = 5081
+externalPort = 6000
+
 [userenv]
 
 [userenv.shared]
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["pnpm", "start"]
+run = ["node_modules/.bin/next", "start", "-p", "5000"]
 build = ["pnpm", "build"]
 
 [postMerge]

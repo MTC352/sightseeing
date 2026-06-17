@@ -1,112 +1,49 @@
 ---
-name: Deploy healthcheck must not block on the DB
-description: Why Replit autoscale publish fails on the / healthcheck, the serverless prod-DB cold-start race, the dev-vs-prod sslmode trap, and how to keep / + the pg pool deploy-safe.
+name: Autoscale deploy startup-probe timeout on GET /
+description: Why publishing this Next.js app to Replit autoscale fails the startup healthcheck, and the verified fix.
 ---
 
-# Autoscale publish fails on the `/` healthcheck
+# Autoscale startup probe fails on cold `GET /`
 
-The Replit **autoscale** deploy healthcheck repeatedly GETs `/` with a short
-per-attempt deadline (observed ~2–2.5s). `/` server-renders DB reads (root
-`app/layout.tsx` + homepage `app/page.tsx`). If those reads can't complete fast,
-the healthcheck logs **"context deadline exceeded"**, the instance never goes
-healthy, and publish fails (`exit status 143` = SIGTERM kill, ~9–11s after boot).
+**Root cause (verified):** the FIRST request to any `next start` process pays a one-time,
+**route-independent** Next.js production-pipeline init. On fast hardware it's ~1.6s; on a
+cold, **CPU-throttled** 2-vCPU autoscale instance it balloons to multiples of that. The
+deploy startup probe's very first `GET /` lands on this init and exceeds the short
+per-probe deadline → `context deadline exceeded` repeated → SIGKILL → publish never goes
+healthy.
 
-## CONFIRMED root cause: the prod DB cold-starts in ~8s
+**What it is NOT (ruled out by local prod repro):**
+- NOT `/` being slow when warm — warm `/` serves in ~10-40ms.
+- NOT DB blocking the render — `withTimeout` makes `/` resilient even to a dead/hanging DB
+  (200 in ~1.5s cold). Prod DB does wake (~8s) and `withTimeout(250ms)` caps render reads.
+- NOT stale-ISR regen — stale `/` serves the cached page in 5-7ms and regenerates in the
+  background (non-blocking). So `force-static` / `revalidate` value does NOT matter here.
+- NOT probe cancellation resetting the init — proven: 6 aborted 0.2s probes, then a real
+  `GET /` = 73ms. The init completes once in the background and **persists**.
+- NOT proxy.ts middleware (it already excludes `/` via matcher) and NOT the heavy `/`
+  route module graph (a trivial API route pays the same ~1.6s when it's the first request).
 
-The production database is **serverless/suspends when idle**. Measured directly:
-a first query against prod took **~8000ms** (dev DB: ~8ms). On a fresh deploy the
-healthcheck hits `/` ~0.3s after "Ready", the render's first DB connection races
-the wake and gets **"Connection terminated unexpectedly" / connect timeout**, `/`
-blocks past the deadline, and the deploy is killed before the DB (~8s) finishes
-waking. The SSL warning / sslmode work below was a real but secondary fix — it
-did NOT solve the cold-start race. External TourCMS timeouts in the same logs are
-a SEPARATE concern (the deferred discovery bootstrap hammering TourCMS), not the
-healthcheck blocker.
+**Fix (two parts, both shipped):**
+1. **Self-warm at boot** (`instrumentation.ts`, production-gated): fire an internal
+   `GET http://127.0.0.1:5000/` the instant the listener is up (retry every 200ms until it
+   responds). This pays the one-time init in the background ~0.7s before the external probe
+   and runs to completion regardless of probe cancellation, so the probe's retry hits a warm
+   server. Verified locally: server self-warms with NO external request, first external
+   `GET /` then = ~10ms.
+2. **Skip the pnpm wrapper** in the deploy run command (`deployConfig` →
+   `["node_modules/.bin/next","start","-p","5000"]`) to reclaim the ~1.1s
+   `starting up → next start` gap seen in deploy logs.
 
-## DECISIVE fix: exclude `/` from MIDDLEWARE (the real per-request cost on a static `/`)
+**Why:** the init is the bottleneck and is started lazily by the first request; self-warm
+starts it as early as possible and decouples it from the probe's short deadline, while
+dropping pnpm widens the budget. Together they give the cold init the best chance to finish
+inside the startup window.
 
-ISR alone did **NOT** fix the promote. A force-dynamic build and an ISR build
-(`export const revalidate = 300`, route table `○ /` = static) failed **identically**.
-That decisively rules out page render-time: serving a static `/` is just a file
-read. Yet runtime logs still showed `✓ Ready in 380ms`, then `healthcheck GET /
-context deadline exceeded` at **+1–2s after Ready**.
-
-**The only per-request code left on a static `/` is `proxy.ts` MIDDLEWARE.** Next
-runs middleware in its Edge runtime; the **first** matched request cold-compiles
-the middleware bundle (it imports `jose` + `lib/auth` + admin-permissions). On a
-contended cold 2-vCPU autoscale instance that one-time compile overruns the tight
-probe deadline → "context deadline exceeded" → every publish fails.
-
-**Fix:** exclude the bare root `/` from the middleware `matcher` by changing its
-trailing `.*` → **`.+`** (the root has zero chars after the leading slash, so `.+`
-won't match it; every other route ≥1 char still runs middleware). The healthcheck
-`GET /` is then served as pure static HTML with **zero per-request JS and no
-Edge-runtime cold start**. Admin authz is unchanged (`/admin*`, `/api/admin*` still
-match). `/` only loses the AEO `X-Robots-Tag`/`Link` headers (redundant with the
-layout's robots metadata). ISR on `/` is still correct/kept (build prerenders it),
-but the **matcher exclusion is what makes the probe pass**, not ISR.
-
-> Pre-Ready `500`/`connection refused` healthcheck lines are normal forwarder noise
-> while port 5000 has no listener yet (pnpm adds ~1.3s before `next start` runs).
-> The signal is the **post-Ready** error: 500 = app/middleware error, `context
-> deadline exceeded` = too slow. If `/` is static, suspect middleware, not render.
-
-## Two-part fix (defense-in-depth, keep it)
-
-1. **`/` must return 200 fast regardless of DB state.** Bound every additive read
-   with `withTimeout(promise, ms, fallback)` (`lib/db.ts`). CRITICAL: the root
-   layout `await`s its reads BEFORE the child page renders, so even though the
-   layout's own reads are parallel (`Promise.all`), the layout-phase timeout +
-   page-phase timeout are **SEQUENTIAL** — their SUM must stay under the
-   healthcheck deadline. The observed per-attempt deadline is only ~1.8-2s, and
-   the FIRST request in `next start` also pays a one-time module-load cost on top
-   of the cold-DB fallback wait. 1000ms each (~2s) and even 600ms each (~1.2s)
-   were too tight; settled on **250ms each (~500ms total budget)** for real
-   margin. A warm DB returns in ~50ms so this only changes the cold-start
-   fallback. Homepage reads are additive only (JSON-LD + header/footer injection +
-   weglot + announcement), so empty fallbacks are visually safe (all visible
-   homepage content is client-fetched). The render path is the ONLY server-side
-   blocking on `/`: every home-section component is `"use client"`, and proxy.ts
-   does no DB/loopback work on `/` (its `/trip/` + `/admin` branches are skipped).
-2. **Warm the DB at boot.** `instrumentation.register()` fires a fire-and-forget
-   `pool.query("SELECT 1")` (with a few retries) IMMEDIATELY on boot so the cold
-   DB starts waking in the background while `/` passes the healthcheck via
-   fallbacks. By the time real traffic / later healthchecks arrive (~8s) the DB is
-   warm and full data renders. Keep this non-blocking — never `await` it in
-   `register()`.
-
-Also still defer heavy warm-up: `triggerDiscoveryBootstrap()` stays behind a
-`setTimeout(...).unref()` (**~45s**, raised from 15s so the CPU/IO-heavy TourCMS
-sweep can't contend with the probe window on a cold instance), separate from the
-lightweight SELECT 1 ping.
-
-## The dev-vs-prod `sslmode` trap (secondary fix, keep it)
-
-Dev and prod use **different DATABASE_URLs with different `sslmode`**:
-- **dev** `sslmode=disable` → no TLS → ~8–46ms, never prints the pg SSL warning.
-  ("Works in dev" tells you nothing about prod SSL.)
-- **prod** `sslmode=require` → `pg-connection-string` (>=2.x) now treats
-  require/prefer/verify-ca as **`verify-full`**, which emits the SSL deprecation
-  warning seen ONLY in prod logs.
-
-**Pool config that survives both (`lib/db.ts` `buildPoolConfig`):**
-- Set `ssl` **explicitly** from the URL's `sslmode` (`disable`→`ssl:false`,
-  else→`ssl:{rejectUnauthorized:false}`) and **strip `sslmode`** from the
-  connection string so the driver never re-applies verify-full and the warning
-  goes away. `rejectUnauthorized:false` = encrypt-without-chain-verify; restores
-  the historical meaning of `sslmode=require` (standard Replit/Neon pattern) but
-  IS a transport-auth downgrade — keep it documented/intentional, not silent.
-- On URL parse failure, pass the raw string through with **no explicit ssl** (let
-  libpq decide) — never force `ssl:false` (silent plaintext downgrade).
-- **Generous `connectionTimeoutMillis` (~15s)** so the ~8s cold wake succeeds on
-  the first connection instead of failing the deploy.
-
-**Why pool starvation was a red herring:** the healthcheck failed ~1.8–2.5s after
-Ready, before any deferred work and while the pool was free — so the blocker was
-connection *establishment* timing (cold-start wake), not pool contention.
-
-## Validation note
-
-`next build` is memory-heavy and gets SIGKILLed in-sandbox when run alongside the
-`next dev` workflow (empty log, no BUILD_ID, no error). Validate edits via the dev
-server's Fast Refresh compile + `curl /` instead, or stop the workflow first.
+**How to apply / keep in lockstep:**
+- The self-warm URL port (5000) MUST match the deploy run command's `-p`. If the deploy port
+  ever changes, update BOTH the run command and the instrumentation warm URL.
+- Self-warm is gated to `NODE_ENV === "production"` so `next dev` doesn't eagerly compile `/`.
+- If probe failures STILL persist after this, the remaining lever is **more CPU** (bump
+  autoscale vCPUs) or a Reserved VM — the residual cause is cold-start CPU throttling, which
+  code cannot fully remove. Confirm via deploy logs: success looks like `self-warm ok ...`
+  followed by a passing probe after `Ready` (no repeated `context deadline exceeded`).

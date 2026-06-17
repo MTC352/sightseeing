@@ -52,6 +52,38 @@ export async function register() {
       }
     })()
 
+    // Self-warm the HTTP server the instant it starts listening.
+    //
+    // The FIRST request to a `next start` process pays a one-time, route-independent
+    // pipeline initialization (~1.5s on fast hardware, but several times that on a
+    // cold, CPU-throttled autoscale instance). The deploy healthcheck's very first
+    // `GET /` lands on this init and exceeds the short startup-probe deadline, so the
+    // publish never goes healthy. By firing an internal request to `/` ourselves as
+    // soon as the listener is up, we pay that init in the background ~0.7s before the
+    // external probe arrives. The init completes once and persists (aborted/cancelled
+    // probes do NOT reset it), so by the time the probe retries, `/` serves from the
+    // warm pipeline in milliseconds. Non-blocking; never delays server start.
+    if (process.env.NODE_ENV === "production") {
+      // Port is pinned by the deploy run command (`next start -p 5000`), so target
+      // 5000 directly rather than trusting PORT (which `-p` overrides and which may
+      // not match the bound port).
+      void (async () => {
+        const url = "http://127.0.0.1:5000/"
+        for (let attempt = 1; attempt <= 25; attempt++) {
+          try {
+            const res = await fetch(url, { headers: { "x-warmup": "1" } })
+            await res.arrayBuffer().catch(() => {})
+            console.log(`[instrumentation] self-warm ok (attempt ${attempt}, status ${res.status})`)
+            return
+          } catch {
+            // Server not listening yet — retry shortly.
+            await new Promise((r) => setTimeout(r, 200))
+          }
+        }
+        console.warn("[instrumentation] self-warm gave up after 25 attempts")
+      })()
+    }
+
     setTimeout(() => {
       void (async () => {
         try {
