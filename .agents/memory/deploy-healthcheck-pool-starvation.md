@@ -27,13 +27,19 @@ healthcheck blocker.
 
 1. **`/` must return 200 fast regardless of DB state.** Bound every additive read
    with `withTimeout(promise, ms, fallback)` (`lib/db.ts`). CRITICAL: the root
-   layout `await`s its reads BEFORE the child page renders, so layout-timeout +
-   page-timeout are **SEQUENTIAL, not parallel** — their SUM must stay under the
-   healthcheck deadline. Using 1000ms each (=~2s) was borderline and still failed;
-   dropped to **600ms each (=~1.2s)**. A warm DB returns in ~50ms so this only
-   changes the cold-start fallback. Homepage reads are additive only (JSON-LD +
-   header/footer injection + announcement), so empty fallbacks are visually safe
-   (all visible homepage content is client-fetched).
+   layout `await`s its reads BEFORE the child page renders, so even though the
+   layout's own reads are parallel (`Promise.all`), the layout-phase timeout +
+   page-phase timeout are **SEQUENTIAL** — their SUM must stay under the
+   healthcheck deadline. The observed per-attempt deadline is only ~1.8-2s, and
+   the FIRST request in `next start` also pays a one-time module-load cost on top
+   of the cold-DB fallback wait. 1000ms each (~2s) and even 600ms each (~1.2s)
+   were too tight; settled on **250ms each (~500ms total budget)** for real
+   margin. A warm DB returns in ~50ms so this only changes the cold-start
+   fallback. Homepage reads are additive only (JSON-LD + header/footer injection +
+   weglot + announcement), so empty fallbacks are visually safe (all visible
+   homepage content is client-fetched). The render path is the ONLY server-side
+   blocking on `/`: every home-section component is `"use client"`, and proxy.ts
+   does no DB/loopback work on `/` (its `/trip/` + `/admin` branches are skipped).
 2. **Warm the DB at boot.** `instrumentation.register()` fires a fire-and-forget
    `pool.query("SELECT 1")` (with a few retries) IMMEDIATELY on boot so the cold
    DB starts waking in the background while `/` passes the healthcheck via

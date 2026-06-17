@@ -1,0 +1,98 @@
+2026-06-17T08:56:27.420Z     at async s (.next/server/chunks/[root-of-the-server]__0ti~uzn._.js:1:582)
+2026-06-17T09:55:59.919Z starting up user application
+2026-06-17T09:55:59.919Z metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-06-17T09:55:59.920Z forwarding local port 5000 to external port 80 (mapped as 1104)
+2026-06-17T09:55:59.921Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": dial tcp 127.0.0.1:1104: connect: connection refused
+2026-06-17T09:55:59.929Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:55:59.946Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:55:59.973Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.027Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.174Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.319Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:00.791Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:01.235Z > my-project@0.1.0 start /home/runner/workspace
+2026-06-17T09:56:01.235Z > next start -p 5000
+2026-06-17T09:56:01.971Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:02.026Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T09:56:02.581Z - Local:         http://localhost:5000
+2026-06-17T09:56:02.581Z - Network:       http://169.254.8.1:5000
+2026-06-17T09:56:02.581Z ▲ Next.js 16.2.6
+2026-06-17T09:56:02.582Z ✓ Ready in 517ms
+2026-06-17T09:56:04.427Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T09:56:07.588Z (Use `node --trace-warnings ...` to show where the warning was created)
+2026-06-17T09:56:07.588Z See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+2026-06-17T09:56:07.588Z - If you want the current behavior, explicitly use 'sslmode=verify-full'
+2026-06-17T09:56:07.588Z (node:33) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+2026-06-17T09:56:07.588Z To prepare for this change:
+2026-06-17T09:56:07.588Z In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+2026-06-17T09:56:07.588Z - If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+2026-06-17T09:56:08.240Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T09:56:13.799Z system: received signal terminated
+2026-06-17T09:56:13.832Z  ELIFECYCLE  Command failed with exit code 143.
+2026-06-17T09:56:13.907Z command finished with error [pnpm start]: exit status 143
+2026-06-17T09:56:13.912Z main done, exiting
+2026-06-17T09:56:19.309Z [instrumentation] Departing Soon discovery bootstrap triggered (deferred)
+2026-06-17T10:00:58.112Z   context: {
+2026-06-17T10:00:58.112Z   source: 'tourcms',
+2026-06-17T10:00:58.112Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T10:00:58.112Z   }
+2026-06-17T10:00:58.112Z   statusCode: null,
+2026-06-17T10:00:58.112Z   level: 'error',
+2026-06-17T10:00:58.112Z       at ignore-listed frames
+2026-06-17T10:00:58.112Z   message: 'GET /c/tour/datesprices/checkavail.xml?id=19&date=2026-06-17&r1=1 failed: The operation was aborted due to timeout',
+2026-06-17T10:00:58.112Z   [cause]: Error: Connection terminated unexpectedly
+2026-06-17T10:00:58.112Z     attempts: 3,
+2026-06-17T10:00:58.112Z     at async s (.next/server/chunks/_0bogxcq._.js:18:56) {
+2026-06-17T10:00:58.112Z }
+2026-06-17T10:00:58.112Z     at async s (.next/server/chunks/[root-of-the-server]__0ti~uzn._.js:1:582)
+2026-06-17T10:00:58.112Z     durationMs: 59800,
+2026-06-17T10:00:58.112Z } original: {
+2026-06-17T10:00:58.112Z     ok: false,
+2026-06-17T10:00:58.112Z     path: '/c/tour/datesprices/checkavail.xml?id=19&date=2026-06-17&r1=1',
+2026-06-17T10:00:58.112Z     verb: 'GET',
+2026-06-17T10:00:58.112Z     channelId: 13407
+2026-06-17T10:00:59.709Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T10:25:16.083Z starting up user application
+2026-06-17T10:25:16.084Z metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-06-17T10:25:16.089Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": dial tcp 127.0.0.1:1104: connect: connection refused
+2026-06-17T10:25:16.089Z forwarding local port 5000 to external port 80 (mapped as 1104)
+2026-06-17T10:25:16.098Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.107Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.121Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.189Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.221Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.367Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.548Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:16.694Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:17.237Z > my-project@0.1.0 start /home/runner/workspace
+2026-06-17T10:25:17.237Z > next start -p 5000
+2026-06-17T10:25:18.048Z healthcheck failed error=healthcheck / returned status 500
+2026-06-17T10:25:18.178Z ▲ Next.js 16.2.6
+2026-06-17T10:25:18.179Z ✓ Ready in 336ms
+2026-06-17T10:25:18.179Z - Local:         http://localhost:5000
+2026-06-17T10:25:18.179Z - Network:       http://169.254.8.1:5000
+2026-06-17T10:25:20.686Z healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-06-17T10:25:27.530Z system: received signal terminated
+2026-06-17T10:25:27.559Z  ELIFECYCLE  Command failed with exit code 143.
+2026-06-17T10:25:27.631Z command finished with error [pnpm start]: exit status 143
+2026-06-17T10:25:27.652Z main done, exiting
+2026-06-17T10:25:34.725Z [instrumentation] Departing Soon discovery bootstrap triggered (deferred)
+2026-06-17T10:28:15.924Z     durationMs: 13599,
+2026-06-17T10:28:15.924Z   }
+2026-06-17T10:28:15.924Z   level: 'info',
+2026-06-17T10:28:15.924Z     at async s (.next/server/chunks/[root-of-the-server]__0ti~uzn._.js:1:820)
+2026-06-17T10:28:15.924Z     verb: 'GET',
+2026-06-17T10:28:15.924Z   statusCode: 200,
+2026-06-17T10:28:15.924Z }
+2026-06-17T10:28:15.924Z   message: 'GET /c/tour/datesprices/checkavail.xml?id=9&date=2026-06-17&r1=1',
+2026-06-17T10:28:15.924Z } original: {
+2026-06-17T10:28:15.924Z       at ignore-listed frames
+2026-06-17T10:28:15.924Z     at async s (.next/server/chunks/_0bogxcq._.js:18:56) {
+2026-06-17T10:28:15.924Z     path: '/c/tour/datesprices/checkavail.xml?id=9&date=2026-06-17&r1=1',
+2026-06-17T10:28:15.924Z [error-log] failed to persist error: Error: Connection terminated due to connection timeout
+2026-06-17T10:28:15.924Z   source: 'tourcms',
+2026-06-17T10:28:15.924Z   context: {
+2026-06-17T10:28:15.924Z     attempts: 1,
+2026-06-17T10:28:15.924Z     ok: true,
+2026-06-17T10:28:15.924Z     channelId: 13407
+2026-06-17T10:28:15.924Z   [cause]: Error: Connection terminated unexpectedly

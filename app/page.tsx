@@ -37,9 +37,15 @@ const websiteLd = {
 export default async function Page() {
   // Top-5 published trips for the ItemList JSON-LD. Fail-closed: empty list
   // on DB error so we never expose archived/draft trip references.
+  //
+  // Small 250ms budget for deploy-healthcheck safety: this read runs AFTER the
+  // root layout's reads on the `/` critical path, so the budgets are additive.
+  // The result feeds only the ItemList structured-data block (invisible SEO
+  // metadata) — when omitted on a cold DB the page still renders fully and the
+  // schema simply drops the ItemList. A warm DB resolves it in ~50ms.
   const rows = (await withTimeout(
     dbListTrips({ publicOnly: true }).catch(() => []),
-    600,
+    250,
     [],
   )) as Array<{
     slug?: string | null

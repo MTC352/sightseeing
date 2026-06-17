@@ -93,10 +93,21 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // healthcheck that renders `/`) is bounded by a single round-trip rather than
   // three sequential connection acquisitions. Each falls back gracefully so a
   // cold or slow DB never blocks first paint.
+  //
+  // The timeout is deliberately small (250ms). The autoscale deploy healthcheck
+  // GETs `/` within ~0.3s of boot, while the managed prod DB can take several
+  // seconds to wake from suspension. Layout reads resolve BEFORE the child page
+  // renders its own read, so these budgets are additive on the critical path;
+  // keeping each tiny guarantees `/` returns 200 well under the healthcheck
+  // deadline even when the DB is stone cold. All three values are purely
+  // additive (header/footer injection, Weglot key, announcement) — every
+  // visible homepage element is client-fetched — so an empty fallback during
+  // the brief cold window has no user-facing impact. A warm DB (~50ms) always
+  // resolves them fully.
   const [injection, weglotApiKey, announcement] = await Promise.all([
-    withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 600, { header: "", footer: "" }),
-    withTimeout(dbGetWeglotApiKey().catch(() => ""), 600, ""),
-    withTimeout(dbGetAnnouncement().catch(() => null), 600, null),
+    withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
+    withTimeout(dbGetWeglotApiKey().catch(() => ""), 250, ""),
+    withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
   ])
   return (
     <html lang="en" className={instrumentSans.variable}>
