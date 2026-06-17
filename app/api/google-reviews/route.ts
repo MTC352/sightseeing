@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { dbGetSettings } from "@/lib/db/queries"
+import { dbGetSettings, dbGetTrip } from "@/lib/db/queries"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 /* -----------------------------------------------------------------------
@@ -213,7 +213,6 @@ export async function GET(request: NextRequest) {
   if (!rl.allowed) return rl.response
 
   const { searchParams } = request.nextUrl
-  const rawUrl = searchParams.get("url") ?? ""
 
   const settings = await dbGetSettings()
   const apiKey =
@@ -235,81 +234,166 @@ export async function GET(request: NextRequest) {
      Two scopes:
        • Homepage / global (default): the admin's stored `googlePlaceId` is the
          single business identity and takes top priority.
-       • Per-trip (`scope=trip`): resolve strictly from THIS trip's own url /
-         Place ID — never fall back to the global id or the house business, so
-         each trip shows its OWN Google profile reviews.
+       • Per-trip (`scope=trip`): resolve strictly from the `google_business_url`
+         stored on the trip row in our database — the caller supplies only a
+         `tripId` and we look it up server-side. This prevents the endpoint from
+         being used as a general-purpose Google Places proxy for arbitrary inputs.
 
      Resolution order:
        1. (global scope only) `googlePlaceId` stored in Admin → Integrations
-       2. Raw Place ID pasted directly (ChIJ… / EI…)
-       3. Place ID / CID extracted from a resolved Google Maps URL
-       4. Text search using the place name from the URL
-       5. (global scope only) Text search for "Sightseeing Luxembourg"
+       2. (trip scope) DB-stored `google_business_url` for the given tripId
+       3. Raw Place ID pasted directly (ChIJ… / EI…)
+       4. Place ID / CID extracted from a resolved Google Maps URL
+       5. Text search using the place name from the URL
+       6. (global scope only) Text search for "Sightseeing Luxembourg"
   ───────────────────────────────────────────────────────────────────── */
   const isTrip = searchParams.get("scope") === "trip"
 
-  let placeId: string | null = isTrip
-    ? null
-    : ((settings.apiKeys as Record<string, string> | undefined)?.googlePlaceId ?? "").trim() || null
+  // Trip-scoped requests: resolve the Google Business URL from our own DB —
+  // never from a caller-supplied URL.  This is the allowlist gate that stops
+  // the endpoint being used as a public Google Places proxy.
+  if (isTrip) {
+    const tripId = searchParams.get("tripId") ?? ""
+    if (!tripId) {
+      return NextResponse.json({ error: "Missing tripId", reviews: [] }, { status: 400 })
+    }
 
-  // Cache key: trip-scoped requests cache per-url so they never collide with the
-  // global homepage entry; global requests prefer the stored Place ID.
-  const cacheKey = isTrip ? `trip:${rawUrl}` : placeId ?? rawUrl
+    let tripRow: Record<string, unknown> | null = null
+    try {
+      tripRow = (await dbGetTrip(tripId, { publicOnly: true })) as Record<string, unknown> | null
+    } catch {
+      tripRow = null
+    }
+
+    if (!tripRow) {
+      return NextResponse.json({ error: "Trip not found", reviews: [] }, { status: 404 })
+    }
+
+    const storedUrl = (tripRow.googleBusinessUrl as string | null | undefined) ?? ""
+    if (!storedUrl.trim()) {
+      return NextResponse.json({ error: "No Google Business URL configured for this trip", reviews: [] }, { status: 404 })
+    }
+
+    // From here we continue with the stored URL as rawUrl — same resolution
+    // logic below, but the input is DB-controlled, not caller-controlled.
+    const tripCacheKey = `trip:${tripId}`
+    const cached = _reviewsCache.get(tripCacheKey)
+    if (cached && Date.now() < cached.expiresAt) {
+      return NextResponse.json(cached.data)
+    }
+
+    let placeId: string | null = null
+    let placeName: string | null = null
+
+    try {
+      placeId = extractPlaceId(storedUrl)
+      placeName = extractPlaceName(storedUrl)
+
+      if (!placeId) {
+        const resolvedUrl = await resolveShortlink(storedUrl)
+        placeId = extractPlaceId(resolvedUrl)
+        placeName = placeName ?? extractPlaceName(resolvedUrl)
+      }
+
+      if (!placeId && placeName) {
+        placeId = await findPlaceIdByName(placeName, apiKey)
+      }
+
+      if (!placeId) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not resolve a Google Place ID for this trip. In the trip editor, paste the " +
+              "business Place ID (most reliable) or a full Google Maps place URL that includes the business name.",
+            reviews: [],
+          },
+          { status: 400 },
+        )
+      }
+
+      let details = await fetchPlaceDetails(placeId, apiKey)
+      if (!details.ok && placeName) {
+        const alt = await findPlaceIdByName(placeName, apiKey)
+        if (alt && alt !== placeId) details = await fetchPlaceDetails(alt, apiKey)
+      }
+      if (!details.ok) {
+        throw new Error(`Places API: ${details.status}`)
+      }
+
+      const { name, rating, user_ratings_total, reviews } = details.result as {
+        name?: string
+        rating?: number
+        user_ratings_total?: number
+        reviews?: Array<Record<string, unknown>>
+      }
+
+      const payload = {
+        name,
+        rating,
+        totalReviews: user_ratings_total,
+        reviews: (reviews ?? []).slice(0, 5).map((r) => ({
+          author: r.author_name as string,
+          avatar: r.profile_photo_url as string,
+          rating: r.rating as number,
+          date: r.relative_time_description as string,
+          text: r.text as string,
+          url: r.author_url as string,
+        })),
+      }
+
+      _reviewsCache.set(tripCacheKey, { data: payload, expiresAt: Date.now() + 30 * 60_000 })
+      return NextResponse.json(payload)
+    } catch (err) {
+      console.error("[google-reviews] trip fetch error:", err)
+      return NextResponse.json(
+        {
+          error: err instanceof Error ? err.message : "Failed to fetch Google reviews",
+          reviews: [],
+        },
+        { status: 500 },
+      )
+    }
+  }
+
+  // ── Global / homepage scope ─────────────────────────────────────────
+  // The caller-supplied `url` parameter is intentionally ignored here.
+  // Identity is resolved exclusively from server-side-controlled sources:
+  //   1. Admin-configured `googlePlaceId` (most specific, always preferred)
+  //   2. Hardcoded fallback text search for the known business name
+  // This prevents the unauthenticated endpoint from acting as a general-purpose
+  // Google Places proxy for arbitrary caller-supplied identifiers.
+
+  let placeId: string | null =
+    ((settings.apiKeys as Record<string, string> | undefined)?.googlePlaceId ?? "").trim() || null
+
+  const cacheKey = placeId ?? "global:sightseeing-luxembourg"
 
   const cached = _reviewsCache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json(cached.data)
   }
 
-  // Place name from the (resolved) URL — used both for text-search resolution
-  // and as a recovery path if a directly-extracted id is rejected by the API.
-  let placeName: string | null = null
-
   try {
-    if (!placeId && rawUrl) {
-      // Try direct extraction from the raw URL first (works for full Maps URLs)
-      placeId = extractPlaceId(rawUrl)
-      placeName = extractPlaceName(rawUrl)
-
-      // Follow the shortlink redirect and try again
-      if (!placeId) {
-        const resolvedUrl = await resolveShortlink(rawUrl)
-        placeId = extractPlaceId(resolvedUrl)
-        placeName = placeName ?? extractPlaceName(resolvedUrl)
-      }
-
-      // Try text search with the place name embedded in the URL
-      if (!placeId && placeName) {
-        placeId = await findPlaceIdByName(placeName, apiKey)
-      }
-
-      // Final fallback (global scope only): the known house business name
-      if (!placeId && !isTrip) {
-        placeId = await findPlaceIdByName("Sightseeing Luxembourg", apiKey)
-      }
+    // If no admin-configured Place ID, fall back to the known house business name.
+    // This is a fixed server-side string — not influenced by caller input.
+    if (!placeId) {
+      placeId = await findPlaceIdByName("Sightseeing Luxembourg", apiKey)
     }
 
     if (!placeId) {
       return NextResponse.json(
         {
-          error: isTrip
-            ? "Could not resolve a Google Place ID for this trip. In the trip editor, paste the " +
-              "business Place ID (most reliable) or a full Google Maps place URL that includes the business name."
-            : "Could not resolve a Google Place ID. Go to Admin → Integrations → Google Reviews " +
-              "and paste your Place ID directly (find it at developers.google.com/maps/documentation/places/web-service/place-id).",
+          error:
+            "Could not resolve a Google Place ID. Go to Admin → Integrations → Google Reviews " +
+            "and paste your Place ID directly (find it at developers.google.com/maps/documentation/places/web-service/place-id).",
           reviews: [],
         },
         { status: 400 },
       )
     }
 
-    // Fetch place details + reviews. If a directly-extracted id (e.g. a hex
-    // feature id from a Maps URL) is rejected, recover via text-search-by-name.
+    // Fetch place details + reviews.
     let details = await fetchPlaceDetails(placeId, apiKey)
-    if (!details.ok && placeName) {
-      const alt = await findPlaceIdByName(placeName, apiKey)
-      if (alt && alt !== placeId) details = await fetchPlaceDetails(alt, apiKey)
-    }
     if (!details.ok) {
       throw new Error(`Places API: ${details.status}`)
     }

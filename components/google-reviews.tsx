@@ -6,6 +6,7 @@ import Link from 'next/link'
 
 interface GoogleReviewsProps {
   googleBusinessUrl?: string
+  tripId: string
   tripTitle: string
   rating: number
   reviewCount: number
@@ -70,6 +71,7 @@ function SkeletonCard() {
 
 export function GoogleReviews({
   googleBusinessUrl,
+  tripId,
   tripTitle,
   rating,
   reviewCount,
@@ -79,10 +81,12 @@ export function GoogleReviews({
     return null
   }
 
-  // Fetch reviews for THIS trip's own Google profile (scope=trip → resolved from
-  // the trip's url/Place ID, never the global homepage business).
+  // Fetch reviews for THIS trip's own Google profile.
+  // The route resolves the Google Business URL from the DB using tripId —
+  // no caller-supplied URL is accepted, so the endpoint cannot be misused
+  // as a general-purpose Google Places proxy.
   const { data, isLoading, error } = useSWR<ReviewsData>(
-    `/api/google-reviews?scope=trip&url=${encodeURIComponent(googleBusinessUrl)}`,
+    `/api/google-reviews?scope=trip&tripId=${encodeURIComponent(tripId)}`,
     fetcher,
     { revalidateOnFocus: false, dedupingInterval: 3600000 } // Cache for 1 hour
   )

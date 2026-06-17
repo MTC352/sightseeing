@@ -504,6 +504,7 @@ export default function TripDetailClient({
             {/* Google Reviews */}
             <GoogleReviews 
               googleBusinessUrl={trip.googleBusinessUrl}
+              tripId={id}
               tripTitle={trip.title}
               rating={trip.rating}
               reviewCount={trip.reviewCount}
