@@ -64,6 +64,8 @@ In this codebase, special attention belongs on public upload handlers, job-appli
 
 Because the production deployment is public and can run across multiple processes or cold starts, process-local caches and in-memory per-instance rate limits are not sufficient as the sole abuse control for expensive public routes. Public endpoints that warm caches, fan out into TourCMS, or forward large prompts to paid AI providers need safeguards that still hold across cache-busting input, restarts, and horizontal scaling.
 
+Public provider-backed utility routes must also stay anchored to site-owned identifiers or database-backed allowlists. If an unauthenticated caller can swap in arbitrary Place IDs, listing URLs, or other third-party resource identifiers, the route effectively becomes a generic paid proxy even when the secret key itself is never returned.
+
 ### Elevation of Privilege
 
 The core elevation-of-privilege concern is movement from public/deployment-accessible user to admin capabilities. Protected admin pages and APIs must remain secure even if perimeter assumptions fail, and insecure defaults must not let an attacker mint their own admin session.
