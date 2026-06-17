@@ -18,6 +18,8 @@ import { query, queryOne, withTransaction } from "@/lib/db"
 import adminDocs from "./data/001-admin-docs.json"
 import aiSystemConfigs from "./data/003-ai-system-configs.json"
 import ebikeConditionsMedia from "./data/005-ebike-conditions-media.json"
+import mediaLibraryFiles from "./data/008-media-library-files.json"
+import tripImages from "./data/009-trip-images.json"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 
 export type MigrationResult = {
@@ -83,6 +85,12 @@ type MediaFileSeed = {
   storage: string
   content_hash: string
   uploaded_by: string | null
+}
+
+type TripImageSeed = {
+  id: string
+  image: string | null
+  gallery: string[]
 }
 
 /** Postgres "undefined_table" — the tracking table hasn't reached this DB yet. */
@@ -347,6 +355,132 @@ async function applyEbikeConditionsMedia(): Promise<MigrationResult> {
 }
 
 /**
+ * Seed the FULL media library (media_files) so /admin/files on the live site
+ * matches dev. The binaries themselves ship with the code (public/uploads/…);
+ * this migration only inserts the DB rows that record them in the library.
+ * DATA-only (no DDL).
+ *
+ * Idempotent: deduplicated by content_hash via the partial unique index, so a
+ * file already present (incl. the E-Bike PDF from migration 005) is left
+ * untouched. uploaded_by is resolved through a subquery so a missing admin id
+ * degrades to NULL rather than violating the foreign key.
+ */
+async function applyMediaLibraryFiles(): Promise<MigrationResult> {
+  const rows = mediaLibraryFiles as MediaFileSeed[]
+  let inserted = 0
+  let skipped = 0
+  for (const m of rows) {
+    const ins = await queryOne<{ id: string }>(
+      `INSERT INTO media_files (filename, title, url, mime_type, size_bytes, storage, content_hash, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT id FROM admin_users WHERE id = $8))
+       ON CONFLICT (content_hash) WHERE content_hash IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        m.filename,
+        m.title,
+        m.url,
+        m.mime_type,
+        m.size_bytes,
+        m.storage,
+        m.content_hash,
+        m.uploaded_by,
+      ],
+    )
+    if (ins) inserted++
+    else skipped++
+  }
+  return {
+    inserted,
+    skipped,
+    detail: `${inserted} media file${inserted === 1 ? "" : "s"} inserted, ${skipped} already present`,
+  }
+}
+
+/**
+ * Apply the custom trip cover image + gallery photos uploaded in dev to the live
+ * trips. Live trips otherwise still show the original Palisis/TourCMS CDN photos.
+ * The image binaries ship with the code (public/uploads/…); this only UPDATEs the
+ * trips.image and trips.gallery columns. DATA-only (no DDL).
+ *
+ * ⚠️ Palisis is the upstream source of truth for trips. A future Palisis sync of a
+ * given trip MAY overwrite these image fields back to the CDN photos. Re-run this
+ * migration after such a sync to re-apply the custom photos.
+ *
+ * Idempotent: a trip whose image + gallery already match the snapshot is skipped;
+ * a trip id not present in the live DB is skipped (no insert).
+ */
+async function applyTripImages(): Promise<MigrationResult> {
+  const seeds = tripImages as TripImageSeed[]
+  let updated = 0
+  let skipped = 0
+  for (const t of seeds) {
+    const res = await query<{ id: string }>(
+      `UPDATE trips
+         SET image = $2, gallery = $3::text[]
+       WHERE id = $1
+         AND (image IS DISTINCT FROM $2 OR gallery IS DISTINCT FROM $3::text[])
+       RETURNING id`,
+      [t.id, t.image, t.gallery],
+    )
+    if (res.length > 0) updated++
+    else skipped++
+  }
+  return {
+    inserted: 0,
+    skipped,
+    updated,
+    detail: `${updated} trip image${updated === 1 ? "" : "s"} applied, ${skipped} already current or not present`,
+  }
+}
+
+/**
+ * Repair the homepage hero image on the live site. The live hero pointed at a
+ * file uploaded directly on the published server (public/uploads/…) which is NOT
+ * in the code repo and is wiped on every redeploy — hence the broken hero. This
+ * sets the hero to a committed, always-present asset (public/images/…). DATA-only
+ * (UPSERTs page_content rows; no DDL).
+ *
+ * Sets the modern `home:hero:images` key (a JSON array the hero component reads
+ * first) and repairs the legacy single-image key only when it still points at a
+ * (now-broken) /uploads path. Idempotent: re-running leaves an already-set
+ * `home:hero:images` untouched, so admin edits made via the inline editor survive.
+ */
+async function applyHomeHeroImage(): Promise<MigrationResult> {
+  const HERO_ASSET = "/images/hero-luxembourg.jpg"
+  // Modern key: set only when absent so later admin edits aren't clobbered.
+  const imagesIns = await query<{ element_id: string }>(
+    `INSERT INTO page_content (page_slug, element_id, content)
+     VALUES ('__inline__', 'home:hero:images', $1)
+     ON CONFLICT (page_slug, element_id) DO NOTHING
+     RETURNING element_id`,
+    [JSON.stringify([HERO_ASSET])],
+  )
+  // Legacy key: repair ONLY an existing row that still points at a (broken)
+  // /uploads file. A plain UPDATE is a no-op when the row is absent or already
+  // clean — we never create a redundant legacy row.
+  const legacyUpd = await query<{ element_id: string }>(
+    `UPDATE page_content
+        SET content = $1, updated_at = NOW()
+      WHERE page_slug = '__inline__'
+        AND element_id = 'home:hero:background-image'
+        AND content LIKE '/uploads/%'
+      RETURNING element_id`,
+    [HERO_ASSET],
+  )
+  const inserted = imagesIns.length
+  const updated = legacyUpd.length
+  const parts: string[] = []
+  parts.push(inserted > 0 ? "hero images set" : "hero images already set (left untouched)")
+  if (updated > 0) parts.push("repaired broken legacy hero pointer")
+  return {
+    inserted,
+    skipped: inserted > 0 ? 0 : 1,
+    updated,
+    detail: parts.join(", "),
+  }
+}
+
+/**
  * Relocate any existing planner system-prompt OVERRIDE from its legacy location
  * (chat.extra_config.planner.systemPrompt) onto the planner row's own
  * `system_prompt` column — the consolidated location used by every other AI
@@ -605,6 +739,27 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Adds imageModel ('gpt-image-1') and imagePrompt (base style guide) to the blog AI System's extra_config. These fields drive cover image generation in the Blog editor. DATA-only (no DDL). Idempotent: skipped when imageModel is already set.",
     apply: applyBlogCoverImageConfig,
+  },
+  {
+    id: "008-media-library-files",
+    name: "Media library files",
+    description:
+      "Records every uploaded file from dev in the media_files library so the full set appears under /admin/files on the live site (live otherwise shows only a handful). The file binaries ship with the code (public/uploads/); this only inserts the DB rows. DATA-only (no DDL). Idempotent: deduplicated by content_hash, so files already present (incl. the E-Bike PDF from migration 005) are left untouched.",
+    apply: applyMediaLibraryFiles,
+  },
+  {
+    id: "009-trip-images",
+    name: "Custom trip photos",
+    description:
+      "Applies the custom trip cover image + gallery photos uploaded in dev to the live trips (live otherwise still shows the original Palisis/TourCMS CDN photos). The image binaries ship with the code (public/uploads/); this only UPDATEs trips.image and trips.gallery. DATA-only (no DDL). ⚠️ A future Palisis sync of a trip may overwrite these back to the CDN photos — re-run this migration after such a sync. Idempotent: trips already matching the snapshot, or not present in the live DB, are skipped.",
+    apply: applyTripImages,
+  },
+  {
+    id: "010-home-hero-image",
+    name: "Homepage hero image fix",
+    description:
+      "Repairs the broken homepage hero on the live site. The live hero pointed at a file uploaded on the published server, which is wiped on redeploy. This points the hero at a committed, always-present asset (public/images/hero-luxembourg.jpg). DATA-only (UPSERTs page_content; no DDL). Idempotent: an already-set hero is left untouched, so inline-editor changes survive; the legacy pointer is repaired only when it still references a /uploads file. Change the hero anytime via the inline editor.",
+    apply: applyHomeHeroImage,
   },
 ]
 
