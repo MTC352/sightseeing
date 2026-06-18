@@ -32,8 +32,7 @@ import {
   getLmdMaxCards,
   getShowAvailability,
   computeAllFirstSlots,
-  isDiscoveryExpired,
-  triggerDiscoveryBootstrap,
+  tryHydrateFromDb,
 } from "@/lib/departing-soon-cache"
 import { dbGetTrip } from "@/lib/db/queries"
 
@@ -128,21 +127,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, enabled: false, deals: [], previewDeals: [] })
     }
 
-    // Bootstrap the discovery cache on first hit (fire-and-forget, idempotent).
-    // If null → serve cacheWarming response once; if expired → serve stale
-    // while background refresh runs. The bootstrap only hits TourCMS once per
-    // discovery window (~7 days); the DB cross-instance cache means cold-start
-    // instances hydrate from DB rather than triggering a new sweep.
+    // On null cache: attempt DB-only hydration (no TourCMS fan-out), then return
+    // cacheWarming so the client retries. The instrumentation bootstrap (45s after
+    // server start) or admin/cron routes populate the DB snapshot that we read from.
     if (!discoveryCache) {
-      triggerDiscoveryBootstrap()
+      tryHydrateFromDb()
       return NextResponse.json({
         ok: true, enabled: true, cacheWarming: true,
         deals: [], previewDeals: [],
         hint: "Discovery cache is warming — retry in a few seconds.",
       })
-    }
-    if (isDiscoveryExpired()) {
-      triggerDiscoveryBootstrap()
     }
 
     const [maxSpaces, maxHours, maxCards, showAvail] = await Promise.all([

@@ -24,8 +24,7 @@ import {
   getShowAvailability,
   getAvailabilityThreshold,
   getSlotCount,
-  isDiscoveryExpired,
-  triggerDiscoveryBootstrap,
+  tryHydrateFromDb,
 } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
@@ -83,13 +82,13 @@ export async function GET(req: Request) {
     }
 
     // 2. Discovery cache check.
-    //    - null  → kick off a fire-and-forget bootstrap, return 503 once.
-    //              (The bootstrap is idempotent: `discoveryBootstrapInFlight`
-    //              dedupes concurrent calls; the DB cross-instance cache means
-    //              the TourCMS sweep only runs once per 7-day window globally.)
-    //    - expired → kick off a background refresh, serve stale data immediately.
+    //    - null  → attempt a DB-only hydration (no TourCMS), then return 503.
+    //              The instrumentation bootstrap (45s after server start) or an
+    //              admin/cron route will populate the DB snapshot; subsequent
+    //              public requests will hydrate from it without any TourCMS call.
+    //    - expired → serve stale data; admin/cron routes handle refresh.
     if (!discoveryCache) {
-      triggerDiscoveryBootstrap()
+      tryHydrateFromDb()
       return NextResponse.json(
         {
           ok: false,
@@ -101,11 +100,6 @@ export async function GET(req: Request) {
         },
         { status: 503 },
       )
-    }
-    // If cache is past its expiry window but still present, serve stale data
-    // while a background refresh runs.
-    if (isDiscoveryExpired()) {
-      triggerDiscoveryBootstrap()
     }
 
     const showAvailability = await getShowAvailability()

@@ -607,17 +607,32 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 }
 
 // ── Lazy bootstrap / expiry refresh ────────────────────────────────────────
-// Replaces the periodic discovery cron. Called from the read endpoint:
-//   - if cache empty → fire bootstrap (read returns 503 once, then succeeds)
-//   - if cache expired → fire refresh in the background, serve stale until done
-//
-// Both paths share `discoveryBootstrapInFlight` so concurrent reads don't race.
+// Called exclusively by privileged server-startup (instrumentation.ts) and
+// admin/cron routes. Public widget routes MUST NOT call this — they use
+// tryHydrateFromDb() instead (DB-only, never touches TourCMS).
 
 export function triggerDiscoveryBootstrap(): void {
   if (discoveryBootstrapInFlight) return
   discoveryBootstrapInFlight = refreshDiscovery(false)
     .catch((e) => console.warn("[departing-soon] bootstrap failed:", e))
     .finally(() => { discoveryBootstrapInFlight = null })
+}
+
+// ── DB-only hydration for public routes ────────────────────────────────────
+// Safe to fire-and-forget from unauthenticated requests. Only reads the
+// already-computed DB snapshot that a previous server instance (or the
+// instrumentation bootstrap) persisted. Never calls TourCMS. If no fresh
+// DB snapshot exists the call is a no-op and discoveryCache stays null.
+let dbHydrateInFlight: Promise<void> | null = null
+
+export function tryHydrateFromDb(): void {
+  if (discoveryCache || dbHydrateInFlight) return
+  dbHydrateInFlight = dbGetDiscoveryCache()
+    .then((snap) => {
+      if (snap && !discoveryCache) discoveryCache = snap
+    })
+    .catch((e) => console.warn("[departing-soon] DB hydration failed:", e))
+    .finally(() => { dbHydrateInFlight = null })
 }
 
 // ── Rate-limit tracking ────────────────────────────────────────────────────

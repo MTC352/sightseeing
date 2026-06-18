@@ -91,7 +91,7 @@ export async function register() {
           triggerDiscoveryBootstrap()
           console.log("[instrumentation] Departing Soon discovery bootstrap triggered (deferred)")
         } catch (e) {
-          // Non-fatal — the route handler will retry on first request
+          // Non-fatal — public routes will hydrate from DB cache on next hit
           console.warn("[instrumentation] Could not trigger discovery bootstrap:", e)
         }
       })()
