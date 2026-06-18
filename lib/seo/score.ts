@@ -514,6 +514,12 @@ function normalizeSourceValue(v: unknown): string {
   return String(v)
 }
 
+/** True when a scalar SEO field holds a non-empty (trimmed) value. */
+function seoFieldNonEmpty(v: unknown): boolean {
+  if (v == null) return false
+  return String(v).trim().length > 0
+}
+
 export type SeoSourceHashes = Record<string, string>
 
 /** Compute a {field: hash} snapshot from a trip-like object. */
@@ -537,7 +543,18 @@ export interface SeoStaleness {
  */
 export function computeStaleness(trip: Record<string, unknown>): SeoStaleness {
   const snapshot = (trip.seoSourceHashes ?? null) as SeoSourceHashes | null
-  const optimized = !!trip.seoOptimizedAt || !!snapshot
+  // A trip counts as "optimised" (badge flips off "No SEO") whenever it carries
+  // persisted SEO content — not only when seoOptimizedAt/snapshot are set. This
+  // keeps the badge correct for legacy rows or partial saves where the timestamp
+  // may be absent but real SEO content exists.
+  const hasSeoContent =
+    seoFieldNonEmpty(trip.seoTitle) ||
+    seoFieldNonEmpty(trip.seoMetaDescription) ||
+    seoFieldNonEmpty(trip.seoBody) ||
+    seoFieldNonEmpty(trip.seoKeyword) ||
+    seoFieldNonEmpty(trip.seoSlug) ||
+    (Array.isArray(trip.seoHighlights) && trip.seoHighlights.length > 0)
+  const optimized = !!trip.seoOptimizedAt || !!snapshot || hasSeoContent
   if (!optimized || !snapshot) {
     return { optimized, stale: false, changedFields: [] }
   }

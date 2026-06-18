@@ -214,10 +214,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   // didn't touch keep their stored values — nothing else on the trip changes.
   async function handleSaveSnippet() {
     if (!tripData.id) return
-    if (dirty.size === 0) {
-      setSnippetError("No changes to save.")
-      return
-    }
+    if (dirty.size === 0) return
     // Send ONLY the fields the admin edited; the server merges them over the
     // current stored SEO so untouched fields are never modified.
     const payload: Partial<SeoFields> = {}
@@ -337,7 +334,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
         <input
           type="text"
           value={focusKeyword}
-          onChange={(e) => setFocusKeyword(e.target.value)}
+          onChange={(e) => { setFocusKeyword(e.target.value); markDirty("seoKeyword") }}
           placeholder="e.g. Luxembourg city tour"
           className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
         />
@@ -497,7 +494,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
 
             <button
               onClick={handleSaveSnippet}
-              disabled={savingSnippet || !tripData.id}
+              disabled={savingSnippet || !tripData.id || dirty.size === 0}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {savingSnippet
