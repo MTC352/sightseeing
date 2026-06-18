@@ -25,7 +25,7 @@ export interface AvTripAvailability {
   todayGroups: AvSlotGroup[]
   tomorrowGroups: AvSlotGroup[]
   /** Earliest bookable date strictly AFTER tomorrow (YYYY-MM-DD), within the
-   *  scan window. Non-date mode only — lets cards show "Next timeslot available
+   *  scan window.  Non-date mode only — lets cards show "Next timeslot available
    *  on {date}" when there are no today/tomorrow slots. null when none found. */
   nextAvailableDate?: string | null
 }
@@ -35,30 +35,26 @@ export type AvailabilityMap = Record<string, AvTripAvailability>
 // ── Process-local cache: keyed by "startDate|endDate" ─────────────────────
 const _cache = new Map<string, { data: AvailabilityMap; expiresAt: number }>()
 
-// Per-key in-flight sweep promises — prevents launching duplicate background
-// sweeps for the same cache key within the same process instance.
-const _inFlight = new Map<string, Promise<void>>()
-
-// Process-level guard — ensures at most one sweep runs at a time per process.
-let _anySweepInProgress = false
+// Whether a no-date background sweep is in-flight in this process.
+let _noDateSweepInProgress = false
 
 // ── DB-backed cross-instance cache ─────────────────────────────────────────
 // Persists sweep results so fresh process instances (cold starts, horizontal
 // scale-out) can serve from DB instead of triggering a new TourCMS fan-out.
-// Uses the existing `integrations` table: key = availability_cache:{cacheKey},
+// Uses the `integrations` table: key = availability_cache:{cacheKey},
 // value = expiresAt timestamp (ms), meta = AvailabilityMap as JSONB.
 
 const DB_AVAIL_KEY_PREFIX = "availability_cache:"
 
-// ── DB-backed distributed sweep lock ─────────────────────────────────────
-// Ensures at most one sweep runs globally across all process instances.
-// Using a TTL well above the worst-case sweep duration (18 TourCMS calls).
-const DB_SWEEP_LOCK_KEY = "availability_sweep_lock"
-const SWEEP_LOCK_TTL_MS = 120_000  // 2 minutes
+// ── DB-backed distributed sweep lock ──────────────────────────────────────
+// Ensures at most one no-date sweep runs globally across all process instances.
+// TTL matches the no-date cache TTL so the lock and cache expire in lock-step.
+const DB_NODATE_LOCK_KEY = "availability_sweep_lock"
+const NODATE_LOCK_TTL_MS = 5 * 60_000   // 5 minutes — same as no-date cache TTL
 
 /**
  * Read DB cache for the given key.
- * When `allowStale` is true, returns even expired entries (stale-while-revalidate).
+ * `allowStale=true` returns even expired entries (stale-while-revalidate).
  */
 async function dbGetAvailability(
   cacheKey: string,
@@ -101,22 +97,21 @@ async function dbPersistAvailability(
       ],
     )
   } catch {
-    // Fail-soft: if the write fails, other instances don't get the warm data
-    // for this cycle, but correctness is not affected.
+    // Fail-soft: cache miss on other instances for this cycle but correctness is fine.
   }
 }
 
 /**
- * Try to atomically acquire the distributed sweep lock.
- * Returns true only if this caller got the lock (no other instance holds it).
- * Uses an optimistic INSERT / conditional UPDATE — the UPDATE only fires when
- * the existing lock timestamp has expired, so concurrent callers get false.
+ * Atomically try to acquire the global no-date sweep lock.
+ * Returns true only when this caller won the lock (no other instance holds it).
+ * The conditional UPDATE only fires when the stored timestamp has expired,
+ * so concurrent callers racing on a fresh lock all lose except one.
  */
-async function tryAcquireSweepLock(): Promise<boolean> {
+async function tryAcquireNodateLock(): Promise<boolean> {
   try {
     const { query } = await import("@/lib/db")
     const now = Date.now()
-    const lockExpiry = now + SWEEP_LOCK_TTL_MS
+    const expiry = now + NODATE_LOCK_TTL_MS
     const rows = await query<{ key: string }>(
       `INSERT INTO integrations (key, label, value, updated_at)
        VALUES ($1, 'Availability sweep lock (internal)', $2, NOW())
@@ -124,7 +119,7 @@ async function tryAcquireSweepLock(): Promise<boolean> {
          SET value = EXCLUDED.value, updated_at = NOW()
          WHERE integrations.value::bigint < $3
        RETURNING key`,
-      [DB_SWEEP_LOCK_KEY, String(lockExpiry), String(now)],
+      [DB_NODATE_LOCK_KEY, String(expiry), String(now)],
     )
     return rows.length > 0
   } catch {
@@ -132,10 +127,10 @@ async function tryAcquireSweepLock(): Promise<boolean> {
   }
 }
 
-async function releaseSweepLock(): Promise<void> {
+async function releaseNodateLock(): Promise<void> {
   try {
     const { query } = await import("@/lib/db")
-    await query(`DELETE FROM integrations WHERE key = $1`, [DB_SWEEP_LOCK_KEY])
+    await query(`DELETE FROM integrations WHERE key = $1`, [DB_NODATE_LOCK_KEY])
   } catch {}
 }
 
@@ -154,9 +149,9 @@ function toYMD(d: Date) {
 function buildGroups(slots: AvTimeslot[]): AvSlotGroup[] {
   const map = new Map<string, AvTimeslot[]>()
   for (const s of slots) {
-    const key = s.rateName ?? ""
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(s)
+    const k = s.rateName ?? ""
+    if (!map.has(k)) map.set(k, [])
+    map.get(k)!.push(s)
   }
   return Array.from(map.entries()).map(([name, items]) => ({ name, slots: items }))
 }
@@ -173,23 +168,27 @@ function deduplicateByTime(slots: AvTimeslot[]): AvTimeslot[] {
   return Array.from(best.values()).sort((a, b) => a.time.localeCompare(b.time))
 }
 
-/**
- * Run a full TourCMS availability sweep for the given date range.
- * Always called as a fire-and-forget background task — the caller returns
- * immediately with stale/empty data and does NOT await this.
- *
- * Distributed lock: `tryAcquireSweepLock()` MUST be called (and return true)
- * before invoking this function. `releaseSweepLock()` is called in the finally.
- */
-async function runSweep(
-  cacheKey: string,
-  startDate: string,
-  endDate: string,
-  dateMode: boolean,
+// ── No-date sweep ──────────────────────────────────────────────────────────
+//
+// This is the ONLY code path that fans out to all TourCMS trips.
+// It is NEVER triggered by date-mode public requests — only by no-date
+// cache misses (and at most once per NODATE_LOCK_TTL_MS globally via the
+// DB distributed lock, which is held for the full TTL even after the sweep
+// completes so that the lock and cache expire in lock-step).
+//
+// As a side-effect it also writes per-date cache entries for each date in
+// the scan window so that date-mode GETs can serve from that data without
+// ever triggering their own fan-out.
+
+async function runNodateSweep(
+  cacheKey: string,   // "todayStr|horizonStr"
   todayStr: string,
   tomorrowStr: string,
-  ttlMs: number,
+  horizonStr: string,
 ): Promise<void> {
+  const NO_DATE_TTL = NODATE_LOCK_TTL_MS  // 5 min
+  const DATE_TTL    = NO_DATE_TTL         // pre-warmed per-date entries share the same TTL
+
   try {
     const [config, rows] = await Promise.all([
       getTourCMSConfig(),
@@ -197,18 +196,20 @@ async function runSweep(
     ])
 
     const tcmsTrips = (rows as { id: string }[]).filter(r => r.id.startsWith("tcms_"))
-
     if (!config || tcmsTrips.length === 0) return
 
     const result: AvailabilityMap = {}
+
+    // perDate[dateStr][tripId] = raw slots for that date (fills date-mode cache)
+    const perDate = new Map<string, Map<string, AvTimeslot[]>>()
 
     await Promise.all(
       tcmsTrips.map(async (row) => {
         const tourId = row.id.replace("tcms_", "")
         try {
           const { dates } = await showTourDatesAndDeals(config, tourId, {
-            startdate_start: startDate,
-            startdate_end:   endDate,
+            startdate_start: todayStr,
+            startdate_end:   horizonStr,
           })
 
           const todayRaw: AvTimeslot[]    = []
@@ -216,7 +217,7 @@ async function runSweep(
           let nextAvailableDate: string | null = null
 
           for (const d of dates) {
-            if (!d.start_time) continue
+            if (!d.start_time || !d.start_date) continue
 
             const raw       = d.spaces_remaining
             const unlimited = raw === "UNLIMITED"
@@ -230,19 +231,21 @@ async function runSweep(
               rateName:  d.note?.trim() || undefined,
             }
 
-            if (dateMode) {
-              todayRaw.push(slot)
-            } else {
-              if (d.start_date === todayStr)         todayRaw.push(slot)
-              else if (d.start_date === tomorrowStr) tomorrowRaw.push(slot)
-              else if (
-                d.start_date &&
-                d.start_date > tomorrowStr &&
-                (unlimited || spotsLeft > 0)
-              ) {
-                if (!nextAvailableDate || d.start_date < nextAvailableDate) {
-                  nextAvailableDate = d.start_date
-                }
+            // Collect into per-date buckets (for side-effect date-mode warming)
+            if (!perDate.has(d.start_date)) perDate.set(d.start_date, new Map())
+            const tripBucket = perDate.get(d.start_date)!
+            if (!tripBucket.has(row.id)) tripBucket.set(row.id, [])
+            tripBucket.get(row.id)!.push(slot)
+
+            // No-date result bucketing
+            if (d.start_date === todayStr)         todayRaw.push(slot)
+            else if (d.start_date === tomorrowStr) tomorrowRaw.push(slot)
+            else if (
+              d.start_date > tomorrowStr &&
+              (unlimited || spotsLeft > 0)
+            ) {
+              if (!nextAvailableDate || d.start_date < nextAvailableDate) {
+                nextAvailableDate = d.start_date
               }
             }
           }
@@ -252,7 +255,7 @@ async function runSweep(
             tomorrow:          deduplicateByTime(tomorrowRaw),
             todayGroups:       buildGroups(todayRaw),
             tomorrowGroups:    buildGroups(tomorrowRaw),
-            nextAvailableDate: dateMode ? null : nextAvailableDate,
+            nextAvailableDate,
           }
         } catch {
           // skip — card falls back to dummy
@@ -260,44 +263,65 @@ async function runSweep(
       })
     )
 
-    // Write to both process-local cache and DB so other instances benefit.
-    _cache.set(cacheKey, { data: result, expiresAt: Date.now() + ttlMs })
-    void dbPersistAvailability(cacheKey, result, ttlMs)
+    // Write the primary no-date result
+    const noDateExpiry = Date.now() + NO_DATE_TTL
+    _cache.set(cacheKey, { data: result, expiresAt: noDateExpiry })
+    void dbPersistAvailability(cacheKey, result, NO_DATE_TTL)
+
+    // Side-effect: write per-date entries so date-mode GETs serve from cache.
+    // This is the ONLY way date-mode cache entries get populated — never from
+    // a public-triggered sweep.
+    for (const [date, tripMap] of perDate) {
+      const dateResult: AvailabilityMap = {}
+      for (const [tripId, rawSlots] of tripMap) {
+        const deduped = deduplicateByTime(rawSlots)
+        dateResult[tripId] = {
+          today:         deduped,
+          tomorrow:      [],
+          todayGroups:   buildGroups(rawSlots),
+          tomorrowGroups: [],
+          nextAvailableDate: null,
+        }
+      }
+      const dateKey = `${date}|${date}`
+      const dateExpiry = Date.now() + DATE_TTL
+      _cache.set(dateKey, { data: dateResult, expiresAt: dateExpiry })
+      void dbPersistAvailability(dateKey, dateResult, DATE_TTL)
+    }
   } finally {
-    _inFlight.delete(cacheKey)
-    _anySweepInProgress = false
-    void releaseSweepLock()
+    _noDateSweepInProgress = false
+    // Note: the DB lock is NOT released here — it expires after NODATE_LOCK_TTL_MS
+    // so that a fresh lock acquisition is impossible until the cache also expires.
+    // This ensures the global sweep rate is hard-bounded to 1 per TTL period.
   }
 }
 
 /**
- * Schedule a background availability sweep for `cacheKey` if:
- *  - no sweep is already in-flight for this key in this process, AND
- *  - no other instance holds the distributed DB lock.
+ * Schedule a background no-date sweep if:
+ *  - no sweep is in-flight in this process, AND
+ *  - the distributed DB lock can be acquired (no other instance swept recently).
  *
- * Returns immediately (fire-and-forget). Callers must NOT await this.
+ * Fire-and-forget — must NOT be awaited by the caller.
  */
-function scheduleBackgroundSweep(
+function scheduleNodateSweep(
   cacheKey: string,
-  startDate: string,
-  endDate: string,
-  dateMode: boolean,
   todayStr: string,
   tomorrowStr: string,
-  ttlMs: number,
+  horizonStr: string,
 ): void {
-  if (_anySweepInProgress || _inFlight.has(cacheKey)) return
+  if (_noDateSweepInProgress) return
 
   void (async () => {
-    const acquired = await tryAcquireSweepLock()
+    const acquired = await tryAcquireNodateLock()
     if (!acquired) return
-    // Double-check after async lock acquisition
-    if (_anySweepInProgress) { void releaseSweepLock(); return }
-
-    _anySweepInProgress = true
-    const p = runSweep(cacheKey, startDate, endDate, dateMode, todayStr, tomorrowStr, ttlMs)
-    _inFlight.set(cacheKey, p)
-    // Not awaited — truly fire-and-forget
+    if (_noDateSweepInProgress) {
+      // Another async path in this process raced us — don't double-sweep.
+      void releaseNodateLock()
+      return
+    }
+    _noDateSweepInProgress = true
+    // Not awaited — truly fire-and-forget.
+    void runNodateSweep(cacheKey, todayStr, tomorrowStr, horizonStr)
   })()
 }
 
@@ -313,15 +337,11 @@ export async function GET(req: Request) {
   const now         = new Date()
   const todayStr    = toYMD(now)
   const tomorrowStr = toYMD(new Date(now.getTime() + 86_400_000))
-
-  // Non-date mode scans a 30-day window (not just today/tomorrow) so we can
-  // surface the next bookable date for trips with no today/tomorrow slots.
-  const horizonStr = toYMD(new Date(now.getTime() + 30 * 86_400_000))
+  const horizonStr  = toYMD(new Date(now.getTime() + 30 * 86_400_000))
 
   // ── Validate + clamp the attacker-controlled `date` param ─────────────────
-  // Only accept a real calendar date in YYYY-MM-DD form within [today, today+30d].
-  // This bounds the distinct cache key-space to the valid date window so repeated
-  // requests collapse onto the cache rather than cycling through arbitrary strings.
+  // Accept ONLY a real YYYY-MM-DD within [today, today+30d]. This bounds the
+  // date-mode key-space to 31 possible values.
   let dateParam = ""
   if (rawDate) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
@@ -340,12 +360,8 @@ export async function GET(req: Request) {
     dateParam = rawDate
   }
 
-  const startDate = dateParam || todayStr
-  const endDate   = dateParam || horizonStr
-  const dateMode  = dateParam !== ""
-  const ttlMs     = dateMode ? 60_000 : 5 * 60_000
-
-  const cacheKey = `${startDate}|${endDate}`
+  const dateMode = dateParam !== ""
+  const cacheKey = dateMode ? `${dateParam}|${dateParam}` : `${todayStr}|${horizonStr}`
 
   // ── 1. Process-local cache (fresh) ────────────────────────────────────────
   const inMem = _cache.get(cacheKey)
@@ -353,28 +369,28 @@ export async function GET(req: Request) {
     return NextResponse.json(inMem.data)
   }
 
-  // ── 2. DB cache (fresh or stale) ──────────────────────────────────────────
-  // Always check for stale data too — serves as the SWR payload while a
-  // background sweep re-warms it.
+  // ── 2. DB cache (fresh or stale — served either way for SWR) ──────────────
   const dbEntry = await dbGetAvailability(cacheKey, { allowStale: true })
-  if (dbEntry) {
-    _cache.set(cacheKey, dbEntry)  // warm process-local cache
+  if (dbEntry) _cache.set(cacheKey, dbEntry)  // warm process-local cache
+
+  const dataIsFresh =
+    (inMem != null && Date.now() < inMem.expiresAt) ||
+    (dbEntry != null && Date.now() < dbEntry.expiresAt)
+
+  // ── 3. Trigger background sweep — NO-DATE MODE ONLY ───────────────────────
+  //
+  // DATE MODE is deliberately NEVER allowed to trigger a TourCMS fan-out from
+  // a public request.  Date-mode cache entries are pre-warmed as a side-effect
+  // of the no-date sweep (see runNodateSweep → perDate side-effect writes).
+  //
+  // NO-DATE mode: at most one sweep every NODATE_LOCK_TTL_MS (5 min) globally
+  // across all horizontally-scaled instances, enforced by the DB lock held for
+  // the full TTL period even after the sweep completes.
+  if (!dataIsFresh && !dateMode) {
+    scheduleNodateSweep(cacheKey, todayStr, tomorrowStr, horizonStr)
   }
 
-  const freshData =
-    (inMem && Date.now() < inMem.expiresAt) ||
-    (dbEntry && Date.now() < dbEntry.expiresAt)
-
-  // ── 3. If data is stale or missing, schedule a background sweep ────────────
-  // The sweep is NEVER awaited here — the public endpoint always returns
-  // immediately with whatever is available (stale or empty).  The distributed
-  // DB lock (`tryAcquireSweepLock`) ensures at most one sweep runs globally
-  // across all horizontally-scaled instances at any given time.
-  if (!freshData) {
-    scheduleBackgroundSweep(cacheKey, startDate, endDate, dateMode, todayStr, tomorrowStr, ttlMs)
-  }
-
-  // ── 4. Return immediately with cached data (stale is fine) or empty ────────
+  // ── 4. Return immediately — stale data if available, empty map otherwise ──
   const payload = inMem?.data ?? dbEntry?.data ?? {}
   return NextResponse.json(payload)
 }
