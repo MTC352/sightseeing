@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { dbGetSettings, dbGetTrip } from "@/lib/db/queries"
+import { dbGetSettings, dbGetTrip, dbUpdateTrip } from "@/lib/db/queries"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 /* -----------------------------------------------------------------------
@@ -342,6 +342,16 @@ export async function GET(request: NextRequest) {
       }
 
       _reviewsCache.set(tripCacheKey, { data: payload, expiresAt: Date.now() + 30 * 60_000 })
+
+      // Persist aggregate rating back to the trip row so preview cards show
+      // accurate data without requiring a detail-page visit first.
+      if (typeof payload.rating === "number" || typeof payload.totalReviews === "number") {
+        void dbUpdateTrip(tripId, {
+          rating: payload.rating ?? 0,
+          reviewCount: payload.totalReviews ?? 0,
+        })
+      }
+
       return NextResponse.json(payload)
     } catch (err) {
       console.error("[google-reviews] trip fetch error:", err)

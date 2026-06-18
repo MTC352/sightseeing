@@ -5,6 +5,7 @@ import { resolvePolicy, isFieldEditable, TRIP_FIELDS, type TripFieldPolicy } fro
 import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 import { liveScoreForTrip } from "@/lib/seo/score"
+import { syncGoogleRatingForTrip } from "@/lib/google-rating-sync"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -111,6 +112,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       entityId: id,
       summary: `Updated trip "${(finalTrip as { title?: string }).title ?? id}"`,
     })
+
+    // When a Google Business URL is saved, immediately sync the rating so
+    // preview cards show the correct star rating / review count right away.
+    if (filtered.googleBusinessUrl) {
+      void syncGoogleRatingForTrip(id).catch(() => {})
+    }
+
     return NextResponse.json({ ...finalTrip, _strippedReadOnly: stripped.length ? stripped : undefined })
   } catch (err) {
     if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
