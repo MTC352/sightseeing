@@ -535,6 +535,43 @@ async function applyPlannerPromptRelocation(): Promise<MigrationResult> {
   }
 }
 
+async function applyBlogImageModelRepair(): Promise<MigrationResult> {
+  const row = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'blog'`,
+  )
+  if (!row) {
+    return {
+      inserted: 0,
+      skipped: 1,
+      detail: "blog ai_system_configs row not found — run migration 003 first to seed it",
+    }
+  }
+  const extra =
+    row.extra_config && typeof row.extra_config === "object"
+      ? (row.extra_config as Record<string, unknown>)
+      : {}
+  const currentModel = typeof extra.imageModel === "string" ? extra.imageModel.trim() : ""
+  if (currentModel === "gpt-image-1") {
+    return { inserted: 0, skipped: 1, detail: "imageModel already set to gpt-image-1 — no change needed" }
+  }
+  const updated = await query<{ system_key: string }>(
+    `UPDATE ai_system_configs
+     SET extra_config = COALESCE(extra_config, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+     WHERE system_key = 'blog'
+     RETURNING system_key`,
+    [JSON.stringify({ imageModel: "gpt-image-1" })],
+  )
+  const count = updated.length
+  return {
+    inserted: count,
+    skipped: count === 0 ? 1 : 0,
+    detail:
+      count > 0
+        ? `Updated blog imageModel from '${currentModel || "unset"}' to 'gpt-image-1'`
+        : "blog row not updated (unexpected)",
+  }
+}
+
 async function applyBlogCoverImageConfig(): Promise<MigrationResult> {
   const row = await queryOne<{ extra_config: unknown }>(
     `SELECT extra_config FROM ai_system_configs WHERE system_key = 'blog'`,
@@ -760,6 +797,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Repairs the broken homepage hero on the live site. The live hero pointed at a file uploaded on the published server, which is wiped on redeploy. This points the hero at a committed, always-present asset (public/images/hero-luxembourg.jpg). DATA-only (UPSERTs page_content; no DDL). Idempotent: an already-set hero is left untouched, so inline-editor changes survive; the legacy pointer is repaired only when it still references a /uploads file. Change the hero anytime via the inline editor.",
     apply: applyHomeHeroImage,
+  },
+  {
+    id: "011-blog-image-model-repair",
+    name: "Blog cover image model repair (gpt-image-1)",
+    description:
+      "Force-sets the blog AI System's imageModel to 'gpt-image-1', overwriting any previous value (e.g. dall-e-3 / dall-e-2) that would fail on this account. Migration 007 only fills in a missing imageModel; this migration repairs an incorrect one too. Run this on the live site when blog cover image generation fails with an OpenAI model-not-found error. DATA-only (no DDL). Idempotent: no-op when imageModel is already 'gpt-image-1'.",
+    apply: applyBlogImageModelRepair,
   },
 ]
 
