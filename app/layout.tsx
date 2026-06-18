@@ -175,15 +175,18 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       </head>
       <body className="font-sans antialiased">
         <SiteStoreProvider>
+          {/* Announcement banner lives OUTSIDE the password gate so the
+              gate's mount-delay never causes it to disappear on reload.
+              The banner hides itself on /admin routes via usePathname(). */}
+          <Suspense fallback={null}>
+            <AnnouncementBanner announcement={announcement} />
+          </Suspense>
           <SitePasswordGate>
             <CartProvider>
               <PlannerListProvider>
               <WeatherProvider>
                 <Suspense>
                   <EditModeProvider>
-                    {/* Structured announcement banner (accent bg + white text).
-                        Hides itself on /admin and when disabled/empty. */}
-                    <AnnouncementBanner announcement={announcement} />
                     {/* Admin-configured custom HTML injected above the navbar
                         (head scripts, analytics). */}
                     <CustomHtmlBlock html={injection.header} />

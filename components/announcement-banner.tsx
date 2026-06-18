@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
@@ -86,11 +87,39 @@ export function AnnouncementBannerContent({
   )
 }
 
-// Public banner. Hidden on /admin routes and whenever it is disabled or empty.
-export function AnnouncementBanner({ announcement }: { announcement: Announcement | null }) {
+// Public banner — lives OUTSIDE <SitePasswordGate> so the gate's
+// mount-delay never hides it. Hidden on /admin routes and whenever
+// the banner is disabled or empty.
+//
+// The server layout passes `announcement` as a prop (fast path).
+// If the DB timed-out during the layout render (cold start / slow DB)
+// the prop is null; in that case we do a lightweight client-side fetch
+// from /api/announcement so the banner heals automatically without a
+// full page reload.
+export function AnnouncementBanner({
+  announcement: initial,
+}: {
+  announcement: Announcement | null
+}) {
   const pathname = usePathname()
-  const isAdmin = pathname?.startsWith("/admin") ?? false
+  const [announcement, setAnnouncement] = useState<Announcement | null>(initial)
 
+  // Sync if the server prop changes (e.g. router cache invalidation)
+  useEffect(() => {
+    if (initial !== null) {
+      setAnnouncement(initial)
+      return
+    }
+    // Server timed out — fetch client-side so banner heals on first paint
+    let cancelled = false
+    fetch("/api/announcement", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data: Announcement) => { if (!cancelled) setAnnouncement(data) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [initial])
+
+  const isAdmin = pathname?.startsWith("/admin") ?? false
   if (isAdmin) return null
   if (!announcement?.enabled) return null
   if (!announcement.content?.trim()) return null
