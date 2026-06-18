@@ -24,6 +24,8 @@ import {
   getShowAvailability,
   getAvailabilityThreshold,
   getSlotCount,
+  isDiscoveryExpired,
+  triggerDiscoveryBootstrap,
 } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
@@ -80,12 +82,14 @@ export async function GET(req: Request) {
       )
     }
 
-    // 2. Discovery cache check — serve from cache only.
-    //    This public endpoint NEVER triggers a discovery bootstrap or
-    //    availability refresh. All TourCMS fan-out work is handled exclusively
-    //    by the privileged cron/admin routes so unauthenticated callers cannot
-    //    drive upstream quota consumption.
+    // 2. Discovery cache check.
+    //    - null  → kick off a fire-and-forget bootstrap, return 503 once.
+    //              (The bootstrap is idempotent: `discoveryBootstrapInFlight`
+    //              dedupes concurrent calls; the DB cross-instance cache means
+    //              the TourCMS sweep only runs once per 7-day window globally.)
+    //    - expired → kick off a background refresh, serve stale data immediately.
     if (!discoveryCache) {
+      triggerDiscoveryBootstrap()
       return NextResponse.json(
         {
           ok: false,
@@ -93,13 +97,16 @@ export async function GET(req: Request) {
           departures: [],
           widgetEnabled: true,
           tourcmsConfigured: true,
-          hint: "Discovery cache is warming. An admin or scheduled job must refresh it.",
+          hint: "Discovery cache is warming — retry in a few seconds.",
         },
         { status: 503 },
       )
     }
-    // If cache is past its expiry window but still present, serve stale data.
-    // The cron/admin refresh routes will repopulate it on their next run.
+    // If cache is past its expiry window but still present, serve stale data
+    // while a background refresh runs.
+    if (isDiscoveryExpired()) {
+      triggerDiscoveryBootstrap()
+    }
 
     const showAvailability = await getShowAvailability()
     const slotCount = await getSlotCount()
