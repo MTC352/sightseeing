@@ -14,7 +14,7 @@ import { GoogleReviews } from "@/components/google-reviews"
 import { TripItinerary } from "@/components/trip-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
-import { substitutePlaceholders } from "@/lib/booking-url"
+import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"
 import { stripHtml } from "@/lib/seo/score"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
@@ -47,6 +47,7 @@ export type TripDbDetail = {
   country?: string
   pdfUrl?: string
   videoUrl?: string
+  palisisProductId?: string | null
   minBookingSize?: number
   maxBookingSize?: number
   nonRefundable?: boolean
@@ -533,10 +534,11 @@ export default function TripDetailClient({
                 </button>
               </div>
 
-              {/* TourCMS / Palisis booking form */}
-              {trip.permalink ? (
+              {/* Booking widget — Palisis Product ID takes priority over TourCMS permalink */}
+              {(trip.palisisProductId?.trim() || trip.permalink) ? (
                 <div id="booking" className="space-y-3">
-                  {selectedDate && selectedTime && (
+                  {/* Date/time pre-selection banner — only relevant for TourCMS calendar widget */}
+                  {selectedDate && selectedTime && !trip.palisisProductId?.trim() && (
                     <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
                       <p
                         className="text-[11px] font-semibold uppercase tracking-wider text-primary"
@@ -556,7 +558,10 @@ export default function TripDetailClient({
                     </div>
                   )}
                   <BookingIframe
-                    src={substitutePlaceholders(trip.permalink, selectedDate, selectedTime)}
+                    src={trip.palisisProductId?.trim()
+                      ? buildPalisisBookingUrl(trip.palisisProductId.trim())
+                      : substitutePlaceholders(trip.permalink!, selectedDate, selectedTime)
+                    }
                     title={`Book ${trip.title}`}
                   />
                 </div>

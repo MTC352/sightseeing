@@ -12,7 +12,7 @@ import { SidebarItinerary, ItineraryPanel, recommendedTravelMethod, type Itinera
 import { useCart } from "@/lib/cart-context"
 import { usePlannerList } from "@/lib/planner-list-context"
 import { weatherData, type Trip } from "@/lib/data"
-import { substitutePlaceholders } from "@/lib/booking-url"
+import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"
 import { parseDurationHoursMin } from "@/lib/duration-parser"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -4454,11 +4454,14 @@ export default function PlannerPage() {
               {/* Booking iframe — same dynamic per-trip form as the single-trip page */}
               <div className="border-t border-border px-4 py-5">
                 <h3 className="mb-3 text-sm font-semibold text-foreground">Book this experience</h3>
-                {selectedTrip.permalink?.trim() ? (
+                {(selectedTrip.palisisProductId?.trim() || selectedTrip.permalink?.trim()) ? (
                   <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
                     <div className="booking-iframe-wrap">
                       <iframe
-                        src={substitutePlaceholders(selectedTrip.permalink.trim(), prefs?.startDate)}
+                        src={selectedTrip.palisisProductId?.trim()
+                          ? buildPalisisBookingUrl(selectedTrip.palisisProductId.trim())
+                          : substitutePlaceholders(selectedTrip.permalink!.trim(), prefs?.startDate)
+                        }
                         title={`Book ${selectedTrip.title}`}
                         className="booking-iframe"
                         allow="payment"

@@ -6,6 +6,15 @@
  * Shared by the single-trip page (`app/trip/[id]/trip-detail-view.tsx`) and the
  * trip planner modal (`app/planner/page.tsx`) so both render the identical form.
  */
+/**
+ * Builds the direct Palisis booking widget URL from a Palisis Product ID set
+ * by the admin on the trip (e.g. "r-8146" → the sightseeingluxembourg.palisis.com
+ * direct-booking widget).  Takes priority over the TourCMS permalink widget.
+ */
+export function buildPalisisBookingUrl(palisisProductId: string): string {
+  return `https://sightseeingluxembourg.palisis.com/?book-direct=${encodeURIComponent(palisisProductId)}`
+}
+
 export function substitutePlaceholders(url: string, date?: string, _time?: string): string {
   if (!url) return url
   let month: string

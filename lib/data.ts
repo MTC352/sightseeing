@@ -40,6 +40,7 @@ export interface Trip {
   provider?: string
   highlights?: string[]
   googleBusinessUrl?: string
+  palisisProductId?: string | null
 }
 
 export interface Guide {

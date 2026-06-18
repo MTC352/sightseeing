@@ -482,6 +482,19 @@ export function TripEditForm({
               </p>
               {!can("slug") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
+            <div>
+              <label className={labelClass}>Palisis Product ID</label>
+              <input
+                type="text"
+                className={inputClass}
+                placeholder="e.g. r-8146"
+                value={form.palisisProductId ?? ""}
+                onChange={(e) => set("palisisProductId", e.target.value || null)}
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                When set, shows the Palisis direct booking widget instead of the TourCMS iframe on the trip page and planner. Never overwritten by Palisis sync.
+              </p>
+            </div>
             <div className={cn(roHidden("duration") && "hidden")}>
               <label className={labelClass}>Duration {!can("duration") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("duration")} className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />

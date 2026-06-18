@@ -44,6 +44,7 @@ export interface AdminTrip {
   slug?: string | null
   permalink?: string
   googleBusinessUrl?: string
+  palisisProductId?: string | null
   featured: boolean
   featuredDeparture?: boolean
   status?: "published" | "draft"

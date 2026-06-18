@@ -103,6 +103,7 @@ function mapDbDetail(r: Record<string, unknown>): TripDbDetail {
     minBookingSize: r.minBookingSize != null ? Number(r.minBookingSize) : undefined,
     maxBookingSize: r.maxBookingSize != null ? Number(r.maxBookingSize) : undefined,
     nonRefundable: r.nonRefundable === true,
+    palisisProductId: typeof r.palisisProductId === "string" && r.palisisProductId ? r.palisisProductId : undefined,
   }
 }
 
