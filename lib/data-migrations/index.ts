@@ -723,6 +723,75 @@ export async function applyAiSystemConfigKeys(keys: string[]): Promise<Migration
 }
 
 /**
+ * Migration 012 — Move the "hidePublicPlanner" visibility flag from
+ * planner.extra_config to itinerary.extra_config.
+ *
+ * The "Manage Trip Planner" admin page (system_key='itinerary') is now the
+ * canonical home for the planner visibility toggle. This migration copies the
+ * existing flag value (true/false) from the old location (planner.extra_config)
+ * into itinerary.extra_config so the toggle works immediately after deploying
+ * the code update — without requiring a manual setting change on the live site.
+ *
+ * The visibility API (/api/planner/visibility) reads BOTH sources and ORs them
+ * during the transition period, so the gate keeps working before and after this
+ * migration runs.
+ *
+ * Idempotent: a no-op when itinerary.extra_config.hidePublicPlanner is already
+ * explicitly set (true or false).
+ */
+async function applyPlannerVisibilityToItinerary(): Promise<MigrationResult> {
+  // Check if already migrated — itinerary row has hidePublicPlanner set.
+  const itineraryRow = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'itinerary'`,
+  )
+  const itineraryExtra =
+    itineraryRow?.extra_config && typeof itineraryRow.extra_config === 'object'
+      ? (itineraryRow.extra_config as Record<string, unknown>)
+      : {}
+
+  if (typeof itineraryExtra.hidePublicPlanner === 'boolean') {
+    return {
+      inserted: 0,
+      skipped: 1,
+      detail: `itinerary.extra_config.hidePublicPlanner already set (${itineraryExtra.hidePublicPlanner}) — no migration needed`,
+    }
+  }
+
+  // Read current value from planner.extra_config (source of truth before this migration).
+  const plannerRow = await queryOne<{ extra_config: unknown }>(
+    `SELECT extra_config FROM ai_system_configs WHERE system_key = 'planner'`,
+  )
+  const plannerExtra =
+    plannerRow?.extra_config && typeof plannerRow.extra_config === 'object'
+      ? (plannerRow.extra_config as Record<string, unknown>)
+      : {}
+  const hidePublicPlanner = plannerExtra.hidePublicPlanner === true
+
+  // Merge hidePublicPlanner into itinerary.extra_config (non-destructive JSONB merge).
+  const updated = await query<{ system_key: string }>(
+    `UPDATE ai_system_configs
+       SET extra_config = COALESCE(extra_config, '{}'::jsonb) || $1::jsonb,
+           updated_at   = NOW()
+     WHERE system_key = 'itinerary'
+     RETURNING system_key`,
+    [JSON.stringify({ hidePublicPlanner })],
+  )
+
+  if (updated.length === 0) {
+    return {
+      inserted: 0,
+      skipped: 1,
+      detail: 'itinerary row not found — skipped (run migration 003 first)',
+    }
+  }
+  return {
+    inserted: 1,
+    skipped: 0,
+    detail: `Copied hidePublicPlanner=${hidePublicPlanner} from planner.extra_config → itinerary.extra_config`,
+  }
+}
+
+/**
  * The ordered registry. Add new migrations to the END with the next numeric id.
  * Keep ids stable once shipped — they are the tracking keys.
  */
@@ -804,6 +873,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Force-sets the blog AI System's imageModel to 'gpt-image-1', overwriting any previous value (e.g. dall-e-3 / dall-e-2) that would fail on this account. Migration 007 only fills in a missing imageModel; this migration repairs an incorrect one too. Run this on the live site when blog cover image generation fails with an OpenAI model-not-found error. DATA-only (no DDL). Idempotent: no-op when imageModel is already 'gpt-image-1'.",
     apply: applyBlogImageModelRepair,
+  },
+  {
+    id: "012-planner-visibility-to-itinerary",
+    name: "Move planner visibility flag to itinerary config",
+    description:
+      "Moves the 'hidePublicPlanner' visibility toggle from planner.extra_config to itinerary.extra_config, where it is now managed by the 'Manage Trip Planner' admin page (/admin/ai-systems/itinerary). The visibility API reads both sources during the transition so the gate works before and after this migration. DATA-only (no DDL). Idempotent: a no-op when itinerary.extra_config.hidePublicPlanner is already set.",
+    apply: applyPlannerVisibilityToItinerary,
   },
 ]
 

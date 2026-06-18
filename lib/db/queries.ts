@@ -807,6 +807,9 @@ export async function dbGetSettings() {
     // Max-days cap for the planner onboarding "Multi-day trip" option.
     // 2..14 (clamped). Surfaced publicly via /api/planner/form-config.
     maxMultiDayDays: 2,
+    // Visibility gate — hides /planner page + nav link from non-admin visitors.
+    // Allows admin to preview/test before making the planner public.
+    hidePublicPlanner: false,
   }
   // SEO Optimizer: the three editable creative prompts (Optimize / Fix /
   // Analyze). Defaults are the live hardcoded defaults so the admin page renders
@@ -892,7 +895,7 @@ export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
     : {}
   const beforeTipsPrompt = typeof beforeExtra.tipsPrompt === 'string' ? beforeExtra.tipsPrompt : ''
 
-  const { systemPrompt, model, temperature, maxTokens, tipsPrompt, showCarWidget, showHotelWidget, maxMultiDayDays } = data as {
+  const { systemPrompt, model, temperature, maxTokens, tipsPrompt, showCarWidget, showHotelWidget, maxMultiDayDays, hidePublicPlanner } = data as {
     systemPrompt?: string
     model?: string
     temperature?: number
@@ -901,6 +904,7 @@ export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
     showCarWidget?: boolean
     showHotelWidget?: boolean
     maxMultiDayDays?: number
+    hidePublicPlanner?: boolean
   }
   // Non-destructive extra_config merge — read existing row first so unknown
   // / future keys, and any field omitted from this PUT, are preserved
@@ -919,12 +923,14 @@ export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
   if (typeof maxMultiDayDays === 'number' && Number.isFinite(maxMultiDayDays)) {
     extra.maxMultiDayDays = Math.max(2, Math.min(14, Math.floor(maxMultiDayDays)))
   }
+  if (typeof hidePublicPlanner === 'boolean') extra.hidePublicPlanner = hidePublicPlanner
   // Backfill defaults only for fields completely absent from both the
   // incoming PUT and the existing row.
   if (typeof extra.tipsPrompt !== 'string') extra.tipsPrompt = ''
   if (typeof extra.showCarWidget !== 'boolean') extra.showCarWidget = true
   if (typeof extra.showHotelWidget !== 'boolean') extra.showHotelWidget = true
   if (typeof extra.maxMultiDayDays !== 'number') extra.maxMultiDayDays = 2
+  if (typeof extra.hidePublicPlanner !== 'boolean') extra.hidePublicPlanner = false
 
   await query(`
     INSERT INTO ai_system_configs (system_key, label, description, system_prompt, model, temperature, max_tokens, extra_config)

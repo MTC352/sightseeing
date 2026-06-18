@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queryOne } from "@/lib/db"
+import { query } from "@/lib/db"
 import { getSession } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
@@ -8,17 +8,28 @@ export const dynamic = "force-dynamic"
  * Public endpoint that tells the site whether the Trip Planner should be
  * visible to the current visitor.
  *
- * The admin can hide the planner page + nav link from the public via the
- * "hidePublicPlanner" flag in the planner AI behavior settings
- * (ai_system_configs.system_key='planner' extra_config). Logged-in admins
- * always see the planner regardless of the flag, so they can preview it.
+ * The "hidePublicPlanner" flag now lives in itinerary.extra_config (the
+ * "Manage Trip Planner" admin page). For backward compatibility during the
+ * migration period, we also check planner.extra_config and OR the two flags —
+ * so the gate works correctly both before and after migration 012 runs.
+ *
+ * Logged-in admins always see the planner regardless of the flag, so they
+ * can preview it while it's hidden from the public.
  */
 export async function GET() {
   try {
-    const row = await queryOne<{ extra_config: Record<string, unknown> | null }>(
-      `SELECT extra_config FROM ai_system_configs WHERE system_key = 'planner'`,
+    const rows = await query<{ system_key: string; extra_config: Record<string, unknown> | null }>(
+      `SELECT system_key, extra_config FROM ai_system_configs WHERE system_key IN ('itinerary', 'planner')`,
     )
-    const hideFlag = row?.extra_config?.hidePublicPlanner === true
+    const itineraryRow = rows.find((r) => r.system_key === "itinerary")
+    const plannerRow = rows.find((r) => r.system_key === "planner")
+
+    // Prefer itinerary (canonical home after migration 012), fall back to planner
+    // for sites that haven't run the migration yet.
+    const itineraryHide = itineraryRow?.extra_config?.hidePublicPlanner === true
+    const plannerHide = plannerRow?.extra_config?.hidePublicPlanner === true
+    const hideFlag = itineraryHide || plannerHide
+
     // Admins bypass the gate (preview while hidden from the public).
     const session = await getSession().catch(() => null)
     const hidden = hideFlag && !session

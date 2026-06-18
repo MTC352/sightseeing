@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb } from "lucide-react"
+import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb, EyeOff } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
 import { PageHeaderSkeleton, PromptCardSkeleton, ModelCardSkeleton, CardSkeleton } from "@/components/admin/ai-system-skeleton"
@@ -16,6 +16,7 @@ interface ItineraryForm {
   showCarWidget: boolean
   showHotelWidget: boolean
   maxMultiDayDays: number
+  hidePublicPlanner: boolean
 }
 
 const DEFAULTS: ItineraryForm = {
@@ -27,6 +28,7 @@ const DEFAULTS: ItineraryForm = {
   showCarWidget: true,
   showHotelWidget: true,
   maxMultiDayDays: 2,
+  hidePublicPlanner: false,
 }
 
 export default function ItineraryAiPage() {
@@ -54,6 +56,7 @@ export default function ItineraryAiPage() {
           maxMultiDayDays: typeof data?.maxMultiDayDays === "number" && data.maxMultiDayDays >= 2
             ? Math.min(14, Math.floor(data.maxMultiDayDays))
             : prev.maxMultiDayDays,
+          hidePublicPlanner: data?.hidePublicPlanner === true,
         }))
       })
       .catch(() => setError("Could not load current settings."))
@@ -139,6 +142,38 @@ export default function ItineraryAiPage() {
       )}
 
       <div className="max-w-3xl space-y-6">
+        {/* Public Visibility */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <EyeOff className="h-4 w-4 text-primary" />
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Hide Trip Planner from the public</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  When on, the /planner page and its navigation link are hidden from visitors who aren&apos;t logged in.
+                  Logged-in admins can still access it to preview and configure.
+                </p>
+              </div>
+            </div>
+            <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={form.hidePublicPlanner}
+                onChange={(e) => setForm((f) => ({ ...f, hidePublicPlanner: e.target.checked }))}
+                className="peer sr-only"
+                disabled={loading}
+                data-testid="hide-public-planner-toggle"
+              />
+              <div className="peer h-6 w-11 rounded-full bg-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full" />
+            </label>
+          </div>
+          {form.hidePublicPlanner && (
+            <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+              Trip Planner is currently hidden from the public. Only logged-in admins can access /planner.
+            </p>
+          )}
+        </div>
+
         {/* Build Itinerary Prompt */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-3 flex items-center justify-between gap-2">

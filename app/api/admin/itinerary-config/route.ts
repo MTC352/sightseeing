@@ -55,6 +55,7 @@ export async function PUT(req: Request) {
     const maxMultiDayDays = typeof data.maxMultiDayDays === "number"
       ? Math.max(2, Math.min(14, Math.floor(data.maxMultiDayDays)))
       : undefined
+    const hidePublicPlanner = typeof data.hidePublicPlanner === "boolean" ? data.hidePublicPlanner : undefined
     await dbUpdateItineraryConfig({
       systemPrompt: typeof data.systemPrompt === "string" ? data.systemPrompt : undefined,
       tipsPrompt: typeof data.tipsPrompt === "string" ? data.tipsPrompt : undefined,
@@ -64,6 +65,7 @@ export async function PUT(req: Request) {
       showCarWidget: data.showCarWidget !== false,
       showHotelWidget: data.showHotelWidget !== false,
       maxMultiDayDays,
+      hidePublicPlanner,
     })
     const s = await dbGetSettings()
     return NextResponse.json(s.itineraryBehavior ?? {})
