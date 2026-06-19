@@ -506,6 +506,10 @@ export async function POST(req: Request) {
             const avail = await checkAvailability(config, palisisId, {
               date: visitDate,
               show_pickups: "0",
+              // TourCMS checkavail returns ZERO components unless at least one
+              // rate quantity is requested. partySize is clamped ≥1 above, so
+              // even a visitor who never picked a count still gets real slots.
+              r1: partySize,
             })
             if (avail.ok) {
               diag.checkavail.ok = true

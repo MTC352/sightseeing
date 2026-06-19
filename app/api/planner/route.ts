@@ -189,7 +189,7 @@ const searchTripsTool = tool({
     tags: z
       .array(z.string())
       .optional()
-      .describe("Tags to filter: food, outdoor, indoor, culture, sport, night, family, popular, romantic"),
+      .describe("Tags to filter by — use ONLY the canonical values listed under 'AVAILABLE INTEREST TAGS' in the system prompt (e.g. day-trips, museums, walking-tours, food). Do NOT invent values like 'outdoor'/'culture' that aren't in that list. Omit entirely to return ALL trips."),
     ids: z
       .array(z.string())
       .optional()
@@ -719,7 +719,7 @@ const updatePreferencesTool = tool({
     group: z.enum(["solo", "couple", "family", "friends"]).optional().describe("Travel party type."),
     adults: z.number().int().min(1).max(10).optional().describe("Number of adults (ages 13+). Combined party size (adults + children) is capped at 10."),
     children: z.number().int().min(0).max(10).optional().describe("Number of children (ages 0-12). Combined party size (adults + children) is capped at 10."),
-    interests: z.array(z.string()).max(10).optional().describe("Interest tags chosen by the visitor. The UI caps how many are allowed; pass only what the user explicitly mentions."),
+    interests: z.array(z.string()).max(10).optional().describe("The visitor's FULL interest list — this REPLACES the stored list, so include every interest that should remain (not just the new one). Use ONLY canonical values from 'AVAILABLE INTEREST TAGS' in the system prompt (e.g. day-trips, museums, food). To add: append to the existing list; to switch: send only the new value; to remove: send the list without it."),
     duration: z.enum(["1-2h", "half-day", "full-day"]).optional().describe("Trip duration preference."),
     budget: z.enum(["casual", "mid-range", "premium", "any"]).optional().describe("Budget preference."),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Visit date in YYYY-MM-DD format."),
@@ -940,6 +940,11 @@ export async function POST(req: Request) {
     // Mirror the client count (role === "user"); block only when it EXCEEDS the
     // limit (the Nth message, where N === limit, is still allowed). On any config
     // read failure we fail OPEN so legitimate chat is never wrongly blocked.
+    // Canonical interest/tag vocabulary the onboarding form + canvas filter use.
+    // Injected into the system prompt so the AI maps free-text themes onto the
+    // EXACT values (e.g. "day tour" → day-trips) that both searchTrips and
+    // updatePreferences expect — otherwise tag-driven prefs/canvas updates miss.
+    let interestVocab = ""
     try {
       const { plannerForm } = await dbGetChatPlannerConfig()
       const maxChatTurns = Number(plannerForm?.maxChatTurns) || 0
@@ -952,6 +957,12 @@ export async function POST(req: Request) {
           )
         }
       }
+      const opts = Array.isArray(plannerForm?.interests) ? plannerForm.interests : []
+      interestVocab = opts
+        .filter((o): o is { value: string; label: string } =>
+          !!o && typeof o === "object" && typeof (o as { value?: unknown }).value === "string")
+        .map((o) => `${o.value} (${o.label})`)
+        .join(", ")
     } catch (e) {
       console.error("[planner] chat-turn-limit check skipped:", e)
     }
@@ -959,7 +970,10 @@ export async function POST(req: Request) {
     // Fetch live weather once per request and make it available to tools
     _liveWeather = await fetchLiveWeather()
     const { wx, temp, condition } = _liveWeather
-    const defaultTags = preferences?.interests?.length ? preferences.interests.join(", ") : "popular"
+    // No interest selected → empty (NOT "popular", which isn't a canonical tag).
+    // The prompt instructs searchTrips with NO tags in that case so ALL trips
+    // surface — a non-canonical fallback would contradict that and miss/drift.
+    const defaultTags = preferences?.interests?.length ? preferences.interests.join(", ") : ""
 
     const cartSection = cartItems?.length
       ? `\nMY TRIP LIST — the visitor currently has ${cartItems.length} trip${cartItems.length === 1 ? "" : "s"} selected in their list (right sidebar). The Day Itinerary is built from EXACTLY these: ${cartItems.map(c => `${c.title} [${c.id}]`).join(", ")}`
@@ -1072,6 +1086,7 @@ export async function POST(req: Request) {
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
       profileLine, cartSection, groupSection, itinerarySection,
       optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
+      interestVocab,
     })
     
     // Append admin-configured custom system prompt if available.

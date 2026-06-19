@@ -3323,12 +3323,21 @@ export default function PlannerPage() {
       return { trip: t, score, interestHits }
     })
     scored.sort((a, b) => b.score - a.score)
-    // Prefer trips that actually match at least one picked interest tag.
-    // Duration cap is applied AFTER scoring so over-long trips never surface.
-    const matched = (hasInterests
-      ? scored.filter((s) => s.interestHits > 0)
-      : scored.filter((s) => s.score > 0)
-    ).filter((s) => fitsCap(s.trip))
+    // NO interests picked → recommend the ENTIRE catalog (still within the
+    // duration cap), score-ordered. The visitor told us nothing to narrow on,
+    // so the canvas + chat should surface every available trip rather than a
+    // tiny rating-only slice (an empty `tags`/`budget=any` profile otherwise
+    // leaves only the 4.7★ trips with score>0). This keeps the canvas in sync
+    // with a chat that says "all trips".
+    if (!hasInterests) {
+      return scored.filter((s) => fitsCap(s.trip)).map((s) => s.trip)
+    }
+    // Interests picked → prefer trips that match at least one picked interest
+    // tag. Duration cap is applied AFTER scoring so over-long trips never
+    // surface.
+    const matched = scored
+      .filter((s) => s.interestHits > 0)
+      .filter((s) => fitsCap(s.trip))
     if (matched.length > 0) return matched.map((s) => s.trip)
     // Nothing matched the interests — show top-scored trips (still within the
     // duration cap) so the panel is never empty after a visitor finishes
