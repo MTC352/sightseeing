@@ -6,15 +6,23 @@ import { CartProvider } from "@/lib/cart-context"
 import { PlannerListProvider } from "@/lib/planner-list-context"
 import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
-import { SitePasswordGate } from "@/components/site-password-gate"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
 import { CookieBanner } from "@/components/cookie-banner"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
+import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection } from "@/lib/db/queries"
 import { withTimeout } from "@/lib/db"
+import { headers, cookies } from "next/headers"
+import {
+  SITE_ACCESS_COOKIE,
+  verifySiteAccess,
+  PATHNAME_HEADER,
+  PATHNAME_SIG_HEADER,
+  verifyPathname,
+} from "@/lib/site-protection"
 import "./globals.css"
 
 const instrumentSans = Instrument_Sans({
@@ -104,11 +112,48 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // visible homepage element is client-fetched — so an empty fallback during
   // the brief cold window has no user-facing impact. A warm DB (~50ms) always
   // resolves them fully.
-  const [injection, weglotApiKey, announcement] = await Promise.all([
+  const [injection, weglotApiKey, announcement, protection] = await Promise.all([
     withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
     withTimeout(dbGetWeglotApiKey().catch(() => ""), 250, ""),
     withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
+    // null = DB read failed/timed out. Treated as "protected, password unknown"
+    // below so the staging site fails closed, while already-authenticated
+    // visitors (valid cookie) still get through.
+    withTimeout(dbGetSiteProtection().catch(() => null), 250, null),
   ])
+
+  // ── Frontend password gate (server-side, no content flash) ────────────────
+  // The page HTML is never rendered until the visitor is authenticated. Admin
+  // routes have their own auth and always bypass this gate. The pathname comes
+  // from the x-pathname header set by proxy.ts, but we only trust it when its
+  // companion signature verifies — otherwise a client could forge
+  // `x-pathname: /admin` on the proxy-excluded `/` route to skip the gate. An
+  // unsigned/missing path (e.g. bare `/`) defaults to "/", a gated public route.
+  const hdrs = await headers()
+  const rawPathname = hdrs.get(PATHNAME_HEADER)
+  const pathnameTrusted = rawPathname
+    ? await verifyPathname(rawPathname, hdrs.get(PATHNAME_SIG_HEADER))
+    : false
+  const pathname = pathnameTrusted && rawPathname ? rawPathname : "/"
+  const isAdminRoute = pathname.startsWith("/admin")
+  const protectionEnabled = protection === null ? true : protection.enabled
+  let locked = false
+  if (!isAdminRoute && protectionEnabled) {
+    const token = (await cookies()).get(SITE_ACCESS_COOKIE)?.value
+    const ok = await verifySiteAccess(token, protection === null ? null : protection.password)
+    locked = !ok
+  }
+
+  if (locked) {
+    return (
+      <html lang="en" className={instrumentSans.variable}>
+        <body className="font-sans antialiased">
+          <SiteAccessGate />
+        </body>
+      </html>
+    )
+  }
+
   return (
     <html lang="en" className={instrumentSans.variable}>
       <head>
@@ -181,25 +226,23 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           <Suspense fallback={null}>
             <AnnouncementBanner announcement={announcement} />
           </Suspense>
-          <SitePasswordGate>
-            <CartProvider>
-              <PlannerListProvider>
-              <WeatherProvider>
-                <Suspense>
-                  <EditModeProvider>
-                    {/* Admin-configured custom HTML injected above the navbar
-                        (head scripts, analytics). */}
-                    <CustomHtmlBlock html={injection.header} />
-                    {children}
-                    {/* Admin-configured custom HTML injected below the footer
-                        (chat widgets, body-end scripts). */}
-                    <CustomHtmlBlock html={injection.footer} />
-                  </EditModeProvider>
-                </Suspense>
-              </WeatherProvider>
-              </PlannerListProvider>
-            </CartProvider>
-          </SitePasswordGate>
+          <CartProvider>
+            <PlannerListProvider>
+            <WeatherProvider>
+              <Suspense>
+                <EditModeProvider>
+                  {/* Admin-configured custom HTML injected above the navbar
+                      (head scripts, analytics). */}
+                  <CustomHtmlBlock html={injection.header} />
+                  {children}
+                  {/* Admin-configured custom HTML injected below the footer
+                      (chat widgets, body-end scripts). */}
+                  <CustomHtmlBlock html={injection.footer} />
+                </EditModeProvider>
+              </Suspense>
+            </WeatherProvider>
+            </PlannerListProvider>
+          </CartProvider>
         </SiteStoreProvider>
 
         {/* ── Cookie consent banner ────────────────────────────────────────

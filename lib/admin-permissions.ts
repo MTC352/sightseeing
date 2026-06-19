@@ -182,6 +182,12 @@ export function canAccessPath(
     return false
   }
 
+  // Frontend protection (site password gate) is a superadmin-only control and
+  // is never grantable to employees.
+  if (matchPath(pathname, "/api/admin/security")) {
+    return false
+  }
+
   // Data migrations write content to the live DB — superadmin-only, never
   // grantable to employees.
   if (

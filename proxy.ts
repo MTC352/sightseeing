@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { verifySession } from "@/lib/auth"
 import { canAccessPath } from "@/lib/admin-permissions"
+import { PATHNAME_HEADER, PATHNAME_SIG_HEADER, signPathname } from "@/lib/site-protection"
 
 const PUBLIC_AUTH_PATHS = [
   "/admin/login",
@@ -80,7 +81,17 @@ export async function proxy(request: NextRequest) {
   }
 
   // ── AEO & AI crawler headers ────────────────────────────────────────────
-  const response = NextResponse.next()
+  // Expose the request pathname to server components (the root layout reads it
+  // to bypass the frontend password gate on /admin routes). The companion
+  // signature header is what makes this trustworthy: `/` is excluded from the
+  // matcher, so the layout only honours `x-pathname` when the signature (derived
+  // from ADMIN_JWT_SECRET) verifies. Setting both here overwrites any client-
+  // supplied values, and a bare `/` request (proxy never runs) carries no valid
+  // signature, so the layout treats it as the gated public homepage.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set(PATHNAME_HEADER, pathname)
+  requestHeaders.set(PATHNAME_SIG_HEADER, await signPathname(pathname))
+  const response = NextResponse.next({ request: { headers: requestHeaders } })
   response.headers.set(
     "X-Robots-Tag",
     "all, max-snippet:-1, max-image-preview:large, max-video-preview:-1"

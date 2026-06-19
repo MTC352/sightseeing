@@ -1748,6 +1748,49 @@ export async function dbUpdateAnnouncement(data: {
   return { enabled: meta.enabled, content, size, align, bgColor, textColor }
 }
 
+// ── Site frontend protection (admin-configurable staging gate) ──────────────
+
+export interface SiteProtection {
+  enabled: boolean
+  password: string
+}
+
+export async function dbGetSiteProtection(): Promise<SiteProtection> {
+  const row = await queryOne<{ value: string | null; meta: unknown }>(
+    `SELECT value, meta FROM integrations WHERE key = 'site_protection'`,
+  )
+  // Default when the row is missing: protected with the legacy staging PIN so
+  // the staging site is never accidentally exposed before an admin configures it.
+  if (!row) return { enabled: true, password: '3462' }
+  const meta = (row.meta ?? {}) as { enabled?: boolean }
+  return {
+    enabled: meta.enabled === true,
+    password: typeof row.value === 'string' ? row.value : '',
+  }
+}
+
+export async function dbUpdateSiteProtection(data: {
+  enabled?: boolean
+  password?: string
+}): Promise<SiteProtection> {
+  const current = await dbGetSiteProtection()
+  const enabled = typeof data.enabled === 'boolean' ? data.enabled : current.enabled
+  // Only overwrite the password when a non-empty value is supplied, so toggling
+  // protection on/off never wipes the existing password.
+  const password =
+    typeof data.password === 'string' && data.password.length > 0
+      ? data.password
+      : current.password
+  const meta = { enabled }
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('site_protection', 'Frontend Protection', $1, $2::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value = $1, meta = $2::jsonb, updated_at = NOW()`,
+    [password, JSON.stringify(meta)],
+  )
+  return { enabled, password }
+}
+
 // ── Taxonomies ─────────────────────────────────────────────────────────────
 
 export async function dbListTaxonomies() {

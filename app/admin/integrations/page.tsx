@@ -6,10 +6,11 @@ import {
   Save, Check, Eye, EyeOff, ExternalLink, AlertCircle,
   Cloud, Map, Bot, Zap, Globe, Star, RefreshCw, Calendar,
   KeyRound, Settings2, ChevronDown, Info, Sliders, SlidersHorizontal,
-  CheckCircle2, XCircle, Loader2, ShieldCheck,
+  CheckCircle2, XCircle, Loader2, ShieldCheck, Lock,
 } from "lucide-react"
 import TripFieldsPanel from "@/components/admin/trip-fields-panel"
 import { FileRulesPanel } from "@/components/admin/file-rules-panel"
+import { SecuritySettings } from "@/components/admin/security-settings"
 import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -166,7 +167,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
 ]
 
 type ApiKeys = Record<string, string>
-type Tab = "keys" | "settings" | "trip-fields" | "file-rules"
+type Tab = "keys" | "settings" | "trip-fields" | "file-rules" | "security"
 
 interface TestKeyResponse {
   ok: boolean
@@ -555,6 +556,20 @@ export default function IntegrationsPage() {
             Set File upload Rules
           </button>
         )}
+        {isSuperadmin && (
+          <button
+            type="button"
+            onClick={() => setTab("security")}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              tab === "security"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Lock className="h-3.5 w-3.5" />
+            Security
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setTab("trip-fields")}
@@ -572,6 +587,8 @@ export default function IntegrationsPage() {
       {tab === "trip-fields" && <TripFieldsPanel />}
 
       {tab === "file-rules" && isSuperadmin && <FileRulesPanel />}
+
+      {tab === "security" && isSuperadmin && <SecuritySettings />}
 
       {/* ── API KEYS TAB ─────────────────────────────────────────── */}
       {tab === "keys" && (

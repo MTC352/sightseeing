@@ -123,7 +123,11 @@ Full runbook: `docs/seo-indexing.md`.
 
 ## Auth
 
-- **Site PIN gate:** `"3462"` — `components/site-password-gate.tsx` — localStorage (bypasses for `/admin` routes)
+- **Frontend protection (server-side gate):** admin-configurable password gate enforced in `app/layout.tsx` — the page HTML is **never** rendered until the visitor holds a valid signed HttpOnly `site_access` cookie (no content flash). Controlled from Admin Settings → **Security** tab (`/admin/integrations`, superadmin-only).
+  - Settings stored in `integrations` key `site_protection` (value=password, meta=`{enabled}`); **missing-row default = `{enabled:true, password:"3462"}`** so staging is never accidentally exposed. Helpers: `dbGetSiteProtection` / `dbUpdateSiteProtection` in `lib/db/queries.ts`.
+  - Cookie helpers in `lib/site-protection.ts` (jose, signed with `ADMIN_JWT_SECRET`, 7-day TTL). Token embeds a fingerprint of the current password, so changing the password revokes all sessions. `verifySiteAccess(token, null)` skips the fp check for graceful degradation when the DB password can't be read.
+  - Public unlock: `POST /api/site-access {password}`. Admin read/write: `GET`/`PUT /api/admin/security` (superadmin-only).
+  - Bypass for `/admin/*` via `x-pathname` request header set in `proxy.ts` (the `/` route is excluded from the proxy matcher, so a missing header defaults to "/" → gated). The announcement banner and all providers are omitted on the locked screen.
 - **Admin auth:** JWT cookie `admin_session` — protected by `proxy.ts`
   - Login: `POST /api/admin/auth/login` — verifies email + bcrypt hash, issues JWT
   - Logout: `POST /api/admin/auth/logout` — clears cookie
