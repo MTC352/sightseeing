@@ -13,7 +13,7 @@
 - [SEO indexing control](seo-indexing-control.md) — same codebase on Replit-publish (staging) + live domain; indexing opt-in via ALLOW_INDEXING; no static public/robots.txt (conflicts with app/robots.ts).
 - [Error logging + key tests](error-logging-and-key-tests.md) — error_logs table via fail-soft logError (void it); admin Test-API-key route must POST keys in body, never URL query (leak risk).
 - [Planner chat UI gotchas](planner-chat-ui.md) — handleSend must allow "error" status (else chat freezes after AI fail); recs duration cap lives in fallbackTrips via durationCapHours+fitsCap.
-- [Planner recommendations canvas](planner-recommendations.md) — canvas recs are deterministic & decoupled from AI chat (fixes reload hang); date=visual grouping only; availability fetch must clear on each scan; pills edit one field via applyDirectPref.
+- [Planner recommendations canvas](planner-recommendations.md) — canvas recs deterministic, decoupled from AI chat; date=hard FILTER (not grouping); interests allowlisted to available tags on ALL 4 write paths; AI must NOT state trip counts (canvas badge is authoritative).
 - [Integration key precedence](integration-key-precedence.md) — admin-panel DB keys are source of truth; env is fallback only. Applies to Mapbox/TourCMS/OpenWeather/Google/Anthropic.
 - [TourCMS MULTI tours](tourcms-multi-tours.md) — start_time="MULTI" tours have bookable dates w/ no time; resolve real slots via checkAvailability, not datesndeals.
 - [Planner preflight card state](planner-preflight-state.md) — preflightCardState volatile (resets on refresh); restored buildItinerary cards must be rehydrated to "ready"; only latest card renders full.

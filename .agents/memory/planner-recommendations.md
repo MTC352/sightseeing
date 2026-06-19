@@ -6,9 +6,23 @@ description: How the Trip Planner canvas builds its recommendation list and why 
 # Trip Planner "Recommended for you" canvas
 
 The canvas recommendation list is **deterministic and decoupled from the AI chat stream**.
-`resultTrips = recommendedTrips` (a useMemo derived from `fallbackTrips` deterministic
-scoring), NOT from the AI's selected/streamed trips. The AI chat is a separate helper that
+`resultTrips = displayedAiTrips.length > 0 ? displayedAiTrips : recommendedTrips` — it prefers
+the AI's `searchTrips` result when present, else falls back to `recommendedTrips` (a useMemo
+derived from `fallbackTrips` deterministic scoring). The AI chat is a separate helper that
 can adjust prefs, which flow back into the list.
+
+**Interest values MUST come from the available tag vocabulary** (`formOptions.interests`,
+mirrors server `interestVocab`). The AI's free-text themes are mapped to canonical tags in the
+prompt, but ALL pref-write paths also filter interests to that allowlist so a non-existent tag
+(e.g. "culture") can't slip in and silently match zero trips. Per the four-paths rule the
+allowlist guard lives in: onToolCall merge, `applyDirectPref`, AND `extractPrefsFromChat`
+hydration (a persisted bad tool-call must not repopulate junk on restore).
+
+**Never state a numeric trip count in chat.** `searchTrips.total` is the raw tag/keyword
+match count and does NOT apply the canvas's date-availability + interest filter, so it is
+almost always higher than what the visitor sees (caused "4 suitable trips" while canvas showed
+1). The canvas badge (`onDate.length`) is the only authoritative count; the prompt forbids the
+AI quoting counts except a day-count it confirmed via getTripDatesAndDeals/getTripTimeslots.
 
 **Why:** Previously the canvas waited on the first AI turn completing; when the AI key was
 401 (common — both env and DB keys often fail) the canvas stuck on "Discovering…" forever

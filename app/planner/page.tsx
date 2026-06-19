@@ -1967,7 +1967,13 @@ export default function PlannerPage() {
     // Interests is the one array field a single-pref edit can REPLACE wholesale
     // (incl. emptying it). The caller computes the next list (toggle add/remove).
     if (Array.isArray(patch.interests)) {
-      next.interests = patch.interests.filter((v): v is string => typeof v === "string")
+      // Defense-in-depth: even though this path's callers pass canonical UI
+      // values, constrain to the available tag vocabulary so interests can
+      // never drift to a non-existent tag. Empty stays empty (clears).
+      const valid = new Set(formOptions.interests.map((o) => o.value))
+      next.interests = Array.from(
+        new Set(patch.interests.filter((v): v is string => typeof v === "string" && valid.has(v))),
+      ).slice(0, formOptions.maxInterests)
     }
     if (Array.isArray(patch.exclusions)) {
       next.exclusions = patch.exclusions.filter((e): e is string => typeof e === "string").slice(0, 10)
@@ -2110,7 +2116,18 @@ export default function PlannerPage() {
             // Newest-wins merge: only fill fields we haven't already taken
             // from a more-recent patch.
             if (patch.group && !acc.group) acc.group = patch.group
-            if (patch.interests?.length && !acc.interests?.length) acc.interests = patch.interests
+            // Validate restored interests against the available tag vocabulary —
+            // a persisted AI tool call may hold a non-canonical tag (e.g.
+            // "culture") that matches zero trips. Only take VALID values; if
+            // none survive, leave acc.interests unset so a cleaner source can
+            // fill it (mirrors the live onToolCall guard).
+            if (patch.interests?.length && !acc.interests?.length) {
+              const valid = new Set(formOptions.interests.map((o) => o.value))
+              const mapped = Array.from(
+                new Set(patch.interests.filter((v): v is string => typeof v === "string" && valid.has(v))),
+              ).slice(0, formOptions.maxInterests)
+              if (mapped.length) acc.interests = mapped
+            }
             if (patch.duration && !acc.duration) acc.duration = patch.duration
             if (patch.budget && !acc.budget) acc.budget = patch.budget
             if (patch.startDate && !acc.startDate) acc.startDate = patch.startDate
@@ -2310,21 +2327,28 @@ export default function PlannerPage() {
     transport,
     messages: initialMessagesRef.current,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    onError() {
-      // AI turn failed (e.g. invalid/expired key → 401, or the model
-      // provider is unreachable). Without this, the stream-end transition
-      // that normally flips `hasCompletedFirstAiTurn` may never be observed,
-      // leaving `discoveringPrefs` true forever and pinning the canvas on the
-      // "Finding your perfect trips…" spinner. Flip the gate so the canvas
-      // fails soft to the deterministic, interest-scored fallback grid —
-      // same principle as the itinerary engine's AI-down fallback.
+    onError(error) {
+      // AI turn failed. The cause is EITHER a real credential problem (route
+      // forwards the token "AI_AUTH") OR a transient/retryable issue — model
+      // overload (429/529), network blip, idle/heartbeat timeout, abort, or a
+      // cold start (route forwards "AI_TEMP", the default). Older/edge errors
+      // may arrive without a token. Without this handler the stream-end
+      // transition that flips `hasCompletedFirstAiTurn` may never fire, pinning
+      // the canvas on "Finding your perfect trips…". Flip the gate so the
+      // canvas fails soft to the deterministic fallback grid.
       setHasCompletedFirstAiTurn(true)
       // Release any in-flight build lock so the composer never stays
       // disabled after a failed turn.
       setItineraryRegenerating(false)
+      // Only blame the API key when the server actually reported an auth
+      // failure — otherwise we wrongly tell visitors the (valid) key is
+      // invalid on every transient hiccup. Default to a retry message.
+      const raw = error instanceof Error ? error.message : String(error ?? "")
+      const isAuth = /\bAI_AUTH\b|invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key|not configured/i.test(raw)
+      const errText = isAuth
+        ? "⚠️ The AI assistant is unavailable right now — its API key looks invalid or expired. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas. Ask the site admin to update the AI key in the admin panel to re-enable chat."
+        : "⚠️ I couldn't reach the AI assistant just now — please try again in a moment. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas."
       // Surface a friendly assistant bubble so the chat doesn't look frozen.
-      // The visitor sees clear feedback (and a hint that AI features need a
-      // working key) instead of a silent dead input.
       setMessagesRef.current?.((prev) => {
         const last = prev[prev.length - 1]
         const lastText = last?.role === "assistant"
@@ -2339,7 +2363,7 @@ export default function PlannerPage() {
             role: "assistant",
             parts: [{
               type: "text",
-              text: "⚠️ I couldn't reach the AI assistant just now — the AI key may be invalid or expired. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas. Ask the site admin to update the AI key in the admin panel to re-enable chat.",
+              text: errText,
             }],
           } as PlannerMessage,
         ])
@@ -2360,7 +2384,23 @@ export default function PlannerPage() {
         // Per-field merge with strict validation.
         const next: Preferences = {
           group: typeof patch.group === "string" && patch.group ? patch.group : base.group,
-          interests: Array.isArray(patch.interests) ? patch.interests.slice(0, formOptions.maxInterests) : base.interests,
+          // Constrain AI-set interests to the AVAILABLE tag vocabulary
+          // (the onboarding form's interest options). The model is told to
+          // map free-text themes onto these canonical values, but nothing
+          // stopped it sending a non-existent tag (e.g. "culture") that
+          // matches zero trips and silently breaks the canvas filter. Drop
+          // any value not in the catalog; if the patch had interests but
+          // none were valid, keep the existing list rather than wiping it.
+          interests: Array.isArray(patch.interests)
+            ? (() => {
+                const valid = new Set(formOptions.interests.map((o) => o.value))
+                const mapped = patch.interests.filter(
+                  (v): v is string => typeof v === "string" && valid.has(v),
+                )
+                const deduped = Array.from(new Set(mapped)).slice(0, formOptions.maxInterests)
+                return deduped.length > 0 || patch.interests.length === 0 ? deduped : base.interests
+              })()
+            : base.interests,
           duration: typeof patch.duration === "string" && patch.duration ? patch.duration : base.duration,
           budget: typeof patch.budget === "string" && patch.budget ? patch.budget : base.budget,
           startDate: typeof patch.startDate === "string" && patch.startDate ? patch.startDate : base.startDate,

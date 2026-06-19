@@ -1205,7 +1205,24 @@ export async function POST(req: Request) {
       ],
     })
 
-    return result.toUIMessageStreamResponse()
+    // Classify runtime stream errors so the client can show accurate guidance.
+    // The AI SDK's default masker forwards a generic "An error occurred" for
+    // EVERY failure, which made the chat blame the API key even on transient
+    // issues (rate-limit 429, model overload 529, network/timeout/abort) with a
+    // perfectly valid key. Emit a stable token: "AI_AUTH" only for real
+    // credential failures, "AI_TEMP" for everything else (retryable).
+    return result.toUIMessageStreamResponse({
+      onError: (error) => {
+        const e = error as { statusCode?: number; status?: number; message?: string } | undefined
+        const status = e?.statusCode ?? e?.status
+        const msg = (e?.message ?? String(error ?? "")).toLowerCase()
+        const isAuth =
+          status === 401 ||
+          status === 403 ||
+          /invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key/i.test(msg)
+        return isAuth ? "AI_AUTH" : "AI_TEMP"
+      },
+    })
   } catch (error) {
     console.error("[planner] POST error:", error)
     void logCaughtError("ai:planner", error, { phase: "POST" })
