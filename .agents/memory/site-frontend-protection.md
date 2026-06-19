@@ -25,7 +25,8 @@ need must reuse this signed pair, never trust a raw client header on `/`.
 
 ## Config + degradation
 - Stored in `integrations` key `site_protection` (value=password, meta={enabled}).
-  **Missing-row default = `{enabled:true, password:"3462"}`** so staging is never
+  **Missing-row default = enabled with the legacy staging PIN** (value lives in
+  `dbGetSiteProtection` in `lib/db/queries.ts`, not here) so staging is never
   accidentally exposed. Helpers `dbGetSiteProtection`/`dbUpdateSiteProtection`.
 - Cookie token embeds a fingerprint of the current password → changing the
   password revokes all existing sessions.
