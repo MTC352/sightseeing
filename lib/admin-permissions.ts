@@ -135,6 +135,8 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/settings", keys: ["ai-systems", "integrations", "trips", "palisis"] },
   // Shared API-key tester — used by Integrations & Palisis screens.
   { prefix: "/api/admin/test-key", keys: ["integrations", "palisis"] },
+  // Cookie consent banner config — lives on the Integrations screen.
+  { prefix: "/api/admin/cookie-settings", keys: ["integrations"] },
 ]
 
 function matchPath(pathname: string, prefix: string): boolean {

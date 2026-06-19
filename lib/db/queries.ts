@@ -1791,6 +1791,128 @@ export async function dbUpdateSiteProtection(data: {
   return { enabled, password }
 }
 
+// ── Cookie consent banner (admin-configurable) ──────────────────────────────
+
+export interface CookieCategory {
+  /** Whether this optional category is offered at all. */
+  enabled: boolean
+  /** Whether the toggle starts ON (pre-checked) in the banner. */
+  defaultOn: boolean
+  title: string
+  description: string
+}
+
+export interface CookieSettings {
+  /** Master switch — when false, no banner is shown and scripts load freely. */
+  enabled: boolean
+  title: string
+  message: string
+  privacyUrl: string
+  necessaryTitle: string
+  necessaryDescription: string
+  categories: {
+    functional: CookieCategory
+    marketing: CookieCategory
+  }
+}
+
+export const DEFAULT_COOKIE_SETTINGS: CookieSettings = {
+  enabled: true,
+  title: "We use cookies",
+  message:
+    "We use strictly necessary cookies to operate the site, and optional functional cookies for language preferences and trip planning. Marketing cookies power our flight and hotel search widgets.",
+  privacyUrl: "/privacy",
+  necessaryTitle: "Strictly necessary",
+  necessaryDescription:
+    "Required for the website to function. Includes your shopping cart and admin authentication. Cannot be disabled.",
+  categories: {
+    functional: {
+      enabled: true,
+      defaultOn: true,
+      title: "Functional",
+      description:
+        "Language preferences (Weglot), trip planning preferences, and recently viewed trips. These improve your experience but are not essential.",
+    },
+    marketing: {
+      enabled: true,
+      defaultOn: false,
+      title: "Marketing & affiliate tracking",
+      description:
+        "Affiliate cookies from Travelpayouts power our flight, hotel, and car rental search widgets. Disabled by default.",
+    },
+  },
+}
+
+/** Strip HTML and clamp length — banner copy is rendered as plain text. */
+function cookieText(v: unknown, fallback: string, max = 600): string {
+  if (typeof v !== "string") return fallback
+  const cleaned = v.replace(/<[^>]*>/g, "").trim()
+  return cleaned ? cleaned.slice(0, max) : fallback
+}
+
+/** Allow only same-origin paths or http(s) URLs (blocks javascript: etc.). */
+function cookieUrl(v: unknown, fallback: string): string {
+  if (typeof v !== "string") return fallback
+  const s = v.trim()
+  if (!s) return fallback
+  if (s.startsWith("/")) return s.slice(0, 300)
+  if (/^https?:\/\//i.test(s)) return s.slice(0, 300)
+  return fallback
+}
+
+function normalizeCookieCategory(raw: unknown, def: CookieCategory): CookieCategory {
+  const r = (raw ?? {}) as Record<string, unknown>
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : def.enabled,
+    defaultOn: typeof r.defaultOn === "boolean" ? r.defaultOn : def.defaultOn,
+    title: cookieText(r.title, def.title, 120),
+    description: cookieText(r.description, def.description),
+  }
+}
+
+function normalizeCookieSettings(raw: unknown): CookieSettings {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const cats = (r.categories ?? {}) as Record<string, unknown>
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_COOKIE_SETTINGS.enabled,
+    title: cookieText(r.title, DEFAULT_COOKIE_SETTINGS.title, 120),
+    message: cookieText(r.message, DEFAULT_COOKIE_SETTINGS.message, 800),
+    privacyUrl: cookieUrl(r.privacyUrl, DEFAULT_COOKIE_SETTINGS.privacyUrl),
+    necessaryTitle: cookieText(r.necessaryTitle, DEFAULT_COOKIE_SETTINGS.necessaryTitle, 120),
+    necessaryDescription: cookieText(
+      r.necessaryDescription,
+      DEFAULT_COOKIE_SETTINGS.necessaryDescription,
+    ),
+    categories: {
+      functional: normalizeCookieCategory(cats.functional, DEFAULT_COOKIE_SETTINGS.categories.functional),
+      marketing: normalizeCookieCategory(cats.marketing, DEFAULT_COOKIE_SETTINGS.categories.marketing),
+    },
+  }
+}
+
+export async function dbGetCookieSettings(): Promise<CookieSettings> {
+  try {
+    const row = await queryOne<{ meta: unknown }>(
+      `SELECT meta FROM integrations WHERE key = 'cookie_consent'`,
+    )
+    if (!row || row.meta == null) return DEFAULT_COOKIE_SETTINGS
+    return normalizeCookieSettings(row.meta)
+  } catch {
+    return DEFAULT_COOKIE_SETTINGS
+  }
+}
+
+export async function dbUpdateCookieSettings(data: unknown): Promise<CookieSettings> {
+  const settings = normalizeCookieSettings(data)
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('cookie_consent', 'Cookie Consent', '', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
+    [JSON.stringify(settings)],
+  )
+  return settings
+}
+
 // ── Taxonomies ─────────────────────────────────────────────────────────────
 
 export async function dbListTaxonomies() {

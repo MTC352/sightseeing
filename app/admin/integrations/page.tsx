@@ -6,11 +6,12 @@ import {
   Save, Check, Eye, EyeOff, ExternalLink, AlertCircle,
   Cloud, Map, Bot, Zap, Globe, Star, RefreshCw, Calendar,
   KeyRound, Settings2, ChevronDown, Info, Sliders, SlidersHorizontal,
-  CheckCircle2, XCircle, Loader2, ShieldCheck, Lock,
+  CheckCircle2, XCircle, Loader2, ShieldCheck, Lock, Cookie,
 } from "lucide-react"
 import TripFieldsPanel from "@/components/admin/trip-fields-panel"
 import { FileRulesPanel } from "@/components/admin/file-rules-panel"
 import { SecuritySettings } from "@/components/admin/security-settings"
+import { CookieSettings } from "@/components/admin/cookie-settings"
 import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -167,7 +168,7 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
 ]
 
 type ApiKeys = Record<string, string>
-type Tab = "keys" | "settings" | "trip-fields" | "file-rules" | "security"
+type Tab = "keys" | "settings" | "trip-fields" | "file-rules" | "security" | "cookies"
 
 interface TestKeyResponse {
   ok: boolean
@@ -572,6 +573,18 @@ export default function IntegrationsPage() {
         )}
         <button
           type="button"
+          onClick={() => setTab("cookies")}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "cookies"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Cookie className="h-3.5 w-3.5" />
+          Cookie Consent
+        </button>
+        <button
+          type="button"
           onClick={() => setTab("trip-fields")}
           className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             tab === "trip-fields"
@@ -589,6 +602,8 @@ export default function IntegrationsPage() {
       {tab === "file-rules" && isSuperadmin && <FileRulesPanel />}
 
       {tab === "security" && isSuperadmin && <SecuritySettings />}
+
+      {tab === "cookies" && <CookieSettings />}
 
       {/* ── API KEYS TAB ─────────────────────────────────────────── */}
       {tab === "keys" && (

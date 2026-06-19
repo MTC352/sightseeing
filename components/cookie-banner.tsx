@@ -3,39 +3,162 @@
 import { useState, useEffect } from "react"
 import Script from "next/script"
 import { X, ChevronDown, ChevronUp, Cookie } from "lucide-react"
-import { getConsent, saveConsent, type ConsentState } from "@/lib/cookie-consent"
+import {
+  getConsent,
+  saveConsent,
+  openCookiePreferences,
+  CONSENT_PREFS_OPEN_EVENT,
+  type ConsentState,
+} from "@/lib/cookie-consent"
 
-export function CookieBanner({ weglotApiKey = "" }: { weglotApiKey?: string }) {
+export interface CookieCategoryConfig {
+  enabled: boolean
+  defaultOn: boolean
+  title: string
+  description: string
+}
+
+export interface CookieBannerSettings {
+  enabled: boolean
+  title: string
+  message: string
+  privacyUrl: string
+  necessaryTitle: string
+  necessaryDescription: string
+  categories: {
+    functional: CookieCategoryConfig
+    marketing: CookieCategoryConfig
+  }
+}
+
+const FALLBACK_SETTINGS: CookieBannerSettings = {
+  enabled: true,
+  title: "We use cookies",
+  message:
+    "We use strictly necessary cookies to operate the site, and optional functional cookies for language preferences and trip planning. Marketing cookies power our flight and hotel search widgets.",
+  privacyUrl: "/privacy",
+  necessaryTitle: "Strictly necessary",
+  necessaryDescription:
+    "Required for the website to function. Includes your shopping cart and admin authentication. Cannot be disabled.",
+  categories: {
+    functional: {
+      enabled: true,
+      defaultOn: true,
+      title: "Functional",
+      description:
+        "Language preferences (Weglot), trip planning preferences, and recently viewed trips. These improve your experience but are not essential.",
+    },
+    marketing: {
+      enabled: true,
+      defaultOn: false,
+      title: "Marketing & affiliate tracking",
+      description:
+        "Affiliate cookies from Travelpayouts power our flight, hotel, and car rental search widgets. Disabled by default.",
+    },
+  },
+}
+
+export function CookieBanner({
+  weglotApiKey = "",
+  settings,
+}: {
+  weglotApiKey?: string
+  settings?: CookieBannerSettings
+}) {
+  const cfg = settings ?? FALLBACK_SETTINGS
+  const functionalOffered = cfg.categories.functional.enabled
+  const marketingOffered = cfg.categories.marketing.enabled
+
   const [consent, setConsent] = useState<ConsentState | null | "loading">("loading")
   const [showPanel, setShowPanel] = useState(false)
-  const [functional, setFunctional] = useState(true)
-  const [marketing, setMarketing] = useState(false)
+  const [forceOpen, setForceOpen] = useState(false)
+  const [functional, setFunctional] = useState(cfg.categories.functional.defaultOn)
+  const [marketing, setMarketing] = useState(cfg.categories.marketing.defaultOn)
 
   useEffect(() => {
-    setConsent(getConsent())
+    const c = getConsent()
+    setConsent(c)
+    if (c) {
+      setFunctional(c.functional)
+      setMarketing(c.marketing)
+    }
+    // Allow the footer link / blocked widgets to re-open the preferences panel.
+    const open = () => {
+      const cur = getConsent()
+      if (cur) {
+        setFunctional(cur.functional)
+        setMarketing(cur.marketing)
+      }
+      setForceOpen(true)
+      setShowPanel(true)
+    }
+    window.addEventListener(CONSENT_PREFS_OPEN_EVENT, open)
+    return () => window.removeEventListener(CONSENT_PREFS_OPEN_EVENT, open)
   }, [])
+
+  // When the admin disables the consent banner, treat it as full consent so the
+  // optional scripts still load (no consent management = load everything). This
+  // also overrides any prior partial choice so returning users aren't stuck with
+  // marketing/functional blocked after the admin turns the banner off.
+  useEffect(() => {
+    if (cfg.enabled || consent === "loading") return
+    if (consent === null || !consent.functional || !consent.marketing) {
+      setConsent(saveConsent(true, true))
+    }
+  }, [cfg.enabled, consent])
+
+  // Reconcile stored consent against the admin's offered categories. If the admin
+  // disables a category after a visitor already consented to it, force that stored
+  // bit to false so the shared consent signal (read by useConsent() in the
+  // Travelpayouts widgets) stops the scripts immediately — not just after the user
+  // re-saves their preferences.
+  useEffect(() => {
+    if (!cfg.enabled || consent === "loading" || consent === null) return
+    const fn = functionalOffered ? consent.functional : false
+    const mk = marketingOffered ? consent.marketing : false
+    if (fn !== consent.functional || mk !== consent.marketing) {
+      setConsent(saveConsent(fn, mk))
+    }
+  }, [cfg.enabled, functionalOffered, marketingOffered, consent])
 
   function accept(fn: boolean, mk: boolean) {
     const state = saveConsent(fn, mk)
     setConsent(state)
     setShowPanel(false)
+    setForceOpen(false)
   }
 
   // Loading — don't flash banner
   if (consent === "loading") return null
-  // Consent already given — just load scripts conditionally
-  if (consent !== null) {
+
+  // Admin disabled the consent system — load scripts, never show a banner.
+  if (!cfg.enabled) {
     return (
       <>
-        {consent.functional && <WeglotScript apiKey={weglotApiKey} />}
-        {consent.marketing && <TravelpayoutsAllowed />}
+        <WeglotScript apiKey={weglotApiKey} />
+        <TravelpayoutsAllowed />
       </>
     )
   }
 
-  // No consent yet — show banner
+  const hasConsent = consent !== null
+  // Effective gate: a script loads only if the admin still offers the category
+  // AND the user consented to it. Disabling a category in admin immediately
+  // stops its scripts even for users who previously opted in.
+  const scripts = hasConsent ? (
+    <>
+      {functionalOffered && consent.functional && <WeglotScript apiKey={weglotApiKey} />}
+      {marketingOffered && consent.marketing && <TravelpayoutsAllowed />}
+    </>
+  ) : null
+
+  // Show banner when no choice has been made yet, or when re-opened from the footer.
+  const showBanner = !hasConsent || forceOpen
+  if (!showBanner) return scripts
+
   return (
     <>
+      {scripts}
       <div
         data-no-edit
         role="dialog"
@@ -49,14 +172,34 @@ export function CookieBanner({ weglotApiKey = "" }: { weglotApiKey?: string }) {
             <div className="flex items-start gap-3">
               <Cookie className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
               <div>
-                <p className="text-sm font-semibold text-foreground">We use cookies</p>
+                <p className="text-sm font-semibold text-foreground">{cfg.title}</p>
                 <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-                  We use strictly necessary cookies to operate the site, and optional functional cookies for language preferences and trip planning. Marketing cookies power our flight and hotel search widgets. See our{" "}
-                  <a href="/privacy" className="underline underline-offset-2 hover:text-primary">Privacy Policy</a> for details.
+                  {cfg.message}{" "}
+                  {cfg.privacyUrl && (
+                    <a
+                      href={cfg.privacyUrl}
+                      className="underline underline-offset-2 hover:text-primary"
+                    >
+                      Privacy Policy
+                    </a>
+                  )}
                 </p>
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {forceOpen && hasConsent && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForceOpen(false)
+                    setShowPanel(false)
+                  }}
+                  aria-label="Close cookie preferences"
+                  className="rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:bg-secondary"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowPanel((v) => !v)}
@@ -74,7 +217,7 @@ export function CookieBanner({ weglotApiKey = "" }: { weglotApiKey?: string }) {
               </button>
               <button
                 type="button"
-                onClick={() => accept(true, true)}
+                onClick={() => accept(functionalOffered, marketingOffered)}
                 className="rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
               >
                 Accept all
@@ -87,29 +230,38 @@ export function CookieBanner({ weglotApiKey = "" }: { weglotApiKey?: string }) {
             <div className="mt-4 divide-y divide-border rounded-xl border border-border bg-secondary/30">
               {/* Necessary */}
               <CategoryRow
-                title="Strictly necessary"
-                description="Required for the website to function. Includes your shopping cart and admin authentication. Cannot be disabled."
+                title={cfg.necessaryTitle}
+                description={cfg.necessaryDescription}
                 enabled={true}
                 locked
               />
               {/* Functional */}
-              <CategoryRow
-                title="Functional"
-                description="Language preferences (Weglot), trip planning preferences, and recently viewed trips. These improve your experience but are not essential."
-                enabled={functional}
-                onChange={setFunctional}
-              />
+              {functionalOffered && (
+                <CategoryRow
+                  title={cfg.categories.functional.title}
+                  description={cfg.categories.functional.description}
+                  enabled={functional}
+                  onChange={setFunctional}
+                />
+              )}
               {/* Marketing */}
-              <CategoryRow
-                title="Marketing & affiliate tracking"
-                description="Affiliate cookies from Travelpayouts power our flight, hotel, and car rental search widgets. Disabled by default."
-                enabled={marketing}
-                onChange={setMarketing}
-              />
+              {marketingOffered && (
+                <CategoryRow
+                  title={cfg.categories.marketing.title}
+                  description={cfg.categories.marketing.description}
+                  enabled={marketing}
+                  onChange={setMarketing}
+                />
+              )}
               <div className="flex justify-end px-4 py-3">
                 <button
                   type="button"
-                  onClick={() => accept(functional, marketing)}
+                  onClick={() =>
+                    accept(
+                      functionalOffered ? functional : false,
+                      marketingOffered ? marketing : false,
+                    )
+                  }
                   className="rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                 >
                   Save preferences
@@ -213,16 +365,10 @@ function TravelpayoutsAllowed() {
 
 /** Cookie settings re-opener — rendered in the footer */
 export function CookieSettingsButton() {
-  function reopen() {
-    try {
-      localStorage.removeItem("cookie_consent_v1")
-      window.location.reload()
-    } catch { /* ignore */ }
-  }
   return (
     <button
       type="button"
-      onClick={reopen}
+      onClick={openCookiePreferences}
       className="text-xs text-muted-foreground transition-colors hover:text-primary"
     >
       Cookie Settings

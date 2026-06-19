@@ -13,7 +13,7 @@ import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
 import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS } from "@/lib/db/queries"
 import { withTimeout } from "@/lib/db"
 import { headers, cookies } from "next/headers"
 import {
@@ -112,7 +112,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // visible homepage element is client-fetched — so an empty fallback during
   // the brief cold window has no user-facing impact. A warm DB (~50ms) always
   // resolves them fully.
-  const [injection, weglotApiKey, announcement, protection] = await Promise.all([
+  const [injection, weglotApiKey, announcement, protection, cookieSettings] = await Promise.all([
     withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
     withTimeout(dbGetWeglotApiKey().catch(() => ""), 250, ""),
     withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
@@ -120,6 +120,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     // below so the staging site fails closed, while already-authenticated
     // visitors (valid cookie) still get through.
     withTimeout(dbGetSiteProtection().catch(() => null), 250, null),
+    withTimeout(dbGetCookieSettings().catch(() => DEFAULT_COOKIE_SETTINGS), 250, DEFAULT_COOKIE_SETTINGS),
   ])
 
   // ── Frontend password gate (server-side, no content flash) ────────────────
@@ -248,7 +249,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {/* ── Cookie consent banner ────────────────────────────────────────
             Client component. Also conditionally loads Weglot only after
             the user accepts functional cookies. */}
-        <CookieBanner weglotApiKey={weglotApiKey} />
+        <CookieBanner weglotApiKey={weglotApiKey} settings={cookieSettings} />
 
         {/* ── Accessibility toolbar ────────────────────────────────────────
             Built-in WCAG 2.1 AA / EAA 2025 accessibility panel.
