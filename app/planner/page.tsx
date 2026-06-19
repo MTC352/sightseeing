@@ -4759,12 +4759,14 @@ export default function PlannerPage() {
                     </div>
                   )
                 ) : (() => {
-                  /* Date feature = VISUAL GROUPING ONLY (no clickable filter).
-                     When a date is selected, trips bookable on that date show
-                     in an "Available on {date}" group up top; every other
-                     preference-matching trip shows below WITH its own bookable
-                     dates (within the admin scan window). With no date picked,
-                     a single availability-then-score-sorted list is shown. */
+                  /* Date feature = FILTER. When a date is selected, the canvas
+                     shows ONLY the trips actually bookable on that date (so a
+                     "this weekend" request lists just the weekend-available
+                     trips, never the whole catalog). The "Available on other
+                     dates" group is a graceful fallback that ONLY appears when
+                     NOTHING is bookable on the selected date — so the canvas is
+                     never left blank. With no date picked, a single
+                     availability-then-score-sorted list is shown. */
                   const onDate = hasSelectedDate
                     ? resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
                     : []
@@ -4801,11 +4803,16 @@ export default function PlannerPage() {
                               <p className="rounded-xl border border-dashed border-border bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
                                 {availLoading
                                   ? "Checking which trips are open on this date…"
-                                  : `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — see other dates below.`}
+                                  : others.length > 0
+                                    ? `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — see other dates below.`
+                                    : `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — try another date or interest.`}
                               </p>
                             )}
                           </div>
-                          {others.length > 0 && (
+                          {/* Fallback ONLY when nothing is bookable on the selected
+                              date — keeps the canvas from going blank without
+                              diluting a date request with non-matching dates. */}
+                          {onDate.length === 0 && !availLoading && others.length > 0 && (
                             <div className="flex flex-col gap-3" data-testid="planner-recs-group-other">
                               <div className="flex items-center gap-2">
                                 <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
