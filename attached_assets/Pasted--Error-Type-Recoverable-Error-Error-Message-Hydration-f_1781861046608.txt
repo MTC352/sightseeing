@@ -1,0 +1,69 @@
+## Error Type
+Recoverable Error
+
+## Error Message
+Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload globalError={[...]} webSocket={WebSocket} staticIndicatorState={{pathname:null, ...}}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head>
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <script>
+                      <script>
+                      <script>
+                      <RootLayout>
+                        <html lang="en" className="instrument...">
+                          <body className="font-sans ...">
+                            <SiteAccessGate>
+                              <div className="flex min-h...">
+                                <form onSubmit={function submit} className="w-full max...">
+                                  <div>
+                                  <input>
++                                 <button
++                                   type="submit"
++                                   disabled={false}
++                                   className="mt-4 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-..."
++                                 >
+-                                 <div
+-                                   data-lastpass-icon-root=""
+-                                   style={{position:"relative",height:"0px",width:"0px",display:"initial",float:"left"}}
+-                                 >
+                                  ...
+                  ...
+
+
+
+    at button (<anonymous>:null:null)
+    at SiteAccessGate (components/site-access-gate.tsx:71:9)
+    at RootLayout (app/layout.tsx:151:11)
+
+## Code Frame
+  69 |           <p className="mt-2 text-center text-xs text-destructive">Inc...
+  70 |         )}
+> 71 |         <button
+     |         ^
+  72 |           type="submit"
+  73 |           disabled={submitting}
+  74 |           className="mt-4 w-full rounded-lg bg-primary px-4 py-3 text-...
+
+Next.js version: 16.2.6 (Turbopack)
