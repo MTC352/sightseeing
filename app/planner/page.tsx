@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai"
 import type { PlannerMessage } from "@/app/api/planner/route"
@@ -1401,6 +1401,40 @@ export default function PlannerPage() {
     return () => { cancelled = true }
   }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // ── Viewport-fit height ────────────────────────────────────────────────────
+  // The planner is a fixed-height, internally-scrolling app shell. It sits BELOW
+  // the global announcement banner (a normal-flow block of dynamic height), so a
+  // plain `h-screen` (100vh) overflows the viewport by exactly the banner height
+  // — pushing the chat input and the smart-itinerary panel off-screen. We size
+  // the shell to the space actually left under the banner: 100dvh minus whatever
+  // is stacked above the planner root. Recomputed on resize and whenever the
+  // banner appears/disappears or changes size (ResizeObserver on <body>).
+  const shellRef = useRef<HTMLDivElement>(null)
+  const [shellHeight, setShellHeight] = useState<string>("100dvh")
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = shellRef.current
+      if (!el) return
+      const top = el.getBoundingClientRect().top + window.scrollY
+      const avail = Math.max(0, window.innerHeight - top)
+      setShellHeight(`${avail}px`)
+    }
+    measure()
+    window.addEventListener("resize", measure)
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(measure)
+      ro.observe(document.body)
+    }
+    return () => {
+      window.removeEventListener("resize", measure)
+      ro?.disconnect()
+    }
+    // The shell's top offset only changes when the banner above it changes
+    // size/visibility — the ResizeObserver on <body> + resize listener cover
+    // that, so we bind once and avoid rebind churn on every prefs change.
+  }, [])
 
   const handleOpenItinerary = useCallback((itinerary: Itinerary) => {
     setCenterItinerary(itinerary)
@@ -3690,7 +3724,7 @@ export default function PlannerPage() {
   // deterministic for tests).
   if (plannerHidden === null) {
     return (
-      <div className="flex h-screen flex-col bg-background">
+      <div ref={shellRef} style={{ height: shellHeight }} className="flex flex-col bg-background">
         <Navbar />
         <div className="flex flex-1 items-center justify-center">
           <div
@@ -3706,7 +3740,7 @@ export default function PlannerPage() {
   // non-logged-in visitors (the visibility endpoint already lets admins through).
   if (plannerHidden === true) {
     return (
-      <div className="flex h-screen flex-col bg-background">
+      <div ref={shellRef} style={{ height: shellHeight }} className="flex flex-col bg-background">
         <Navbar />
         <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
           <h1 className="text-2xl font-bold text-foreground">Trip Planner unavailable</h1>
@@ -3729,7 +3763,7 @@ export default function PlannerPage() {
   /* RENDER                     */
   /* ────────────────────────── */
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div ref={shellRef} style={{ height: shellHeight }} className="flex flex-col bg-background">
       <Navbar />
       <div className="flex flex-1 overflow-hidden">
 

@@ -1007,9 +1007,41 @@ export async function POST(req: Request) {
     const todayHoliday = getLuxembourgHoliday(luxNow)
     const upcomingHolidays = getUpcomingLuxembourgHolidays(luxNow, 30)
 
+    // ── Pre-resolve relative dates ───────────────────────────────────────────
+    // The model otherwise reads "this weekend" as NEXT week's Saturday (the
+    // ambiguous "next Saturday" trap), so we resolve every common relative
+    // phrase to an exact YYYY-MM-DD here and tell the model to use these
+    // verbatim. All math is done on `luxNow` (already shifted to Luxembourg
+    // local time) using the UTC getters, consistent with the rest of this block.
+    const ymdLux = (d: Date) =>
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`
+    const addDays = (n: number) => new Date(luxNow.getTime() + n * 86400000)
+    const fmtRel = (d: Date) => `${ymdLux(d)} (${DAYS[d.getUTCDay()]})`
+    const luxDow = luxNow.getUTCDay() // 0 Sun .. 6 Sat
+    const daysToSat = (6 - luxDow + 7) % 7 // 0 when today is Saturday
+    const tomorrowD = addDays(1)
+    // "this weekend": upcoming Saturday + Sunday. On Sunday the weekend is
+    // ending, so "this weekend" collapses to today (Sunday) only.
+    const thisWeekendSatD = luxDow === 0 ? null : addDays(daysToSat)
+    const thisWeekendSunD = luxDow === 0 ? luxNow : addDays(daysToSat + 1)
+    const thisWeekendStart = luxDow === 0 ? luxNow : addDays(daysToSat)
+    // "next weekend": the Saturday/Sunday one week after this weekend.
+    const nextWeekendSatD = luxDow === 0 ? addDays(6) : addDays(daysToSat + 7)
+    const nextWeekendSunD = luxDow === 0 ? addDays(7) : addDays(daysToSat + 8)
+    const relativeDates = [
+      'RELATIVE DATES (already resolved for you — use these EXACT YYYY-MM-DD values, NEVER recompute):',
+      `- "today" = ${fmtRel(luxNow)}`,
+      `- "tomorrow" = ${fmtRel(tomorrowD)}`,
+      thisWeekendSatD
+        ? `- "this weekend" / "trips this weekend" = ${fmtRel(thisWeekendSatD)} and ${fmtRel(thisWeekendSunD)} — pass startDate=${ymdLux(thisWeekendStart)} (this is the UPCOMING weekend, NOT next week).`
+        : `- "this weekend" / "trips this weekend" = ${fmtRel(thisWeekendSunD)} (today is Sunday, the weekend ends today) — pass startDate=${ymdLux(thisWeekendStart)}.`,
+      `- "next weekend" = ${fmtRel(nextWeekendSatD)} and ${fmtRel(nextWeekendSunD)} — pass startDate=${ymdLux(nextWeekendSatD)}.`,
+    ].join("\n")
+
     const dateContext = [
       `DATE & TIME: ${dateStr}, ${timeStr} (Luxembourg / CET${luxOffset >= 0 ? "+" : ""}${luxOffset})`,
       isWeekend ? "It is currently the weekend." : `It is a weekday (${dayName}).`,
+      relativeDates,
       todayHoliday ? `TODAY IS A PUBLIC HOLIDAY: ${todayHoliday}. All major attractions operate on holiday hours. Many local businesses may be closed.` : "",
       upcomingHolidays.length ? `UPCOMING HOLIDAYS (next 30 days): ${upcomingHolidays.map(h => `${h.name} on ${h.dateStr}`).join("; ")}.` : "",
     ].filter(Boolean).join("\n")
