@@ -20,21 +20,24 @@ function isGateValid(): boolean {
 export function SitePasswordGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [authed, setAuthed] = useState(false)
+  const [checked, setChecked] = useState(false)
   const [pin, setPin] = useState("")
   const [error, setError] = useState(false)
-  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
-    if (isGateValid()) {
-      setAuthed(true)
-    }
+    setAuthed(isGateValid())
+    setChecked(true)
   }, [])
 
   // Admin routes have their own auth — bypass site gate entirely
   if (pathname?.startsWith("/admin")) return <>{children}</>
 
-  if (!mounted) return null
+  // During SSR and first client render (before the localStorage check runs),
+  // render children optimistically so the page content appears alongside the
+  // announcement banner instead of after a blank-screen re-render cycle.
+  // The gate is a staging-only control — not a real security boundary — so
+  // briefly showing content before the lock form is intentional and acceptable.
+  if (!checked) return <>{children}</>
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
