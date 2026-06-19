@@ -62,6 +62,13 @@ let _liveWeather: WeatherSnapshot = { temp: 11, condition: "Partly Cloudy", wx: 
 // chosen visit date is guaranteed to flow through even if the model forgets.
 let _defaultVisitDate: string | null = null
 
+// Per-request party size (adults + children, min 1). TourCMS `checkavail` returns
+// ZERO components unless at least one rate quantity (e.g. r1) is requested, so the
+// timeslot tools MUST pass this or they always report "no availability" even when
+// real bookable slots exist (the weekend under-reporting bug). Using the real party
+// size also keeps results seat-honest: TourCMS omits slots that can't seat the group.
+let _defaultPartySize = 1
+
 /**
  * Rich trip shape merging Trip basics with Palisis-imported fields.
  * The AI uses this for scoring AND reasoning so it has full context
@@ -511,7 +518,7 @@ const getTripTimeslotsTool = tool({
     if (!palisisId) {
       return { ok: false, error: "NO_PALISIS_LINK", tripId, date: effectiveDate, timeslots: [] }
     }
-    const res = await checkAvailability(config, palisisId, { date: effectiveDate, show_pickups: "0" })
+    const res = await checkAvailability(config, palisisId, { date: effectiveDate, show_pickups: "0", r1: _defaultPartySize })
     if (!res.ok) {
       return {
         ok: false,
@@ -636,6 +643,7 @@ const getTripDetailsTool = tool({
         const res = await checkAvailability(config, palisisId, {
           date: effectiveDate,
           show_pickups: "0",
+          r1: _defaultPartySize,
         }).catch(() => null)
         if (res?.ok) {
           timeslots = res.components
@@ -1012,6 +1020,7 @@ export async function POST(req: Request) {
     // Publish to module scope so tools (getTripDatesAndDeals / getTripTimeslots)
     // fall back to it deterministically when the model omits the date arg.
     _defaultVisitDate = visitDateYMD
+    _defaultPartySize = Math.max(1, adultsCount + childrenCount)
     let visitDateContext = ""
     if (visitDateYMD) {
       const [vy, vm, vd] = visitDateYMD.split("-").map(Number)

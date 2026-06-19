@@ -2396,22 +2396,57 @@ export default function PlannerPage() {
       }
       if (toolCall.toolName === "addToCart") {
         const { tripId, tripTitle } = toolCall.input as { tripId: string; tripTitle: string }
-        // Resolve from static catalog first, then from the most recent searchTrips
-        // tool output (covers DB-only trips with tcms_* ids).
-        // Read from refs — useChat captures onToolCall's closure on mount, so
-        // direct `allTrips` / `aiTrips` reads would see stale values after the
-        // DB hydration replaces the catalog.
-        let trip: Trip | undefined = allTripsRef.current.find((t) => t.id === tripId)
-        if (!trip) trip = aiTripsRef.current.find((t) => t.id === tripId)
-        if (trip) addItem(trip)
-        // Give each success checkmark a descriptive label naming the saved trip,
-        // so the chat shows "Saved <title> to your trip list" instead of a bare check.
-        const savedTitle = trip?.title ?? tripTitle ?? "trip"
-        addToolOutput({
-          tool: "addToCart",
-          toolCallId: toolCall.toolCallId,
-          output: `Saved “${savedTitle}” to your trip list` as never,
-        })
+        // Resolve ROBUSTLY so the My Trip list always reflects what the chat
+        // claims it saved (the bug was the chat reporting "Saved X" while the
+        // list stayed blank because the id didn't match the catalog). Read from
+        // refs — useChat captures onToolCall's closure on mount, so direct
+        // `allTrips` / `aiTrips` reads would see stale values after the DB
+        // hydration replaces the catalog.
+        const pools = [allTripsRef.current, aiTripsRef.current]
+        const normTitle = (s: string) =>
+          s.trim().toLowerCase().replace(/['']/g, "").replace(/\s+/g, " ")
+        const findById = (id: string): Trip | undefined => {
+          if (!id) return undefined
+          for (const pool of pools) {
+            const hit =
+              pool.find((t) => t.id === id) ??
+              // The model sometimes passes a raw Palisis id ("5") instead of the
+              // internal "tcms_5" — try the prefixed form before giving up.
+              (id.startsWith("tcms_") ? undefined : pool.find((t) => t.id === `tcms_${id}`))
+            if (hit) return hit
+          }
+          return undefined
+        }
+        const findByTitle = (title?: string): Trip | undefined => {
+          if (!title) return undefined
+          const n = normTitle(title)
+          for (const pool of pools) {
+            const hit =
+              pool.find((t) => normTitle(t.title) === n) ??
+              pool.find((t) => normTitle(t.title).includes(n) || n.includes(normTitle(t.title)))
+            if (hit) return hit
+          }
+          return undefined
+        }
+        const trip = findById(tripId) ?? findByTitle(tripTitle)
+        if (trip) {
+          addItem(trip)
+          // Descriptive success label naming the actually-saved trip.
+          addToolOutput({
+            tool: "addToCart",
+            toolCallId: toolCall.toolCallId,
+            output: `Saved “${trip.title}” to your trip list` as never,
+          })
+        } else {
+          // HONEST failure — never claim a save we didn't make. The model relays
+          // this so it stops telling the user a trip was added when it wasn't.
+          addToolOutput({
+            tool: "addToCart",
+            toolCallId: toolCall.toolCallId,
+            output:
+              `Could not add “${tripTitle || tripId}” — I couldn't match it to a trip in the catalog. Search for it first, then I'll save it.` as never,
+          })
+        }
       }
     },
   })
@@ -3219,6 +3254,28 @@ export default function PlannerPage() {
             }
           }
         }
+        // When the user is asking about ONE specific trip ("tell me about the
+        // Casemates tour", "what's included in X"), the model calls
+        // getTripDetails instead of searchTrips. Pin the canvas to that trip so
+        // the map + "Recommended for you" reflect what the chat is discussing.
+        else if (part.type === "tool-getTripDetails" && part.state === "output-available") {
+          const out = part.output as { ok?: boolean; id?: string; title?: string }
+          if (out?.ok && (out.id || out.title)) {
+            const byId = out.id
+              ? (allTrips.find((t) => t.id === out.id) ??
+                 (out.id.startsWith("tcms_") ? undefined : allTrips.find((t) => t.id === `tcms_${out.id}`)))
+              : undefined
+            const focus = byId ?? (out.title
+              ? allTrips.find((t) => t.title.trim().toLowerCase() === out.title!.trim().toLowerCase())
+              : undefined)
+            if (focus) {
+              found.length = 0
+              seen.clear()
+              seen.add(focus.id)
+              found.push(focus)
+            }
+          }
+        }
       }
     }
     return found
@@ -3485,13 +3542,15 @@ export default function PlannerPage() {
   // suppress the map/header fallback — otherwise the map would briefly show
   // client-scored fallback pins while the trip-list showed the loading card.
   const discoveringPrefs = prefs !== null && prefs.interests.length > 0 && !hasCompletedFirstAiTurn
-  // The Trip Canvas is now DETERMINISTIC and decoupled from the AI stream:
-  // it shows every preference-matching trip (availability-sorted) the moment
-  // prefs are known — no waiting on an AI turn. This is what eliminates the
-  // reload hang (previously `discoveringPrefs` could stay true forever when a
-  // restored chat suppressed the auto-send, pinning the canvas on "Discovering…"
-  // with an empty `resultTrips`). The AI chat remains a separate helper.
-  const resultTrips: Trip[] = recommendedTrips
+  // The Trip Canvas reflects the trips the chat is CURRENTLY discussing whenever
+  // the AI has pinned a set (searchTrips list, or a single getTripDetails focus)
+  // — that's `displayedAiTrips`. When the AI hasn't pinned anything (fresh load,
+  // restored chat with no search, or pure browsing) we fall back to the
+  // deterministic preference-matched `recommendedTrips`. Keeping that fallback is
+  // what eliminates the reload hang (previously the canvas could stay empty
+  // forever when a restored chat suppressed the auto-send) — the canvas is never
+  // gated on an in-flight AI turn.
+  const resultTrips: Trip[] = displayedAiTrips.length > 0 ? displayedAiTrips : recommendedTrips
   const showResults = resultTrips.length > 0
 
   /* Auto-expand map and center it when AI returns a new set of results */
@@ -4625,7 +4684,7 @@ export default function PlannerPage() {
                     the "canvas stuck / blank after Skip all" bug. Only fall back
                     to an empty-state message when there is genuinely nothing to
                     render. */}
-                {recommendedTrips.length === 0 ? (
+                {resultTrips.length === 0 ? (
                   !prefs || prefs.interests.length === 0 ? (
                     <div
                       className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
@@ -4664,11 +4723,11 @@ export default function PlannerPage() {
                      dates (within the admin scan window). With no date picked,
                      a single availability-then-score-sorted list is shown. */
                   const onDate = hasSelectedDate
-                    ? recommendedTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
+                    ? resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
                     : []
                   const others = hasSelectedDate
-                    ? recommendedTrips.filter((t) => !plannerAvail[t.id]?.availableOnSelectedDate)
-                    : recommendedTrips
+                    ? resultTrips.filter((t) => !plannerAvail[t.id]?.availableOnSelectedDate)
+                    : resultTrips
                   const renderCard = (trip: Trip, showDates: boolean) => (
                     <TripCard
                       key={trip.id}

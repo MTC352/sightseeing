@@ -52,6 +52,25 @@ rule above).
 availability when it changes (include it in the effect deps). Any new availability-count
 surface must apply the same seat filter or it will diverge from build output.
 
+## Rule (checkavail REQUIRES a rate quantity, e.g. r1)
+TourCMS `checkavail` returns **ZERO `<component>` rows** unless the request asks for at
+least one rate quantity (e.g. `r1=<n>`). `datesndeals` does NOT need this. So any
+`checkAvailability(...)` call that omits `r1` silently reports "no availability" even
+when real bookable slots exist — this was the **weekend under-reporting bug in the
+planner CHAT** (`getTripTimeslots` / `getTripDetails` tools in `app/api/planner/route.ts`).
+
+**Why:** confirmed live — tcms_5 returned 0 components with no `r1`, but `r1=2` returned
+09:30/13-spaces slots matching the public departures page.
+
+**How to apply:** pass `r1` = the whole party size (`adults + children`, min 1) to every
+`checkAvailability` call. In the planner route this rides on the module var
+`_defaultPartySize` (set per request next to `_defaultVisitDate`). Using the real party
+size also keeps results seat-honest (TourCMS omits slots that can't seat the group).
+**Caveat:** `_defaultPartySize`/`_defaultVisitDate` are module-scoped mutable per-request
+state — same cross-request race that already existed for the date; if you ever see
+wrong-party availability under concurrency, localize these (AsyncLocalStorage / per-request
+tool instances). The itinerary route's own checkavail fallback should get the same `r1`.
+
 ## Rule (cancelled-departure parity)
 Every availability-COUNTING surface must drop cancelled departures (`d.status` matches
 `/cancel/i`), exactly like the itinerary route's `shapeSlotFromDeparture` /
