@@ -42,6 +42,7 @@ type PlannerForm = {
   budgets: Option[]
   maxMultiDayDays: number
   maxInterests: number
+  maxChatTurns: number
   enabledSteps: EnabledSteps
 }
 const DEFAULT_ENABLED_STEPS: EnabledSteps = {
@@ -71,6 +72,7 @@ const DEFAULT_PLANNER_FORM: PlannerForm = {
   ],
   maxMultiDayDays: 2,
   maxInterests: 3,
+  maxChatTurns: 0,
   enabledSteps: DEFAULT_ENABLED_STEPS,
 }
 
@@ -380,6 +382,26 @@ export default function TripPlannerChatAdminPage() {
                 </>
               )
             })()}
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5">
+            <label className={labelClass}>Chat message limit per session</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number" min={0} max={200} step={1}
+                data-testid="planner-max-chat-turns"
+                value={plannerForm.maxChatTurns}
+                onChange={(e) => setPlannerForm((f) => ({
+                  ...f,
+                  maxChatTurns: Math.max(0, Math.min(200, parseInt(e.target.value) || 0)),
+                }))}
+                className={`${inputClass} max-w-[120px]`}
+              />
+              <span className="text-xs text-muted-foreground">messages (0 = unlimited)</span>
+            </div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground/60">
+              Caps how many messages a visitor can send in the Trip Planner chat per browser session. The planner&rsquo;s automatic first message (sent right after onboarding) counts as the first message, so a value of <code>2</code> allows one manual follow-up. Once reached, the chat is blocked and the visitor is asked to reset to start a fresh conversation — keeping the AI context focused. Also enforced server-side.
+            </p>
           </div>
           <OptionListEditor
             title="Durations"

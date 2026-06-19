@@ -11,7 +11,7 @@ import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts } from "@/lib/planner/system-prompt"
 import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
-import { dbGetSettings, dbGetTrip, dbListTrips } from "@/lib/db/queries"
+import { dbGetSettings, dbGetTrip, dbListTrips, dbGetChatPlannerConfig } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
 import { logError, logCaughtError } from "@/lib/error-log"
@@ -923,6 +923,30 @@ export async function POST(req: Request) {
     // an incomplete tool_use (no input) makes Anthropic reject the whole
     // request with a 400 and breaks the chat. See sanitizePlannerMessages.
     messages = sanitizePlannerMessages(messages)
+
+    // ── Per-session chat turn limit (admin-configurable; defense in depth) ──
+    // The client blocks at this cap too, but enforce server-side so the paid
+    // model is never invoked once the visitor exceeds the configured number of
+    // THEIR OWN messages (role "user"). 0 = unlimited. This is a UX cap to keep
+    // the AI context focused — PLANNER_BUDGET above remains the hard abuse cap.
+    // Mirror the client count (role === "user"); block only when it EXCEEDS the
+    // limit (the Nth message, where N === limit, is still allowed). On any config
+    // read failure we fail OPEN so legitimate chat is never wrongly blocked.
+    try {
+      const { plannerForm } = await dbGetChatPlannerConfig()
+      const maxChatTurns = Number(plannerForm?.maxChatTurns) || 0
+      if (maxChatTurns > 0) {
+        const userTurns = messages.filter((m) => m.role === "user").length
+        if (userTurns > maxChatTurns) {
+          return Response.json(
+            { error: "You've reached the chat limit for this session. Please reset to start a new conversation." },
+            { status: 413 },
+          )
+        }
+      }
+    } catch (e) {
+      console.error("[planner] chat-turn-limit check skipped:", e)
+    }
 
     // Fetch live weather once per request and make it available to tools
     _liveWeather = await fetchLiveWeather()

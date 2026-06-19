@@ -89,6 +89,13 @@ export async function PUT(req: Request) {
         // exists). Just ensure a positive integer.
         formPatch.maxInterests = Math.max(1, Math.floor(maxInterests))
       }
+      const maxChatTurns = Number(formIn.maxChatTurns)
+      if (Number.isFinite(maxChatTurns)) {
+        // 0 = unlimited. Clamp to a sane upper bound so an admin typo can't set
+        // an absurd value — the server budget PLANNER_BUDGET stays the hard
+        // backstop regardless of this per-session UX limit.
+        formPatch.maxChatTurns = Math.max(0, Math.min(200, Math.floor(maxChatTurns)))
+      }
       // Refuse to delete the multi-day duration if admin replaces durations
       // without it — the multi-day stepper sub-step is referenced from code
       // by exactly that slug, removing it would silently break the cap UI.

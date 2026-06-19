@@ -1076,6 +1076,10 @@ export const DEFAULT_PLANNER_FORM = {
   // Maximum number of interest tiles a visitor may select during the
   // /planner onboarding. Admin-configurable from "Trip Planner Chat".
   maxInterests: 3,
+  // Maximum number of chat messages a visitor may send per browser session
+  // before the planner blocks further chat and prompts a reset. 0 = unlimited.
+  // Admin-configurable from "Trip Planner Chat".
+  maxChatTurns: 0,
   // Per-step enable/disable toggles for the /planner onboarding wizard.
   // When a step is disabled the planner skips it and uses a sensible
   // default ("solo" group / empty interests / "any" duration / "any"
@@ -1271,6 +1275,7 @@ export async function dbGetChatPlannerConfig(): Promise<{
   }
   const maxDaysRaw = Number(formRaw.maxMultiDayDays)
   const maxInterestsRaw = Number(formRaw.maxInterests)
+  const maxChatTurnsRaw = Number(formRaw.maxChatTurns)
   // If admin has never saved a custom interests list, fall back to the
   // live trip_tags catalog (not the legacy food/culture/outdoor stubs)
   // so the onboarding form always shows tags that actually match real
@@ -1308,6 +1313,10 @@ export async function dbGetChatPlannerConfig(): Promise<{
       maxInterests: Number.isFinite(maxInterestsRaw) && maxInterestsRaw >= 1
         ? Math.floor(maxInterestsRaw)
         : DEFAULT_PLANNER_FORM.maxInterests,
+      // 0 = unlimited. Any finite, non-negative integer is accepted.
+      maxChatTurns: Number.isFinite(maxChatTurnsRaw) && maxChatTurnsRaw >= 0
+        ? Math.floor(maxChatTurnsRaw)
+        : DEFAULT_PLANNER_FORM.maxChatTurns,
       enabledSteps: (() => {
         const raw = (formRaw.enabledSteps && typeof formRaw.enabledSteps === 'object')
           ? formRaw.enabledSteps as Record<string, unknown>

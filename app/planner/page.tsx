@@ -42,6 +42,14 @@ const PREFS_COOKIE = "sightseeing_prefs"
 // cookie across reloads — without this mirror, the user is bounced through
 // onboarding on every refresh.
 const PREFS_LOCAL_KEY = "sightseeing_prefs_v1"
+// Session marker (sessionStorage). Present = same browser session (i.e. a page
+// reload); absent = a FRESH browser session (the tab/browser was closed &
+// reopened). We use it to wipe the planner's persisted chat/canvas/prefs/list
+// once per browser session so each new visit starts a clean conversation
+// instead of loading a mix of stale threads (which also bloats the AI token
+// budget and muddies context). sessionStorage survives reloads but is cleared
+// on browser/tab close — exactly the lifetime we want.
+const PLANNER_SESSION_KEY = "sightseeing_planner_session"
 const MAX_AGE = 60 * 60 * 24 * 7
 function setCookie(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${MAX_AGE};SameSite=Lax`
@@ -286,6 +294,7 @@ type FormOptions = {
   budgets: { value: string; label: string }[]
   maxMultiDayDays: number
   maxInterests: number
+  maxChatTurns: number
   enabledSteps: EnabledSteps
 }
 const DEFAULT_ENABLED_STEPS: EnabledSteps = {
@@ -298,6 +307,7 @@ const DEFAULT_FORM_OPTIONS: FormOptions = {
   budgets: DEFAULT_BUDGET_OPTIONS,
   maxMultiDayDays: 2,
   maxInterests: 3,
+  maxChatTurns: 0,
   enabledSteps: DEFAULT_ENABLED_STEPS,
 }
 
@@ -1248,6 +1258,7 @@ export default function PlannerPage() {
             : fb
         const days = Number(data.maxMultiDayDays)
         const maxI = Number(data.maxInterests)
+        const maxTurns = Number(data.maxChatTurns)
         setFormOptions({
           groups: sane(data.groups, DEFAULT_GROUP_OPTIONS),
           interests: sane(data.interests, DEFAULT_INTEREST_OPTIONS),
@@ -1255,6 +1266,7 @@ export default function PlannerPage() {
           budgets: sane(data.budgets, DEFAULT_BUDGET_OPTIONS),
           maxMultiDayDays: Number.isFinite(days) && days >= 2 && days <= 14 ? days : 2,
           maxInterests: Number.isFinite(maxI) && maxI >= 1 ? Math.floor(maxI) : 3,
+          maxChatTurns: Number.isFinite(maxTurns) && maxTurns >= 0 ? Math.floor(maxTurns) : 0,
           enabledSteps: (() => {
             const raw = (data as { enabledSteps?: Partial<EnabledSteps> }).enabledSteps
             if (!raw || typeof raw !== "object") return DEFAULT_ENABLED_STEPS
@@ -2196,6 +2208,40 @@ export default function PlannerPage() {
     }),
     []
   )
+
+  // ── Per-browser-session reset ──
+  // The planner persists chat history, the canvas itinerary, onboarding prefs
+  // and the "My Trip" working list across hard refreshes (good UX). But across a
+  // full browser CLOSE+REOPEN we want a CLEAN slate so a new visit doesn't load
+  // a mix of stale conversations. We detect "new browser session" via a
+  // sessionStorage marker (survives reloads, cleared on browser/tab close).
+  //
+  // This runs SYNCHRONOUSLY in the component body (ref-guarded, once) so the
+  // wipe lands BEFORE any restore path reads storage:
+  //   - chat restore (synchronous, just below this block)
+  //   - prefs / itinerary restore (useEffects — fire after the body)
+  //   - "My Trip" list restore (PlannerListProvider useEffect — a PARENT effect,
+  //     which fires AFTER this child's render+effects → it reads the wiped key)
+  // Fail-safe: if sessionStorage is unavailable we DON'T wipe (preserve the
+  // refresh-survives behavior rather than nuking data on every load).
+  const sessionResetRef = useRef(false)
+  if (typeof window !== "undefined" && !sessionResetRef.current) {
+    sessionResetRef.current = true
+    try {
+      if (!window.sessionStorage.getItem(PLANNER_SESSION_KEY)) {
+        // Fresh browser session → wipe the planner's persisted session state.
+        // (Site-wide stores — Saved Trips library `sightseeing_cart_v2` and
+        // `recently_viewed` — are intentionally LEFT untouched.)
+        try { document.cookie = `${PREFS_COOKIE}=;path=/;max-age=0` } catch { /* ignore */ }
+        try { window.localStorage.removeItem(PREFS_LOCAL_KEY) } catch { /* ignore */ }
+        try { window.localStorage.removeItem("sightseeing_chat_v1") } catch { /* ignore */ }
+        try { window.localStorage.removeItem("sightseeing_itinerary_v2") } catch { /* ignore */ }
+        // "My Trip" working list (lib/planner-list-context STORAGE_KEY).
+        try { window.localStorage.removeItem("sightseeing_planner_list_v1") } catch { /* ignore */ }
+        window.sessionStorage.setItem(PLANNER_SESSION_KEY, "1")
+      }
+    } catch { /* sessionStorage unavailable — do NOT wipe (fail-safe) */ }
+  }
 
   // ── Chat persistence ──
   // Restore prior conversation from localStorage so a hard refresh doesn't
@@ -3541,7 +3587,22 @@ export default function PlannerPage() {
     return chips.slice(0, 4)
   }, [messages, prefs, selectedTrip, totalItems, resultTrips, centerItinerary])
 
+  // ── Per-session chat turn limit (admin-configurable) ──
+  // Admin sets `maxChatTurns` in AI Systems → Trip Planner Chat (0 = unlimited).
+  // We count the visitor's OWN messages (role "user") — including the initial
+  // auto-seed — and once the cap is hit we block further chat and prompt a
+  // reset, keeping the conversation (and AI token budget) bounded so the model
+  // doesn't lose the thread. Also enforced server-side in /api/planner.
+  const userTurnCount = useMemo(
+    () => messages.filter((m) => m.role === "user").length,
+    [messages],
+  )
+  const chatLimitReached = formOptions.maxChatTurns > 0 && userTurnCount >= formOptions.maxChatTurns
+
   function handleSend(text: string) {
+    // Once the admin-configured per-session chat limit is reached the visitor
+    // must reset to continue — drop any further sends (typed input or pills).
+    if (chatLimitReached) return
     // Block ONLY while a turn is actively in flight. Previously this required
     // status === "ready", which meant that after an AI error (status becomes
     // "error", e.g. an invalid Anthropic key) EVERY subsequent send was
@@ -4216,7 +4277,7 @@ export default function PlannerPage() {
                   because the response on screen isn't final yet (user
                   complaint: "user thinks reply is done and types another
                   message while itinerary card is still loading"). */}
-              {!isStreaming && !itineraryRegenerating && suggestions.length > 0 && (
+              {!isStreaming && !itineraryRegenerating && !chatLimitReached && suggestions.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto border-t border-border px-4 py-2 scrollbar-none">
                   {suggestions.map((s) => (
                     <button key={s.label} type="button" onClick={() => s.patch ? applyDirectPref(s.patch) : handleSend(s.action)}
@@ -4246,19 +4307,32 @@ export default function PlannerPage() {
                     <span>Finalizing your itinerary…</span>
                   </div>
                 )}
-                <form onSubmit={(e) => { e.preventDefault(); if (!isStreaming && !itineraryRegenerating) handleSend(input) }}
+                {chatLimitReached && (
+                  <div className="mb-2 flex flex-col items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-center" data-testid="chat-limit-banner">
+                    <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                      You&apos;ve reached the chat limit for this session. Reset to start a fresh conversation.
+                    </p>
+                    <button type="button" onClick={() => setShowResetConfirm(true)} data-testid="chat-limit-reset"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
+                      <RotateCcw className="h-3.5 w-3.5" /> Reset chat
+                    </button>
+                  </div>
+                )}
+                <form onSubmit={(e) => { e.preventDefault(); if (!isStreaming && !itineraryRegenerating && !chatLimitReached) handleSend(input) }}
                   className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 focus-within:border-primary/40">
                   <input value={input} onChange={(e) => setInput(e.target.value)}
                     placeholder={
-                      isStreaming
-                        ? "Wait for the response to finish…"
-                        : itineraryRegenerating
-                          ? "Finalizing your itinerary…"
-                          : "Ask anything..."
+                      chatLimitReached
+                        ? "Chat limit reached — reset to start a new chat"
+                        : isStreaming
+                          ? "Wait for the response to finish…"
+                          : itineraryRegenerating
+                            ? "Finalizing your itinerary…"
+                            : "Ask anything..."
                     }
                     className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed"
-                    disabled={isStreaming || itineraryRegenerating} />
-                  <button type="submit" disabled={!input.trim() || isStreaming || itineraryRegenerating}
+                    disabled={isStreaming || itineraryRegenerating || chatLimitReached} />
+                  <button type="submit" disabled={!input.trim() || isStreaming || itineraryRegenerating || chatLimitReached}
                     className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
                     <Send className="h-4 w-4" />
                   </button>
