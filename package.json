@@ -6,7 +6,9 @@
     "dev": "next dev --turbo",
     "build": "next build",
     "start": "next start -p 5000",
-    "lint": "next lint"
+    "lint": "next lint",
+    "pretest": "tsc lib/planner/system-prompt.ts lib/planner/availability-parity.ts --rootDir lib/planner --outDir .test-build --module commonjs --target es2022 --skipLibCheck --esModuleInterop",
+    "test": "node --test test/"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.78",

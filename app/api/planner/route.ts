@@ -8,7 +8,8 @@ import {
   validateUIMessages,
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { buildPlannerSystemPromptParts } from "@/lib/planner/system-prompt"
+import { buildPlannerSystemPromptParts, buildCanvasCountLine } from "@/lib/planner/system-prompt"
+import { interpretSingleDayFallback } from "@/lib/planner/availability-parity"
 import { isPlannerHidden } from "@/lib/planner/visibility"
 import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
@@ -501,7 +502,25 @@ const getTripDatesAndDealsTool = tool({
         show_pickups: "0",
         r1: _defaultPartySize,
       }).catch(() => null)
-      if (av?.ok && av.components.length > 0) {
+      // CRITICAL (itinerary-availability-parity): datesndeals UNDER-reports, so an
+      // empty single-day calendar is NOT trustworthy as "no slots" — we re-check
+      // with the authoritative checkavail widget. If THAT call fails (threw → null,
+      // or ok:false), we genuinely cannot confirm emptiness. A failed TourCMS call
+      // must surface as TOURCMS_ERROR, never as ok:true with empty dates (which the
+      // model reads as "no openings"). Only an ok checkavail with zero components is
+      // a real "no slots" answer (falls through to ok:true empty below). The
+      // decision is in a pure, unit-tested helper.
+      const decision = interpretSingleDayFallback(av)
+      if (decision === "error") {
+        return {
+          ok: false,
+          error: "TOURCMS_ERROR",
+          providerError: (av && !av.ok ? (av as { error?: string }).error : null) ?? null,
+          tripId,
+          dates: [],
+        }
+      }
+      if (decision === "has-slots" && av) {
         fallbackUsed = true
         for (const c of av.components) {
           const raw = c.spaces_remaining
@@ -1196,27 +1215,12 @@ export async function POST(req: Request) {
     // raw searchTrips `total`. Only inject when the client says the count is
     // READY (availability scan finished) AND it reflects the CURRENT stored date,
     // so a stale/loading number is never quoted.
-    const canvasCount = typeof canvas?.count === "number" && canvas.count >= 0 ? canvas.count : null
-    const canvasReady = canvas?.ready === true
-    const canvasDate = typeof canvas?.date === "string" && canvas.date ? canvas.date : null
-    const canvasDateMatches = canvasDate === (visitDateYMD ?? null)
-    let canvasCountLine = ""
-    if (canvasCount !== null && canvasReady && canvasDateMatches) {
-      if (canvasDate) {
-        // Date-scoped: the canvas already ran the authoritative availability
-        // scan for this EXACT date, so it is the single source of truth for
-        // "what's bookable on <date>". Surfacing it as GROUND TRUTH stops the
-        // AI from independently re-deriving availability (e.g. an afternoon
-        // getTripTimeslots that returns no remaining morning slots) and then
-        // telling the visitor nothing is available — contradicting the canvas
-        // badge they are looking at. This is the chat↔canvas parity fix.
-        canvasCountLine = canvasCount > 0
-          ? `LIVE TRIP CANVAS COUNT + AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} bookable that day matching the visitor's interests — this is the authoritative number the visitor sees. You MUST NOT tell the visitor that no trips / nothing is available on ${canvasDate}, and MUST NOT suggest switching to another date because of zero availability — trips ARE available. When the user asks "how many trips/options can I do" (and has NOT changed the date or interests in this same turn), answer with this exact number. If they DO change the date or interests this turn, this count is stale — do NOT cite it; point to the refreshed Trip Canvas instead.`
-          : `AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows 0 trips bookable that day for the visitor's interests. It is fine to tell the visitor nothing matches on ${canvasDate} and offer to try another date or broaden interests. Do NOT invent specific trips as available on ${canvasDate}.`
-      } else {
-        canvasCountLine = `LIVE TRIP CANVAS COUNT: the Trip Canvas currently shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} matching the visitor's interests — this is the precise number the visitor sees. When the user asks "how many trips/options", answer with this exact number unless they change interests this same turn (then point to the refreshed canvas instead).`
-      }
-    }
+    const canvasCountLine = buildCanvasCountLine({
+      canvasCount: typeof canvas?.count === "number" ? canvas.count : null,
+      canvasReady: canvas?.ready === true,
+      canvasDate: typeof canvas?.date === "string" ? canvas.date : null,
+      visitDateYMD,
+    })
 
     const systemPromptParts = buildPlannerSystemPromptParts({
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,

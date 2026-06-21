@@ -39,6 +39,42 @@ export type PlannerPromptCtx = {
   canvasCountLine?: string
 }
 
+/**
+ * Pure builder for the "LIVE TRIP CANVAS COUNT" / "AVAILABILITY GROUND TRUTH"
+ * prompt line — the chat↔canvas parity fix. The Trip Canvas already ran the
+ * authoritative availability scan for the visit date, so when its count is
+ * READY and reflects the CURRENT stored visit date we surface it as ground
+ * truth so the AI never (a) quotes a different number than the on-screen badge,
+ * or (b) claims nothing is available on a date the canvas shows trips for.
+ *
+ * Returns "" when the canvas count must NOT be trusted (not ready, negative,
+ * or the canvas date does not match the stored visit date) — the route then
+ * omits the line and the model falls back to tool-verified counts only.
+ *
+ * Kept pure (no DB/env) and exported so both the route and unit tests use the
+ * exact same logic.
+ */
+export function buildCanvasCountLine(args: {
+  canvasCount: number | null | undefined
+  canvasReady: boolean
+  canvasDate: string | null | undefined
+  visitDateYMD: string | null
+}): string {
+  const { canvasReady, visitDateYMD } = args
+  const canvasCount =
+    typeof args.canvasCount === "number" && args.canvasCount >= 0 ? args.canvasCount : null
+  const canvasDate =
+    typeof args.canvasDate === "string" && args.canvasDate ? args.canvasDate : null
+  const canvasDateMatches = canvasDate === (visitDateYMD ?? null)
+  if (canvasCount === null || !canvasReady || !canvasDateMatches) return ""
+  if (canvasDate) {
+    return canvasCount > 0
+      ? `LIVE TRIP CANVAS COUNT + AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} bookable that day matching the visitor's interests — this is the authoritative number the visitor sees. You MUST NOT tell the visitor that no trips / nothing is available on ${canvasDate}, and MUST NOT suggest switching to another date because of zero availability — trips ARE available. When the user asks "how many trips/options can I do" (and has NOT changed the date or interests in this same turn), answer with this exact number. If they DO change the date or interests this turn, this count is stale — do NOT cite it; point to the refreshed Trip Canvas instead.`
+      : `AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows 0 trips bookable that day for the visitor's interests. It is fine to tell the visitor nothing matches on ${canvasDate} and offer to try another date or broaden interests. Do NOT invent specific trips as available on ${canvasDate}.`
+  }
+  return `LIVE TRIP CANVAS COUNT: the Trip Canvas currently shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} matching the visitor's interests — this is the precise number the visitor sees. When the user asks "how many trips/options", answer with this exact number unless they change interests this same turn (then point to the refreshed canvas instead).`
+}
+
 export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
   const {
     publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
