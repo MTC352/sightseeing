@@ -1200,7 +1200,7 @@ export async function POST(req: Request) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       plannerBehavior?.model || (settings.ai?.planner as any)?.model
 
-    const ai = await resolveAi({ storedModel: adminModel, defaultTier: "fast", settings })
+    const ai = await resolveAi({ storedModel: adminModel, defaultTier: "balanced", settings })
     if (!ai.model) {
       // Stream a chat-shaped error so the client's useChat hook can
       // display it inline instead of failing silently on a raw 503.

@@ -1243,14 +1243,17 @@ export async function dbListTripTagOptions(): Promise<{ value: string; label: st
  */
 export async function dbGetChatPlannerConfig(): Promise<{
   plannerSystemPrompt: string
+  plannerModel: string | null
+  plannerTemperature: number | null
+  plannerMaxTokens: number | null
   plannerForm: typeof DEFAULT_PLANNER_FORM
 }> {
   const [row, plannerRow] = await Promise.all([
     queryOne<{ extra_config: unknown }>(
       `SELECT extra_config FROM ai_system_configs WHERE system_key = 'chat'`
     ),
-    queryOne<{ system_prompt: string | null }>(
-      `SELECT system_prompt FROM ai_system_configs WHERE system_key = 'planner'`
+    queryOne<{ system_prompt: string | null; model: string | null; temperature: number | null; max_tokens: number | null }>(
+      `SELECT system_prompt, model, temperature, max_tokens FROM ai_system_configs WHERE system_key = 'planner'`
     ),
   ])
   const extra = (row?.extra_config && typeof row.extra_config === 'object')
@@ -1299,6 +1302,9 @@ export async function dbGetChatPlannerConfig(): Promise<{
   const legacyPlannerPrompt = typeof plannerExtra.systemPrompt === 'string' ? plannerExtra.systemPrompt : ''
   return {
     plannerSystemPrompt: plannerRowPrompt.trim() ? plannerRowPrompt : legacyPlannerPrompt,
+    plannerModel: plannerRow?.model ?? null,
+    plannerTemperature: plannerRow?.temperature == null ? null : Number(plannerRow.temperature),
+    plannerMaxTokens: plannerRow?.max_tokens == null ? null : Number(plannerRow.max_tokens),
     plannerForm: {
       groups: sanitiseList(formRaw.groups, DEFAULT_PLANNER_FORM.groups),
       interests: sanitiseList(formRaw.interests, interestsFallback),
@@ -1343,6 +1349,9 @@ export async function dbGetChatPlannerConfig(): Promise<{
  */
 export async function dbUpdateChatPlannerConfig(patch: {
   plannerSystemPrompt?: string
+  plannerModel?: string
+  plannerTemperature?: number
+  plannerMaxTokens?: number
   plannerForm?: Partial<typeof DEFAULT_PLANNER_FORM>
 }) {
   // The planner system-prompt OVERRIDE now lives on the planner row's own
@@ -1352,6 +1361,16 @@ export async function dbUpdateChatPlannerConfig(patch: {
   // the planner row's behavior settings (extra_config) untouched.
   if (typeof patch.plannerSystemPrompt === 'string') {
     await dbUpdateAiSystem('planner', { systemPrompt: patch.plannerSystemPrompt })
+  }
+  // The planner's model knobs live on the planner row's own model/temperature/
+  // max_tokens columns (same place the planner route reads them from). Route
+  // through dbUpdateAiSystem so only the supplied fields are touched (COALESCE).
+  const modelPatch: { model?: string; temperature?: number; maxTokens?: number } = {}
+  if (typeof patch.plannerModel === 'string' && patch.plannerModel.trim()) modelPatch.model = patch.plannerModel
+  if (typeof patch.plannerTemperature === 'number') modelPatch.temperature = patch.plannerTemperature
+  if (typeof patch.plannerMaxTokens === 'number') modelPatch.maxTokens = patch.plannerMaxTokens
+  if (Object.keys(modelPatch).length > 0) {
+    await dbUpdateAiSystem('planner', modelPatch)
   }
   // The onboarding FORM stays where it has always lived —
   // chat.extra_config.planner.form — so this is a non-destructive merge.

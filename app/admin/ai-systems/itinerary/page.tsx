@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, AlertCircle, Route, Lightbulb, EyeOff } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
 import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
+import { ModelPicker } from "@/components/admin/model-picker"
 import { PageHeaderSkeleton, PromptCardSkeleton, ModelCardSkeleton, CardSkeleton } from "@/components/admin/ai-system-skeleton"
 
 interface ItineraryForm {
@@ -33,7 +34,7 @@ const DEFAULTS: ItineraryForm = {
 
 export default function ItineraryAiPage() {
   const router = useRouter()
-  const { provider: activeProvider, models: MODELS, ready } = useActiveAiProvider()
+  const { provider: activeProvider, ready } = useActiveAiProvider()
   const [form, setForm] = useState<ItineraryForm>(DEFAULTS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -290,19 +291,13 @@ export default function ItineraryAiPage() {
             <ActiveProviderBadge provider={activeProvider} />
           </div>
           <div className="space-y-4">
-            <div>
-              <label className={labelClass}>Model</label>
-              <select
-                value={form.model}
-                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-                className={inputClass}
-                disabled={loading}
-              >
-                {MODELS.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
+            <ModelPicker
+              value={form.model}
+              onChange={(value) => setForm((f) => ({ ...f, model: value }))}
+              provider={activeProvider}
+              useCase="itinerary"
+              disabled={loading}
+            />
             <div>
               <label className={labelClass}>
                 Temperature

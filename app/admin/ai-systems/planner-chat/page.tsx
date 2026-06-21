@@ -22,6 +22,9 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save, Check, Bot, AlertCircle, Plus, Trash2, RotateCcw, Wand2, ChevronDown } from "lucide-react"
 import { PromptRevisions } from "@/components/admin/prompt-revisions"
+import { ActiveProviderBadge, useActiveAiProvider } from "@/components/admin/active-ai-provider"
+import { ModelPicker } from "@/components/admin/model-picker"
+import { equivalentModel, TIER_MODELS } from "@/lib/ai/models"
 import { PageHeaderSkeleton, PromptCardSkeleton, CardSkeleton } from "@/components/admin/ai-system-skeleton"
 import { PLANNER_PROMPT_STATIC_PREVIEW } from "@/lib/planner/system-prompt"
 
@@ -88,11 +91,23 @@ export default function TripPlannerChatAdminPage() {
   const [initialPrompt, setInitialPrompt] = useState<string>("")
   const [showBasePrompt, setShowBasePrompt] = useState(false)
 
+  const { provider: activeProvider } = useActiveAiProvider()
+  const [plannerModel, setPlannerModel] = useState("")
+  const [plannerTemperature, setPlannerTemperature] = useState(0.5)
+  const [plannerMaxTokens, setPlannerMaxTokens] = useState(2048)
+
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
   const [confirmOpen, setConfirmOpen] = useState(false)
+
+  // The picker always shows an option for the ACTIVE provider, so a model saved
+  // under the other provider is mapped to its equivalent tier for display. When
+  // nothing is saved yet, default to the balanced tier (the planner's floor).
+  const effectiveModel = plannerModel
+    ? equivalentModel(plannerModel, activeProvider)
+    : `${activeProvider}/${TIER_MODELS[activeProvider].balanced}`
 
   // Load planner overrides + form options from the dedicated endpoint.
   // Tolerant of missing fields — first-time setup falls back to the
@@ -117,6 +132,11 @@ export default function TripPlannerChatAdminPage() {
               ...(planner.plannerForm.enabledSteps ?? {}),
             },
           })
+          if (typeof planner.plannerModel === "string" && planner.plannerModel.trim()) {
+            setPlannerModel(planner.plannerModel)
+          }
+          if (typeof planner.plannerTemperature === "number") setPlannerTemperature(planner.plannerTemperature)
+          if (typeof planner.plannerMaxTokens === "number") setPlannerMaxTokens(planner.plannerMaxTokens)
         }
         setPlannerPrompt(nextPrompt)
         setInitialPrompt(nextPrompt)
@@ -156,6 +176,9 @@ export default function TripPlannerChatAdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plannerSystemPrompt: plannerPrompt,
+          plannerModel: effectiveModel,
+          plannerTemperature,
+          plannerMaxTokens,
           plannerForm,
         }),
       })
@@ -296,6 +319,65 @@ export default function TripPlannerChatAdminPage() {
                   {PLANNER_PROMPT_STATIC_PREVIEW}
                 </pre>
               )}
+            </div>
+          </div>
+        </section>
+
+        {/* ── 1b. Model configuration ──────────────────────────── */}
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Model Configuration</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Which AI model powers the planner conversation. The planner injects the full live trip menu plus tools every turn, so it benefits from a more capable model. Pick a model with enough context and analysis headroom for the use-case below.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-foreground">Active provider</span>
+              <ActiveProviderBadge provider={activeProvider} />
+            </div>
+            <div className="space-y-4">
+              <ModelPicker
+                value={effectiveModel}
+                onChange={setPlannerModel}
+                provider={activeProvider}
+                useCase="planner-chat"
+                disabled={saving}
+              />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className={labelClass}>
+                    Temperature
+                    <span className="ml-1.5 font-normal text-muted-foreground/60">— ({plannerTemperature})</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={plannerTemperature}
+                    onChange={(e) => setPlannerTemperature(Number(e.target.value))}
+                    className="w-full accent-primary"
+                    disabled={saving}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground/60">Lower = more focused & consistent; higher = more varied.</p>
+                </div>
+                <div>
+                  <label className={labelClass}>Max response tokens</label>
+                  <input
+                    type="number"
+                    min={256}
+                    max={8192}
+                    step={256}
+                    value={plannerMaxTokens}
+                    onChange={(e) => setPlannerMaxTokens(Number(e.target.value))}
+                    className={`${inputClass} max-w-[160px]`}
+                    disabled={saving}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground/60">Upper limit per reply (256–8192). Planner replies are short; the cap is a safety bound.</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>

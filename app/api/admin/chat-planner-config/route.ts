@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server"
 import { dbGetChatPlannerConfig, dbUpdateChatPlannerConfig, DEFAULT_PLANNER_FORM } from "@/lib/db/queries"
 import { requirePermission } from "@/lib/auth-server"
+import { AI_PROVIDERS, modelOptions } from "@/lib/ai/models"
 
 export const dynamic = "force-dynamic"
+
+// The set of model ids an admin may save for the planner — every tier of every
+// supported provider. Mirrors the itinerary-config route so an arbitrary/invalid
+// model id can never be persisted onto the planner AI System row.
+const ALLOWED_MODELS = new Set(
+  AI_PROVIDERS.flatMap((p) => modelOptions(p).map((o) => o.value)),
+)
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -69,6 +77,20 @@ export async function PUT(req: Request) {
     if (typeof data.plannerSystemPrompt === "string") {
       // Soft length cap so a paste-bomb can't blow up the JSON column.
       patch.plannerSystemPrompt = data.plannerSystemPrompt.slice(0, 20000)
+    }
+
+    // Model knobs — only persist a model id from the supported allowlist; clamp
+    // temperature (0–1) and maxTokens (256–8192) to sane bounds.
+    if (typeof data.plannerModel === "string" && ALLOWED_MODELS.has(data.plannerModel)) {
+      patch.plannerModel = data.plannerModel
+    }
+    const temp = Number(data.plannerTemperature)
+    if (Number.isFinite(temp)) {
+      patch.plannerTemperature = Math.max(0, Math.min(1, temp))
+    }
+    const maxTokens = Number(data.plannerMaxTokens)
+    if (Number.isFinite(maxTokens)) {
+      patch.plannerMaxTokens = Math.max(256, Math.min(8192, Math.floor(maxTokens)))
     }
 
     if (data.plannerForm && typeof data.plannerForm === "object") {

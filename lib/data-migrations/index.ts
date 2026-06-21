@@ -21,6 +21,7 @@ import ebikeConditionsMedia from "./data/005-ebike-conditions-media.json"
 import mediaLibraryFiles from "./data/008-media-library-files.json"
 import tripImages from "./data/009-trip-images.json"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
+import { tierOf, providerOf, TIER_MODELS } from "@/lib/ai/models"
 
 export type MigrationResult = {
   inserted: number
@@ -792,6 +793,61 @@ async function applyPlannerVisibilityToItinerary(): Promise<MigrationResult> {
 }
 
 /**
+ * #013 — upgrade the planner + itinerary AI Systems to a more capable model.
+ *
+ * The Trip Planner chat and the Itinerary builder both inject the full live trip
+ * menu plus tools every turn, so they want at least the BEST tier (large context
+ * + deeper analysis) and a generous output cap. This bumps any planner/itinerary
+ * row still sitting on the FAST tier up to the BEST tier of its current provider,
+ * and raises max_tokens to at least 4096. DATA-only (UPDATEs rows; no DDL).
+ * Idempotent: a row already on the best tier with max_tokens >= 4096 is skipped.
+ */
+async function applyUpgradePlannerItineraryModels(): Promise<MigrationResult> {
+  const MIN_MAX_TOKENS = 4096
+  const keys = ["planner", "itinerary"] as const
+  let inserted = 0
+  let skipped = 0
+  const details: string[] = []
+  for (const key of keys) {
+    const row = await queryOne<{ model: string | null; max_tokens: number | null }>(
+      `SELECT model, max_tokens FROM ai_system_configs WHERE system_key = $1`,
+      [key],
+    )
+    if (!row) {
+      skipped++
+      details.push(`${key}: row not found (run migration 003 first)`)
+      continue
+    }
+    const currentModel = (row.model ?? "").trim()
+    const currentTier = currentModel ? tierOf(currentModel) : "fast"
+    const provider = (currentModel ? providerOf(currentModel) : null) ?? "openai"
+    const desiredModel = `${provider}/${TIER_MODELS[provider].best}`
+    const currentMax = Number(row.max_tokens ?? 0)
+    const needModel = currentTier !== "best"
+    const needTokens = !Number.isFinite(currentMax) || currentMax < MIN_MAX_TOKENS
+    if (!needModel && !needTokens) {
+      skipped++
+      details.push(`${key}: already best tier with max_tokens >= ${MIN_MAX_TOKENS}`)
+      continue
+    }
+    await query(
+      `UPDATE ai_system_configs
+       SET model = $2,
+           max_tokens = GREATEST(COALESCE(max_tokens, 0), $3),
+           updated_at = NOW()
+       WHERE system_key = $1`,
+      [key, needModel ? desiredModel : currentModel || desiredModel, MIN_MAX_TOKENS],
+    )
+    inserted++
+    details.push(
+      `${key}: ${needModel ? `model '${currentModel || "unset"}' → '${desiredModel}'` : "model kept"}` +
+        `${needTokens ? `, max_tokens raised to >= ${MIN_MAX_TOKENS}` : ""}`,
+    )
+  }
+  return { inserted, skipped, detail: details.join("; ") }
+}
+
+/**
  * The ordered registry. Add new migrations to the END with the next numeric id.
  * Keep ids stable once shipped — they are the tracking keys.
  */
@@ -880,6 +936,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Moves the 'hidePublicPlanner' visibility toggle from planner.extra_config to itinerary.extra_config, where it is now managed by the 'Manage Trip Planner' admin page (/admin/ai-systems/itinerary). The visibility API reads both sources during the transition so the gate works before and after this migration. DATA-only (no DDL). Idempotent: a no-op when itinerary.extra_config.hidePublicPlanner is already set.",
     apply: applyPlannerVisibilityToItinerary,
+  },
+  {
+    id: "013-upgrade-planner-itinerary-models",
+    name: "Upgrade planner + itinerary to a more capable model",
+    description:
+      "Bumps the Trip Planner chat and Itinerary builder AI Systems up to the BEST model tier of their current provider (large context + deeper analysis) and raises max_tokens to at least 4096. Both features inject the full live trip menu plus tools every turn, so the fast tier under-performs. DATA-only (UPDATEs the planner/itinerary rows; no DDL). Idempotent: a row already on the best tier with max_tokens >= 4096 is left untouched.",
+    apply: applyUpgradePlannerItineraryModels,
   },
 ]
 

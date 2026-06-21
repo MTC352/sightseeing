@@ -735,7 +735,7 @@ export async function POST(req: Request) {
     // and selectAndOrder/narrate then fall back to the deterministic path.
     const aiItinerary = await resolveAi({
       storedModel: itineraryModel,
-      defaultTier: "fast",
+      defaultTier: "balanced",
       settings: allSettings,
     })
     const itineraryAiModel = aiItinerary.model
