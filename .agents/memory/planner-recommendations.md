@@ -18,17 +18,34 @@ prompt, but ALL pref-write paths also filter interests to that allowlist so a no
 allowlist guard lives in: onToolCall merge, `applyDirectPref`, AND `extractPrefsFromChat`
 hydration (a persisted bad tool-call must not repopulate junk on restore).
 
-**Trip-count discipline (UPDATED).** `searchTrips.total` is the raw tag/keyword match count
+**Trip-count discipline.** `searchTrips.total` is the raw tag/keyword match count
 and does NOT apply the canvas's date-availability + interest filter, so it is almost always
 higher than what the visitor sees (caused "4 suitable trips" while canvas showed 1). The AI
 must NEVER quote `searchTrips.total`. The canvas badge (`onDate.length`) is the authoritative
-count. The chat MAY now cite that exact on-screen number: the client mirrors it into
+count. The chat MAY cite that exact on-screen number: the client mirrors it into
 `canvasCountForApiRef` and sends it every turn in the transport body as
 `canvas:{count,date,ready}`; the route injects a "LIVE TRIP CANVAS COUNT" prompt line ONLY
 when `canvas.ready` (avail scan settled + has results) AND `canvas.date === visitDateYMD`
 (date alignment). When that line is absent the AI falls back to the old rule (no count except
 a day-count confirmed via getTripDatesAndDeals/getTripTimeslots). **Why:** chat↔canvas count
-parity (Gap 1) — the AI could quote a higher number than the canvas showed.
+parity — the AI could otherwise quote a higher number than the canvas showed.
+
+**Canvas↔chat AVAILABILITY consistency (turn-1 ground truth).** The AI used to claim "no
+trips available today" while the canvas badge showed N>0. Two-part cause + fix:
+- *Timing:* the auto-seed message fired ~300ms after onboarding, BEFORE the 1-3s availability
+  scan settled, so `canvas.ready=false` on turn 1 → no count/ground-truth line injected → AI
+  free-wheeled. FIX: gate the auto-seed send on a `seedAvailReady` latch that opens when the
+  availability scan settles (or a re-arming 6s fail-safe). The latch MUST be re-closed at BOTH
+  lifecycle points where a new seed cycle begins — `resetPrefs()` and `handleOnboardingComplete()`
+  (the latter because, while prefs are null, an empty-date avail scan's `.finally` prematurely
+  reopens the latch before the new date's scan runs). The fail-safe deliberately trades strict
+  grounding for liveness under >6s latency.
+- *Prompt:* the count line only governed *quoting* a number, never *asserting* unavailability.
+  FIX: when ready & date-matched, count>0 injects an "AVAILABILITY GROUND TRUTH" directive that
+  FORBIDS claiming nothing-available / suggesting a date-switch-for-zero; count===0 permits
+  "try another date"; no-date stays count-only.
+**Why:** the canvas (`/api/planner/availability`, party+cancel filtered) is the single source
+of truth; the AI must defer to it, never reach a contradictory availability conclusion.
 
 **Remove/clear chat tools.** `removeFromCart` + `clearCart` are CLIENT-side tools (no server
 `execute`) like addToCart; handled in `onToolCall` (app/planner/page.tsx). They resolve against

@@ -3247,30 +3247,60 @@ export default function PlannerPage() {
 
   /* Send initial message after onboarding */
   const didSendInitial = useRef(false)
+  // Gate the auto-seed on the FIRST /api/planner/availability scan settling
+  // (or a 6s fail-safe), so the canvas's authoritative availability count +
+  // GROUND-TRUTH line reaches the AI on turn 1. Previously the seed fired
+  // ~300ms after onboarding — BEFORE the 1–3s availability scan — so the AI
+  // saw no canvas count and free-wheeled a "no trips available today" claim
+  // that contradicted the canvas "Available on Today: N" badge. The setter is
+  // also called from the availability effect's `.finally` below.
+  const [seedAvailReady, setSeedAvailReady] = useState(false)
+  // Re-arming fail-safe: whenever the gate is CLOSED (initial mount AND after a
+  // resetPrefs/"start over" — which sets it back to false), open it after 6s so
+  // a slow/never-settling availability scan can't permanently block the seed.
+  // The availability effect's `.finally` opens it sooner in the normal case.
+  useEffect(() => {
+    if (seedAvailReady) return
+    const t = setTimeout(() => setSeedAvailReady(true), 6000)
+    return () => clearTimeout(t)
+  }, [seedAvailReady])
   // If we restored prior chat history from localStorage on mount, do NOT
   // re-fire the "Find the best trips for me…" seed message — otherwise
   // every refresh would tack a duplicate onto the bottom of the chat.
   if (initialMessagesRef.current.length > 0) didSendInitial.current = true
   useEffect(() => {
-    if (hydrated && prefs && !didSendInitial.current && messages.length === 0 && status === "ready") {
+    if (hydrated && prefs && seedAvailReady && !didSendInitial.current && messages.length === 0 && status === "ready") {
       didSendInitial.current = true
       const t = setTimeout(() => {
         const visitDate = prefs.startDate || todayYMD()
         const isToday = visitDate === todayYMD()
         const datePhrase = isToday ? "today" : `on ${formatYMDPretty(visitDate)} (${visitDate})`
-        sendMessage({ text: `Find the best trips for me ${datePhrase} based on my preferences and the weather. Analyse each trip's description and details (day vs night activities, opening hours, indoor vs outdoor) to match trips that genuinely fit my visit date and time-of-day, then check real availability for ${visitDate}.` })
+        sendMessage({ text: `Find the best trips for me ${datePhrase} based on my preferences and the weather. Analyse each trip's description and details (day vs night activities, opening hours, indoor vs outdoor) to match trips that genuinely fit my visit date and time-of-day. The Trip Canvas already shows which trips are bookable on ${visitDate} — recommend from those and never tell me nothing is available when the canvas lists trips.` })
       }, 300)
       return () => clearTimeout(t)
     }
-  }, [hydrated, prefs, messages.length, sendMessage, status])
+  }, [hydrated, prefs, seedAvailReady, messages.length, sendMessage, status])
 
   function handleOnboardingComplete(newPrefs: Preferences) {
     setCookie(PREFS_COOKIE, JSON.stringify(newPrefs))
+    // Re-close the auto-seed availability gate at the moment fresh prefs are
+    // committed. While prefs were null (initial load or post-reset) the
+    // availability effect runs an empty-date scan whose `.finally` opens the
+    // gate; without re-closing here, the auto-seed for the NEW prefs/date could
+    // fire before that date's scan settles — the exact turn-1 canvas↔chat
+    // race we're eliminating. The new scan (or the 6s fail-safe) reopens it.
+    setSeedAvailReady(false)
     setPrefs(newPrefs)
   }
   function resetPrefs() {
     setPrefs(null)
     didSendInitial.current = false
+    // Re-close the auto-seed availability gate so the next onboarding cycle's
+    // seed waits for the FRESH availability scan to settle (re-armed fail-safe
+    // above re-opens it after 6s). Without this the latch stayed true and the
+    // post-reset seed could fire before the new scan, re-opening the turn-1
+    // canvas↔chat contradiction window.
+    setSeedAvailReady(false)
     // CRITICAL: also clear the initial-messages ref. Line above re-arms
     // `didSendInitial`, but the render-time guard `if (initialMessagesRef
     // .current.length > 0) didSendInitial.current = true` runs on EVERY
@@ -3516,7 +3546,7 @@ export default function PlannerPage() {
         setPlannerAvail(data?.trips ?? {})
       })
       .catch(() => { if (!cancelled) setPlannerAvail({}) /* fail-soft: no date chips */ })
-      .finally(() => { if (!cancelled) setAvailLoading(false) })
+      .finally(() => { if (!cancelled) { setAvailLoading(false); setSeedAvailReady(true) } })
     return () => { cancelled = true }
   }, [selectedDateForAvail, partyForAvail])
 
