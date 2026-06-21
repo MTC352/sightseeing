@@ -44,3 +44,26 @@ onboarding, and it counts toward the limit. So `maxChatTurns=1` allows zero manu
 **Server response:** 413 JSON (same pattern as the existing oversized-chat guard), handled by
 `useChat` onError without crashing. `PLANNER_BUDGET` (maxMessages 80) stays as the hard backstop.
 Server fails OPEN if the config read errors.
+
+# Onboarding ⇔ conversation must be mutually exclusive
+
+The render gate is `!prefs ? <Onboarding> : <conversation>`, but the chat history restores
+from `sightseeing_chat_v1` into `initialMessagesRef` **synchronously on mount**, decoupled
+from prefs. In cookie-hostile contexts (iframe) the prefs cookie is dropped → `prefs` null →
+Onboarding renders, yet the old chat is still loaded underneath → "Skip all" leaks a stale
+conversation.
+
+**Rule: prefs presence is the single switch.** Two halves must stay in lockstep:
+1. *Conversation wins* — when a real prior conversation exists, synthesise default prefs so
+   the conversation renders instead of onboarding. Detect via a persisted **assistant**
+   message (`hasSavedConversation()`), OR'd into the same step-4 gate as `hasStrongPriorActivity`.
+2. *Onboarding starts clean* — when no prefs are restored, the chat MUST be empty: clear
+   `initialMessagesRef` + remove `sightseeing_chat_v1` in the restore effect's else-branch, AND
+   a dedicated effect gated on `hydrated && !prefs` calls `setMessages([])`.
+
+**Gotcha — the auto-seed latch.** The render-body guard
+`if (initialMessagesRef.current.length > 0) didSendInitial.current = true` latches on the
+FIRST render (before the wipe effect runs), so wiping alone leaves the seed permanently
+suppressed. **Gate that latch on `prefs`** (`if (prefs && …)`): a restored conversation always
+has prefs, while the onboarding case (prefs null) must not latch or the post-onboarding
+"Find the best trips…" auto-seed never fires.

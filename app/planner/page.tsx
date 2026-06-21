@@ -2160,6 +2160,22 @@ export default function PlannerPage() {
       return false
     }
 
+    /** True when a REAL prior conversation is persisted — i.e. the AI has
+     *  actually replied at least once (a normal recommendation card OR an
+     *  error bubble). The lone hidden auto-seed user message does NOT count.
+     *  When this is true we want to land the visitor back IN their chat, not
+     *  bounce them through onboarding (and then surface the stale chat behind
+     *  it on "Skip all"). So a saved conversation is sufficient on its own to
+     *  synthesise default prefs and render the conversation. */
+    function hasSavedConversation(): boolean {
+      try {
+        const raw = window.localStorage.getItem("sightseeing_chat_v1")
+        if (!raw) return false
+        const msgs = JSON.parse(raw) as Array<{ role?: string }>
+        return Array.isArray(msgs) && msgs.some((m) => m?.role === "assistant")
+      } catch { return false }
+    }
+
     // 1+2: cookie / localStorage mirror
     let restored: Preferences | null = null
     const saved = getCookie(PREFS_COOKIE)
@@ -2178,7 +2194,11 @@ export default function PlannerPage() {
     //    (a persisted itinerary, or a recorded prefs tool call), but no
     //    persistence layer holds a complete preference set. Fall back to
     //    sensible defaults so we don't re-prompt and lose their context.
-    if (!restored && hasStrongPriorActivity(sawTool)) {
+    //    Also fire when a REAL prior conversation is persisted: if the visitor
+    //    already has an AI chat on disk, land them back in that conversation
+    //    rather than the onboarding wizard — otherwise onboarding shows and
+    //    "Skip all" reveals the stale chat lurking behind it.
+    if (!restored && (hasStrongPriorActivity(sawTool) || hasSavedConversation())) {
       restored = buildPrefs({
         group: "friends",
         interests: ["culture", "food"],
@@ -2193,6 +2213,15 @@ export default function PlannerPage() {
       // Re-mirror to BOTH layers so subsequent refreshes don't need the
       // fallback path at all.
       try { setCookie(PREFS_COOKIE, JSON.stringify(restored)) } catch { /* ignore */ }
+    } else {
+      // No usable prefs AND no conversation worth restoring → the onboarding
+      // wizard is about to render. Guarantee a clean slate so that pressing
+      // "Skip all" can never surface a stale/partial chat (e.g. a lone
+      // auto-seed message) behind the freshly-completed onboarding. The chat
+      // store itself is wiped in a dedicated effect once setMessages is wired
+      // (see below); here we just drop the in-memory restore buffer + storage.
+      initialMessagesRef.current = []
+      try { window.localStorage.removeItem("sightseeing_chat_v1") } catch { /* ignore */ }
     }
     setHydrated(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2607,6 +2636,19 @@ export default function PlannerPage() {
   // handlers (handleOpenOrRebuildFromChat, handleRegenerateItinerary)
   // can push truthful failure messages without ordering gymnastics.
   useEffect(() => { setMessagesRef.current = (updater) => setMessages(updater) }, [setMessages])
+
+  /* Onboarding ⇔ conversation are mutually exclusive. Once hydration settles,
+   * if no prefs were restored the Onboarding wizard is showing — in that case
+   * the chat MUST be empty so completing/skipping onboarding starts a clean
+   * conversation (never the previous session's stale chat). When a real
+   * conversation exists, prefs are synthesised during restore (see above) so
+   * prefs is non-null here and this is a no-op. */
+  useEffect(() => {
+    if (!hydrated || prefs) return
+    if (messages.length > 0) setMessages([])
+    try { window.localStorage.removeItem(CHAT_STORAGE_KEY) } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, prefs])
 
   /* DEDUPE BY id — the AI SDK's streaming + auto-tool-loop (and restored
      localStorage history) can occasionally land two message objects that
@@ -3280,7 +3322,12 @@ export default function PlannerPage() {
   // If we restored prior chat history from localStorage on mount, do NOT
   // re-fire the "Find the best trips for me…" seed message — otherwise
   // every refresh would tack a duplicate onto the bottom of the chat.
-  if (initialMessagesRef.current.length > 0) didSendInitial.current = true
+  // Gate on `prefs`: a restored conversation ALWAYS has prefs (restored or
+  // synthesised). When `prefs` is null the Onboarding wizard is showing and
+  // any leftover `initialMessagesRef` is stale chat about to be wiped — we
+  // must NOT latch the seed-sent flag there, or the post-onboarding auto-seed
+  // would never fire (the chat would stay empty forever).
+  if (prefs && initialMessagesRef.current.length > 0) didSendInitial.current = true
   useEffect(() => {
     if (hydrated && prefs && seedAvailReady && !didSendInitial.current && messages.length === 0 && status === "ready") {
       didSendInitial.current = true
