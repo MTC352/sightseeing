@@ -70,3 +70,23 @@ first message). "show me all/everything/clear filters" = `updatePreferences({int
 or it leaves a stale filter and falsely says "no trips available" while the canvas shows one.
 **How to apply:** Synonym map + filter/broaden directives in lib/planner/system-prompt.ts.
 Keep the synonym map aligned with the real `trip_tags` vocabulary.
+
+## 6. searchTrips must return COMPACT cards, never full Palisis prose (TPM guard)
+**Rule:** The planner `searchTrips` tool result must stay token-light — project
+each trip through `toSearchCard` (lib/planner/search-card.ts): card fields the
+client canvas reads + a few small AI-useful fields, and DROP the heavy prose/JSON
+(longDescription, itinerary, essentialInformation, included/excluded,
+cancellationPolicy, hotel-pickup/voucher text, restrictions, extras). Deep
+per-trip detail is fetched on demand via `getTripDetails`.
+**Why:** "Skip all" onboarding = empty interests → `searchTrips` runs with no tags
+→ returns the WHOLE catalog (~18 trips). With full Palisis payloads that's
+~110KB+ / ~20k+ tokens, replayed every turn, which blows OpenAI gpt-4o-mini's
+per-minute TOKEN limit (`rate_limit_exceeded`) → the chat dies with "I couldn't
+reach the AI assistant" even though the deterministic canvas already shows the
+trips. The canvas is unaffected because it renders client-side, so the two
+surfaces visibly disagree.
+**How to apply:** Keep `toSearchCard` as the single projection used by the tool;
+the client `aiTrips` memo only ever reads card fields, so trimming rich fields
+does NOT change canvas rendering. Any prompt/tool-description text that claims
+searchTrips returns "full details" must point deep Q&A to `getTripDetails`
+instead, and the whole-catalog payload has a <12KB regression test.

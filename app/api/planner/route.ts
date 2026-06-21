@@ -11,6 +11,7 @@ import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts, buildCanvasCountLine } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback } from "@/lib/planner/availability-parity"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
+import { toSearchCard } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
 import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
@@ -22,13 +23,11 @@ import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
 
-// Per-request cost cap for the planner. This budget is deliberately GENEROUS
-// relative to the trip-/help-chat ones: the planner's searchTrips tool embeds
-// full Palisis trip data for ~17 trips back into the message history, so a
-// legitimate multi-turn planning session legitimately carries large tool-result
-// payloads. The cap exists only to block pathological abuse (thousands of
-// messages / multi-MB transcripts forwarded to the paid model), not to constrain
-// normal use.
+// Per-request cost cap for the planner. searchTrips returns COMPACT cards (see
+// lib/planner/search-card.ts), so even a whole-catalog "skip all" search stays
+// token-light and well under the model's per-minute limit. The cap exists only
+// to block pathological abuse (thousands of messages / multi-MB transcripts
+// forwarded to the paid model), not to constrain normal use.
 const PLANNER_BUDGET = { maxMessages: 80, maxChars: 600_000, maxBytes: 1_048_576 }
 
 /* ── Live weather fetch ── */
@@ -186,7 +185,7 @@ async function loadTripCatalog(): Promise<RichTrip[]> {
 
 const searchTripsTool = tool({
   description:
-    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns the matching trips with full Palisis-sourced details — use those fields for follow-up Q&A without re-searching.",
+    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns COMPACT trip cards (title, price, rating, duration, tags, a short description + a few highlights) — enough to recommend, compare, and order. For a specific trip's full inclusions, restrictions, itinerary, cancellation policy, or live timeslots, call `getTripDetails` instead.",
   inputSchema: z.object({
     query: z.string().describe("Search query or interest keywords. Pass an empty string when you are pinning by `ids` and don't need keyword ranking."),
     tags: z
@@ -281,32 +280,14 @@ const searchTripsTool = tool({
       })
     }
 
+    // Return COMPACT cards only. Heavy per-trip prose (longDescription,
+    // itinerary, essentialInformation, inclusions, cancellation policy, …) is
+    // intentionally dropped here — returning it for the whole catalog on a
+    // "skip all" search blows the OpenAI per-minute TOKEN limit and kills the
+    // chat. Deep details are fetched per-trip on demand via getTripDetails.
+    // See lib/planner/search-card.ts.
     return {
-      trips: results.slice(0, limit).map((t) => ({
-        // Card-rendering fields (used by client)
-        id: t.id, title: t.title, image: t.image, price: t.price,
-        originalPrice: t.originalPrice, rating: t.rating, reviewCount: t.reviewCount,
-        duration: t.duration, category: t.category, tags: t.tags, badge: t.badge,
-        city: t.city, description: t.description, highlights: t.highlights,
-        // Rich Palisis fields (for AI reasoning + follow-up Q&A)
-        tourType: t.tourType, tourLeader: t.tourLeader, grade: t.grade,
-        accommodationRating: t.accommodationRating,
-        tripTags: t.tripTags, languages: t.languages,
-        departureLocation: t.departureLocation, endLocation: t.endLocation,
-        country: t.country,
-        shortDescription: t.shortDescription, longDescription: t.longDescription,
-        experienceHighlights: t.experienceHighlights,
-        itinerary: t.itinerary,
-        essentialInformation: t.essentialInformation,
-        hotelPickupInstructions: t.hotelPickupInstructions,
-        voucherRedemptionInstructions: t.voucherRedemptionInstructions,
-        restrictions: t.restrictions, extras: t.extras,
-        cancellationPolicy: t.cancellationPolicy,
-        included: t.included, excluded: t.excluded,
-        minBookingSize: t.minBookingSize, maxBookingSize: t.maxBookingSize,
-        nonRefundable: t.nonRefundable,
-        nextBookableDate: t.nextBookableDate, lastBookableDate: t.lastBookableDate,
-      })),
+      trips: results.slice(0, limit).map(toSearchCard),
       weather: wx,
       total: results.length,
       catalogTotal: catalogSize,
