@@ -2385,7 +2385,13 @@ export default function PlannerPage() {
       // failure — otherwise we wrongly tell visitors the (valid) key is
       // invalid on every transient hiccup. Default to a retry message.
       const raw = error instanceof Error ? error.message : String(error ?? "")
-      const isAuth = /\bAI_AUTH\b|invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key|not configured/i.test(raw)
+      // A client-side React/runtime crash (e.g. "Maximum update depth exceeded")
+      // is NOT an AI-reachability problem — the server stream very likely already
+      // delivered its response. Telling the visitor we "couldn't reach the AI"
+      // here is misleading, so we beacon it under a distinct `kind` for /admin/logs
+      // and SKIP appending the scary fallback bubble.
+      const isClientRuntime = /Maximum update depth|Minified React error|Rendered (?:more|fewer) hooks|Cannot update a component|Should have a queue/i.test(raw)
+      const isAuth = !isClientRuntime && /\bAI_AUTH\b|invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key|not configured/i.test(raw)
       // Beacon the failure to the server so EVERY "couldn't reach the AI"
       // event is logged under /admin/logs (source ai:planner) — including
       // purely client-side failures (network drop, proxy stream timeout,
@@ -2395,10 +2401,14 @@ export default function PlannerPage() {
         void fetch("/api/planner/log-error", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: raw.slice(0, 500), kind: isAuth ? "auth" : "temp" }),
+          body: JSON.stringify({ message: raw.slice(0, 500), kind: isClientRuntime ? "client-runtime" : isAuth ? "auth" : "temp" }),
           keepalive: true,
         }).catch(() => { /* ignore */ })
       } catch { /* ignore */ }
+      // Client-side React/runtime crash → the AI WAS reachable, so don't append
+      // a misleading "couldn't reach the AI" bubble (the response is already in
+      // the thread). We've beaconed it above for /admin/logs visibility.
+      if (isClientRuntime) return
       const errText = isAuth
         ? "⚠️ The AI assistant is unavailable right now — its API key looks invalid or expired. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas. Ask the site admin to update the AI key in the admin panel to re-enable chat."
         : "⚠️ I couldn't reach the AI assistant just now — please try again in a moment. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas."
@@ -3747,12 +3757,27 @@ export default function PlannerPage() {
      NOTE: `committedAiTrips` and `hasCompletedFirstAiTurn` are declared
      above useChat (so onError can flip the gate). */
   const prevStreamingRef = useRef(isStreaming)
+  // Read the values this effect SETS through refs (not deps) so the effect can
+  // never re-trigger itself. Listing `committedAiTrips`/`hasCompletedFirstAiTurn`
+  // in the dependency array while also calling their setters here is the exact
+  // "setState inside componentDidUpdate" pattern React's "Maximum update depth
+  // exceeded" guard fires on — when `aiTrips` identity churns mid-turn (multi
+  // searchTrips calls, an onError-appended bubble recomputing the memo, a status
+  // flip-flop) the value-based guard could fail to settle within React's nested
+  // update budget and crash the chat (surfaced to the visitor as a misleading
+  // "couldn't reach the AI assistant" bubble). Depending ONLY on the genuine
+  // inputs (`isStreaming`, `aiTrips`) makes the sync provably loop-free while
+  // preserving the 4→7 anti-flash behaviour.
+  const committedAiTripsRef = useRef<Trip[]>(committedAiTrips)
+  const hasCompletedFirstAiTurnRef = useRef(hasCompletedFirstAiTurn)
+  useEffect(() => { committedAiTripsRef.current = committedAiTrips }, [committedAiTrips])
+  useEffect(() => { hasCompletedFirstAiTurnRef.current = hasCompletedFirstAiTurn }, [hasCompletedFirstAiTurn])
   useEffect(() => {
     // Stream just ended → commit whatever aiTrips ended up as the final.
     if (prevStreamingRef.current && !isStreaming) {
       setCommittedAiTrips(aiTrips)
       setHasCompletedFirstAiTurn(true)
-    } else if (!isStreaming && hasCompletedFirstAiTurn) {
+    } else if (!isStreaming && hasCompletedFirstAiTurnRef.current) {
       // Non-stream `aiTrips` change (e.g. visitor pinned via a sidebar
       // action, or the messages array was rebuilt outside a chat turn).
       // Keep `committedAiTrips` in sync so the next stream starts from
@@ -3762,12 +3787,13 @@ export default function PlannerPage() {
       // (between tool invocations within a single turn) cannot
       // prematurely commit an intermediate 4-trip result and cause the
       // 4 → 7 flash we specifically want to prevent.
-      const sameLen = committedAiTrips.length === aiTrips.length
-      const sameIds = sameLen && committedAiTrips.every((t, i) => t.id === aiTrips[i]?.id)
+      const committed = committedAiTripsRef.current
+      const sameLen = committed.length === aiTrips.length
+      const sameIds = sameLen && committed.every((t, i) => t.id === aiTrips[i]?.id)
       if (!sameIds) setCommittedAiTrips(aiTrips)
     }
     prevStreamingRef.current = isStreaming
-  }, [isStreaming, aiTrips, committedAiTrips, hasCompletedFirstAiTurn])
+  }, [isStreaming, aiTrips])
   // While streaming, show the last committed set (or empty if none yet).
   // Once streaming ends we use the live aiTrips so the useEffect above
   // and the render stay in sync within the same render pass.

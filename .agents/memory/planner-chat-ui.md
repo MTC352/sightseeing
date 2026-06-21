@@ -28,3 +28,23 @@ trips; unparseable durations are kept).
 the deterministic fallback list, so the cap belongs there to be source-agnostic.
 **How to apply:** a strict cap can legitimately empty the grid — there is a
 `planner-recs-none-fit` empty state for that; don't treat empty as a bug.
+
+## "couldn't reach the AI assistant" can be a CLIENT React crash, not a network/AI failure
+The planner chat error bubble ("⚠️ I couldn't reach the AI assistant just now…")
+is rendered by `useChat`'s `onError`. `onError` fires for ANY thrown error during a
+turn — including a client-side React crash ("Maximum update depth exceeded …
+setState inside componentWillUpdate or componentDidUpdate") — even when
+`POST /api/planner` already returned 200 and the AI replied. So a green network tab
++ that bubble = look for a self-retriggering effect, not an AI/key problem.
+**Root pattern:** an effect that BOTH calls a setter and lists that same state in its
+dependency array (the "commit-aiTrips" effect did: deps included `committedAiTrips`
++ `hasCompletedFirstAiTurn` which it also set). When `aiTrips` identity churns
+mid-turn the value-guard may not settle within React's nested-update budget → crash.
+**Rule:** any effect that writes state X must NOT list X in its deps. Read self-set
+values via refs (sync them in tiny effects declared BEFORE the consumer effect);
+depend only on the genuine external inputs.
+**Diagnosis aid:** client crashes are beaconed to `/api/planner/log-error` (→
+`error_logs` source `ai:planner`). `kind:"client-runtime"` = React/runtime crash
+(AI was reachable), `kind:"temp"` = real reachability failure, `kind:"auth"` = bad key.
+`onError` classifies via the `isClientRuntime` regex and RETURNS EARLY for runtime
+crashes so it never appends the misleading bubble.

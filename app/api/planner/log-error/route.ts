@@ -35,7 +35,16 @@ export async function POST(req: Request) {
       typeof body?.message === "string" && body.message.trim()
         ? body.message.slice(0, 500)
         : "(no message)"
-    const kind = body?.kind === "auth" ? "auth" : "temp"
+    // Preserve the client's failure classification so /admin/logs can tell a
+    // genuine AI-reachability failure (temp) / bad-key (auth) apart from a
+    // purely client-side React/runtime crash (client-runtime) that the visitor
+    // never sees as an error bubble. Unknown values fall back to "temp".
+    const kind =
+      body?.kind === "auth"
+        ? "auth"
+        : body?.kind === "client-runtime"
+          ? "client-runtime"
+          : "temp"
     const lastUserText =
       typeof body?.lastUserText === "string" && body.lastUserText.trim()
         ? body.lastUserText.slice(0, 300)
