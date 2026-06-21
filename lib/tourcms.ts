@@ -447,17 +447,22 @@ async function apiRequest<T = Record<string, unknown>>(
   // is skipped — it does not count against quota and would just be poll noise.
   if (path !== "/api/rate_limit_status.xml") {
     const failed = isError(result)
+    // "NO MATCHING DATA" = an empty search result (no departures in range), not
+    // a failure. Log it at info level so it doesn't masquerade as a red error
+    // row in /admin/logs.
+    const benignNoData = failed && isBenignNoData((result as TourCMSError).error)
     void logError({
       source: "tourcms",
-      level: failed ? "error" : "info",
+      level: failed && !benignNoData ? "error" : "info",
       message: failed
-        ? `${verb} ${path} failed: ${(result as TourCMSError).error}`
+        ? `${verb} ${path} ${benignNoData ? "→ no matching data (empty)" : `failed: ${(result as TourCMSError).error}`}`
         : `${verb} ${path}`,
-      statusCode: failed ? ((result as TourCMSError).httpStatus ?? null) : 200,
+      statusCode: failed && !benignNoData ? ((result as TourCMSError).httpStatus ?? null) : 200,
       context: {
         verb,
         path,
         ok: !failed,
+        benignNoData: benignNoData || undefined,
         attempts: attemptsUsed,
         durationMs: Date.now() - startedAt,
         channelId,
@@ -470,6 +475,17 @@ async function apiRequest<T = Record<string, unknown>>(
 
 function isError(v: unknown): v is TourCMSError {
   return typeof v === "object" && v !== null && (v as TourCMSError).ok === false
+}
+
+/**
+ * "NO MATCHING DATA" is TourCMS's response when a search (notably the
+ * datesndeals calendar) matched no rows — i.e. the tour has no departures in
+ * the requested range. It is an EXPECTED empty result, not a failure, so it is
+ * logged at info level (not as a red error) and treated as an empty calendar by
+ * callers. It is unrelated to person/party count.
+ */
+function isBenignNoData(msg: string | undefined | null): boolean {
+  return /^no matching data$/i.test((msg ?? "").trim())
 }
 
 // ── API Methods ────────────────────────────────────────────────────────────────
@@ -706,7 +722,17 @@ export async function showTourDatesAndDeals(
   const path = `/c/tour/datesprices/datesndeals/search.xml?${qs}`
 
   const res = await apiRequest<Record<string, unknown>>(config, "GET", path, undefined, channelIdOverride)
-  if (isError(res)) return { ok: false, dates: [], total_date_count: 0, error: res.error }
+  if (isError(res)) {
+    // TourCMS returns <error>NO MATCHING DATA</error> when this tour simply has
+    // NO departures in the requested date range (e.g. a single-day query on a
+    // day it doesn't run). That is a legitimate EMPTY calendar, not an API
+    // failure — and it is NOT caused by a missing person/party count
+    // (datesndeals takes no rate quantity; only checkavail does). Surface it as
+    // a successful empty result so callers fall through to their real-time
+    // checkAvailability fallback instead of throwing a TOURCMS_ERROR.
+    if (isBenignNoData(res.error)) return { ok: true, dates: [], total_date_count: 0 }
+    return { ok: false, dates: [], total_date_count: 0, error: res.error }
+  }
 
   const raw = (res.dates_and_prices as Record<string, unknown>)?.date
   const dates: DepartureDate[] = Array.isArray(raw)

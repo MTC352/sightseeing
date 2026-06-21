@@ -119,8 +119,14 @@ async function fetchSlotsForDate(
   config: NonNullable<Awaited<ReturnType<typeof getTourCMSConfig>>>,
   palisisId: string,
   date: string,
+  partySize = 1,
 ): Promise<{ ok: boolean; groups: TimeslotGroup[]; flat: PlannerTimeslot[]; providerError?: string }> {
-  const res = await checkAvailability(config, palisisId, { date, show_pickups: "0" })
+  // TourCMS checkavail returns ZERO <component> rows unless at least one rate
+  // quantity (r{rate_id}=qty) is requested. When the planner visitor never
+  // picked a head-count we MUST still send a default of 1 person, otherwise the
+  // timeslot widget always comes back empty. r1 maps to the first rate id (an
+  // adult on every Luxembourg tour).
+  const res = await checkAvailability(config, palisisId, { date, show_pickups: "0", r1: partySize })
   if (!res.ok) return { ok: false, groups: [], flat: [], providerError: res.error }
   const { groups, flat } = buildGroups(res.components)
   return { ok: true, groups, flat }
@@ -134,6 +140,10 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const tripId = searchParams.get("tripId") ?? ""
+  // Default party size to 1 person when the visitor never picked a head-count —
+  // checkavail returns no timeslots without a rate quantity (see fetchSlotsForDate).
+  const partyRaw = parseInt((searchParams.get("party") ?? "1").trim(), 10)
+  const partySize = Number.isFinite(partyRaw) ? Math.min(20, Math.max(1, partyRaw)) : 1
   if (!tripId) {
     return NextResponse.json<PlannerTimeslotsResponse>(
       { ok: false, tripId: "", palisisId: null, today: [], tomorrow: [], todayGroups: [], tomorrowGroups: [], error: "MISSING_TRIP_ID" },
@@ -158,7 +168,7 @@ export async function GET(req: Request) {
   }
 
   const today = todayYMD()
-  const cacheKey = `${palisisId}|${today}`
+  const cacheKey = `${palisisId}|${today}|p${partySize}`
   const cached = _timeslotsCache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json<PlannerTimeslotsResponse>({ ...cached.data, tripId })
@@ -166,8 +176,8 @@ export async function GET(req: Request) {
 
   const tomorrow = addDaysYMD(today, 1)
   const [todayRes, tomorrowRes] = await Promise.all([
-    fetchSlotsForDate(config, palisisId, today),
-    fetchSlotsForDate(config, palisisId, tomorrow),
+    fetchSlotsForDate(config, palisisId, today, partySize),
+    fetchSlotsForDate(config, palisisId, tomorrow, partySize),
   ])
 
   if (!todayRes.ok && !tomorrowRes.ok) {

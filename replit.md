@@ -20,6 +20,29 @@ Includes a full public frontend and a comprehensive admin panel at `/admin/*`.
 > reference docs are retained under `docs/` (`docs/regiondo-api.md`, plus Regiondo sections
 > in `docs/api-reference.md` & `docs/database-architecture.md`) for possible future use.
 
+## ⚠️ TourCMS Availability API rules (datesndeals vs checkavail)
+
+Two different TourCMS endpoints back availability, and they behave differently.
+Getting this wrong is what made the planner look "broken".
+
+- **`checkavail` (real-time timeslots) REQUIRES a rate quantity.** TourCMS returns
+  **zero `<component>` rows** unless at least one rate quantity `r{rate_id}=qty` is sent
+  (e.g. `r1=1` = 1 adult; rate ids come from `showTour` → `new_booking.people_selection`).
+  **Rule: when the visitor never picked a head-count, default the person/party count to 1.**
+  Every `checkAvailability()` call MUST pass `r1` (≥1). Call sites:
+  `app/api/planner/route.ts` (uses `_defaultPartySize`, default 1),
+  `app/api/itinerary/route.ts` (`partySize`, clamped ≥1),
+  `app/api/planner/timeslots/route.ts` (`partySize` query param, default 1),
+  `lib/departing-soon-cache.ts` (`r1: 1`). A missing `r1` = always-empty timeslots.
+- **`datesndeals` (the bookable-dates calendar) takes NO person/party count.** It is a
+  date-range search, not a quantity-priced quote. Adding `r=1` does NOT change its result.
+- **`NO MATCHING DATA` from `datesndeals` is NOT a failure and NOT a missing-param bug.**
+  It just means the tour has no departures in the requested range (e.g. a single-day
+  query on a day it doesn't run — common on weekends). It is treated as a successful
+  **empty calendar** (`{ ok:true, dates:[] }`) so callers fall through to the real-time
+  `checkavail` fallback, and it is logged at **info** level (not as a red error) in
+  `/admin/logs`. See `isBenignNoData` in `lib/tourcms.ts`.
+
 ## Key Architecture
 
 - **Framework:** Next.js 16 (App Router) with TypeScript
