@@ -18,11 +18,24 @@ prompt, but ALL pref-write paths also filter interests to that allowlist so a no
 allowlist guard lives in: onToolCall merge, `applyDirectPref`, AND `extractPrefsFromChat`
 hydration (a persisted bad tool-call must not repopulate junk on restore).
 
-**Never state a numeric trip count in chat.** `searchTrips.total` is the raw tag/keyword
-match count and does NOT apply the canvas's date-availability + interest filter, so it is
-almost always higher than what the visitor sees (caused "4 suitable trips" while canvas showed
-1). The canvas badge (`onDate.length`) is the only authoritative count; the prompt forbids the
-AI quoting counts except a day-count it confirmed via getTripDatesAndDeals/getTripTimeslots.
+**Trip-count discipline (UPDATED).** `searchTrips.total` is the raw tag/keyword match count
+and does NOT apply the canvas's date-availability + interest filter, so it is almost always
+higher than what the visitor sees (caused "4 suitable trips" while canvas showed 1). The AI
+must NEVER quote `searchTrips.total`. The canvas badge (`onDate.length`) is the authoritative
+count. The chat MAY now cite that exact on-screen number: the client mirrors it into
+`canvasCountForApiRef` and sends it every turn in the transport body as
+`canvas:{count,date,ready}`; the route injects a "LIVE TRIP CANVAS COUNT" prompt line ONLY
+when `canvas.ready` (avail scan settled + has results) AND `canvas.date === visitDateYMD`
+(date alignment). When that line is absent the AI falls back to the old rule (no count except
+a day-count confirmed via getTripDatesAndDeals/getTripTimeslots). **Why:** chat↔canvas count
+parity (Gap 1) — the AI could quote a higher number than the canvas showed.
+
+**Remove/clear chat tools.** `removeFromCart` + `clearCart` are CLIENT-side tools (no server
+`execute`) like addToCart; handled in `onToolCall` (app/planner/page.tsx). They resolve against
+the LIVE My Trip list (`cartSummaryForApiRef`, id-first then normalized-title substring) and
+emit HONEST success/failure (refuse to confirm removing a trip not in the list). NOTE: addToCart
+still uses weaker title resolution — long/suffixed titles (e.g. "... (OTA)") can mis-map; align
+it with removeFromCart's matcher if revisiting.
 
 **Why:** Previously the canvas waited on the first AI turn completing; when the AI key was
 401 (common — both env and DB keys often fail) the canvas stuck on "Discovering…" forever

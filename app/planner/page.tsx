@@ -2229,6 +2229,15 @@ export default function PlannerPage() {
   const cartSummaryForApiRef = useRef<{ id: string; title: string }[]>(cartSummary)
   useEffect(() => { cartSummaryForApiRef.current = cartSummary }, [cartSummary])
 
+  // Live on-screen Trip Canvas count (Gap 1). Declared here so the transport
+  // closure below can read it; the value is computed + synced lower down (after
+  // resultTrips / plannerAvail exist).
+  const canvasCountForApiRef = useRef<{ count: number; date: string | null; ready: boolean }>({
+    count: 0,
+    date: null,
+    ready: false,
+  })
+
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/planner",
@@ -2253,6 +2262,9 @@ export default function PlannerPage() {
             preferences: prefsForApiRef.current,
             cartItems: cartSummaryForApiRef.current,
             itinerarySummary,
+            // Live on-screen Trip Canvas count so the AI can quote the EXACT
+            // number the visitor sees instead of the inflated searchTrips total.
+            canvas: canvasCountForApiRef.current,
           },
         }
       },
@@ -2519,6 +2531,59 @@ export default function PlannerPage() {
             toolCallId: toolCall.toolCallId,
             output:
               `Could not add “${tripTitle || tripId}” — I couldn't match it to a trip in the catalog. Search for it first, then I'll save it.` as never,
+          })
+        }
+      }
+
+      if (toolCall.toolName === "removeFromCart") {
+        const { tripId, tripTitle } = toolCall.input as { tripId?: string; tripTitle: string }
+        // Resolve the target against the LIVE My Trip list (the authoritative
+        // membership the route also receives), not the catalog — we can only
+        // remove what's actually in the list. Match by id first, then by a
+        // normalised title (substring either direction) so "the boat cruise"
+        // resolves to "Boat Cruise on the Moselle".
+        const normTitle = (s: string) =>
+          s.trim().toLowerCase().replace(/['']/g, "").replace(/\s+/g, " ")
+        const list = cartSummaryForApiRef.current
+        let target = tripId ? list.find((c) => c.id === tripId || c.id === `tcms_${tripId}`) : undefined
+        if (!target && tripTitle) {
+          const n = normTitle(tripTitle)
+          target =
+            list.find((c) => normTitle(c.title) === n) ??
+            list.find((c) => normTitle(c.title).includes(n) || n.includes(normTitle(c.title)))
+        }
+        if (target) {
+          removeItem(target.id)
+          addToolOutput({
+            tool: "removeFromCart",
+            toolCallId: toolCall.toolCallId,
+            output: `Removed “${target.title}” from the trip list` as never,
+          })
+        } else {
+          // HONEST failure — the trip wasn't in the list, so nothing changed.
+          addToolOutput({
+            tool: "removeFromCart",
+            toolCallId: toolCall.toolCallId,
+            output:
+              `“${tripTitle || tripId}” isn't in the trip list, so nothing was removed.` as never,
+          })
+        }
+      }
+
+      if (toolCall.toolName === "clearCart") {
+        const count = cartSummaryForApiRef.current.length
+        if (count > 0) {
+          clearList()
+          addToolOutput({
+            tool: "clearCart",
+            toolCallId: toolCall.toolCallId,
+            output: `Cleared all ${count} trip${count === 1 ? "" : "s"} from the trip list` as never,
+          })
+        } else {
+          addToolOutput({
+            tool: "clearCart",
+            toolCallId: toolCall.toolCallId,
+            output: `The trip list is already empty — nothing to clear.` as never,
           })
         }
       }
@@ -3636,6 +3701,30 @@ export default function PlannerPage() {
   const resultTrips: Trip[] = displayedAiTrips.length > 0 ? displayedAiTrips : recommendedTrips
   const showResults = resultTrips.length > 0
 
+  /* ── Live Trip Canvas count (Gap 1 — chat↔canvas count parity) ──
+     The EXACT number of trip cards the visitor sees on the canvas: when a visit
+     date is set it's the "Available on <date>" group (onDate), otherwise the
+     whole result list. Mirror it (plus the date it reflects and whether the
+     availability scan has finished) into a ref so every chat turn can send the
+     real on-screen number to the route — the AI then quotes that instead of the
+     inflated searchTrips `total`. Must use the SAME filter as the JSX above. */
+  const canvasCount = useMemo(
+    () =>
+      hasSelectedDate
+        ? resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate).length
+        : resultTrips.length,
+    [hasSelectedDate, resultTrips, plannerAvail],
+  )
+  useEffect(() => {
+    canvasCountForApiRef.current = {
+      count: canvasCount,
+      date: hasSelectedDate ? (prefs?.startDate ?? null) : null,
+      // "ready" only once the availability scan has settled AND we actually have
+      // results to count — a loading/empty canvas count must never be quoted.
+      ready: !availLoading && showResults,
+    }
+  }, [canvasCount, hasSelectedDate, prefs?.startDate, availLoading, showResults])
+
   /* Auto-expand map and center it when AI returns a new set of results */
   const prevResultTripIds = useRef<string>("")
   useEffect(() => {
@@ -4305,6 +4394,19 @@ export default function PlannerPage() {
                             )
                           } else if (part.state === "input-available") {
                             textParts.push(<p key={idx} className="text-xs italic text-muted-foreground">Adding to your trip...</p>)
+                          }
+                          break
+                        }
+                        case "tool-removeFromCart":
+                        case "tool-clearCart": {
+                          if (part.state === "output-available") {
+                            textParts.push(
+                              <div key={idx} className="mt-2 flex items-center gap-2 rounded-lg bg-secondary p-2 text-xs font-medium text-muted-foreground">
+                                <Check className="h-3.5 w-3.5 shrink-0" /><span>{(part.output as string) || "Updated your trip list"}</span>
+                              </div>
+                            )
+                          } else if (part.state === "input-available") {
+                            textParts.push(<p key={idx} className="text-xs italic text-muted-foreground">Updating your trip list...</p>)
                           }
                           break
                         }

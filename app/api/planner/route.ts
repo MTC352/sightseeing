@@ -9,6 +9,7 @@ import {
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts } from "@/lib/planner/system-prompt"
+import { isPlannerHidden } from "@/lib/planner/visibility"
 import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips, dbGetChatPlannerConfig } from "@/lib/db/queries"
@@ -486,12 +487,51 @@ const getTripDatesAndDealsTool = tool({
         offerPriceDisplay: d.offer_price_1_display ?? undefined,
       }
     })
+    // ── Single-day fallback parity (datesndeals UNDER-reports) ────────────────
+    // The bulk datesndeals feed can return ZERO dates for a day that is in fact
+    // bookable via the authoritative real-time checkAvailability widget (see
+    // itinerary-availability-parity). When the caller is asking about ONE exact
+    // day (start === end) and the calendar came back empty, re-check that day
+    // with checkAvailability (party-size aware) and synthesise date rows so the
+    // chat never falsely tells the user "no openings" when slots actually exist.
+    let fallbackUsed = false
+    if (dates.length === 0 && start === end) {
+      const av = await checkAvailability(config, palisisId, {
+        date: start,
+        show_pickups: "0",
+        r1: _defaultPartySize,
+      }).catch(() => null)
+      if (av?.ok && av.components.length > 0) {
+        fallbackUsed = true
+        for (const c of av.components) {
+          const raw = c.spaces_remaining
+          const unlimited = raw === "UNLIMITED"
+          const spotsLeft = unlimited ? null : Math.max(0, parseInt(raw ?? "0", 10))
+          dates.push({
+            date: c.start_date ?? start,
+            endDate: c.end_date && c.end_date !== c.start_date ? c.end_date : undefined,
+            startTime: c.start_time,
+            endTime: c.end_time,
+            priceDisplay: c.total_price_display ?? "",
+            priceNumeric: c.total_price ? parseFloat(c.total_price) || 0 : 0,
+            spacesRemaining: unlimited ? "UNLIMITED" : spotsLeft,
+            hasOffer: !!c.special_offer_note,
+            offerType: undefined,
+            originalPriceDisplay: undefined,
+            offerPriceDisplay: undefined,
+          })
+        }
+      }
+    }
     return {
       ok: true,
       tripId,
       palisisId,
       dateRange: { start, end },
-      totalDateCount: res.total_date_count,
+      // When the calendar feed under-reported and we recovered slots from the
+      // real-time widget, flag it so the model knows the data is authoritative.
+      availabilitySource: fallbackUsed ? "checkavail-fallback" : "datesndeals",
+      totalDateCount: fallbackUsed ? dates.length : res.total_date_count,
       // Duration text from DB (e.g. "2 hours", "Half day", "Full day", "3 nights")
       duration: (tripRow?.duration as string | undefined) ?? null,
       title: (tripRow?.title as string | undefined) ?? null,
@@ -545,7 +585,6 @@ const getTripTimeslotsTool = tool({
           endDate: c.end_date && c.end_date !== c.start_date ? c.end_date : undefined,
           startTime: c.start_time,
           endTime: c.end_time,
-          startTimeUtcSeconds: c.start_time_utcseconds ? parseInt(c.start_time_utcseconds, 10) : undefined,
           spacesRemaining: unlimited ? "UNLIMITED" : spotsLeft,
           priceDisplay: c.total_price_display ?? undefined,
           priceNumeric: c.total_price ? parseFloat(c.total_price) : undefined,
@@ -709,6 +748,25 @@ const addToCartTool = tool({
   // No execute -- this is a client-side tool
 })
 
+const removeFromCartTool = tool({
+  description:
+    "Remove ONE trip from the user's My Trip list. Call ONLY when the user explicitly asks to remove, delete, drop, or take out a specific trip from their list/plan (e.g. 'remove the boat cruise', 'take the e-bike out of my plan', 'drop the museum'). Pass the trip id when you have it from a prior tool result; ALWAYS pass the title so it can be matched if the id is missing or wrong.",
+  inputSchema: z.object({
+    tripId: z.string().optional().describe("The trip ID to remove (e.g. 'tcms_22'). Optional when only the title is known."),
+    tripTitle: z.string().describe("The trip title to remove — used to match against the current list when the id is unknown."),
+  }),
+  // No execute -- this is a client-side tool (handled in onToolCall)
+})
+
+const clearCartTool = tool({
+  description:
+    "Remove ALL trips from the user's My Trip list at once. Call ONLY when the user explicitly asks to clear, empty, reset, wipe, or start over their whole list/plan (e.g. 'clear my list', 'remove everything', 'start fresh', 'empty my plan'). Never call this to remove a single trip — use removeFromCart for that.",
+  inputSchema: z.object({
+    confirm: z.boolean().optional().describe("Pass true to confirm the user explicitly asked to clear the entire list."),
+  }),
+  // No execute -- this is a client-side tool (handled in onToolCall)
+})
+
 const updatePreferencesTool = tool({
   description:
     "Update the user's stored trip-planning preferences whenever they ask to change any of: group (solo/couple/family/friends), adults count, children count, interests, duration, budget, visit date, OR a meal/break window (lunch, dinner, coffee). " +
@@ -746,6 +804,8 @@ const tools = {
   getTripTimeslots: getTripTimeslotsTool,
   getTripDetails: getTripDetailsTool,
   addToCart: addToCartTool,
+  removeFromCart: removeFromCartTool,
+  clearCart: clearCartTool,
   updatePreferences: updatePreferencesTool,
 } as const
 
@@ -900,6 +960,16 @@ export async function POST(req: Request) {
   const tooBig = oversizedBody(req, PLANNER_BUDGET.maxBytes)
   if (tooBig) return tooBig
 
+  // ── Server-side planner visibility gate (defense in depth) ──────────────────
+  // The client checks /api/planner/visibility to hide the planner UI, but that
+  // is NOT a security boundary — a direct POST here would otherwise still invoke
+  // the paid model. Enforce the SAME hidePublicPlanner gate server-side: when
+  // the planner is hidden and the caller is not a logged-in admin, refuse before
+  // any model call. Fail-open inside isPlannerHidden() keeps legit chat working.
+  if (await isPlannerHidden()) {
+    return Response.json({ error: "The Trip Planner is currently unavailable." }, { status: 403 })
+  }
+
   try {
     const body = await req.json()
 
@@ -908,7 +978,7 @@ export async function POST(req: Request) {
     const overBudget = oversizedChat(body?.messages, PLANNER_BUDGET)
     if (overBudget) return overBudget
 
-    const { preferences, cartItems, groupMembers, itinerarySummary } = body as {
+    const { preferences, cartItems, groupMembers, itinerarySummary, canvas } = body as {
       preferences?: TravelerPreferences
       cartItems?: { id: string; title: string }[]
       groupMembers?: { name: string; interests: string[] }[]
@@ -917,6 +987,9 @@ export async function POST(req: Request) {
         summary?: string
         steps?: { tripId: string; tripTitle: string; time: string; durationMinutes: number }[]
       } | null
+      // Live Trip Canvas state echoed by the client so the AI can quote the
+      // EXACT number of trips the visitor sees (Gap 1 — chat↔canvas count parity).
+      canvas?: { count?: number; date?: string | null; ready?: boolean } | null
     }
 
     let messages: PlannerMessage[]
@@ -1114,11 +1187,31 @@ export async function POST(req: Request) {
     // numbers like "50+ trips". This is the same catalog `searchTrips`
     // reads from, so the figure is always in sync.
     const publishedCatalogSize = (await loadTripCatalog()).length
+
+    // ── Live Trip Canvas count (Gap 1 — chat↔canvas count parity) ─────────────
+    // The client sends the EXACT number of trips currently rendered on the Trip
+    // Canvas (already filtered by visit-date availability + interests — the same
+    // filter the visitor sees). We surface it so the AI can answer "how many
+    // trips can I do?" with the real on-screen number instead of the inflated
+    // raw searchTrips `total`. Only inject when the client says the count is
+    // READY (availability scan finished) AND it reflects the CURRENT stored date,
+    // so a stale/loading number is never quoted.
+    const canvasCount = typeof canvas?.count === "number" && canvas.count >= 0 ? canvas.count : null
+    const canvasReady = canvas?.ready === true
+    const canvasDate = typeof canvas?.date === "string" && canvas.date ? canvas.date : null
+    const canvasDateMatches = canvasDate === (visitDateYMD ?? null)
+    let canvasCountLine = ""
+    if (canvasCount !== null && canvasReady && canvasDateMatches) {
+      canvasCountLine = canvasDate
+        ? `LIVE TRIP CANVAS COUNT: the Trip Canvas currently shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} bookable on ${canvasDate} matching the visitor's interests — this is the precise number the visitor sees. When the user asks "how many trips/options can I do" (and has NOT changed the date or interests in this same turn), answer with this exact number. If they DO change the date or interests this turn, this count is stale — do NOT cite it; point to the refreshed Trip Canvas instead.`
+        : `LIVE TRIP CANVAS COUNT: the Trip Canvas currently shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} matching the visitor's interests — this is the precise number the visitor sees. When the user asks "how many trips/options", answer with this exact number unless they change interests this same turn (then point to the refreshed canvas instead).`
+    }
+
     const systemPromptParts = buildPlannerSystemPromptParts({
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
       profileLine, cartSection, groupSection, itinerarySection,
       optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
-      interestVocab,
+      interestVocab, canvasCountLine,
     })
     
     // Append admin-configured custom system prompt if available.
