@@ -2357,6 +2357,19 @@ export default function PlannerPage() {
       // invalid on every transient hiccup. Default to a retry message.
       const raw = error instanceof Error ? error.message : String(error ?? "")
       const isAuth = /\bAI_AUTH\b|invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key|not configured/i.test(raw)
+      // Beacon the failure to the server so EVERY "couldn't reach the AI"
+      // event is logged under /admin/logs (source ai:planner) — including
+      // purely client-side failures (network drop, proxy stream timeout,
+      // abort) that no server handler ever sees. Fire-and-forget; never block
+      // or throw from the error path.
+      try {
+        void fetch("/api/planner/log-error", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: raw.slice(0, 500), kind: isAuth ? "auth" : "temp" }),
+          keepalive: true,
+        }).catch(() => { /* ignore */ })
+      } catch { /* ignore */ }
       const errText = isAuth
         ? "⚠️ The AI assistant is unavailable right now — its API key looks invalid or expired. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas. Ask the site admin to update the AI key in the admin panel to re-enable chat."
         : "⚠️ I couldn't reach the AI assistant just now — please try again in a moment. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas."

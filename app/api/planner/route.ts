@@ -16,7 +16,7 @@ import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips, dbGetChatPlannerConfig } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
-import { logError, logCaughtError } from "@/lib/error-log"
+import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
@@ -947,14 +947,24 @@ function getUpcomingLuxembourgHolidays(luxDate: Date, days: number): { name: str
  * We keep only fully-resolved tool parts (state "output-available" /
  * "output-error") so every tool_use has both its input and a matching
  * tool_result, and drop any message left with no parts.
+ *
+ * SECOND failure mode (OpenAI Responses API): that provider rejects the WHOLE
+ * request with a 400 — "Duplicate item found with id fc_…. Remove duplicate
+ * items from your input and try again." — if the SAME tool-call item id is
+ * replayed more than once. Client-side message persistence can echo the same
+ * resolved tool part across turns (and the planner injects synthetic tool
+ * cards), so the second turn after any tool-using reply died with that 400 —
+ * surfacing as "I couldn't reach the AI assistant". We therefore also dedupe
+ * tool parts by `toolCallId`, keeping the first occurrence only.
  */
 function sanitizePlannerMessages(messages: PlannerMessage[]): PlannerMessage[] {
   const cleaned: PlannerMessage[] = []
+  const seenToolCallIds = new Set<string>()
   for (const m of messages) {
     const parts = (m.parts ?? []).filter((p) => {
       const t = (p as { type?: string }).type ?? ""
       if (!t.startsWith("tool-") && t !== "dynamic-tool") return true
-      const part = p as { state?: string; input?: unknown }
+      const part = p as { state?: string; input?: unknown; toolCallId?: string }
       const resolved = part.state === "output-available" || part.state === "output-error"
       // A tool_use replayed to Anthropic MUST carry its input object. Parts with
       // undefined input slip through a state-only check — this happens both for
@@ -963,7 +973,18 @@ function sanitizePlannerMessages(messages: PlannerMessage[]): PlannerMessage[] {
       // itinerary deterministically). Either way, an empty input triggers the
       // 400 "tool_use.input: Field required", so we require a real input here.
       const hasInput = part.input !== undefined && part.input !== null
-      return resolved && hasInput
+      if (!resolved || !hasInput) return false
+      // Dedupe by tool-call id so a duplicated/replayed tool part can't trigger
+      // the OpenAI Responses "Duplicate item found with id fc_…" 400. Each v5
+      // tool part is self-contained (input + output in one part), so dropping a
+      // whole duplicate part removes both its tool_use and tool_result together
+      // — no dangling reference.
+      const id = part.toolCallId
+      if (id) {
+        if (seenToolCallIds.has(id)) return false
+        seenToolCallIds.add(id)
+      }
+      return true
     })
     if (parts.length > 0) {
       cleaned.push({ ...m, parts } as PlannerMessage)
@@ -1328,6 +1349,17 @@ export async function POST(req: Request) {
           status === 401 ||
           status === 403 ||
           /invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key/i.test(msg)
+        // ALWAYS log the stream-phase failure to admin errors. streamText.onError
+        // only covers errors raised during generation; errors surfaced while
+        // serializing the UI message stream to the HTTP response land HERE and
+        // were previously mapped to a client token WITHOUT ever being logged —
+        // which is why "couldn't reach the AI assistant" never showed up in
+        // /admin/logs. Now both phases are covered.
+        void logCaughtError("ai:planner", error, {
+          phase: "stream-response",
+          classified: isAuth ? "AI_AUTH" : "AI_TEMP",
+          ...requestMeta(req),
+        })
         return isAuth ? "AI_AUTH" : "AI_TEMP"
       },
     })

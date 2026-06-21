@@ -28,6 +28,8 @@ availability in dev).
 | 10 | Clear whole list via chat | e2e | Sidebar empties; AI confirms cleared. |
 | 11 | Reset / "Start over" regression | e2e | After reset + new onboarding, turn-1 reply still consistent with the canvas badge (gate re-closes in `resetPrefs` + `handleOnboardingComplete`). |
 | 12 | Single-day availability fallback never fakes "no slots" | unit | `interpretSingleDayFallback`: null/ok:false → "error" (surfaces TOURCMS_ERROR), ok+components → "has-slots", ok+empty → "empty". |
+| 13 | Free-text interests FILTER the canvas (not small-talk) | e2e | Typing "I want a boat ride and museum visit" makes the AI call `updatePreferences({interests:["boat-tours","museums"]})` + `searchTrips`, so the Trip Canvas narrows to boat + museum trips. The AI must NOT merely ask "which first?" without filtering. Synonyms (boat ride/cruise → boat-tours, museum/gallery → museums) are mapped in the system prompt. |
+| 14 | AI-unreachable failures are logged to /admin/logs | e2e | When the chat shows "couldn't reach the AI assistant", a row is written to `error_logs` (source `ai:planner`). Covered server-side (`streamText.onError` + `toUIMessageStreamResponse.onError`) and client-side (the `/api/planner/log-error` beacon fired from the planner `onError`). |
 
 ## Running
 
