@@ -1129,7 +1129,10 @@ export function SearchContent({
     setActiveFilters((p) => ({ ...p, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "" }))
 
   return (
-    <div className="min-h-screen bg-background font-sans">
+    // The entire search page is dynamic (live trips, prices, ratings, dates,
+    // timeslots, availability). Mark the whole subtree data-no-edit so the
+    // frontend Edit Mode (AutoEditableLayer) never tags any of it as editable.
+    <div data-no-edit className="min-h-screen bg-background font-sans">
       <Navbar />
 
       <FilterModal

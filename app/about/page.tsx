@@ -2,8 +2,9 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
-import { categories, reviews } from "@/lib/data"
-import { dbListTrips } from "@/lib/db/queries"
+import { reviews } from "@/lib/data"
+import { dbListTrips, dbListHomepageTripTagsWithCounts } from "@/lib/db/queries"
+import { iconForSlug } from "@/lib/tag-icons"
 import { MapPin, Users, Star, Award, Globe, Shield, Heart, ArrowRight } from "lucide-react"
 import { AboutHeroText, AboutStoryText, AboutValuesHeading, AboutOfferHeading, AboutReviewsHeading, AboutHeroImage, AboutTeamImage } from "./about-content"
 
@@ -41,6 +42,10 @@ type AboutTrip = {
 export default async function AboutPage() {
   // Fail-closed: empty array on DB error so no static/archived data leaks.
   const publishedTrips = (await dbListTrips({ publicOnly: true }).catch(() => [])) as AboutTrip[]
+
+  // Dynamic categories — same admin-managed homepage trip tags the Home page
+  // "Currently trending categories" section uses. Fail-soft to [] on DB error.
+  const offerTags = await dbListHomepageTripTagsWithCounts().catch(() => [])
 
   const totalReviews = publishedTrips.reduce((sum, t) => sum + Number(t.reviewCount ?? 0), 0)
   const experienceCount = publishedTrips.length
@@ -82,7 +87,7 @@ export default async function AboutPage() {
       name: "Luxembourg",
     },
     numberOfEmployees: { "@type": "QuantitativeValue", value: 25 },
-    knowsAbout: categories.map((c) => c.name),
+    knowsAbout: offerTags.map((t) => t.label),
   }
 
   return (
@@ -144,28 +149,34 @@ export default async function AboutPage() {
           </div>
         </section>
 
-        {/* Categories overview */}
-        <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
-          <AboutOfferHeading />
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {categories.map((cat) => {
-              const catTrips = publishedTrips.filter((t) => String(t.category ?? "") === cat.name)
-              const positivePrices = catTrips.map((t) => Number(t.price ?? 0)).filter((p) => p > 0)
-              const minPrice = positivePrices.length > 0 ? Math.min(...positivePrices) : null
-              return (
-                <Link key={cat.name} href={`/experiences/${cat.name.toLowerCase().replace(/ & /g, "-").replace(/ /g, "-")}`} className="flex items-center justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">{cat.name}</h3>
-                    <p className="text-xs text-muted-foreground">
-                      {catTrips.length} experiences{minPrice != null ? ` from ${minPrice.toFixed(0)} EUR` : ""}
-                    </p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                </Link>
-              )
-            })}
-          </div>
-        </section>
+        {/* Categories overview — DYNAMIC: mirrors the Home page "Currently
+            trending categories" (admin-managed homepage trip tags). The grid is
+            data-no-edit so frontend Edit Mode never tags it as editable; only
+            the AboutOfferHeading (static copy) stays editable. */}
+        {offerTags.length > 0 && (
+          <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+            <AboutOfferHeading />
+            <div data-no-edit className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {offerTags.map((tag) => {
+                const Icon = iconForSlug(tag.slug)
+                return (
+                  <Link key={tag.slug} href={`/search?tag=${encodeURIComponent(tag.slug)}`} className="flex items-center justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-foreground">{tag.label}</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {tag.trip_count} experience{tag.trip_count === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Reviews */}
         <section className="border-t border-border bg-card py-12">
