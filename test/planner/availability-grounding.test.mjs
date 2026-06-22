@@ -73,3 +73,39 @@ test("trustworthy — count===0 WITH at least one resolved matching trip IS a co
   // that day → grounding the AI to a 0 is legitimate.
   assert.equal(isCanvasCountTrustworthy({ scanFailed: false, canvasCount: 0, matchingResolvedCount: 4 }), true)
 })
+
+const shouldAnnotateAvailability = mod.shouldAnnotateAvailability ?? mod.default?.shouldAnnotateAvailability
+
+// Regression: an EMPTY searchTrips result must never assert per-trip availability.
+// With 0 returned trips, availCount===0 && unconfirmed===0 → isConfidentNoneAvailable
+// returns true, which would falsely tell the visitor NOTHING runs that day (the
+// Beaufort "available on canvas but chat says unavailable" misinformation when the
+// model passed maxResults:0 and the search collapsed to zero trips).
+test("shouldAnnotateAvailability — empty result set is NEVER annotated", () => {
+  assert.equal(
+    shouldAnnotateAvailability({ resultCount: 0, snapshotDate: "2026-06-22", visitDate: "2026-06-22", snapshotSize: 5 }),
+    false,
+  )
+})
+
+test("shouldAnnotateAvailability — non-empty result on matching date with snapshot IS annotated", () => {
+  assert.equal(
+    shouldAnnotateAvailability({ resultCount: 2, snapshotDate: "2026-06-22", visitDate: "2026-06-22", snapshotSize: 5 }),
+    true,
+  )
+})
+
+test("shouldAnnotateAvailability — snapshot date mismatch / missing / empty snapshot is NOT annotated", () => {
+  assert.equal(
+    shouldAnnotateAvailability({ resultCount: 2, snapshotDate: "2026-06-21", visitDate: "2026-06-22", snapshotSize: 5 }),
+    false,
+  )
+  assert.equal(
+    shouldAnnotateAvailability({ resultCount: 2, snapshotDate: null, visitDate: "2026-06-22", snapshotSize: 5 }),
+    false,
+  )
+  assert.equal(
+    shouldAnnotateAvailability({ resultCount: 2, snapshotDate: "2026-06-22", visitDate: "2026-06-22", snapshotSize: 0 }),
+    false,
+  )
+})

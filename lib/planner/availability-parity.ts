@@ -97,3 +97,32 @@ export function isCanvasCountTrustworthy(args: {
   if (args.canvasCount > 0) return true
   return args.matchingResolvedCount > 0
 }
+
+/**
+ * Whether the `searchTrips` tool result may attach a per-trip availability
+ * annotation (the block that can emit `noneAvailableOnVisitDate`).
+ *
+ * **Why:** an EMPTY result set has `availableCount === 0` AND
+ * `unconfirmedCount === 0`, so `isConfidentNoneAvailable` returns true — which
+ * would falsely tell the visitor NOTHING runs that day. That is exactly the
+ * "canvas shows Beaufort available today but chat says it isn't" misinformation
+ * that surfaced when the model passed `maxResults: 0` and the search collapsed
+ * to zero trips. There must be at least one returned trip before any per-trip
+ * availability is asserted, AND the cached snapshot must belong to THIS request's
+ * visit date (module-global snapshot can otherwise leak across requests).
+ *
+ * **How to apply:** gate the annotation block in the planner route with this.
+ */
+export function shouldAnnotateAvailability(args: {
+  resultCount: number
+  snapshotDate: string | null | undefined
+  visitDate: string | null | undefined
+  snapshotSize: number
+}): boolean {
+  return (
+    args.resultCount > 0 &&
+    !!args.snapshotDate &&
+    args.snapshotDate === args.visitDate &&
+    args.snapshotSize > 0
+  )
+}

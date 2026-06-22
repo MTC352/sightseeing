@@ -120,3 +120,29 @@ test("skip-all card — null fields are dropped from the payload, not serialized
   assert.ok(!("originalPrice" in serialized), "null originalPrice not serialized")
   assert.equal(serialized.id, "tcms_4")
 })
+
+const resolveSearchLimit = mod.resolveSearchLimit ?? mod.default?.resolveSearchLimit
+
+// Regression: the "available trip reported as unavailable" misinformation bug.
+// The model sometimes passes `maxResults: 0` meaning "no cap". `?? catalogSize`
+// kept that 0 → slice(0,0) → empty results → the availability annotation falsely
+// reported `noneAvailableOnVisitDate: true` (canvas showed Beaufort available
+// today while the chat said it was not). resolveSearchLimit must treat any
+// non-positive / non-finite cap as "return every matching trip".
+test("resolveSearchLimit — maxResults 0 means 'no cap' (returns catalog size)", () => {
+  assert.equal(resolveSearchLimit(0, 17), 17)
+})
+
+test("resolveSearchLimit — undefined / null / negative / NaN / Infinity all mean 'no cap'", () => {
+  assert.equal(resolveSearchLimit(undefined, 17), 17)
+  assert.equal(resolveSearchLimit(null, 17), 17)
+  assert.equal(resolveSearchLimit(-5, 17), 17)
+  assert.equal(resolveSearchLimit(Number.NaN, 17), 17)
+  assert.equal(resolveSearchLimit(Number.POSITIVE_INFINITY, 17), 17)
+})
+
+test("resolveSearchLimit — a finite cap >= 1 is honored (floored)", () => {
+  assert.equal(resolveSearchLimit(1, 17), 1)
+  assert.equal(resolveSearchLimit(5, 17), 5)
+  assert.equal(resolveSearchLimit(3.9, 17), 3)
+})

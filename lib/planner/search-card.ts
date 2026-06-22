@@ -139,3 +139,28 @@ export function toSearchCard(t: SearchCardInput): SearchCard {
     nonRefundable: clean(t.nonRefundable),
   }
 }
+
+/**
+ * Resolve the effective slice limit for the `searchTrips` tool.
+ *
+ * WHY THIS EXISTS — "available trip reported as unavailable" misinformation:
+ * The model (gpt-4o-mini) sometimes passes `maxResults: 0` intending "no cap".
+ * The old `maxResults ?? catalogSize` kept that `0` (nullish-coalescing does NOT
+ * treat 0 as nullish), so `results.slice(0, 0)` returned ZERO trips even when
+ * matches existed. That empty result then drove the availability annotation to
+ * falsely report `noneAvailableOnVisitDate: true` — e.g. the canvas showed
+ * Beaufort "Available today" while the chat said it wasn't.
+ *
+ * RULE: only a finite cap >= 1 caps the results. Anything else (0, negative,
+ * NaN, Infinity, undefined) means "return every matching trip".
+ */
+export function resolveSearchLimit(
+  maxResults: number | null | undefined,
+  catalogSize: number,
+): number {
+  return typeof maxResults === "number" &&
+    Number.isFinite(maxResults) &&
+    maxResults >= 1
+    ? Math.floor(maxResults)
+    : catalogSize
+}

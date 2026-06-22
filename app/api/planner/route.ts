@@ -9,11 +9,11 @@ import {
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts, buildCanvasCountLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
-import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable } from "@/lib/planner/availability-parity"
+import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable, shouldAnnotateAvailability } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
 import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
-import { toSearchCard } from "@/lib/planner/search-card"
+import { toSearchCard, resolveSearchLimit } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
 import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
@@ -219,13 +219,20 @@ const searchTripsTool = tool({
       .array(z.string())
       .optional()
       .describe("Pin the Trip Canvas to EXACTLY these trip ids (in order). Use this after you've shortlisted the day's best matches so the canvas shows only those trips instead of the broader tag search. The returned `trips` will be filtered AND ordered to match this list."),
-    maxResults: z.number().optional().describe("Optional cap. Omit to return every matching trip — the catalog has ~17 published trips and the panel scrolls."),
+    maxResults: z.number().optional().describe("Optional cap (must be >= 1 if given). OMIT to return every matching trip — the catalog has ~17 published trips and the panel scrolls. Do NOT pass 0 to mean 'no cap' — 0 is ignored and treated as 'return all'."),
   }),
   execute: async ({ query, tags, ids, maxResults }) => {
     const wx = _liveWeather.wx
     const catalog = await loadTripCatalog()
     const catalogSize = catalog.length
-    const limit = maxResults ?? catalogSize
+    // Treat 0 / negative / non-finite as "no cap". Some models pass
+    // `maxResults: 0` intending "no limit"; nullish-coalescing would keep that 0
+    // and `results.slice(0, 0)` returns ZERO trips — even when matches exist.
+    // That empty list then made the availability annotation below falsely report
+    // `noneAvailableOnVisitDate: true`, which is the exact "trip is available on
+    // the canvas but the AI says it's not available today" misinformation.
+    // See resolveSearchLimit + its regression test in lib/planner/search-card.ts.
+    const limit = resolveSearchLimit(maxResults, catalogSize)
     const lower = (query ?? "").toLowerCase()
     let results: RichTrip[] = [...catalog]
 
@@ -376,7 +383,16 @@ const searchTripsTool = tool({
     // request's visit date. _plannerAvail/_availDate are module-global (the
     // established per-request-context pattern in this file), so this guard keeps
     // a concurrent request's snapshot from leaking a wrong availability summary.
-    if (_availDate && _availDate === _defaultVisitDate && Object.keys(_plannerAvail).length > 0) {
+    // Also require at least one returned trip: an EMPTY result set must never
+    // produce `noneAvailableOnVisitDate: true` (availCount 0 over zero trips),
+    // which would falsely tell the visitor nothing runs that day. When the search
+    // returned nothing there is simply no per-trip availability to assert.
+    if (shouldAnnotateAvailability({
+      resultCount: finalResults.length,
+      snapshotDate: _availDate,
+      visitDate: _defaultVisitDate,
+      snapshotSize: Object.keys(_plannerAvail).length,
+    })) {
       // Classify each returned trip with the shared pure helper so the
       // available / unconfirmed / alternative / none precedence is identical and
       // unit-tested (an `unknown` incident is NEVER downgraded to a confident
@@ -411,9 +427,12 @@ const searchTripsTool = tool({
         .sort((a, b) => b.score - a.score)
         .slice(0, 3)
         .map(({ t }) => ({ title: t.title, tags: t.tags.slice(0, 4) }))
+      // shouldAnnotateAvailability() guarantees _availDate is a non-null string
+      // matching the visit date; the helper hides that narrowing from tsc.
+      const visitDateYMD = _availDate as string
       availability = {
-        visitDate: _availDate,
-        visitDatePretty: prettyYMD(_availDate),
+        visitDate: visitDateYMD,
+        visitDatePretty: prettyYMD(visitDateYMD),
         availableOnVisitDateCount: availCount,
         // Only a CONFIDENT "none available": no trip is bookable AND none are
         // merely unconfirmed. If every miss is an unconfirmed incident, this stays
