@@ -79,6 +79,34 @@ bookable, so it over-reported a date the itinerary build then rejected — the s
 "chat says N open, rebuild yields fewer" mismatch as the party-size gap. **How to apply:**
 in the datesndeals loop, `continue` on a cancelled status BEFORE counting seats.
 
+## Rule (planner availability = DATE-level, not start_time-level)
+`/api/planner/availability` must establish a trip's bookable dates from `datesndeals`
+at the **DATE level only** — never require a per-date `start_time`. MULTI/recurring
+tours (e.g. museum Combi-ticket with 30-min departures) return bookable dates with NO
+start_time; requiring one drops them and falsely reports "not available today/tomorrow"
+while the booking widget shows full slots. Mirror `isDepartureDateBookable` in the
+itinerary route (drop start_time req, keep cancelled-drop + party-seat filter), then
+fall back to `checkavail` (with `r1`) for any selected-date miss.
+
+## Rule (dual-source failure = UNKNOWN, never "not available")
+This is the failsafe against confidently-wrong AI claims. When BOTH availability
+sources fail for the selected date (`datesndeals` throws AND the `checkavail`
+fallback fails/throws), the verdict is **unknown/unconfirmed**, NOT a false
+`availableOnSelectedDate:false`. A `checkavail` that returns `ok` (even with zero
+slots) IS authoritative → that's a real "not available", not unknown.
+
+**Why:** the planner availability snapshot grounds the planner CHAT. A silent
+false-negative there makes the AI tell a visitor a trip is closed during a TourCMS
+incident. An incident must read as "couldn't confirm — try again", never "no openings".
+
+**How to apply:** the `unknown` flag must propagate end-to-end and stay in lockstep
+across the 4 surfaces — availability route → client snapshot (`page.tsx`) → planner
+route `searchTrips` grounding (as an `unconfirmed` list, EXCLUDED from
+`noneAvailableOnVisitDate`) → system prompt (the AI is forbidden from calling an
+unconfirmed trip "not available"). Classification precedence is shared/tested in
+`lib/planner/availability-parity.ts` (`classifyTripAvailability`: onDate > unknown >
+alternative-dates > none; `isConfidentNoneAvailable` = 0 bookable AND 0 unconfirmed).
+
 ## Related resilience invariants
 - TourCMS `apiRequest` retries (backoff + jitter, honors Retry-After) **GET only** —
   POST/booking writes are never retried (double-booking risk).

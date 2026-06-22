@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { queryOne } from "@/lib/db"
 import { dbListTrips } from "@/lib/db/queries"
-import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
+import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
@@ -12,6 +12,29 @@ export interface PlannerTripAvailability {
   availableOnSelectedDate: boolean
   /** Bookable dates within the scan window (YYYY-MM-DD, ascending, deduped). */
   availableDates: string[]
+  /**
+   * True when availability for this trip could NOT be determined for the
+   * selected date — i.e. the bulk datesndeals feed failed AND the real-time
+   * checkavail fallback also failed/timed out. This is an ERROR state, NOT a
+   * confident "not available": downstream (planner chat grounding) MUST treat
+   * `unknown` as "couldn't confirm — try again", never as "no openings", so a
+   * TourCMS incident can't make the AI confidently state a false negative.
+   */
+  unknown?: boolean
+}
+
+/** Run an async mapper over `items` with a bounded number of concurrent
+ *  workers, so a whole-catalog availability scan never bursts the TourCMS rate
+ *  limit (the per-trip fan-out is the main throttle pressure point). */
+async function mapPool<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++]
+      await fn(item)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
 }
 
 export interface PlannerAvailabilityResponse {
@@ -116,44 +139,122 @@ export async function GET(req: Request) {
   const trips: Record<string, PlannerTripAvailability> = {}
 
   if (config && tcmsTrips.length > 0) {
-    await Promise.all(
-      tcmsTrips.map(async (row) => {
-        const tourId = row.id.replace("tcms_", "")
+    // ── PASS 1: bulk datesndeals (cheap, one call per trip) ──────────────────
+    // Establishes each trip's bookable DATES at the DATE level. Critically this
+    // must NOT require a per-date start_time: "MULTI"/recurring tours (e.g. the
+    // museum Combi-ticket with 30-min departures) come back from datesndeals as
+    // bookable DATES with NO concrete start_time — the real times only live in
+    // the real-time checkavail endpoint. Requiring start_time here is exactly
+    // what made those trips falsely report "not available today/tomorrow" in the
+    // planner chat while the booking widget showed full slots. Mirrors
+    // isDepartureDateBookable in app/api/itinerary/route.ts.
+    // A selected-date miss can come from TWO very different situations that must
+    // NOT be conflated: (a) datesndeals SUCCEEDED but didn't list the date — a
+    // genuine "probably not available, confirm via checkavail"; (b) datesndeals
+    // FAILED — we know NOTHING yet, so a checkavail miss must end as `unknown`,
+    // never a confident "not available". `ddFailed` carries that distinction.
+    const needsSelectedFallback: { id: string; tourId: string; ddFailed: boolean }[] = []
+    await mapPool(tcmsTrips, 6, async (row) => {
+      const tourId = row.id.replace("tcms_", "")
+      try {
+        const { dates } = await showTourDatesAndDeals(config, tourId, {
+          startdate_start: windowStart,
+          startdate_end: windowEnd,
+        })
+
+        const bookable = new Set<string>()
+        for (const d of dates) {
+          if (!d.start_date) continue
+          // Parity with the itinerary route (isDepartureDateBookable): a
+          // cancelled departure is NOT bookable. Without this the planner
+          // over-reports a date as "available" while the itinerary build drops
+          // it — the "chat says N open, rebuild yields fewer" mismatch.
+          if (d.status && /cancel/i.test(d.status)) continue
+          const raw = d.spaces_remaining
+          const unlimited = raw === "UNLIMITED"
+          const spotsLeft = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
+          // Party-size parity with the itinerary scheduler: a slot must hold
+          // the whole group to count as bookable. "UNLIMITED" or unparseable
+          // seat counts pass (mirrors scheduler.fitsParty).
+          const seatsOk = unlimited || Number.isNaN(parseInt(raw ?? "", 10)) || spotsLeft >= partySize
+          if (seatsOk) bookable.add(d.start_date)
+        }
+
+        trips[row.id] = {
+          availableOnSelectedDate: selectedDate ? bookable.has(selectedDate) : false,
+          availableDates: Array.from(bookable).sort(),
+        }
+        // Queue a real-time confirmation when a date is selected but the bulk
+        // feed didn't list it. datesndeals UNDER-REPORTS (misses the very first
+        // day, MULTI rows, transient incomplete payloads), so we must re-check
+        // the authoritative checkavail endpoint — the same source the public
+        // booking widget uses — before declaring the date unavailable.
+        if (selectedDate && !bookable.has(selectedDate)) {
+          needsSelectedFallback.push({ id: row.id, tourId, ddFailed: false })
+        }
+      } catch {
+        // Bulk feed failed — still try the real-time fallback for the selected
+        // date so a transient datesndeals error never produces a false
+        // "not available". Seed an empty record so the id always exists.
+        if (!trips[row.id]) {
+          trips[row.id] = { availableOnSelectedDate: false, availableDates: [] }
+        }
+        if (selectedDate) needsSelectedFallback.push({ id: row.id, tourId, ddFailed: true })
+      }
+    })
+
+    // ── PASS 2: selected-date checkavail fallback (real-time, authoritative) ──
+    // Fires ONLY for trips whose bulk feed didn't list the selected date, so the
+    // extra cost is bounded (≤1 checkavail per such trip). Bounded concurrency
+    // avoids bursting TourCMS rate limits when many trips miss the date.
+    // checkavail returns ZERO components unless a rate quantity (r1) is supplied,
+    // so we pass the party size; TourCMS also omits slots that can't seat the
+    // group, keeping the result seat-honest. This can ADD availability
+    // (flip false→true). If BOTH sources failed for a trip we mark it `unknown`
+    // so the chat says "couldn't confirm" instead of a false "no openings".
+    if (selectedDate && needsSelectedFallback.length > 0) {
+      await mapPool(needsSelectedFallback, 4, async (item) => {
         try {
-          const { dates } = await showTourDatesAndDeals(config, tourId, {
-            startdate_start: windowStart,
-            startdate_end: windowEnd,
+          const avail = await checkAvailability(config, item.tourId, {
+            date: selectedDate,
+            show_pickups: "0",
+            r1: partySize,
           })
-
-          const bookable = new Set<string>()
-          for (const d of dates) {
-            if (!d.start_time || !d.start_date) continue
-            // Parity with the itinerary route (shapeSlotFromDeparture /
-            // isDepartureDateBookable): a cancelled departure is NOT bookable.
-            // Without this the planner over-reports a date as "available" while
-            // the itinerary build drops it — exactly the "chat says N open,
-            // rebuild yields fewer" mismatch.
-            if (d.status && /cancel/i.test(d.status)) continue
-            const raw = d.spaces_remaining
-            const unlimited = raw === "UNLIMITED"
-            const spotsLeft = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
-            // Party-size parity with the itinerary scheduler: a slot must hold
-            // the whole group to count as bookable. "UNLIMITED" or unparseable
-            // seat counts pass (mirrors scheduler.fitsParty).
-            const seatsOk = unlimited || Number.isNaN(parseInt(raw ?? "", 10)) || spotsLeft >= partySize
-            if (seatsOk) bookable.add(d.start_date)
+          if (!avail.ok) {
+            // checkavail errored. If datesndeals ALSO failed, availability is
+            // genuinely unknown — flag it (never a confident "not available").
+            if (item.ddFailed) {
+              const cur = trips[item.id] ?? { availableOnSelectedDate: false, availableDates: [] }
+              trips[item.id] = { ...cur, unknown: true }
+            }
+            return
           }
-
-          const availableDates = Array.from(bookable).sort()
-          trips[row.id] = {
-            availableOnSelectedDate: selectedDate ? bookable.has(selectedDate) : false,
-            availableDates,
+          const usable = avail.components.some((c) => {
+            if (!c.start_time) return false
+            const raw = c.spaces_remaining
+            if (raw && raw !== "UNLIMITED" && parseInt(raw, 10) <= 0) return false
+            return true
+          })
+          if (usable) {
+            const cur = trips[item.id] ?? { availableOnSelectedDate: false, availableDates: [] }
+            const dates = cur.availableDates.includes(selectedDate)
+              ? cur.availableDates
+              : [...cur.availableDates, selectedDate].sort()
+            trips[item.id] = { availableOnSelectedDate: true, availableDates: dates }
           }
+          // checkavail ok but no usable slot: if datesndeals succeeded this is a
+          // real "not available"; if datesndeals failed, an empty checkavail is
+          // still authoritative enough (it returned ok) to call it not-available.
         } catch {
-          // skip — trip will simply have no availability data
+          // Real-time check threw. Dual failure (datesndeals also failed) =>
+          // unknown; otherwise leave the datesndeals verdict as-is.
+          if (item.ddFailed) {
+            const cur = trips[item.id] ?? { availableOnSelectedDate: false, availableDates: [] }
+            trips[item.id] = { ...cur, unknown: true }
+          }
         }
       })
-    )
+    }
   }
 
   const data: PlannerAvailabilityResponse = {

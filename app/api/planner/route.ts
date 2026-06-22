@@ -9,7 +9,7 @@ import {
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts, buildCanvasCountLine } from "@/lib/planner/system-prompt"
-import { interpretSingleDayFallback } from "@/lib/planner/availability-parity"
+import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable } from "@/lib/planner/availability-parity"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
 import { toSearchCard } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
@@ -76,7 +76,7 @@ let _defaultPartySize = 1
 // searchTrips report ACCURATE on-visit-date availability for the EXACT trips it
 // returns — the only per-turn-fresh availability signal the server has (the
 // system-prompt canvas line is stale on the search turn). Empty = no snapshot.
-let _plannerAvail: Record<string, { onDate: boolean; dates: string[] }> = {}
+let _plannerAvail: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> = {}
 let _availDate: string | null = null
 
 // Format a YYYY-MM-DD string as "Wed, 24 Jun 2026" for human-readable tool
@@ -321,16 +321,32 @@ const searchTripsTool = tool({
       // Trips bookable ON the visit date (whole catalog), closest to the search
       // first — offer the nearest "similar experience" by name for the same day.
       similarAvailableOnVisitDate: { title: string; tags: string[] }[]
+      // Returned trips whose availability COULDN'T be confirmed (both TourCMS
+      // sources failed). The AI must NOT call these "not available" — it should
+      // say it couldn't confirm and suggest retrying.
+      unconfirmed?: { title: string }[]
     } | undefined
     // Fail-safe: only ground on the snapshot when its date still matches THIS
     // request's visit date. _plannerAvail/_availDate are module-global (the
     // established per-request-context pattern in this file), so this guard keeps
     // a concurrent request's snapshot from leaking a wrong availability summary.
     if (_availDate && _availDate === _defaultVisitDate && Object.keys(_plannerAvail).length > 0) {
-      const onDate = (id: string) => _plannerAvail[id]?.onDate === true
-      const availCount = finalResults.filter((t) => onDate(t.id)).length
+      // Classify each returned trip with the shared pure helper so the
+      // available / unconfirmed / alternative / none precedence is identical and
+      // unit-tested (an `unknown` incident is NEVER downgraded to a confident
+      // "not available"). See lib/planner/availability-parity.ts.
+      const classOf = (id: string) => classifyTripAvailability(_plannerAvail[id])
+      const availCount = finalResults.filter((t) => classOf(t.id) === "available").length
+      // Trips we genuinely couldn't confirm (both TourCMS sources errored). These
+      // are NOT alternative-date candidates and must NOT count toward a confident
+      // "none available" — they're an incident, surfaced separately so the AI can
+      // honestly say it couldn't confirm rather than telling the visitor it's shut.
+      const unconfirmed = finalResults
+        .filter((t) => classOf(t.id) === "unconfirmed")
+        .slice(0, 6)
+        .map((t) => ({ title: t.title }))
       const alternativeDates = finalResults
-        .filter((t) => !onDate(t.id) && (_plannerAvail[t.id]?.dates?.length ?? 0) > 0)
+        .filter((t) => classOf(t.id) === "alternative")
         .slice(0, 4)
         .map((t) => ({
           title: t.title,
@@ -341,7 +357,7 @@ const searchTripsTool = tool({
       // alternative surfaces first.
       const resultTags = new Set<string>(finalResults.flatMap((t) => [...t.tags, ...(t.tripTags ?? [])]))
       const similarAvailableOnVisitDate = catalog
-        .filter((t) => onDate(t.id) && !finalResults.some((r) => r.id === t.id))
+        .filter((t) => classOf(t.id) === "available" && !finalResults.some((r) => r.id === t.id))
         .map((t) => ({
           t,
           score: [...t.tags, ...(t.tripTags ?? [])].filter((tg) => resultTags.has(tg)).length,
@@ -353,9 +369,13 @@ const searchTripsTool = tool({
         visitDate: _availDate,
         visitDatePretty: prettyYMD(_availDate),
         availableOnVisitDateCount: availCount,
-        noneAvailableOnVisitDate: availCount === 0,
+        // Only a CONFIDENT "none available": no trip is bookable AND none are
+        // merely unconfirmed. If every miss is an unconfirmed incident, this stays
+        // false so the AI doesn't tell the visitor everything is closed.
+        noneAvailableOnVisitDate: isConfidentNoneAvailable(availCount, unconfirmed.length),
         alternativeDates,
         similarAvailableOnVisitDate,
+        ...(unconfirmed.length > 0 ? { unconfirmed } : {}),
       }
     }
 
@@ -1051,7 +1071,7 @@ export async function POST(req: Request) {
       // the search turn because the canvas only updates AFTER searchTrips runs).
       availability?: {
         date?: string | null
-        trips?: Record<string, { onDate?: boolean; dates?: string[] | null }>
+        trips?: Record<string, { onDate?: boolean; dates?: string[] | null; unknown?: boolean }>
       } | null
     }
 
@@ -1216,7 +1236,7 @@ export async function POST(req: Request) {
       const snap = body?.availability
       const snapDate = typeof snap?.date === "string" ? snap.date : null
       if (snap && snapDate && snapDate === visitDateYMD && snap.trips && typeof snap.trips === "object") {
-        const map: Record<string, { onDate: boolean; dates: string[] }> = {}
+        const map: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> = {}
         for (const [id, v] of Object.entries(snap.trips)) {
           if (!id || typeof v !== "object" || v === null) continue
           map[id] = {
@@ -1224,6 +1244,11 @@ export async function POST(req: Request) {
             dates: Array.isArray((v as { dates?: string[] }).dates)
               ? (v as { dates: string[] }).dates.filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 8)
               : [],
+            // "unknown" = BOTH TourCMS sources failed for this trip on the visit
+            // date, so availability is genuinely undetermined (a service incident,
+            // NOT a confident "no openings"). searchTrips surfaces this so the AI
+            // says "couldn't confirm" rather than telling the visitor it's closed.
+            ...((v as { unknown?: boolean }).unknown === true ? { unknown: true } : {}),
           }
         }
         _plannerAvail = map

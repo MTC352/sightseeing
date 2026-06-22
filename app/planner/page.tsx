@@ -2292,7 +2292,7 @@ export default function PlannerPage() {
   // trip id → { onDate, dates[] (other bookable dates) }.
   const availabilityForApiRef = useRef<{
     date: string | null
-    trips: Record<string, { onDate: boolean; dates: string[] }>
+    trips: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }>
   }>({ date: null, trips: {} })
 
   const transport = useMemo(
@@ -3626,7 +3626,7 @@ export default function PlannerPage() {
   // group is NOT counted as bookable here — keeping the disabled map +
   // recommendations honest against the itinerary scheduler's party filter.
   const partyForAvail = Math.max(1, prefs?.adults ?? 1) + Math.max(0, prefs?.children ?? 0)
-  const [plannerAvail, setPlannerAvail] = useState<Record<string, { availableOnSelectedDate: boolean; availableDates: string[] }>>({})
+  const [plannerAvail, setPlannerAvail] = useState<Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }>>({})
   const [availLoading, setAvailLoading] = useState(false)
   useEffect(() => {
     let cancelled = false
@@ -3640,7 +3640,7 @@ export default function PlannerPage() {
     const qs = params.toString() ? `?${params.toString()}` : ""
     fetch(`/api/planner/availability${qs}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { trips?: Record<string, { availableOnSelectedDate: boolean; availableDates: string[] }> } | null) => {
+      .then((data: { trips?: Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }> } | null) => {
         if (cancelled) return
         // Fail-soft: on a null/failed response leave availability empty so cards
         // simply omit date chips rather than showing stale data.
@@ -3906,11 +3906,14 @@ export default function PlannerPage() {
     // Sent only when a date is selected and the scan has settled; otherwise an
     // empty snapshot so the server never reads stale on-date truth.
     if (hasSelectedDate && !availLoading) {
-      const trips: Record<string, { onDate: boolean; dates: string[] }> = {}
+      const trips: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> = {}
       for (const [id, av] of Object.entries(plannerAvail)) {
         trips[id] = {
           onDate: av?.availableOnSelectedDate === true,
           dates: (av?.availableDates ?? []).slice(0, 6),
+          // Carry the "couldn't confirm" flag so the AI never states a TourCMS
+          // incident as a confident "not available".
+          ...(av?.unknown ? { unknown: true } : {}),
         }
       }
       availabilityForApiRef.current = { date: prefs?.startDate ?? null, trips }
