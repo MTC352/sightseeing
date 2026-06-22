@@ -115,3 +115,18 @@ theme-level allowlist it names empty ones and contradicts itself a turn later.
 `unavailableOnDate` when ≥1 tagged trip is confidently off AND none available; unknown-only
 themes (unconfirmed/not-scanned) are OMITTED from both lists so an outage is never shown as a
 closure. Gate injection on `_availDate === visitDateYMD` (same module-global rule as the snapshot).
+
+**Startup runs TWO availability scans — never trust the wrong one as turn-1 ground truth.**
+On the planner page the availability effect fires a no-date WINDOW scan (`?party=N`, every
+trip `availableOnSelectedDate=false`) before the date-specific scan (`?date=…`). If the
+no-date scan's `.finally` opens the auto-seed gate first, turn-1 sees `canvasCount=0` while
+`availableTodayCount>0` → the AI is fed the ZERO-MATCH "try another date" branch even though
+trips ARE bookable today; the canvas later corrects to N but the stale seeded message stays.
+**Why:** the seed gate (`seedAvailReady`) and the AI grounding refs (`canvasCountForApiRef`,
+`availabilityForApiRef`) must reflect the SELECTED date's scan, not whichever settles first.
+**How to apply:** track `availLoadedDate` (date the loaded `plannerAvail` reflects; `null`=no
+scan, `""`=no-date scan), derive `availLoadedMatchesDate`, and gate `canvasCountForApiRef.ready`
++ the `availabilityForApiRef` snapshot on it. Re-close the seed gate at the START of every scan
+(only the matching scan reopens it), and latch `didSendInitial` INSIDE the 300ms seed timeout
+(not before) so a no-date→date gate flip cancels the pending send instead of permanently
+blocking it — the cleanup `clearTimeout` keeps at most one pending, so no double-send.

@@ -3295,8 +3295,17 @@ export default function PlannerPage() {
   if (prefs && initialMessagesRef.current.length > 0) didSendInitial.current = true
   useEffect(() => {
     if (hydrated && prefs && seedAvailReady && !didSendInitial.current && messages.length === 0 && status === "ready") {
-      didSendInitial.current = true
+      // NOTE: latch `didSendInitial` INSIDE the timeout, not here. The gate
+      // (`seedAvailReady`) is re-closed at the start of every availability scan,
+      // so it can briefly flip true→false→true during the startup no-date →
+      // date scan transition. Latching here would mark the seed "sent" and then
+      // the cleanup would cancel the pending timeout — permanently blocking the
+      // real send. Latching in the timeout means a re-close simply cancels the
+      // pending send and the next gate-open reschedules it. The cleanup
+      // guarantees only one timeout is ever pending, so no double-send.
       const t = setTimeout(() => {
+        if (didSendInitial.current) return
+        didSendInitial.current = true
         const visitDate = prefs.startDate || todayYMD()
         const isToday = visitDate === todayYMD()
         const datePhrase = isToday ? "today" : `on ${formatYMDPretty(visitDate)} (${visitDate})`
@@ -3552,9 +3561,23 @@ export default function PlannerPage() {
   const partyForAvail = Math.max(1, prefs?.adults ?? 1) + Math.max(0, prefs?.children ?? 0)
   const [plannerAvail, setPlannerAvail] = useState<Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }>>({})
   const [availLoading, setAvailLoading] = useState(false)
+  // The visit date the currently-loaded `plannerAvail` snapshot actually
+  // reflects. `null` = no scan has completed yet; "" = a no-date WINDOW scan
+  // completed (no per-date availability). This is the guard against trusting a
+  // STALE scan as authoritative for the visitor's selected date: on startup a
+  // no-date window scan (`?party=N`) settles BEFORE the date-specific scan
+  // (`?date=…`), and treating its all-false `availableOnSelectedDate` as truth
+  // is exactly what made the AI claim "no trips available today" on turn 1 even
+  // though trips ARE bookable that day.
+  const [availLoadedDate, setAvailLoadedDate] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
     setAvailLoading(true)
+    // Re-close the auto-seed availability gate at the START of every scan so a
+    // PRIOR (e.g. no-date window) scan that already opened it can't let the
+    // turn-1 seed fire before THIS scan (the selected date) settles. Only this
+    // scan's `.finally` (or the 6s fail-safe) reopens it.
+    setSeedAvailReady(false)
     // Clear stale availability for the PREVIOUS date so grouping never reflects
     // an old selection while the new window scan is in flight (or if it fails).
     setPlannerAvail({})
@@ -3571,7 +3594,16 @@ export default function PlannerPage() {
         setPlannerAvail(data?.trips ?? {})
       })
       .catch(() => { if (!cancelled) setPlannerAvail({}) /* fail-soft: no date chips */ })
-      .finally(() => { if (!cancelled) { setAvailLoading(false); setSeedAvailReady(true) } })
+      .finally(() => {
+        if (cancelled) return
+        setAvailLoading(false)
+        // Record the date THIS scan covered, then open the seed gate. Because
+        // the gate was re-closed at scan start, only the scan matching the
+        // current selection reopens it — so turn-1 ground-truth is never the
+        // stale no-date scan.
+        setAvailLoadedDate(selectedDateForAvail)
+        setSeedAvailReady(true)
+      })
     return () => { cancelled = true }
   }, [selectedDateForAvail, partyForAvail])
 
@@ -3580,6 +3612,12 @@ export default function PlannerPage() {
      the visitor's interests (score-ordered); here we layer availability on
      top so trips bookable on the selected date float to the top. */
   const hasSelectedDate = !!prefs?.startDate
+  // TRUE only when the loaded `plannerAvail` snapshot reflects the visitor's
+  // CURRENT selected date (or genuinely no date). Used to gate every
+  // availability-derived ground-truth fed to the AI so a stale no-date /
+  // previous-date scan never poisons turn-1 (canvas count + per-trip
+  // availability snapshot).
+  const availLoadedMatchesDate = availLoadedDate !== null && availLoadedDate === (prefs?.startDate ?? "")
   const recommendedTrips = useMemo(() => {
     // NOTE: do NOT bail when `prefs.interests` is empty. Skipping all
     // onboarding leaves interests empty by design, but `fallbackTrips` already
@@ -3812,9 +3850,10 @@ export default function PlannerPage() {
     canvasCountForApiRef.current = {
       count: canvasCount,
       date: hasSelectedDate ? (prefs?.startDate ?? null) : null,
-      // "ready" only once the availability scan has settled AND we actually have
-      // results to count — a loading/empty canvas count must never be quoted.
-      ready: !availLoading && showResults,
+      // "ready" only once the availability scan for THIS date has settled AND we
+      // actually have results to count — a loading/empty canvas count, or a
+      // stale no-date/previous-date scan, must never be quoted to the AI.
+      ready: !availLoading && showResults && availLoadedMatchesDate,
       otherDatesCount: matchingOther.length,
       // A few concrete trips + their (pretty-formatted) bookable dates so the AI
       // can recommend exact dates without another tool round-trip. Bounded to
@@ -3827,9 +3866,10 @@ export default function PlannerPage() {
       availableTodaySamples,
     }
     // Whole-catalog availability snapshot for the server's searchTrips tool.
-    // Sent only when a date is selected and the scan has settled; otherwise an
-    // empty snapshot so the server never reads stale on-date truth.
-    if (hasSelectedDate && !availLoading) {
+    // Sent only when a date is selected and the scan FOR THAT date has settled;
+    // otherwise an empty snapshot so the server never reads stale on-date truth
+    // (a no-date/previous-date scan reports every trip as not-on-date).
+    if (hasSelectedDate && !availLoading && availLoadedMatchesDate) {
       const trips: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> = {}
       for (const [id, av] of Object.entries(plannerAvail)) {
         trips[id] = {
@@ -3844,7 +3884,7 @@ export default function PlannerPage() {
     } else {
       availabilityForApiRef.current = { date: null, trips: {} }
     }
-  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips])
+  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips, availLoadedMatchesDate])
 
   /* Auto-expand map and center it when AI returns a new set of results */
   const prevResultTripIds = useRef<string>("")
