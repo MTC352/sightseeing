@@ -23,7 +23,7 @@ test("canvas count line — count>0 & date-matched injects AVAILABILITY GROUND T
   assert.match(line, /2026-06-21/)
 })
 
-test("canvas count line — count===0 & date-matched is PERMISSIVE (may say nothing matches, try another date)", () => {
+test("canvas count line — count===0 & date-matched is DIRECTIVE: forbids claiming the canvas shows trips for that date", () => {
   const line = buildCanvasCountLine({
     canvasCount: 0,
     canvasReady: true,
@@ -32,9 +32,67 @@ test("canvas count line — count===0 & date-matched is PERMISSIVE (may say noth
   })
   assert.match(line, /AVAILABILITY GROUND TRUTH/)
   assert.match(line, /shows 0 trips bookable/)
-  assert.match(line, /try another date/)
-  // must NOT carry the count>0 prohibition
+  // the whole point of the fix: model must NOT announce the canvas shows trips
+  assert.match(line, /MUST NOT say or imply the Trip Canvas shows/)
+  assert.match(line, /none of their matching trips are bookable on 2026-06-21/)
+  // and it must push the model to recommend rather than only ask questions
+  assert.match(line, /RECOMMENDER, NOT A QUESTIONER/)
+  // must NOT carry the count>0 prohibition (that one is for when trips DO exist)
   assert.doesNotMatch(line, /MUST NOT tell the visitor that no trips/)
+})
+
+test("canvas count line — count===0 with otherDateSamples recommends SPECIFIC alternative dates", () => {
+  const line = buildCanvasCountLine({
+    canvasCount: 0,
+    canvasReady: true,
+    canvasDate: "2026-06-21",
+    visitDateYMD: "2026-06-21",
+    otherDatesCount: 1,
+    otherDateSamples: [{ title: "Museums Mile", dates: ["Wed 24 Jun", "Thu 25 Jun"] }],
+  })
+  assert.match(line, /OPTION A/)
+  assert.match(line, /\*\*Museums Mile\*\* \(Wed 24 Jun, Thu 25 Jun\)/)
+  assert.match(line, /Recommend these specific alternative date/)
+})
+
+test("canvas count line — count===0 with availableTodaySamples recommends a SIMILAR trip for the same day + syncs canvas", () => {
+  const line = buildCanvasCountLine({
+    canvasCount: 0,
+    canvasReady: true,
+    canvasDate: "2026-06-21",
+    visitDateYMD: "2026-06-21",
+    availableTodayCount: 3,
+    availableTodaySamples: [{ title: "City Train Tour", tags: ["walking-tours"] }],
+  })
+  assert.match(line, /OPTION B/)
+  assert.match(line, /\*\*City Train Tour\*\*/)
+  assert.match(line, /call searchTrips/)
+})
+
+test("canvas count line — count===0 with availableTodayCount but no samples still offers other trips", () => {
+  const line = buildCanvasCountLine({
+    canvasCount: 0,
+    canvasReady: true,
+    canvasDate: "2026-06-21",
+    visitDateYMD: "2026-06-21",
+    availableTodayCount: 2,
+    availableTodaySamples: [],
+  })
+  assert.match(line, /OTHER trips ARE bookable that day/)
+  assert.doesNotMatch(line, /OPTION B/)
+})
+
+test("canvas count line — count===0 ignores malformed otherDateSamples (title/date missing)", () => {
+  const line = buildCanvasCountLine({
+    canvasCount: 0,
+    canvasReady: true,
+    canvasDate: "2026-06-21",
+    visitDateYMD: "2026-06-21",
+    otherDatesCount: 2,
+    otherDateSamples: [{ title: "", dates: ["Wed 24 Jun"] }, { title: "No Dates", dates: [] }],
+  })
+  // both samples are malformed, so OPTION A must be omitted entirely
+  assert.doesNotMatch(line, /OPTION A/)
 })
 
 test("canvas count line — not ready returns empty (no premature/stale count injected)", () => {

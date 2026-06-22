@@ -950,7 +950,19 @@ export async function POST(req: Request) {
       } | null
       // Live Trip Canvas state echoed by the client so the AI can quote the
       // EXACT number of trips the visitor sees (Gap 1 — chat↔canvas count parity).
-      canvas?: { count?: number; date?: string | null; ready?: boolean } | null
+      // When the matching count is 0 on the selected date, the client also sends
+      // the alternative dates the matching trips DO run + whether OTHER trips are
+      // bookable that day, so the AI recommends real dates instead of falsely
+      // claiming the canvas shows trips for that date.
+      canvas?: {
+        count?: number
+        date?: string | null
+        ready?: boolean
+        otherDatesCount?: number
+        otherDateSamples?: { title?: string | null; dates?: string[] | null }[]
+        availableTodayCount?: number
+        availableTodaySamples?: { title?: string | null; tags?: string[] | null }[]
+      } | null
     }
 
     let messages: PlannerMessage[]
@@ -1162,6 +1174,16 @@ export async function POST(req: Request) {
       canvasReady: canvas?.ready === true,
       canvasDate: typeof canvas?.date === "string" ? canvas.date : null,
       visitDateYMD,
+      otherDatesCount:
+        typeof canvas?.otherDatesCount === "number" ? canvas.otherDatesCount : null,
+      otherDateSamples: Array.isArray(canvas?.otherDateSamples)
+        ? canvas.otherDateSamples
+        : null,
+      availableTodayCount:
+        typeof canvas?.availableTodayCount === "number" ? canvas.availableTodayCount : null,
+      availableTodaySamples: Array.isArray(canvas?.availableTodaySamples)
+        ? canvas.availableTodaySamples
+        : null,
     })
 
     const systemPromptParts = buildPlannerSystemPromptParts({

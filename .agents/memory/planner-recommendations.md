@@ -42,8 +42,24 @@ trips available today" while the canvas badge showed N>0. Two-part cause + fix:
   grounding for liveness under >6s latency.
 - *Prompt:* the count line only governed *quoting* a number, never *asserting* unavailability.
   FIX: when ready & date-matched, count>0 injects an "AVAILABILITY GROUND TRUTH" directive that
-  FORBIDS claiming nothing-available / suggesting a date-switch-for-zero; count===0 permits
-  "try another date"; no-date stays count-only.
+  FORBIDS claiming nothing-available / suggesting a date-switch-for-zero; no-date stays count-only.
+
+**Zero-matches branch is DIRECTIVE, not permissive.** count===0 (date-matched) used to merely
+permit "try another date", which let the model still falsely announce "the Trip Canvas now shows
+<interest> today". Now it FORBIDS claiming the canvas shows/has/displays any matching trip for the
+date, and hands the model two grounded recommendation paths so it acts like a human recommender,
+not a questioner: **OPTION A** = the matching trip's other bookable dates, **OPTION B** = the
+closest SIMILAR trip bookable that same day (recommend BY NAME + call searchTrips to refresh the
+canvas, keeping chat↔canvas in sync). The client computes the extra payload in
+`canvasCountForApiRef`: `otherDatesCount`/`otherDateSamples` (matching trips on OTHER dates, pretty
+dates), `availableTodayCount`, and `availableTodaySamples` (catalog trips bookable on the date,
+ranked by tag overlap with `prefs.interests`, top 3). All bounded to ≤3 samples for token budget;
+effect writes only the ref (no setState). Route passes them through to `buildCanvasCountLine`.
+**Canvas-provided dates are an explicit EXCEPTION to rule 9b-PRE** (never quote availability
+without a tool call) — they come from the canvas's own verified live scan, so the model MAY quote
+them directly. General rule #9 ("BE A RECOMMENDER, NOT A QUESTIONER") reinforces leading with a
+concrete pick rather than only asking. **Why:** the AI hallucinated canvas state on zero-match
+days; grounding it with real alt-dates + similar-trips makes the chat accurate AND useful.
 **Why:** the canvas (`/api/planner/availability`, party+cancel filtered) is the single source
 of truth; the AI must defer to it, never reach a contradictory availability conclusion.
 

@@ -2261,10 +2261,28 @@ export default function PlannerPage() {
   // Live on-screen Trip Canvas count (Gap 1). Declared here so the transport
   // closure below can read it; the value is computed + synced lower down (after
   // resultTrips / plannerAvail exist).
-  const canvasCountForApiRef = useRef<{ count: number; date: string | null; ready: boolean }>({
+  const canvasCountForApiRef = useRef<{
+    count: number
+    date: string | null
+    ready: boolean
+    // When `count` is 0 on the selected date these give the AI what it needs to
+    // recommend real alternative dates + offer SIMILAR trips for that day instead
+    // of falsely claiming the canvas shows trips for the date.
+    otherDatesCount: number
+    otherDateSamples: { title: string; dates: string[] }[]
+    availableTodayCount: number
+    // A few trips bookable on the selected date (any interest), ranked by tag
+    // overlap with the visitor's interests, so the AI can recommend the closest
+    // "similar experience" by name when their exact interest isn't running.
+    availableTodaySamples: { title: string; tags: string[] }[]
+  }>({
     count: 0,
     date: null,
     ready: false,
+    otherDatesCount: 0,
+    otherDateSamples: [],
+    availableTodayCount: 0,
+    availableTodaySamples: [],
   })
 
   const transport = useMemo(
@@ -3832,14 +3850,46 @@ export default function PlannerPage() {
     [hasSelectedDate, resultTrips, plannerAvail],
   )
   useEffect(() => {
+    // Matching trips NOT bookable on the selected date but bookable on OTHER
+    // dates in the scan window — these power the AI's alternative-date rec when
+    // the on-date group is empty (mirrors the "Available on other dates" group).
+    const matchingOther = hasSelectedDate
+      ? resultTrips.filter((t) => {
+          const av = plannerAvail[t.id]
+          return av && !av.availableOnSelectedDate && (av.availableDates?.length ?? 0) > 0
+        })
+      : []
+    // Trips bookable on the selected date REGARDLESS of interest (whole catalog
+    // scan). When 0 MATCHING trips run that day, these are what the AI can offer
+    // for the date the visitor asked for — ranked by tag overlap with their
+    // interests so the closest "similar experience" surfaces first.
+    const interests = prefs?.interests ?? []
+    const availableToday = hasSelectedDate
+      ? allTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
+      : []
+    const overlap = (t: Trip) => (t.tags ?? []).filter((tag) => interests.includes(tag)).length
+    const availableTodaySamples = [...availableToday]
+      .sort((a, b) => overlap(b) - overlap(a))
+      .slice(0, 3)
+      .map((t) => ({ title: t.title, tags: (t.tags ?? []).slice(0, 4) }))
     canvasCountForApiRef.current = {
       count: canvasCount,
       date: hasSelectedDate ? (prefs?.startDate ?? null) : null,
       // "ready" only once the availability scan has settled AND we actually have
       // results to count — a loading/empty canvas count must never be quoted.
       ready: !availLoading && showResults,
+      otherDatesCount: matchingOther.length,
+      // A few concrete trips + their (pretty-formatted) bookable dates so the AI
+      // can recommend exact dates without another tool round-trip. Bounded to
+      // keep the per-turn payload small.
+      otherDateSamples: matchingOther.slice(0, 3).map((t) => ({
+        title: t.title,
+        dates: (plannerAvail[t.id]?.availableDates ?? []).slice(0, 4).map(formatYMDPretty),
+      })),
+      availableTodayCount: availableToday.length,
+      availableTodaySamples,
     }
-  }, [canvasCount, hasSelectedDate, prefs?.startDate, availLoading, showResults])
+  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips])
 
   /* Auto-expand map and center it when AI returns a new set of results */
   const prevResultTripIds = useRef<string>("")

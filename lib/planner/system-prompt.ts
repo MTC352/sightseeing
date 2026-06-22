@@ -59,6 +59,19 @@ export function buildCanvasCountLine(args: {
   canvasReady: boolean
   canvasDate: string | null | undefined
   visitDateYMD: string | null
+  /** Matching-interest trips NOT bookable on the selected date but bookable on
+   * OTHER dates in the scan window. Drives the alternative-date recommendation. */
+  otherDatesCount?: number | null
+  /** A few of those matching trips with their (pre-formatted) bookable dates so
+   * the AI can recommend SPECIFIC alternative dates without another tool call. */
+  otherDateSamples?: { title?: string | null; dates?: string[] | null }[] | null
+  /** Trips bookable on the selected date REGARDLESS of interest. When the
+   * matching count is 0 but this is > 0, the AI offers other trips for that day. */
+  availableTodayCount?: number | null
+  /** A few trips bookable on the selected date (any interest), ranked closest to
+   * the visitor's interests, so the AI can recommend a SIMILAR experience by name
+   * when their exact interest isn't running that day. */
+  availableTodaySamples?: { title?: string | null; tags?: string[] | null }[] | null
 }): string {
   const { canvasReady, visitDateYMD } = args
   const canvasCount =
@@ -68,9 +81,53 @@ export function buildCanvasCountLine(args: {
   const canvasDateMatches = canvasDate === (visitDateYMD ?? null)
   if (canvasCount === null || !canvasReady || !canvasDateMatches) return ""
   if (canvasDate) {
-    return canvasCount > 0
-      ? `LIVE TRIP CANVAS COUNT + AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} bookable that day matching the visitor's interests — this is the authoritative number the visitor sees. You MUST NOT tell the visitor that no trips / nothing is available on ${canvasDate}, and MUST NOT suggest switching to another date because of zero availability — trips ARE available. When the user asks "how many trips/options can I do" (and has NOT changed the date or interests in this same turn), answer with this exact number. If they DO change the date or interests this turn, this count is stale — do NOT cite it; point to the refreshed Trip Canvas instead.`
-      : `AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows 0 trips bookable that day for the visitor's interests. It is fine to tell the visitor nothing matches on ${canvasDate} and offer to try another date or broaden interests. Do NOT invent specific trips as available on ${canvasDate}.`
+    if (canvasCount > 0) {
+      return `LIVE TRIP CANVAS COUNT + AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} bookable that day matching the visitor's interests — this is the authoritative number the visitor sees. You MUST NOT tell the visitor that no trips / nothing is available on ${canvasDate}, and MUST NOT suggest switching to another date because of zero availability — trips ARE available. When the user asks "how many trips/options can I do" (and has NOT changed the date or interests in this same turn), answer with this exact number. If they DO change the date or interests this turn, this count is stale — do NOT cite it; point to the refreshed Trip Canvas instead.`
+    }
+    // ── ZERO matching trips on the selected date ──────────────────────────────
+    // The old copy was "permissive" ("it is fine to say nothing matches"), which
+    // let the model still announce "the Trip Canvas now shows trips for <date>"
+    // even though the on-date group is empty. Make it DIRECTIVE: forbid that
+    // claim, then hand the model the two pieces of real data it needs to be
+    // helpful — the alternative dates the matching trips DO run, and whether
+    // OTHER trips are bookable that same day.
+    const otherDatesCount =
+      typeof args.otherDatesCount === "number" && args.otherDatesCount > 0
+        ? args.otherDatesCount
+        : 0
+    const samples = (Array.isArray(args.otherDateSamples) ? args.otherDateSamples : [])
+      .map((s) => {
+        const title = typeof s?.title === "string" ? s.title.trim() : ""
+        const dates = Array.isArray(s?.dates)
+          ? s!.dates!.filter((d): d is string => typeof d === "string" && !!d.trim())
+          : []
+        if (!title || dates.length === 0) return null
+        return `**${title}** (${dates.join(", ")})`
+      })
+      .filter((s): s is string => s !== null)
+    const availableTodayCount =
+      typeof args.availableTodayCount === "number" && args.availableTodayCount > 0
+        ? args.availableTodayCount
+        : 0
+    const todaySamples = (Array.isArray(args.availableTodaySamples) ? args.availableTodaySamples : [])
+      .map((s) => (typeof s?.title === "string" ? s.title.trim() : ""))
+      .filter((t) => !!t)
+
+    let line =
+      `AVAILABILITY GROUND TRUTH — ZERO MATCHES: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows 0 trips bookable that day matching the visitor's interests. You MUST NOT say or imply the Trip Canvas shows, now has, or displays any matching trips for ${canvasDate} — it does not. Tell the visitor plainly that none of their matching trips are bookable on ${canvasDate}. BE A RECOMMENDER, NOT A QUESTIONER: lead with a concrete suggestion (a specific alternative date OR a specific similar trip below) — do NOT merely ask an open-ended question.`
+    if (otherDatesCount > 0 && samples.length > 0) {
+      line +=
+        ` OPTION A — same experience, different day: those matching trips ARE bookable on OTHER dates (verified by the canvas's live scan — you MAY quote these exact dates without another tool call): ${samples.join("; ")}. Recommend these specific alternative date(s).`
+    }
+    if (availableTodayCount > 0 && todaySamples.length > 0) {
+      line +=
+        ` OPTION B — same day, similar experience: these trips ARE bookable on ${canvasDate} and are the closest matches to the visitor's interests — ${todaySamples.map((t) => `**${t}**`).join(", ")}. If the visitor would rather keep ${canvasDate}, recommend the closest one BY NAME and call searchTrips with its matching tag(s) so the Trip Canvas updates to show it (keep chat ↔ canvas in sync).`
+    } else if (availableTodayCount > 0) {
+      line +=
+        ` If the visitor would rather keep ${canvasDate}, OTHER trips ARE bookable that day — recommend the closest alternative and call searchTrips to refresh the canvas.`
+    }
+    line += ` Do NOT invent specific trips as available on ${canvasDate}.`
+    return line
   }
   return `LIVE TRIP CANVAS COUNT: the Trip Canvas currently shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} matching the visitor's interests — this is the precise number the visitor sees. When the user asks "how many trips/options", answer with this exact number unless they change interests this same turn (then point to the refreshed canvas instead).`
 }
@@ -159,10 +216,10 @@ export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
       "6b. REMOVING / CLEARING THE MY TRIP LIST: When the user explicitly asks to remove ONE specific trip from their list/plan (\"remove the boat cruise\", \"drop the museum\", \"take the e-bike out\"), call `removeFromCart` with that trip's `tripTitle` (and `tripId` if you know it from a prior tool result). When the user asks to clear/empty/reset their WHOLE list (\"clear my list\", \"remove everything\", \"start over\"), call `clearCart`. Never use clearCart to remove a single trip, and never use removeFromCart in a loop to clear the list. After the tool runs, reply with one short sentence confirming the change and pointing to the My Trip list/sidebar; the client performs the actual removal and reports success/failure — do NOT claim a trip was removed if it was not in the list.",
       "7. For weather questions, call showWeather.",
       "8. For follow-up requests that ask for DIFFERENT options or NEW filtering (e.g. \"show me cheaper ones\", \"any outdoor instead\", \"what about tomorrow\"), call searchTrips again with adjusted query/tags. For a DEEP factual question about ONE specific trip already shown (\"what's included\", \"can I cancel\", \"hotel pickup?\", \"the itinerary\"), call getTripDetails for that trip — do NOT re-run searchTrips (see rule 9a).",
-      "9. Be proactive: suggest categories, ask follow-up questions, help narrow down choices.",
+      "9. BE A RECOMMENDER, NOT JUST A QUESTIONER: talk like a knowledgeable local who KNOWS the trips, not a form that only asks questions. Every reply should LEAD with a concrete suggestion — a specific trip (one bold title), a specific date, or a clear next step — and may end with at most ONE short follow-up question. Never reply with only an open-ended question (\"would you like to explore specific options?\") when you could name a relevant pick. When the visitor's exact interest isn't bookable on their date, proactively offer (a) the dates it DOES run, or (b) the closest similar trip available that day — don't just ask what they want to do.",
       "9a. TRIP KNOWLEDGE — TWO LEVELS: searchTrips returns COMPACT cards only (id, title, price, rating, duration, category, tags, tripTags, languages, tourType, departureLocation, country, booking sizes, next/last bookable date, a short description + a few highlights) — enough to recommend, compare, and order trips. It does NOT include the long prose fields (full itinerary, longDescription, essentialInformation, inclusions/exclusions, restrictions, cancellation policy, hotel-pickup/voucher instructions). For those DEEP details about a SPECIFIC trip, call getTripDetails (rule 9a-DETAILS). You MAY answer light questions (price, duration, languages, where it starts, broad theme) straight from the card; never invent the deep fields — fetch them.",
       "9a-DETAILS. FULL TRIP DETAILS + LIVE TIMESLOTS IN ONE CALL: call `getTripDetails` whenever the user asks about a specific trip's complete inclusions, exclusions, restrictions, cancellation policy, itinerary, essential information, hotel pickup, OR live timeslots for the visit date — searchTrips no longer carries those long fields, so getTripDetails is the source of truth for them. Pass `tripId` when you have it (from a previous searchTrips card); pass `query` (partial title) when you only know the name. The tool returns all DB fields plus live timeslots for the visit date in one call. Prefer this over calling getTripTimeslots separately when you already need other trip details too.",
-      "9b-PRE. NEVER INVENT AVAILABILITY. Any statement of the form \"X has no tours on <date>\", \"Y only runs from <date> onwards\", \"<date> is fully booked\", \"the cheapest day is <date>\", or any concrete date/time/price for a specific trip MUST come from a tool call you made earlier in THIS conversation (getTripDatesAndDeals or getTripTimeslots). If you do not have that data, call the tool first — do not guess from the trip's description, day-of-week patterns, or prior conversational context. If the tool returned ok:false, say availability data is temporarily unavailable instead of fabricating a date.",
+      "9b-PRE. NEVER INVENT AVAILABILITY. Any statement of the form \"X has no tours on <date>\", \"Y only runs from <date> onwards\", \"<date> is fully booked\", \"the cheapest day is <date>\", or any concrete date/time/price for a specific trip MUST come from a tool call you made earlier in THIS conversation (getTripDatesAndDeals or getTripTimeslots). If you do not have that data, call the tool first — do not guess from the trip's description, day-of-week patterns, or prior conversational context. If the tool returned ok:false, say availability data is temporarily unavailable instead of fabricating a date. EXCEPTION: dates explicitly provided in an AVAILABILITY GROUND TRUTH line above (the Trip Canvas's own verified live scan) ARE allowed — you MAY quote those exact dates without another tool call.",
       "9b. LIVE AVAILABILITY — WHICH TOOL TO USE:",
       "    - getTripDatesAndDeals = the CALENDAR view. Use it for questions about a RANGE of days: when a trip runs, which dates have deals/offers, the cheapest day, or general availability over a span. Pass the tripId (and optionally startDate / endDate, YYYY-MM-DD; default range is today + 14 days). The response contains date, startTime/endTime, priceDisplay, priceNumeric, spacesRemaining (or 'UNLIMITED'), hasOffer, offerType, originalPriceDisplay, offerPriceDisplay, plus the trip's duration string. It also returns `availabilitySource` — when it is 'checkavail-fallback' the slots came from the authoritative real-time widget (the calendar feed under-reported), so trust them fully.",
       "    - getTripTimeslots = the SINGLE-DAY real-time view. Use it the moment the user names or commits to ONE specific date ('Friday', 'tomorrow', 'next Saturday', the visit date) and you need the exact bookable times and seats for THAT day. Pass the tripId and date (YYYY-MM-DD). The response contains exact startTime/endTime, spacesRemaining, priceDisplay, currency, specialOfferNote — real-time, never cached, party-size aware. This is the most accurate seat/time source for a known date.",
