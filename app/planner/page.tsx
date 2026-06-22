@@ -37,6 +37,7 @@ import { resolveCartToolAction } from "@/lib/planner/trip-match"
 import { scoreTripInterests } from "@/lib/planner/interest-match"
 import { isCanvasCountTrustworthy } from "@/lib/planner/availability-parity"
 import { AUTO_SEED_PREFIX, firstRealUserMessageIndex } from "@/lib/planner/canvas-trips"
+import { decideRebuildAction } from "@/lib/planner/rebuild-decision"
 import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
@@ -1682,7 +1683,8 @@ export default function PlannerPage() {
      drifted since the last build) trigger a fresh build via /api/itinerary
      and then open. This guarantees the button always does something
      useful — never a silent no-op like before. */
-  const handleOpenOrRebuildFromChat = useCallback(async (planTripIds: string[]) => {
+  const handleOpenOrRebuildFromChat = useCallback(async (planTripIds: string[], opts?: { forceRebuild?: boolean }) => {
+    const forceRebuild = opts?.forceRebuild === true
     const existing = centerItinerary
     const existingIds = new Set(existing?.steps.map((s) => s.tripId) ?? [])
     const wanted = new Set(planTripIds)
@@ -1695,9 +1697,23 @@ export default function PlannerPage() {
     // weather, day-of-week logic all hinge on the date) — fall through to a
     // fresh rebuild so the Canvas reflects real availability for the new date
     // instead of silently re-opening yesterday's plan.
+    //
+    // forceRebuild (the stale-card "Rebuild for <date>" button) ALWAYS skips the
+    // just-open shortcut. Without this, a same-set centerItinerary whose
+    // visitDate was already nudged to the new date (or a legacy itinerary with
+    // no visitDate) makes dateMatches pass, so the click only re-opens the
+    // already-loaded plan — the canvas header shows the new date (it reads
+    // prefs.startDate) while the schedule/availability is never recomputed.
+    // The button literally says "Rebuild", so it must hit /api/itinerary.
     const currentDate = prefsRef.current?.startDate || todayYMD()
-    const dateMatches = !existing?.visitDate || existing.visitDate === currentDate
-    if (sameSet && existing && dateMatches) {
+    const action = decideRebuildAction({
+      forceRebuild,
+      hasExisting: !!existing,
+      sameSet: !!sameSet,
+      existingVisitDate: existing?.visitDate,
+      currentDate,
+    })
+    if (action === "open" && existing) {
       handleOpenItinerary(existing)
       return
     }
@@ -4563,7 +4579,7 @@ export default function PlannerPage() {
                                         )}
                                         <button
                                           type="button"
-                                          onClick={() => handleOpenOrRebuildFromChat(planTripIds)}
+                                          onClick={() => handleOpenOrRebuildFromChat(planTripIds, { forceRebuild: cardStale })}
                                           disabled={itineraryRegenerating}
                                           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
                                         >
