@@ -20,6 +20,7 @@ import aiSystemConfigs from "./data/003-ai-system-configs.json"
 import ebikeConditionsMedia from "./data/005-ebike-conditions-media.json"
 import mediaLibraryFiles from "./data/008-media-library-files.json"
 import tripImages from "./data/009-trip-images.json"
+import adminUsers from "./data/014-admin-users.json"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 import { tierOf, providerOf, TIER_MODELS } from "@/lib/ai/models"
 
@@ -847,6 +848,88 @@ async function applyUpgradePlannerItineraryModels(): Promise<MigrationResult> {
   return { inserted, skipped, detail: details.join("; ") }
 }
 
+type AdminUserSeed = {
+  id: string
+  email: string | null
+  name: string
+  password_hash: string
+  role: string
+  is_active: boolean
+  username: string | null
+  permissions: unknown
+  file_rules: unknown
+}
+
+/**
+ * Restores the PRODUCTION admin_users accounts (snapshot taken from the live DB)
+ * into the connected DB. Used to preserve the production back-office accounts
+ * across a full Publish "overwrite all data" (dev → prod), which would otherwise
+ * replace admin_users with the development accounts. Run this on the live site
+ * AFTER such an overwrite to put the production admin accounts back exactly.
+ *
+ * DATA-only (INSERT/UPDATE rows; no DDL). AUTHORITATIVE & idempotent: each row is
+ * upserted by primary key (id), so an account brought in by the overwrite (e.g.
+ * the shared admin@sightseeing.lu, same id in dev and prod) is reset to its
+ * PRODUCTION credentials/permissions, and a prod-only account is re-created.
+ *
+ * ⚠️ Because this restores a fixed snapshot, re-running it overwrites any later
+ * edits made directly on the live site back to the snapshot values. Re-export
+ * this JSON from the live DB if those accounts change.
+ *
+ * The committed snapshot carries each account's existing bcrypt password hash
+ * (one-way) so the restored user logs in with their current production password.
+ */
+async function applyAdminUsers(): Promise<MigrationResult> {
+  const seeds = adminUsers as AdminUserSeed[]
+  // Run as a single transaction so a partial multi-account restore can't happen
+  // (e.g. one row inserted, the next throwing a unique conflict leaves it consistent).
+  return withTransaction(async (q) => {
+    let inserted = 0
+    let updated = 0
+    const details: string[] = []
+    for (const u of seeds) {
+      const existing = await q<{ id: string }>(
+        `SELECT id FROM admin_users WHERE id = $1 LIMIT 1`,
+        [u.id],
+      )
+      const wasPresent = existing.length > 0
+      await q(
+        `INSERT INTO admin_users
+           (id, email, name, password_hash, role, is_active, username, permissions, file_rules)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)
+         ON CONFLICT (id) DO UPDATE SET
+           email = EXCLUDED.email,
+           name = EXCLUDED.name,
+           password_hash = EXCLUDED.password_hash,
+           role = EXCLUDED.role,
+           is_active = EXCLUDED.is_active,
+           username = EXCLUDED.username,
+           permissions = EXCLUDED.permissions,
+           file_rules = EXCLUDED.file_rules`,
+        [
+          u.id,
+          u.email,
+          u.name,
+          u.password_hash,
+          u.role,
+          u.is_active,
+          u.username,
+          JSON.stringify(u.permissions ?? []),
+          u.file_rules == null ? null : JSON.stringify(u.file_rules),
+        ],
+      )
+      if (wasPresent) {
+        updated++
+        details.push(`${u.username ?? u.email ?? u.id}: restored (overwrote existing)`)
+      } else {
+        inserted++
+        details.push(`${u.username ?? u.email ?? u.id}: restored (inserted)`)
+      }
+    }
+    return { inserted, skipped: updated, detail: details.join("; ") }
+  })
+}
+
 /**
  * The ordered registry. Add new migrations to the END with the next numeric id.
  * Keep ids stable once shipped — they are the tracking keys.
@@ -943,6 +1026,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Bumps the Trip Planner chat and Itinerary builder AI Systems up to the BEST model tier of their current provider (large context + deeper analysis) and raises max_tokens to at least 4096. Both features inject the full live trip menu plus tools every turn, so the fast tier under-performs. DATA-only (UPDATEs the planner/itinerary rows; no DDL). Idempotent: a row already on the best tier with max_tokens >= 4096 is left untouched.",
     apply: applyUpgradePlannerItineraryModels,
+  },
+  {
+    id: "014-admin-users",
+    name: "Restore production admin accounts",
+    description:
+      "Restores the PRODUCTION back-office accounts (admin@sightseeing.lu superadmin + the prod-only employee hello@sightseeing.lu / Sightseeing_staff) into admin_users. Run this on the live site AFTER a full Publish 'overwrite all data' (dev → prod), which would otherwise replace admin_users with the development accounts. The committed snapshot is taken from the live DB and carries each account's existing bcrypt password hash so they log in with their current production passwords. DATA-only (INSERT/UPDATE; no DDL). AUTHORITATIVE & idempotent: each account is upserted by id, so a row brought in by the overwrite is reset to its production values. ⚠️ Re-running overwrites later live edits back to this snapshot — re-export the JSON from the live DB if those accounts change.",
+    apply: applyAdminUsers,
   },
 ]
 
