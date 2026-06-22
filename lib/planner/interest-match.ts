@@ -52,6 +52,34 @@ const STOPWORDS = new Set([
   "min", "mins", "minute", "minutes", "am", "pm",
 ])
 
+/**
+ * Extra filler/question words stripped ONLY from a free-text `query` (not from
+ * canonical-tag matching). A visitor question like "how many castle trips are
+ * there?" must reduce to the concept word(s) ["castle"] — otherwise generic
+ * words ("how", "many", "available") would match nothing or everything. This is
+ * a superset of STOPWORDS: it keeps theme/concept words (castle, fort, museum,
+ * boat, wine…) and drops only conversational scaffolding.
+ */
+const QUERY_STOPWORDS = new Set<string>([
+  ...STOPWORDS,
+  "how", "many", "much", "are", "is", "was", "were", "be", "been", "being",
+  "there", "here", "want", "wants", "wanna", "would", "like", "likes", "love",
+  "show", "shows", "see", "seeing", "find", "finds", "get", "gets", "give",
+  "gives", "need", "needs", "looking", "look", "please", "thanks", "thank",
+  "can", "could", "should", "shall", "will", "wont",
+  "what", "whats", "which", "who", "where", "when", "why", "whom",
+  "some", "any", "all", "more", "most", "other", "others", "else", "instead",
+  "today", "todays", "tomorrow", "tonight", "now", "this", "that", "these",
+  "those", "near", "around", "about", "available", "availability",
+  "option", "options", "recommend", "recommended", "recommendation",
+  "recommendations", "suggest", "suggests", "suggestion", "suggestions",
+  "best", "good", "great", "nice", "top", "your", "yours", "you", "me", "my",
+  "mine", "our", "ours", "we", "us", "do", "does", "did", "doing", "done",
+  "go", "going", "gone", "went", "have", "has", "had", "having",
+  "let", "lets", "okay", "yes", "yeah", "yep", "sure", "thing", "things",
+  "something", "anything", "stuff", "really",
+])
+
 /** Light singular/plural fold so "museums" matches a title that says "Museum". */
 function normWord(w: string): string {
   return w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w
@@ -111,6 +139,62 @@ function tripTagSet(trip: MatchableTrip): Set<string> {
       .filter(Boolean)
       .map((t) => String(t).toLowerCase()),
   )
+}
+
+/** Full lowercased text blob of a trip (same fields as `tripWordSet`), used for
+ *  substring matching of longer concept words (e.g. "fort" inside "fortress"
+ *  or "Beaufort") that word-level matching would miss. */
+function tripFullText(trip: MatchableTrip): string {
+  return [
+    trip.title ?? "",
+    trip.category ?? "",
+    trip.duration ?? "",
+    trip.description ?? "",
+    trip.shortDescription ?? "",
+    trip.longDescription ?? "",
+    ...(trip.highlights ?? []),
+    ...(trip.tags ?? []),
+    ...(trip.tripTags ?? []),
+  ]
+    .join(" ")
+    .toLowerCase()
+}
+
+/**
+ * Meaningful concept keywords from a visitor's free-text `query`. Drops
+ * conversational scaffolding (QUERY_STOPWORDS) and words shorter than 3 chars so
+ * "how many castle trips are there?" → ["castle"] and "is there a fort option?"
+ * → ["fort"]. Returns [] for a query with no concept words (e.g. "show me
+ * something good today") so callers can fall back to NOT filtering.
+ */
+export function queryKeywords(query: string | null | undefined): string[] {
+  const words = String(query || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .filter((w) => w.length >= 3 && !QUERY_STOPWORDS.has(w))
+  return Array.from(new Set(words))
+}
+
+/**
+ * Does a trip match a free-text query (already reduced to concept keywords via
+ * `queryKeywords`)? A trip matches if ANY keyword hits its content — either as a
+ * whole word (plural-folded, e.g. "museum" ↔ "Museums") OR, for keywords ≥ 4
+ * chars, as a substring of the trip's text ("fort" ↔ "fortress"/"Beaufort",
+ * "castle" ↔ "Castle"). OR semantics across keywords (never a zero-result AND).
+ * These trips often carry NO tags, so content matching is the only signal.
+ */
+export function tripMatchesQuery(trip: MatchableTrip, keywords: string[]): boolean {
+  if (!keywords || keywords.length === 0) return false
+  const words = tripWordSet(trip)
+  const text = tripFullText(trip)
+  return keywords.some((kRaw) => {
+    const k = String(kRaw || "").toLowerCase()
+    if (!k) return false
+    if (words.has(normWord(k))) return true
+    if (k.length >= 4 && text.includes(k)) return true
+    return false
+  })
 }
 
 export interface InterestMatch {

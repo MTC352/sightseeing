@@ -148,3 +148,19 @@ scan, `""`=no-date scan), derive `availLoadedMatchesDate`, and gate `canvasCount
 (only the matching scan reopens it), and latch `didSendInitial` INSIDE the 300ms seed timeout
 (not before) so a no-date→date gate flip cancels the pending send instead of permanently
 blocking it — the cleanup `clearTimeout` keeps at most one pending, so no double-send.
+
+**Free-text `query` FILTERS, not just sorts (off-vocabulary concepts).** Concepts with no
+canonical tag (castle, fort, ruins, medieval, vineyard) used to return the WHOLE catalog because
+`searchTrips`' `query` param only re-sorted; only `tags` filtered. The AI then couldn't count or
+judge availability ("how many castle trips?" → wrong; "fort options?" → none though Beaufort is a
+fortress). FIX: `query` now FILTERS via `queryKeywords()`+`tripMatchesQuery()` (lib/planner/
+interest-match.ts), UNIONed with tag matches (OR, never zero-result AND). `queryKeywords` strips
+conversational scaffolding (QUERY_STOPWORDS) so "how many castle trips?" → ["castle"], vague
+queries → [] (no filter). `tripMatchesQuery` = plural-folded word match OR ≥4-char substring so
+"fort"↔"fortress"/"Beaufort". **Why:** these trips carry EMPTY tags so only title/description
+matching finds them; availability ground-truth is computed over the filtered `finalResults`, so
+filtering is what makes the counts honest. **Broaden-on-empty:** if a concept matches NO trip, fall
+back to full catalog (canvas never blank) BUT set `noDirectMatches:true` in the tool result so the
+AI answers counting/existence honestly ("we don't offer any X") instead of describing the broadened
+list as matches. Tool `query` description + searchTrips description tell the AI to route
+off-vocabulary concepts through `query` and to honor `noDirectMatches`.

@@ -11,7 +11,7 @@ import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts, buildCanvasCountLine } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
-import { scoreTripInterests } from "@/lib/planner/interest-match"
+import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
 import { toSearchCard } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
@@ -208,9 +208,9 @@ async function loadTripCatalog(): Promise<RichTrip[]> {
 
 const searchTripsTool = tool({
   description:
-    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns COMPACT trip cards (title, price, rating, duration, tags, a short description + a few highlights) — enough to recommend, compare, and order. For a specific trip's full inclusions, restrictions, itinerary, cancellation policy, or live timeslots, call `getTripDetails` instead. IMPORTANT — when a visit date is set the result ALSO includes an `availability` object that is the AUTHORITATIVE per-turn truth for the trips just returned: `availableOnVisitDateCount` (how many of these trips are bookable on the visit date), `noneAvailableOnVisitDate`, `alternativeDates` (these trips' other bookable dates) and `similarAvailableOnVisitDate` (closest trips bookable that same day). You MUST base your reply on this, not on any earlier canvas count: if `noneAvailableOnVisitDate` is true, NEVER say the canvas shows/now shows these trips for that date — say plainly none run that day, then recommend `alternativeDates` and/or a `similarAvailableOnVisitDate` trip BY NAME.",
+    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns COMPACT trip cards (title, price, rating, duration, tags, a short description + a few highlights) — enough to recommend, compare, and order. For a specific trip's full inclusions, restrictions, itinerary, cancellation policy, or live timeslots, call `getTripDetails` instead. IMPORTANT — if the result has `noDirectMatches: true`, the visitor's requested concept matched NO trip and the returned list is the broadened full catalog, NOT matches: answer counting/existence questions honestly ('we don't currently offer any X trips') and optionally suggest the closest themes, instead of describing the broadened list as if it matched. IMPORTANT — when a visit date is set the result ALSO includes an `availability` object that is the AUTHORITATIVE per-turn truth for the trips just returned: `availableOnVisitDateCount` (how many of these trips are bookable on the visit date), `noneAvailableOnVisitDate`, `alternativeDates` (these trips' other bookable dates) and `similarAvailableOnVisitDate` (closest trips bookable that same day). You MUST base your reply on this, not on any earlier canvas count: if `noneAvailableOnVisitDate` is true, NEVER say the canvas shows/now shows these trips for that date — say plainly none run that day, then recommend `alternativeDates` and/or a `similarAvailableOnVisitDate` trip BY NAME.",
   inputSchema: z.object({
-    query: z.string().describe("Search query or interest keywords. Pass an empty string when you are pinning by `ids` and don't need keyword ranking."),
+    query: z.string().describe("Free-text search. This FILTERS the Trip Canvas by matching the words against each trip's title, description, category and highlights — so use it for any concept the canonical tags below DON'T cover (e.g. 'castle', 'fort', 'fortress', 'ruins', 'medieval', 'vineyard', 'panoramic'). Many such trips carry no tags, so `query` is the ONLY way to find them accurately and to answer 'how many X trips' correctly. Pass the bare concept word(s); the result (and its `availability` object) will reflect exactly the matching trips. Pass an empty string when pinning by `ids`, or when you've fully captured the request as `tags` and want every trip for those tags."),
     tags: z
       .array(z.string())
       .optional()
@@ -260,14 +260,39 @@ const searchTripsTool = tool({
     // trip's interest score so the final sort can float FULL matches (all
     // interests satisfied) above PARTIAL ones while still showing partials.
     const tagMatchRank = new Map<string, { full: boolean; score: number }>()
-    if (!hasValidPinnedIds && tags && tags.length > 0) {
+    // Concept words from the free-text query that aren't covered by the canonical
+    // tag vocabulary — e.g. "castle", "fort", "fortress", "medieval", "ruins".
+    // Many of these trips carry NO tags at all (their theme lives only in the
+    // title/description), so a tag-only filter dropped them and the free-text
+    // query merely RE-SORTED the whole catalog, leaving the AI unable to
+    // accurately count or judge availability ("how many castle trips?" → wrong).
+    // We now FILTER by query content too, unioned with the tag matches.
+    const qKeywords = !hasValidPinnedIds ? queryKeywords(query) : []
+    const hasTagFilter = !hasValidPinnedIds && !!tags && tags.length > 0
+    const hasQueryFilter = qKeywords.length > 0
+    // True when the visitor asked for a specific concept/tag but NOTHING in the
+    // catalog matched, so we fell back to showing everything. The AI must use
+    // this to answer counting questions honestly ("how many skydiving trips?" →
+    // "none") instead of describing the broadened full-catalog list as matches.
+    let broadenedNoMatch = false
+    if (hasTagFilter || hasQueryFilter) {
       const matched: RichTrip[] = []
       for (const t of results) {
-        const m = scoreTripInterests(t, tags)
-        tagMatchRank.set(t.id, { full: m.full, score: m.score })
-        if (m.hits > 0) matched.push(t)
+        let keep = false
+        if (hasTagFilter) {
+          const m = scoreTripInterests(t, tags as string[])
+          tagMatchRank.set(t.id, { full: m.full, score: m.score })
+          if (m.hits > 0) keep = true
+        }
+        // Union (OR), never an AND that could zero-out a valid concept search.
+        if (hasQueryFilter && tripMatchesQuery(t, qKeywords)) keep = true
+        if (keep) matched.push(t)
       }
+      // Broaden on a genuine no-match so the canvas is never left blank: a query
+      // for a concept we simply don't offer falls back to the full catalog
+      // (sorted by relevance below) rather than an empty panel.
       if (matched.length > 0) results = matched
+      else broadenedNoMatch = true
     }
 
     if (lower && !hasValidPinnedIds) {
@@ -411,6 +436,9 @@ const searchTripsTool = tool({
       weather: wx,
       total: results.length,
       catalogTotal: catalogSize,
+      // Honest "we don't offer this" signal: the visitor's concept matched no
+      // trip, so the list below is the broadened full catalog, NOT matches.
+      ...(broadenedNoMatch ? { noDirectMatches: true } : {}),
       ...(availability ? { availability } : {}),
     }
   },

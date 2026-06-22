@@ -2,7 +2,33 @@ import test from "node:test"
 import assert from "node:assert/strict"
 
 const mod = await import("../../.test-build/interest-match.js")
-const { interestKeywords, matchTripInterest, scoreTripInterests } = mod.default ?? mod
+const { interestKeywords, matchTripInterest, scoreTripInterests, queryKeywords, tripMatchesQuery } =
+  mod.default ?? mod
+
+// Real catalog trips that carry NO tags — their theme lives only in title/desc.
+const CASTLE_LAROCHETTE = {
+  id: "tcms_21",
+  title: "Entry Ticket to Chateau de Larochette",
+  description:
+    "Visit the Larochette Castle, one of the most picturesque medieval sites in Luxembourg, a dramatic ruin full of history and legends.",
+  tags: [],
+  duration: "Varies",
+}
+const CASTLE_BEAUFORT = {
+  id: "tcms_22",
+  title: "Entry Ticket to Chateau de Beaufort",
+  description:
+    "Explore the Beaufort Castle — two historic buildings with the ruins of a medieval castle and a 17th century residence built on the rock above the fortress.",
+  tags: [],
+  duration: "Varies",
+}
+const MUSEUMS_COMBI = {
+  id: "tcms_18",
+  title: "Combi-ticket City Train & 7 Museums",
+  description: "Step back in time! Discover Luxembourg's old town and fortress aboard the City Train.",
+  tags: [],
+  duration: "check timetable",
+}
 
 const MUSEUM_TAGGED = {
   id: "tcms_1",
@@ -140,4 +166,41 @@ test("full match ranks above a higher-scoring partial (server/client sort parity
   const cmp = (a, b) => (b.full ? 1 : 0) - (a.full ? 1 : 0) || b.score - a.score
   const ordered = [partial, full].sort(cmp)
   assert.equal(ordered[0].full, true, "full match must sort first even if partial scores higher")
+})
+
+test("queryKeywords — strips question scaffolding to the concept word", () => {
+  assert.deepEqual(queryKeywords("how many castle trips are there?"), ["castle"])
+  assert.deepEqual(queryKeywords("is there a fort option?"), ["fort"])
+  assert.deepEqual(queryKeywords("i want to go castle"), ["castle"])
+})
+
+test("queryKeywords — vague query with no concept word yields [] (caller broadens)", () => {
+  assert.deepEqual(queryKeywords("show me something good today"), [])
+  assert.deepEqual(queryKeywords(""), [])
+  assert.deepEqual(queryKeywords(null), [])
+})
+
+test("tripMatchesQuery — 'castle' matches both untagged castle trips via content", () => {
+  const kw = queryKeywords("castle")
+  assert.equal(tripMatchesQuery(CASTLE_LAROCHETTE, kw), true)
+  assert.equal(tripMatchesQuery(CASTLE_BEAUFORT, kw), true)
+})
+
+test("tripMatchesQuery — 'fort' substring-matches 'fortress' and 'Beaufort'", () => {
+  const kw = queryKeywords("fort")
+  assert.equal(tripMatchesQuery(CASTLE_BEAUFORT, kw), true, "Beaufort + fortress")
+  assert.equal(tripMatchesQuery(MUSEUMS_COMBI, kw), true, "...aboard the City Train fortress")
+})
+
+test("tripMatchesQuery — 'museum' matches the untagged 7-Museums combi ticket", () => {
+  assert.equal(tripMatchesQuery(MUSEUMS_COMBI, queryKeywords("museum")), true)
+})
+
+test("tripMatchesQuery — unrelated concept does NOT match (honest empty)", () => {
+  assert.equal(tripMatchesQuery(CASTLE_LAROCHETTE, queryKeywords("skydiving")), false)
+  assert.equal(tripMatchesQuery(WALKING, queryKeywords("castle")), false)
+})
+
+test("tripMatchesQuery — empty keywords never match", () => {
+  assert.equal(tripMatchesQuery(CASTLE_LAROCHETTE, []), false)
 })
