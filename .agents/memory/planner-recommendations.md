@@ -185,3 +185,15 @@ back to full catalog (canvas never blank) BUT set `noDirectMatches:true` in the 
 AI answers counting/existence honestly ("we don't offer any X") instead of describing the broadened
 list as matches. Tool `query` description + searchTrips description tell the AI to route
 off-vocabulary concepts through `query` and to honor `noDirectMatches`.
+
+**Auto-seed tool pins must NOT drive the canvas (determinism invariant).** The hidden
+post-onboarding auto-seed turn answers via `searchTrips`, which the model narrows to a
+DIFFERENT random subset each load — so the canvas total + "Available on Today" badge swung
+(e.g. 18→7→3 / 7→3→1) for IDENTICAL prefs. **Rule:** the `aiTrips` memo honors AI tool pins
+ONLY from messages at/after the first REAL (non-auto-seed) user message; before that the canvas
+stays on deterministic `recommendedTrips`. Helper: `lib/planner/canvas-trips.ts`
+(`AUTO_SEED_PREFIX`, `isAutoSeedText`, `firstRealUserMessageIndex`). The auto-seed `sendMessage`
+text MUST be built from `AUTO_SEED_PREFIX` so sender+detector never drift. Suggestion chips/typed
+input go through `sendMessage` with non-seed text → count as real → narrowing still re-pins.
+**Why:** enforces the "canvas deterministic, decoupled from AI chat" intent against the auto-seed.
+Residual: TourCMS `unknown` availability flakiness can still nudge "Available on Today" independently.

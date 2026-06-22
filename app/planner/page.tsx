@@ -36,6 +36,7 @@ import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
 import { resolveCartToolAction } from "@/lib/planner/trip-match"
 import { scoreTripInterests } from "@/lib/planner/interest-match"
 import { isCanvasCountTrustworthy } from "@/lib/planner/availability-parity"
+import { AUTO_SEED_PREFIX, firstRealUserMessageIndex } from "@/lib/planner/canvas-trips"
 import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
@@ -3311,7 +3312,7 @@ export default function PlannerPage() {
         const visitDate = prefs.startDate || todayYMD()
         const isToday = visitDate === todayYMD()
         const datePhrase = isToday ? "today" : `on ${formatYMDPretty(visitDate)} (${visitDate})`
-        sendMessage({ text: `Find the best trips for me ${datePhrase} based on my preferences and the weather. Analyse each trip's description and details (day vs night activities, opening hours, indoor vs outdoor) to match trips that genuinely fit my visit date and time-of-day. The Trip Canvas already shows which trips are bookable on ${visitDate} — recommend from those and never tell me nothing is available when the canvas lists trips.` })
+        sendMessage({ text: `${AUTO_SEED_PREFIX} ${datePhrase} based on my preferences and the weather. Analyse each trip's description and details (day vs night activities, opening hours, indoor vs outdoor) to match trips that genuinely fit my visit date and time-of-day. The Trip Canvas already shows which trips are bookable on ${visitDate} — recommend from those and never tell me nothing is available when the canvas lists trips.` })
       }, 300)
       return () => clearTimeout(t)
     }
@@ -3415,7 +3416,27 @@ export default function PlannerPage() {
   const aiTrips = useMemo(() => {
     const found: Trip[] = []
     const seen = new Set<string>()
-    for (const msg of messages) {
+    // ── Canvas determinism (see lib/planner/canvas-trips.ts) ──
+    // Ignore tool pins from the hidden auto-seed turn. That opening AI turn is
+    // non-deterministic — it narrows to a different subset on every load (18 →
+    // 7 → 3 …), which made "Recommended for you" + "Available on Today" swing
+    // for identical preferences. Until the visitor sends a REAL chat message
+    // (typing or a suggestion chip) we honor NO pins and the canvas stays on the
+    // deterministic `recommendedTrips` fallback. Once a real message lands the
+    // AI may re-pin, so "show me museums" still narrows the canvas.
+    const firstRealIdx = firstRealUserMessageIndex(
+      messages.map((m) => ({
+        role: m.role,
+        text: m.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join(" "),
+      })),
+    )
+    if (firstRealIdx === -1) return found
+    for (let mi = 0; mi < messages.length; mi++) {
+      if (mi < firstRealIdx) continue
+      const msg = messages[mi]
       for (const part of msg.parts) {
         if (part.type === "tool-searchTrips" && part.state === "output-available") {
           const output = part.output as {
