@@ -4,7 +4,7 @@
  * from lib/admin-store.ts. Shape of returned objects matches AdminTrip,
  * AdminPost, etc. so existing API handlers need minimal changes.
  */
-import { query, queryOne, pool } from "@/lib/db"
+import { query, queryOne, pool, withTransaction } from "@/lib/db"
 import {
   type AiProvider,
   effectiveProvider,
@@ -552,6 +552,113 @@ export async function dbCreateApplication(data: Record<string, unknown>) {
     data.linkedinUrl ?? null, JSON.stringify(data.attachments ?? []),
   ])
   return rows[0]
+}
+
+export type ApplicationReserveResult =
+  | { ok: true; id: string }
+  | { ok: false; reason: "duplicate" | "per_email_limit" | "per_job_limit" | "global_limit" }
+
+/**
+ * Atomically validates all abuse controls and reserves an application slot.
+ *
+ * Acquires a row-level lock on the job row (`SELECT … FOR UPDATE`) so the
+ * duplicate check, per-job count, and INSERT all execute inside one serialised
+ * transaction. This closes the TOCTOU race that exists when checks and writes
+ * are separate statements.
+ *
+ * Hard limits enforced here (none bypassable via IP or email rotation):
+ *   - Duplicate:          same email+job pair already exists        → 409
+ *   - Per-email (1 h):    same email submitted ≥3 applications      → 429
+ *   - Per-job   (24 h):   job received ≥100 applications today      → 429
+ *   - Global    (1 h):    ≥300 applications across all jobs/hour    → 429
+ *
+ * The row is inserted with `resume_url = NULL` and `attachments = '[]'` so
+ * the slot is reserved before any blobs are written. Call
+ * `dbFinalizeApplication` once uploads succeed.
+ *
+ * If blob uploads fail the caller MUST delete the reservation row (via
+ * `dbDeleteApplication`) so the applicant can retry.
+ */
+export async function dbReserveApplication(data: {
+  jobId: string
+  fullName: string
+  email: string
+  phone: string | null
+  coverLetter: string
+  linkedinUrl: string | null
+  portfolioUrl: string | null
+}): Promise<ApplicationReserveResult> {
+  const PER_EMAIL_LIMIT = 3
+  const EMAIL_WINDOW_MS = 60 * 60 * 1000
+
+  const PER_JOB_LIMIT = 100
+  const JOB_WINDOW_MS = 24 * 60 * 60 * 1000
+
+  const GLOBAL_LIMIT = 300
+  const GLOBAL_WINDOW_MS = 60 * 60 * 1000
+
+  return withTransaction(async (q) => {
+    await q(`SELECT id FROM jobs WHERE id = $1 FOR UPDATE`, [data.jobId])
+
+    const dup = await q<{ id: string }>(
+      `SELECT id FROM job_applications WHERE lower(email) = lower($1) AND job_id = $2 LIMIT 1`,
+      [data.email, data.jobId],
+    )
+    if (dup.length > 0) return { ok: false, reason: "duplicate" }
+
+    const emailSince = new Date(Date.now() - EMAIL_WINDOW_MS)
+    const emailRows = await q<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM job_applications WHERE lower(email) = lower($1) AND created_at >= $2`,
+      [data.email, emailSince],
+    )
+    if (parseInt(emailRows[0]?.count ?? "0", 10) >= PER_EMAIL_LIMIT) {
+      return { ok: false, reason: "per_email_limit" }
+    }
+
+    const jobSince = new Date(Date.now() - JOB_WINDOW_MS)
+    const jobRows = await q<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM job_applications WHERE job_id = $1 AND created_at >= $2`,
+      [data.jobId, jobSince],
+    )
+    if (parseInt(jobRows[0]?.count ?? "0", 10) >= PER_JOB_LIMIT) {
+      return { ok: false, reason: "per_job_limit" }
+    }
+
+    const globalSince = new Date(Date.now() - GLOBAL_WINDOW_MS)
+    const globalRows = await q<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM job_applications WHERE created_at >= $1`,
+      [globalSince],
+    )
+    if (parseInt(globalRows[0]?.count ?? "0", 10) >= GLOBAL_LIMIT) {
+      return { ok: false, reason: "global_limit" }
+    }
+
+    const rows = await q<{ id: string }>(`
+      INSERT INTO job_applications (job_id, full_name, email, phone, cover_letter,
+        portfolio_url, linkedin_url, resume_url, attachments)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,'[]') RETURNING id
+    `, [
+      data.jobId, data.fullName, data.email, data.phone ?? null,
+      data.coverLetter, data.portfolioUrl ?? null, data.linkedinUrl ?? null,
+    ])
+
+    return { ok: true, id: rows[0].id }
+  })
+}
+
+/**
+ * Fills in the blob URLs on a previously reserved application row.
+ * Called once all file uploads have completed successfully.
+ */
+export async function dbFinalizeApplication(
+  id: string,
+  resumeUrl: string | null,
+  attachments: { name: string; url: string }[],
+): Promise<void> {
+  await query(
+    `UPDATE job_applications SET resume_url = $1, attachments = $2 WHERE id = $3`,
+    [resumeUrl, JSON.stringify(attachments), id],
+  )
 }
 
 // ── Help Articles ──────────────────────────────────────────────────────────

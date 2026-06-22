@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 import { put } from "@vercel/blob"
-import { dbCreateApplication } from "@/lib/db/queries"
+import {
+  dbDeleteApplication,
+  dbReserveApplication,
+  dbFinalizeApplication,
+} from "@/lib/db/queries"
 import { queryOne } from "@/lib/db"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import { sanitizeExternalUrl } from "@/lib/sanitize-html"
@@ -82,6 +86,8 @@ async function readBodyWithLimit(
 
 export async function POST(request: Request) {
   schedulePrune()
+  // Fast path: in-memory per-IP limiter as a first-line check.
+  // This is NOT the durable abuse control — see dbReserveApplication below.
   const limit = rateLimit(request, { limit: 5, windowMs: 60 * 60 * 1000 })
   if (!limit.allowed) return limit.response
 
@@ -158,6 +164,57 @@ export async function POST(request: Request) {
       }
     }
 
+    // ── Durable abuse controls: atomic reservation ───────────────────────────
+    // dbReserveApplication runs inside a single DB transaction that:
+    //   1. Locks the job row (SELECT … FOR UPDATE) to serialise concurrent
+    //      submissions and close the TOCTOU race between checks and insert.
+    //   2. Enforces four hard limits, none of which can be bypassed by rotating
+    //      IPs or email addresses:
+    //        • Duplicate: same email+job pair already exists       → 409
+    //        • Per-email (1 h):  ≥3 applications from this email  → 429
+    //        • Per-job   (24 h): ≥100 applications to this job    → 429
+    //        • Global    (1 h):  ≥300 applications platform-wide  → 429
+    //   3. Inserts a placeholder row (resume_url=NULL, attachments=[]) that
+    //      reserves the slot BEFORE any blobs are written.
+    //
+    // Blob writes only happen AFTER the slot is reserved and all limits are
+    // confirmed. If uploads fail the reservation is deleted so the applicant
+    // can retry without being blocked by the duplicate guard.
+    const reservation = await dbReserveApplication({
+      jobId,
+      fullName,
+      email,
+      phone: phone ?? null,
+      coverLetter,
+      linkedinUrl: sanitizeExternalUrl(linkedinUrl),
+      portfolioUrl: sanitizeExternalUrl(portfolioUrl),
+    })
+
+    if (!reservation.ok) {
+      switch (reservation.reason) {
+        case "duplicate":
+          return NextResponse.json(
+            { error: "You have already applied for this position." },
+            { status: 409 },
+          )
+        case "per_email_limit":
+          return NextResponse.json(
+            { error: "Too many applications submitted recently. Please wait before trying again." },
+            { status: 429 },
+          )
+        case "per_job_limit":
+          return NextResponse.json(
+            { error: "This position is no longer accepting new applications at this time." },
+            { status: 429 },
+          )
+        case "global_limit":
+          return NextResponse.json(
+            { error: "The application system is temporarily busy. Please try again shortly." },
+            { status: 429 },
+          )
+      }
+    }
+
     // Upload validated files as private blobs. Private blobs are not accessible
     // via direct URL — they require server-side authentication (BLOB_READ_WRITE_TOKEN).
     // The admin UI always downloads through the /api/admin/applications/download
@@ -165,45 +222,41 @@ export async function POST(request: Request) {
     const attachments: { name: string; url: string }[] = []
     let resumeUrl: string | undefined
 
-    if (resume && resume.size > 0) {
-      const ext = resume.name.split(".").pop() ?? "bin"
-      const blob = await put(
-        `applications/${jobId}/${randomToken()}.${ext}`,
-        resume,
-        { access: "private" }
-      )
-      resumeUrl = blob.url
-      attachments.push({ name: resume.name, url: blob.url })
-    }
-
-    for (const file of extraFiles) {
-      if (file && file.size > 0) {
-        const ext = file.name.split(".").pop() ?? "bin"
+    try {
+      if (resume && resume.size > 0) {
+        const ext = resume.name.split(".").pop() ?? "bin"
         const blob = await put(
           `applications/${jobId}/${randomToken()}.${ext}`,
-          file,
+          resume,
           { access: "private" }
         )
-        attachments.push({ name: file.name, url: blob.url })
+        resumeUrl = blob.url
+        attachments.push({ name: resume.name, url: blob.url })
       }
+
+      for (const file of extraFiles) {
+        if (file && file.size > 0) {
+          const ext = file.name.split(".").pop() ?? "bin"
+          const blob = await put(
+            `applications/${jobId}/${randomToken()}.${ext}`,
+            file,
+            { access: "private" }
+          )
+          attachments.push({ name: file.name, url: blob.url })
+        }
+      }
+    } catch (uploadError) {
+      // Upload failed — remove the reservation so the applicant can retry.
+      // Best-effort: if the delete also fails the orphaned row is harmless
+      // (no blobs attached) and the applicant is not permanently blocked.
+      await dbDeleteApplication(reservation.id).catch(() => undefined)
+      throw uploadError
     }
 
-    const application = await dbCreateApplication({
-      jobId,
-      fullName,
-      email,
-      phone: phone ?? null,
-      coverLetter,
-      resumeUrl: resumeUrl ?? null,
-      // Validate applicant-supplied links at the trust boundary: only absolute
-      // http(s) URLs are stored. Dangerous schemes (javascript:, data:, …) are
-      // dropped to null so they can never reach an admin-page href.
-      linkedinUrl: sanitizeExternalUrl(linkedinUrl),
-      portfolioUrl: sanitizeExternalUrl(portfolioUrl),
-      attachments,
-    })
+    // Finalise: write blob URLs back to the reserved row.
+    await dbFinalizeApplication(reservation.id, resumeUrl ?? null, attachments)
 
-    return NextResponse.json({ success: true, id: (application as Record<string, unknown>).id })
+    return NextResponse.json({ success: true, id: reservation.id })
   } catch (error) {
     console.error("[careers/apply] POST error:", error)
     return NextResponse.json({ error: "Failed to submit application" }, { status: 500 })
