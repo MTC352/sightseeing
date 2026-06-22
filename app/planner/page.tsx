@@ -34,6 +34,7 @@ import {
 } from "lucide-react"
 import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
 import { resolveCartToolAction } from "@/lib/planner/trip-match"
+import { scoreTripInterests } from "@/lib/planner/interest-match"
 import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
@@ -3509,12 +3510,14 @@ export default function PlannerPage() {
       return minH == null || minH <= capH
     }
     const scored = allTrips.map((t) => {
-      let score = 0
-      let interestHits = 0
-      for (const interest of prefs.interests) {
-        if (t.tags.includes(interest)) { score += 10; interestHits++ }
-        if (t.category.toLowerCase().includes(interest)) score += 5
-      }
+      // Content-aware interest match: an interest counts if it hits the trip's
+      // tags OR its title/description/category/duration/highlights — not tags
+      // alone (tags are sparse, so tag-only matching dropped relevant trips).
+      // Multi-interest is OR: a trip with ≥1 interest is kept; `full` (every
+      // interest matched) floats to the top so full matches rank above partials.
+      const im = scoreTripInterests(t, prefs.interests)
+      let score = im.score
+      const interestHits = im.hits
       if (wxCond === "rainy" && t.tags.includes("indoor")) score += 5
       if (wxCond === "sunny" && t.tags.includes("outdoor")) score += 5
       if (t.rating >= 4.7) score += 3
@@ -3523,9 +3526,11 @@ export default function PlannerPage() {
         if (prefs.budget === "premium" && t.price >= 60) score += 4
         if (prefs.budget === "mid-range" && t.price > 20 && t.price < 80) score += 4
       }
-      return { trip: t, score, interestHits }
+      return { trip: t, score, interestHits, full: im.full }
     })
-    scored.sort((a, b) => b.score - a.score)
+    // Full matches (every picked interest satisfied) first, then by score — so
+    // partial matches still appear, just ranked below the full ones.
+    scored.sort((a, b) => (b.full ? 1 : 0) - (a.full ? 1 : 0) || b.score - a.score)
     // NO interests picked → recommend the ENTIRE catalog (still within the
     // duration cap), score-ordered. The visitor told us nothing to narrow on,
     // so the canvas + chat should surface every available trip rather than a

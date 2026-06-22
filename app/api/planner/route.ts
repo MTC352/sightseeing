@@ -11,6 +11,7 @@ import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts, buildCanvasCountLine } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
+import { scoreTripInterests } from "@/lib/planner/interest-match"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
 import { toSearchCard } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
@@ -252,13 +253,21 @@ const searchTripsTool = tool({
         hasValidPinnedIds = true
       }
     }
+    // Content-aware interest narrowing. A requested tag matches a trip via an
+    // exact canonical tag OR via its title/description/category/duration —
+    // sparse tags alone used to drop relevant trips. Multi-tag is OR (never a
+    // zero-result AND): keep EVERY trip matching ≥1 interest, and remember each
+    // trip's interest score so the final sort can float FULL matches (all
+    // interests satisfied) above PARTIAL ones while still showing partials.
+    const tagMatchRank = new Map<string, { full: boolean; score: number }>()
     if (!hasValidPinnedIds && tags && tags.length > 0) {
-      const tagged = results.filter((t) =>
-        tags.some((tag) =>
-          t.tags.includes(tag) || (t.tripTags ?? []).includes(tag),
-        ),
-      )
-      if (tagged.length > 0) results = tagged
+      const matched: RichTrip[] = []
+      for (const t of results) {
+        const m = scoreTripInterests(t, tags)
+        tagMatchRank.set(t.id, { full: m.full, score: m.score })
+        if (m.hits > 0) matched.push(t)
+      }
+      if (matched.length > 0) results = matched
     }
 
     if (lower && !hasValidPinnedIds) {
@@ -292,6 +301,17 @@ const searchTripsTool = tool({
     // re-sort by weather/rating, which would scramble the AI's shortlist.
     if (!hasValidPinnedIds) {
       results.sort((a, b) => {
+        // Interest fit dominates: trips matching ALL requested interests (FULL)
+        // come first, then by interest score (partial matches still included),
+        // then weather/rating. Empty when no tags were requested → weather/rating
+        // ordering only, as before.
+        const ra = tagMatchRank.get(a.id)
+        const rb = tagMatchRank.get(b.id)
+        const fa = ra?.full ? 1 : 0
+        const fb = rb?.full ? 1 : 0
+        if (fa !== fb) return fb - fa
+        const im = (rb?.score ?? 0) - (ra?.score ?? 0)
+        if (im !== 0) return im
         let aS = 0, bS = 0
         const aTags = [...a.tags, ...(a.tripTags ?? [])]
         const bTags = [...b.tags, ...(b.tripTags ?? [])]

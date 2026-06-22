@@ -22,15 +22,21 @@
  * safe to import from both the route handler and tests.
  */
 
+import { matchTripInterest, type MatchableTrip } from "./interest-match"
+
 export interface InterestVocabEntry {
   value: string
   label: string
 }
 
-export interface CatalogTripLite {
+/**
+ * A catalog trip the theme-availability fold can match interests against. The
+ * text fields (title/description/category/etc) are optional but, when present,
+ * let a theme count as "offered" even when it was never tagged — matching the
+ * content-aware behavior of the Trip Canvas + searchTrips (see interest-match).
+ */
+export interface CatalogTripLite extends MatchableTrip {
   id: string
-  tags?: string[] | null
-  tripTags?: string[] | null
 }
 
 /**
@@ -82,15 +88,15 @@ export function computeAvailableInterests(args: {
     if (seen.has(entry.value)) continue
     seen.add(entry.value)
 
-    const tagTrips = catalog.filter((t) => {
-      const tags = [...(t.tags ?? []), ...(t.tripTags ?? [])]
-      return tags.includes(entry.value)
-    })
-    if (tagTrips.length === 0) continue // theme not offered at all → no claim.
+    // Content-aware: a theme is "offered" if any catalog trip matches it via an
+    // exact tag OR via its title/description/category/etc — NOT tags alone. So a
+    // museum trip that was never tagged `museums` still counts toward the theme.
+    const themeTrips = catalog.filter((t) => matchTripInterest(t, entry).matched)
+    if (themeTrips.length === 0) continue // theme not offered at all → no claim.
 
     let anyAvailable = false
     let anyUnavailable = false
-    for (const t of tagTrips) {
+    for (const t of themeTrips) {
       const s = tripStatus(t.id)
       if (s === "available") {
         anyAvailable = true
