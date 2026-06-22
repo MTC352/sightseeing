@@ -4136,7 +4136,11 @@ export default function PlannerPage() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* ───── LEFT: Chat Sidebar ───── */}
-        <div className={`flex flex-col border-r border-border bg-card transition-all duration-300 ${sidebarOpen ? "w-full sm:w-80 lg:w-96" : "w-0 overflow-hidden"}`}>
+        {/* Entirely dynamic (live weather, AI onboarding wizard, chat stream,
+            suggestion chips). data-no-edit keeps the frontend Edit Mode
+            auto-layer from tagging any of it — admins must NOT inline-edit
+            backend-driven content. */}
+        <div data-no-edit className={`flex flex-col border-r border-border bg-card transition-all duration-300 ${sidebarOpen ? "w-full sm:w-80 lg:w-96" : "w-0 overflow-hidden"}`}>
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2">
@@ -4828,8 +4832,9 @@ export default function PlannerPage() {
 
         {/* ───── CENTER: Results Area ───── */}
         <div className="relative flex-1 overflow-y-auto">
-          {/* Mobile / tablet toggles (chat hidden < sm, cart hidden < xl) */}
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur-sm xl:hidden">
+          {/* Mobile / tablet toggles (chat hidden < sm, cart hidden < xl) —
+              chrome + dynamic cart count, never inline-editable. */}
+          <div data-no-edit className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur-sm xl:hidden">
             {!sidebarOpen ? (
               <button type="button" onClick={() => setSidebarOpen(true)}
                 className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground sm:hidden">
@@ -4849,7 +4854,7 @@ export default function PlannerPage() {
               and the system prompt both refer to this region as
               "Trip Canvas" so the assistant can say things like
               "I've updated the Trip Canvas" without ambiguity. */}
-          <div className="hidden items-center gap-2 border-b border-border bg-background/95 px-6 py-2 sm:flex">
+          <div data-no-edit className="hidden items-center gap-2 border-b border-border bg-background/95 px-6 py-2 sm:flex">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Trip Canvas
             </span>
@@ -4870,7 +4875,7 @@ export default function PlannerPage() {
               still rendered at the top so users can see the route +
               numbered pins alongside the timeline. */}
           {centerItinerary && centerItineraryOpen ? (
-            <div className="flex flex-col">
+            <div data-no-edit className="flex flex-col">
               <div className="border-b border-border">
                 <button
                   type="button"
@@ -4918,7 +4923,8 @@ export default function PlannerPage() {
           ) : !showResults ? (
             /* ── Welcome / Waiting ── */
             <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-12">
-              <div className={`rounded-2xl bg-gradient-to-br ${wx === "rainy" ? "from-blue-50 to-slate-100" : wx === "sunny" ? "from-amber-50 to-orange-50" : "from-slate-50 to-sky-50"} p-5 lg:p-6`}>
+              {/* Live weather card — dynamic, never inline-editable. */}
+              <div data-no-edit className={`rounded-2xl bg-gradient-to-br ${wx === "rainy" ? "from-blue-50 to-slate-100" : wx === "sunny" ? "from-amber-50 to-orange-50" : "from-slate-50 to-sky-50"} p-5 lg:p-6`}>
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-4">
                     <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-card/80 shadow-sm ${wxColor(wx)}`}>
@@ -4936,7 +4942,11 @@ export default function PlannerPage() {
                   </div>
                 </div>
               </div>
-              <div className="mt-6 max-w-3xl sm:mt-8">
+              {/* Headline + subtext toggle between STATIC marketing copy (no prefs)
+                  and DYNAMIC loading-status text (prefs set). Only the static copy
+                  is inline-editable — when prefs exist the same nodes render
+                  transient status, so we mark the block data-no-edit then. */}
+              <div {...(prefs ? { "data-no-edit": true } : {})} className="mt-6 max-w-3xl sm:mt-8">
                 <div className="flex items-center gap-3">
                   {(discoveringPrefs || (isStreaming && displayedAiTrips.length === 0)) && (
                     <Loader2 className="h-6 w-6 shrink-0 animate-spin text-primary" />
@@ -4996,7 +5006,7 @@ export default function PlannerPage() {
             </div>
           ) : selectedTrip ? (
             /* ── Trip Detail View (closable) ── */
-            <div className="flex flex-col">
+            <div data-no-edit className="flex flex-col">
               <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-sm">
                 <button type="button" onClick={() => setSelectedTrip(null)}
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-border transition-colors hover:bg-secondary" aria-label="Close detail">
@@ -5035,7 +5045,7 @@ export default function PlannerPage() {
             </div>
           ) : (
             /* ── Results: Map + Grid ── */
-            <div className="flex flex-col">
+            <div data-no-edit className="flex flex-col">
               {/* Header bar */}
               <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
                 <div className={`inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 ${wx === "rainy" ? "bg-blue-50" : wx === "sunny" ? "bg-amber-50" : "bg-slate-50"}`}>
@@ -5219,7 +5229,7 @@ export default function PlannerPage() {
         {/* ───── RIGHT: Cart (desktop) — always the cart, even when the
             itinerary panel is open in the center. The Build/View
             Itinerary CTA at the bottom controls the center panel. */}
-        <div className="hidden w-80 flex-col border-l border-border bg-card xl:flex">
+        <div data-no-edit className="hidden w-80 flex-col border-l border-border bg-card xl:flex">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2">
               <ShoppingBag className="h-4 w-4 text-primary" />
@@ -5258,7 +5268,7 @@ export default function PlannerPage() {
         {cartOpen && (
           <div className="fixed inset-0 z-50 xl:hidden">
             <div className="absolute inset-0 bg-foreground/40" onClick={() => setCartOpen(false)} onKeyDown={() => {}} role="button" tabIndex={0} aria-label="Close cart" />
-            <div className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-96">
+            <div data-no-edit className="absolute inset-y-0 right-0 flex w-full flex-col bg-card shadow-xl sm:w-96">
               <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2">
                   <ShoppingBag className="h-4 w-4 text-primary" />

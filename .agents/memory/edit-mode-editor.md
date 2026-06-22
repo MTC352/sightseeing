@@ -20,6 +20,15 @@ Activated by `?admin_edit=1` + server admin-session check (`/api/admin/auth/me`)
 **Why both:** explicit wrappers give durable keys for important copy; the auto-layer
 gives zero-effort coverage everywhere else.
 
+**Dynamic content must be opted OUT with `data-no-edit`.** Only static marketing copy
+is inline-editable; live/DB/AI-driven fields must be wrapped. The planner page is the
+canonical example: left chat sidebar, weather cards, map/results/itinerary/trip-detail
+branches, and both My-Trip carts are all `data-no-edit`; only the welcome headline,
+subtext, and 3 feature cards stay editable. **Gotcha:** a node that *toggles* between
+static copy and dynamic status (planner welcome headline → "Finding…" when prefs set)
+must apply `data-no-edit` conditionally (`{...(dynamic ? {"data-no-edit":true}:{})}`)
+so it's only editable in its static state.
+
 **Critical invariant:** the auto-layer must NEVER tag elements inside explicit wrappers
 or chrome. It excludes (via `closest`) `[data-editable]`, `[data-no-edit]`,
 `[data-auto-editor-ui]`, and `nav/header/footer/[role=banner]`. If you add a new
