@@ -71,6 +71,27 @@ let _defaultVisitDate: string | null = null
 // size also keeps results seat-honest: TourCMS omits slots that can't seat the group.
 let _defaultPartySize = 1
 
+// Per-request live availability snapshot echoed by the client (its
+// /api/planner/availability scan). Keyed by trip id → { onDate, dates[] }. Lets
+// searchTrips report ACCURATE on-visit-date availability for the EXACT trips it
+// returns — the only per-turn-fresh availability signal the server has (the
+// system-prompt canvas line is stale on the search turn). Empty = no snapshot.
+let _plannerAvail: Record<string, { onDate: boolean; dates: string[] }> = {}
+let _availDate: string | null = null
+
+// Format a YYYY-MM-DD string as "Wed, 24 Jun 2026" for human-readable tool
+// output (matches the canvas's pretty-date wording). Returns the raw string on
+// any parse failure so a bad value never throws inside a tool.
+function prettyYMD(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd)
+  if (!m) return ymd
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  if (Number.isNaN(d.getTime())) return ymd
+  const dd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  const mm = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  return `${dd[d.getUTCDay()]}, ${d.getUTCDate()} ${mm[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+}
+
 /**
  * Rich trip shape merging Trip basics with Palisis-imported fields.
  * The AI uses this for scoring AND reasoning so it has full context
@@ -185,7 +206,7 @@ async function loadTripCatalog(): Promise<RichTrip[]> {
 
 const searchTripsTool = tool({
   description:
-    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns COMPACT trip cards (title, price, rating, duration, tags, a short description + a few highlights) — enough to recommend, compare, and order. For a specific trip's full inclusions, restrictions, itinerary, cancellation policy, or live timeslots, call `getTripDetails` instead.",
+    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns COMPACT trip cards (title, price, rating, duration, tags, a short description + a few highlights) — enough to recommend, compare, and order. For a specific trip's full inclusions, restrictions, itinerary, cancellation policy, or live timeslots, call `getTripDetails` instead. IMPORTANT — when a visit date is set the result ALSO includes an `availability` object that is the AUTHORITATIVE per-turn truth for the trips just returned: `availableOnVisitDateCount` (how many of these trips are bookable on the visit date), `noneAvailableOnVisitDate`, `alternativeDates` (these trips' other bookable dates) and `similarAvailableOnVisitDate` (closest trips bookable that same day). You MUST base your reply on this, not on any earlier canvas count: if `noneAvailableOnVisitDate` is true, NEVER say the canvas shows/now shows these trips for that date — say plainly none run that day, then recommend `alternativeDates` and/or a `similarAvailableOnVisitDate` trip BY NAME.",
   inputSchema: z.object({
     query: z.string().describe("Search query or interest keywords. Pass an empty string when you are pinning by `ids` and don't need keyword ranking."),
     tags: z
@@ -280,6 +301,64 @@ const searchTripsTool = tool({
       })
     }
 
+    const finalResults = results.slice(0, limit)
+
+    // ── AVAILABILITY GROUND TRUTH for THIS search (anti-hallucination) ─────────
+    // The Trip Canvas filters by the visit date CLIENT-side, so the system-prompt
+    // canvas count is stale on the very turn the AI runs searchTrips. Using the
+    // client's live availability snapshot, we compute — for the EXACT trips just
+    // returned — how many are bookable on the visit date, plus real alternative
+    // dates and similar same-day trips. This is the per-turn-fresh signal the AI
+    // MUST base its reply on (so it never claims "the canvas now shows X today"
+    // when zero of these trips actually run that day).
+    let availability: {
+      visitDate: string
+      visitDatePretty: string
+      availableOnVisitDateCount: number
+      noneAvailableOnVisitDate: boolean
+      // Returned trips bookable on OTHER dates — recommend these specific dates.
+      alternativeDates: { title: string; dates: string[] }[]
+      // Trips bookable ON the visit date (whole catalog), closest to the search
+      // first — offer the nearest "similar experience" by name for the same day.
+      similarAvailableOnVisitDate: { title: string; tags: string[] }[]
+    } | undefined
+    // Fail-safe: only ground on the snapshot when its date still matches THIS
+    // request's visit date. _plannerAvail/_availDate are module-global (the
+    // established per-request-context pattern in this file), so this guard keeps
+    // a concurrent request's snapshot from leaking a wrong availability summary.
+    if (_availDate && _availDate === _defaultVisitDate && Object.keys(_plannerAvail).length > 0) {
+      const onDate = (id: string) => _plannerAvail[id]?.onDate === true
+      const availCount = finalResults.filter((t) => onDate(t.id)).length
+      const alternativeDates = finalResults
+        .filter((t) => !onDate(t.id) && (_plannerAvail[t.id]?.dates?.length ?? 0) > 0)
+        .slice(0, 4)
+        .map((t) => ({
+          title: t.title,
+          dates: (_plannerAvail[t.id]?.dates ?? []).slice(0, 4).map(prettyYMD),
+        }))
+      // Similar same-day options come from the WHOLE catalog (not just this
+      // search), ranked by tag overlap with the returned trips so the closest
+      // alternative surfaces first.
+      const resultTags = new Set<string>(finalResults.flatMap((t) => [...t.tags, ...(t.tripTags ?? [])]))
+      const similarAvailableOnVisitDate = catalog
+        .filter((t) => onDate(t.id) && !finalResults.some((r) => r.id === t.id))
+        .map((t) => ({
+          t,
+          score: [...t.tags, ...(t.tripTags ?? [])].filter((tg) => resultTags.has(tg)).length,
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map(({ t }) => ({ title: t.title, tags: t.tags.slice(0, 4) }))
+      availability = {
+        visitDate: _availDate,
+        visitDatePretty: prettyYMD(_availDate),
+        availableOnVisitDateCount: availCount,
+        noneAvailableOnVisitDate: availCount === 0,
+        alternativeDates,
+        similarAvailableOnVisitDate,
+      }
+    }
+
     // Return COMPACT cards only. Heavy per-trip prose (longDescription,
     // itinerary, essentialInformation, inclusions, cancellation policy, …) is
     // intentionally dropped here — returning it for the whole catalog on a
@@ -287,10 +366,11 @@ const searchTripsTool = tool({
     // chat. Deep details are fetched per-trip on demand via getTripDetails.
     // See lib/planner/search-card.ts.
     return {
-      trips: results.slice(0, limit).map(toSearchCard),
+      trips: finalResults.map(toSearchCard),
       weather: wx,
       total: results.length,
       catalogTotal: catalogSize,
+      ...(availability ? { availability } : {}),
     }
   },
 })
@@ -963,6 +1043,16 @@ export async function POST(req: Request) {
         availableTodayCount?: number
         availableTodaySamples?: { title?: string | null; tags?: string[] | null }[]
       } | null
+      // Compact live availability snapshot echoed by the client (its
+      // /api/planner/availability scan, party + cancellation filtered). Keyed by
+      // trip id → whether bookable on the visit date + a few other bookable
+      // dates. This is what lets `searchTrips` annotate its result with ACCURATE
+      // on-date truth DURING the turn (the system-prompt canvas line is stale on
+      // the search turn because the canvas only updates AFTER searchTrips runs).
+      availability?: {
+        date?: string | null
+        trips?: Record<string, { onDate?: boolean; dates?: string[] | null }>
+      } | null
     }
 
     let messages: PlannerMessage[]
@@ -1113,6 +1203,33 @@ export async function POST(req: Request) {
     // fall back to it deterministically when the model omits the date arg.
     _defaultVisitDate = visitDateYMD
     _defaultPartySize = Math.max(1, adultsCount + childrenCount)
+
+    // Capture the client's live availability snapshot so searchTrips can report
+    // accurate on-visit-date availability for the trips it returns (see the
+    // _plannerAvail/_availDate notes). Only trust it when its date matches the
+    // stored visit date — a mismatched/missing snapshot is ignored (no false
+    // "zero matches" from a stale scan). Reset first so a turn without a snapshot
+    // can't inherit the previous request's map.
+    _plannerAvail = {}
+    _availDate = null
+    {
+      const snap = body?.availability
+      const snapDate = typeof snap?.date === "string" ? snap.date : null
+      if (snap && snapDate && snapDate === visitDateYMD && snap.trips && typeof snap.trips === "object") {
+        const map: Record<string, { onDate: boolean; dates: string[] }> = {}
+        for (const [id, v] of Object.entries(snap.trips)) {
+          if (!id || typeof v !== "object" || v === null) continue
+          map[id] = {
+            onDate: (v as { onDate?: boolean }).onDate === true,
+            dates: Array.isArray((v as { dates?: string[] }).dates)
+              ? (v as { dates: string[] }).dates.filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 8)
+              : [],
+          }
+        }
+        _plannerAvail = map
+        _availDate = visitDateYMD
+      }
+    }
     let visitDateContext = ""
     if (visitDateYMD) {
       const [vy, vm, vd] = visitDateYMD.split("-").map(Number)

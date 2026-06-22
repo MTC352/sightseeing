@@ -80,3 +80,22 @@ that the canvas shows EVERY preference-matching trip, not an AI subset.
 - Date is a FILTER (not visual-grouping-only): when a date is selected the canvas shows ONLY trips bookable on that date (the on-date group). The "Available on other dates" group is fallback-only — it renders strictly when `onDate.length === 0 && !availLoading && others.length > 0`, so a "this weekend"/date request never dilutes the canvas with the whole catalog yet is never left blank. **Why:** users asking "this weekend trips" saw all 18 catalog trips; they want only the available ones + the count. NOTE: "this weekend" resolves to a SINGLE Saturday startDate (merged date-resolution), so Sunday-only trips are excluded by design — making weekend a true Sat+Sun union would need a date-range model (prefs is single startDate).
 - Availability comes from `/api/planner/availability` (admin-configurable window, default 30 days). The fetch effect must **clear `plannerAvail` to `{}` on every new scan and on failure** (fail-soft) so grouping never reflects a stale date.
 - Single-pref editing: pills go through `applyDirectPref` (one field at a time). It supports wholesale `interests` array replacement (incl. empty) and includes interests in its unchanged-check. Editing a pill must NEVER restart onboarding or wipe chat history.
+
+**Search-turn canvas-line staleness (anti-hallucination).** The "LIVE TRIP CANVAS COUNT"
+prompt line is built from the request body, which carries the canvas state as it was BEFORE
+the AI's `searchTrips` runs — so on the turn the AI searches a NEW interest set, that line
+reflects the OLD (often count>0) set and the AI would falsely claim "the canvas now shows X
+for that date." The fix: the client also sends a per-turn `availability` snapshot
+(`availabilityForApiRef` = `{date, trips:{id:{onDate,dates[]}}}`, whole-catalog, only when a
+date is set + scan settled). The server trusts it only when `snapshot.date === visitDateYMD`,
+and `searchTripsTool` annotates its OWN result with an `availability` object computed for the
+EXACT trips it returned (`availableOnVisitDateCount`, `noneAvailableOnVisitDate`,
+`alternativeDates`, `similarAvailableOnVisitDate`). System rule **9-AVAIL** makes this
+tool-result authoritative over the canvas line.
+**Why:** the canvas line is structurally one turn behind on a search; only a value computed
+DURING/AFTER the search is trustworthy for "does this run that day".
+**How to apply:** any new per-turn truth the AI must not contradict has to be returned BY the
+tool that changes the canvas, not injected from the pre-search request body. Server-side
+per-request context (`_plannerAvail`/`_availDate`, like `_liveWeather`/`_defaultVisitDate`)
+is module-global here — gate any grounding on `_availDate === _defaultVisitDate` so a
+concurrent request's snapshot can't leak.

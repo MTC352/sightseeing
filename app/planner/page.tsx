@@ -2285,6 +2285,16 @@ export default function PlannerPage() {
     availableTodaySamples: [],
   })
 
+  // Compact live availability snapshot sent every turn so the server's
+  // searchTrips tool can report ACCURATE on-visit-date availability for the
+  // EXACT trips it returns (the canvas count above is stale on the search turn
+  // because the canvas only updates AFTER the AI's searchTrips lands). Keyed by
+  // trip id → { onDate, dates[] (other bookable dates) }.
+  const availabilityForApiRef = useRef<{
+    date: string | null
+    trips: Record<string, { onDate: boolean; dates: string[] }>
+  }>({ date: null, trips: {} })
+
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/planner",
@@ -2312,6 +2322,9 @@ export default function PlannerPage() {
             // Live on-screen Trip Canvas count so the AI can quote the EXACT
             // number the visitor sees instead of the inflated searchTrips total.
             canvas: canvasCountForApiRef.current,
+            // Compact availability snapshot so searchTrips reports accurate
+            // on-visit-date truth for the trips it returns THIS turn.
+            availability: availabilityForApiRef.current,
           },
         }
       },
@@ -3888,6 +3901,21 @@ export default function PlannerPage() {
       })),
       availableTodayCount: availableToday.length,
       availableTodaySamples,
+    }
+    // Whole-catalog availability snapshot for the server's searchTrips tool.
+    // Sent only when a date is selected and the scan has settled; otherwise an
+    // empty snapshot so the server never reads stale on-date truth.
+    if (hasSelectedDate && !availLoading) {
+      const trips: Record<string, { onDate: boolean; dates: string[] }> = {}
+      for (const [id, av] of Object.entries(plannerAvail)) {
+        trips[id] = {
+          onDate: av?.availableOnSelectedDate === true,
+          dates: (av?.availableDates ?? []).slice(0, 6),
+        }
+      }
+      availabilityForApiRef.current = { date: prefs?.startDate ?? null, trips }
+    } else {
+      availabilityForApiRef.current = { date: null, trips: {} }
     }
   }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips])
 
