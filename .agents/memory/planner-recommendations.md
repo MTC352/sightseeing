@@ -116,6 +116,24 @@ theme-level allowlist it names empty ones and contradicts itself a turn later.
 themes (unconfirmed/not-scanned) are OMITTED from both lists so an outage is never shown as a
 closure. Gate injection on `_availDate === visitDateYMD` (same module-global rule as the snapshot).
 
+**Narration must not invent themes or conflate similar trips (system-prompt rules).**
+Two reported chat bugs, both fixed in `lib/planner/system-prompt.ts` (the parts are ALWAYS
+built; the admin DB prompt is only appended after, so file edits always reach the model):
+- *No-interest neutrality:* with empty interests the canvas shows the WHOLE catalog unfiltered,
+  so the auto-seed reply must stay neutral — it must NOT label the set with themes the visitor
+  never chose ("a mix of day trips and museum tours") and must NOT call `updatePreferences` to
+  add unstated interests. Rule "NO-INTEREST = NEUTRAL NARRATION".
+- *Duration/title parity:* the catalog can hold near-identical trips with DIFFERENT durations
+  (e.g. two e-bike tours: one "3 hours", one "Full Day: 7 Hours / Half Day: 4 Hours"). Stated
+  durations must be verbatim from the SAME trip's card (never derived from the title), and for a
+  broad theme matching multiple similar trips the AI must NOT bold one title unless it ALSO pins
+  the canvas to that id the same turn (else chat names a trip the canvas isn't leading with).
+  Rules "9d DURATION ACCURACY" + "9e CHAT↔CANVAS TITLE PARITY".
+**Why:** these were narration-only inaccuracies (LLM prose, not deterministic templates), so the
+lever is the prompt, not the scheduler/canvas. **How to apply:** any new "AI must be accurate
+about X" planner ask is almost always a prompt-rule change; assert presence in
+`test/planner/system-prompt.test.mjs` via `buildPlannerSystemPromptParts`.
+
 **Startup runs TWO availability scans — never trust the wrong one as turn-1 ground truth.**
 On the planner page the availability effect fires a no-date WINDOW scan (`?party=N`, every
 trip `availableOnSelectedDate=false`) before the date-specific scan (`?date=…`). If the

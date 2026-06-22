@@ -7,6 +7,18 @@ import assert from "node:assert/strict"
 // robust to default/named CJS interop differences.
 const mod = await import("../../.test-build/system-prompt.js")
 const buildCanvasCountLine = mod.buildCanvasCountLine ?? mod.default?.buildCanvasCountLine
+const buildPlannerSystemPromptParts =
+  mod.buildPlannerSystemPromptParts ?? mod.default?.buildPlannerSystemPromptParts
+
+function promptText(overrides = {}) {
+  return buildPlannerSystemPromptParts({
+    publishedCatalogSize: 18,
+    dateContext: "Monday",
+    visitDateContext: "today",
+    interestVocab: "day-trips, museums, bike-tours",
+    ...overrides,
+  }).join("\n")
+}
 
 test("canvas count line — count>0 & date-matched injects AVAILABILITY GROUND TRUTH that forbids 'nothing available'", () => {
   const line = buildCanvasCountLine({
@@ -154,4 +166,21 @@ test("canvas count line — singular vs plural wording", () => {
     visitDateYMD: "2026-06-21",
   })
   assert.match(many, /EXACTLY 3 trips/)
+})
+
+test("prompt — no-interest neutrality rule forbids invented themes and silent updatePreferences", () => {
+  const p = promptText()
+  assert.match(p, /NO-INTEREST = NEUTRAL NARRATION/)
+  assert.match(p, /FORBIDDEN from describing the canvas by specific themes/)
+  assert.match(p, /a mix of day trips and museum tours/)
+  assert.match(p, /do NOT call updatePreferences to add interests the visitor never stated/)
+})
+
+test("prompt — duration accuracy + chat↔canvas title parity rules guard against conflating similar trips", () => {
+  const p = promptText()
+  assert.match(p, /DURATION ACCURACY/)
+  assert.match(p, /never derive a duration from words inside a trip's TITLE/)
+  assert.match(p, /SEVERAL near-identical trips/)
+  assert.match(p, /CHAT.CANVAS TITLE PARITY/)
+  assert.match(p, /do NOT bold ONE specific title/)
 })
