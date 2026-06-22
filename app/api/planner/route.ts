@@ -10,6 +10,7 @@ import {
 import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts, buildCanvasCountLine } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable } from "@/lib/planner/availability-parity"
+import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
 import { toSearchCard } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
@@ -1101,6 +1102,10 @@ export async function POST(req: Request) {
     // EXACT values (e.g. "day tour" → day-trips) that both searchTrips and
     // updatePreferences expect — otherwise tag-driven prefs/canvas updates miss.
     let interestVocab = ""
+    // Canonical {value,label} interest pairs (the array behind interestVocab).
+    // Kept around so the per-turn "AVAILABLE INTERESTS ON <date>" grounding can
+    // fold the live availability snapshot up to the interest/theme level.
+    let interestVocabPairs: { value: string; label: string }[] = []
     try {
       const { plannerForm } = await dbGetChatPlannerConfig()
       const maxChatTurns = Number(plannerForm?.maxChatTurns) || 0
@@ -1114,9 +1119,9 @@ export async function POST(req: Request) {
         }
       }
       const opts = Array.isArray(plannerForm?.interests) ? plannerForm.interests : []
-      interestVocab = opts
-        .filter((o): o is { value: string; label: string } =>
-          !!o && typeof o === "object" && typeof (o as { value?: unknown }).value === "string")
+      interestVocabPairs = opts.filter((o): o is { value: string; label: string } =>
+        !!o && typeof o === "object" && typeof (o as { value?: unknown }).value === "string")
+      interestVocab = interestVocabPairs
         .map((o) => `${o.value} (${o.label})`)
         .join(", ")
     } catch (e) {
@@ -1300,8 +1305,44 @@ export async function POST(req: Request) {
 
     // Inject the real published-trip count so the model can never invent
     // numbers like "50+ trips". This is the same catalog `searchTrips`
-    // reads from, so the figure is always in sync.
-    const publishedCatalogSize = (await loadTripCatalog()).length
+    // reads from, so the figure is always in sync. Keep the array around so the
+    // per-turn AVAILABLE INTERESTS grounding below reuses it (no extra DB hit).
+    const promptCatalog = await loadTripCatalog()
+    const publishedCatalogSize = promptCatalog.length
+
+    // ── AVAILABLE INTERESTS ON VISIT DATE (per-turn theme-level grounding) ─────
+    // The AI only learns per-trip availability AFTER it runs searchTrips, so it
+    // had no standing signal for WHICH interest themes actually have a trip
+    // bookable on the chosen date — and would re-suggest themes it had already
+    // ruled out (e.g. "consider museums or cultural tours" on a rainy day when
+    // neither runs that day). Fold the same client availability snapshot used by
+    // searchTrips up to the interest level so the model only proposes themes that
+    // are really bookable. Only when the snapshot matches the stored visit date.
+    let availableInterestsLine = ""
+    if (
+      visitDateYMD &&
+      _availDate === visitDateYMD &&
+      Object.keys(_plannerAvail).length > 0 &&
+      interestVocabPairs.length > 0
+    ) {
+      const tripStatus = (id: string): InterestTripStatus => {
+        const snap = _plannerAvail[id]
+        if (!snap) return "unknown"
+        const cls = classifyTripAvailability(snap)
+        if (cls === "available") return "available"
+        if (cls === "unconfirmed") return "unknown" // incident, not a closure
+        return "unavailable" // "alternative" | "none" → confidently not that day
+      }
+      const result = computeAvailableInterests({
+        vocab: interestVocabPairs,
+        catalog: promptCatalog,
+        tripStatus,
+      })
+      availableInterestsLine = buildAvailableInterestsLine({
+        result,
+        visitDatePretty: prettyYMD(visitDateYMD),
+      })
+    }
 
     // ── Live Trip Canvas count (Gap 1 — chat↔canvas count parity) ─────────────
     // The client sends the EXACT number of trips currently rendered on the Trip
@@ -1332,7 +1373,7 @@ export async function POST(req: Request) {
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
       profileLine, cartSection, groupSection, itinerarySection,
       optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
-      interestVocab, canvasCountLine,
+      interestVocab, canvasCountLine, availableInterestsLine,
     })
     
     // Append admin-configured custom system prompt if available.

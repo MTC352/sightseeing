@@ -99,3 +99,19 @@ tool that changes the canvas, not injected from the pre-search request body. Ser
 per-request context (`_plannerAvail`/`_availDate`, like `_liveWeather`/`_defaultVisitDate`)
 is module-global here — gate any grounding on `_availDate === _defaultVisitDate` so a
 concurrent request's snapshot can't leak.
+
+**Theme-level availability grounding (only suggest bookable interests).** The AI used to
+re-suggest interest THEMES it had already ruled out on the unchanged visit date (said "no
+museums today", then for a rainy follow-up suggested "museums or cultural tours"). Per-trip
+availability only reaches the AI AFTER a searchTrips call; there was no standing per-turn
+signal for which THEMES have a trip bookable that day. Fix: fold the same client availability
+snapshot up to the interest level (`computeAvailableInterests` in lib/planner/available-interests.ts)
+and inject an "AVAILABLE INTERESTS / NOT BOOKABLE ON <date>" block every turn; system rule
+**9-AVAIL-INTERESTS** forbids proposing any theme not in AVAILABLE (overrides the generic
+rule-2 weather "suggest indoor/culture" advice).
+**Why:** weather/"what if it rains" prompts make the model freely name categories; without a
+theme-level allowlist it names empty ones and contradicts itself a turn later.
+**How to apply:** a theme is `available` if ANY tagged catalog trip is available; only
+`unavailableOnDate` when ≥1 tagged trip is confidently off AND none available; unknown-only
+themes (unconfirmed/not-scanned) are OMITTED from both lists so an outage is never shown as a
+closure. Gate injection on `_availDate === visitDateYMD` (same module-global rule as the snapshot).
