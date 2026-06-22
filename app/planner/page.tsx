@@ -35,6 +35,7 @@ import {
 import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
 import { resolveCartToolAction } from "@/lib/planner/trip-match"
 import { scoreTripInterests } from "@/lib/planner/interest-match"
+import { isCanvasCountTrustworthy } from "@/lib/planner/availability-parity"
 import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
@@ -3575,9 +3576,17 @@ export default function PlannerPage() {
   // is exactly what made the AI claim "no trips available today" on turn 1 even
   // though trips ARE bookable that day.
   const [availLoadedDate, setAvailLoadedDate] = useState<string | null>(null)
+  // Whether the LAST availability scan for the current date FAILED (network/HTTP
+  // error or null body) rather than legitimately returning an empty/partial map.
+  // A failed scan leaves `plannerAvail` empty, which would otherwise look like a
+  // confident "0 trips bookable" — but it is really "couldn't confirm". We gate
+  // the canvas-count grounding on this so a provider incident never grounds the
+  // AI to a false no-openings claim.
+  const [availScanFailed, setAvailScanFailed] = useState(false)
   useEffect(() => {
     let cancelled = false
     setAvailLoading(true)
+    setAvailScanFailed(false)
     // Re-close the auto-seed availability gate at the START of every scan so a
     // PRIOR (e.g. no-date window) scan that already opened it can't let the
     // turn-1 seed fire before THIS scan (the selected date) settles. Only this
@@ -3595,10 +3604,12 @@ export default function PlannerPage() {
       .then((data: { trips?: Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }> } | null) => {
         if (cancelled) return
         // Fail-soft: on a null/failed response leave availability empty so cards
-        // simply omit date chips rather than showing stale data.
-        setPlannerAvail(data?.trips ?? {})
+        // simply omit date chips rather than showing stale data. Flag the failure
+        // so the empty map is treated as "couldn't confirm", NOT a confident 0.
+        if (data == null) { setAvailScanFailed(true); setPlannerAvail({}); return }
+        setPlannerAvail(data.trips ?? {})
       })
-      .catch(() => { if (!cancelled) setPlannerAvail({}) /* fail-soft: no date chips */ })
+      .catch(() => { if (!cancelled) { setAvailScanFailed(true); setPlannerAvail({}) } /* fail-soft: no date chips */ })
       .finally(() => {
         if (cancelled) return
         setAvailLoading(false)
@@ -3829,6 +3840,29 @@ export default function PlannerPage() {
         : resultTrips.length,
     [hasSelectedDate, resultTrips, plannerAvail],
   )
+  // How many MATCHING (on-screen) trips got a DEFINITIVE availability answer on
+  // the selected date — i.e. resolved, not `unknown` (dual-source TourCMS
+  // failure). When a date is set this drives whether a 0 canvas count is a
+  // confident empty day or merely "couldn't confirm". With no date selected the
+  // count is just the result length, so every result is trivially "resolved".
+  const matchingResolvedCount = useMemo(
+    () =>
+      hasSelectedDate
+        ? resultTrips.filter((t) => {
+            const av = plannerAvail[t.id]
+            return av != null && av.unknown !== true
+          }).length
+        : resultTrips.length,
+    [hasSelectedDate, resultTrips, plannerAvail],
+  )
+  // Whether the canvas count is trustworthy enough to ground the AI. A failed
+  // scan or an all-`unknown` (incident) zero is NEVER surfaced as a confident
+  // "no trips bookable" — that was the zero-misinformation regression.
+  const canvasCountTrustworthy = isCanvasCountTrustworthy({
+    scanFailed: availScanFailed,
+    canvasCount,
+    matchingResolvedCount,
+  })
   useEffect(() => {
     // Matching trips NOT bookable on the selected date but bookable on OTHER
     // dates in the scan window — these power the AI's alternative-date rec when
@@ -3857,8 +3891,10 @@ export default function PlannerPage() {
       date: hasSelectedDate ? (prefs?.startDate ?? null) : null,
       // "ready" only once the availability scan for THIS date has settled AND we
       // actually have results to count — a loading/empty canvas count, or a
-      // stale no-date/previous-date scan, must never be quoted to the AI.
-      ready: !availLoading && showResults && availLoadedMatchesDate,
+      // stale no-date/previous-date scan, must never be quoted to the AI. Also
+      // requires the count to be TRUSTWORTHY: a failed scan or an all-`unknown`
+      // (provider incident) zero is "couldn't confirm", never a confident 0.
+      ready: !availLoading && showResults && availLoadedMatchesDate && canvasCountTrustworthy,
       otherDatesCount: matchingOther.length,
       // A few concrete trips + their (pretty-formatted) bookable dates so the AI
       // can recommend exact dates without another tool round-trip. Bounded to
@@ -3889,7 +3925,7 @@ export default function PlannerPage() {
     } else {
       availabilityForApiRef.current = { date: null, trips: {} }
     }
-  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips, availLoadedMatchesDate])
+  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips, availLoadedMatchesDate, canvasCountTrustworthy])
 
   /* Auto-expand map and center it when AI returns a new set of results */
   const prevResultTripIds = useRef<string>("")

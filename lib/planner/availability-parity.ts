@@ -67,3 +67,33 @@ export function classifyTripAvailability(
 export function isConfidentNoneAvailable(availableCount: number, unconfirmedCount: number): boolean {
   return availableCount === 0 && unconfirmedCount === 0
 }
+
+/**
+ * Whether a canvas count is TRUSTWORTHY enough to ground the AI as authoritative
+ * (i.e. safe to inject the "LIVE TRIP CANVAS COUNT / AVAILABILITY GROUND TRUTH"
+ * line). A 0 count must NEVER be surfaced as a confident "no trips bookable"
+ * when it is the product of a provider incident rather than a real empty day.
+ *
+ * Rules:
+ *  - A FAILED availability scan (network/HTTP error, null body) is never
+ *    trustworthy — the empty map it leaves behind is "couldn't confirm", not
+ *    "zero available".
+ *  - A count > 0 is always trustworthy (we have concrete bookable trips).
+ *  - A count === 0 is trustworthy ONLY if at least one matching trip got a
+ *    DEFINITIVE answer (`matchingResolvedCount > 0`). If every matching trip is
+ *    `unknown` (dual-source TourCMS failure), the 0 is an incident, not a
+ *    closure, so it must not be grounded as a confident empty day.
+ *
+ * **Why:** the planner chat repeatedly told visitors a day/trip was "not
+ * available" off the back of a 0 count that actually came from a failed or
+ * all-unknown scan — the exact zero-misinformation regression this guards.
+ */
+export function isCanvasCountTrustworthy(args: {
+  scanFailed: boolean
+  canvasCount: number
+  matchingResolvedCount: number
+}): boolean {
+  if (args.scanFailed) return false
+  if (args.canvasCount > 0) return true
+  return args.matchingResolvedCount > 0
+}

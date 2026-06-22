@@ -56,6 +56,14 @@ trips available today" while the canvas badge showed N>0. Two-part cause + fix:
   can fall back to them); a concurrent request can overwrite them mid-flight. The prompt build must
   read a REQUEST-LOCAL capture (`reqAvail`/`reqAvailDate`) taken right after assignment — safe only
   because each request reassigns the global to a NEW object (never mutates in place).
+- *Trustworthiness gate (a 0 count is not always a real empty day):* a FAILED avail scan
+  (network/HTTP/null) or an all-`unknown` (dual-source TourCMS incident) scan leaves canvasCount=0,
+  which must NOT be forwarded as a confident "no trips available". `isCanvasCountTrustworthy`
+  (lib/planner/availability-parity.ts): failed⇒untrusted; count>0⇒trusted; count===0⇒trusted ONLY
+  if ≥1 MATCHING trip resolved (non-unknown). Client gates `canvas.ready` on it (+ tracks
+  `availScanFailed`), so an incident OMITS the count line and the AI falls back instead of asserting
+  zero. **Invariant:** any future canvas-count payload change must keep this gate — a 0 from an
+  incident is "couldn't confirm", never a closure.
 
 **Zero-matches branch is DIRECTIVE, not permissive.** count===0 (date-matched) used to merely
 permit "try another date", which let the model still falsely announce "the Trip Canvas now shows
