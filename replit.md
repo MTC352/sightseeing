@@ -247,22 +247,6 @@ form in `extra_config`). All paths are superadmin-only.
   runs inside a single `withTransaction` (lib/db.ts) so a bulk overwrite is
   all-or-nothing; counts are accurate via `RETURNING`.
 
-#### #014 = `014-admin-users` (restore production admin accounts)
-Restores the **PRODUCTION** back-office accounts into `admin_users` so they
-survive a full Publish **"overwrite all data"** (dev → prod), which would
-otherwise replace `admin_users` with the development accounts. Payload in
-`lib/data-migrations/data/014-admin-users.json` is a **snapshot taken from the
-live DB**: the superadmin `admin@sightseeing.lu` **and** the prod-only employee
-`hello@sightseeing.lu` (`Sightseeing_staff`). Each row carries its existing
-**bcrypt** hash (one-way) so the account logs in with its current **production**
-password — including the primary admin@, so the overwrite can't lock you out.
-DATA-only (INSERT/UPDATE; no DDL). **AUTHORITATIVE & idempotent:** each account
-is **upserted by `id`** (`ON CONFLICT (id) DO UPDATE`), so a row brought in by
-the overwrite (e.g. the shared `admin@sightseeing.lu`, same id in dev + prod) is
-reset to its production values. **Run it on the live site AFTER the overwrite.**
-⚠️ Re-running overwrites any later live edits back to this snapshot — re-export
-the JSON from the live DB if those accounts change.
-
 ### Live-DB workflow when prod is behind
 1. Re-**Publish** to apply schema (creates missing tables, e.g. `activity_log`,
    `media_files`, `data_migrations`).
