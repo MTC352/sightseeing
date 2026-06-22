@@ -97,3 +97,6 @@ build = ["pnpm", "build"]
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
+
+[objectStorage]
+defaultBucketID = "replit-objstore-4c9ca17d-129a-44a5-ac2f-694ace25e51f"
