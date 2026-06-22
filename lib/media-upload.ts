@@ -25,6 +25,7 @@ import {
   SAFE_EXTENSIONS,
   HARD_MAX_MB,
 } from "@/lib/file-rules"
+import { isObjectStorageConfigured, uploadPublicObject } from "@/lib/object-storage"
 
 const MAX_SIZE = HARD_MAX_MB * 1024 * 1024
 
@@ -127,12 +128,25 @@ interface StoredBuffer {
 }
 
 /**
- * Persist raw bytes to Vercel Blob (when configured) or `public/uploads`.
+ * Persist raw bytes to durable storage. Order of preference:
+ *   1. Replit App Storage (Object Storage) — durable across deploys, the default
+ *      on Replit. REQUIRED for anything generated/uploaded at runtime to survive
+ *      a publish (the production filesystem is ephemeral and only serves
+ *      build-time `public/` assets).
+ *   2. Vercel Blob — when a BLOB_READ_WRITE_TOKEN is configured.
+ *   3. `public/uploads` local disk — dev-only fallback; these files DO NOT
+ *      persist on a published deploy and 404 in production.
  * Shared by the multipart upload path and the remote-URL import path so storage
  * behaviour can never drift between them.
  */
 async function persistBuffer(buffer: Buffer, ext: string, contentType: string): Promise<StoredBuffer> {
   const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+  if (isObjectStorageConfigured()) {
+    const url = await uploadPublicObject(`media/${key}`, buffer, contentType)
+    return { url, storage: "object", localPath: null }
+  }
+
   const blobToken = process.env.BLOB_READ_WRITE_TOKEN
   if (blobToken) {
     const { put } = await import("@vercel/blob")

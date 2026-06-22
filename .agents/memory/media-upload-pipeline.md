@@ -28,6 +28,31 @@ store duplicate copies of identical files. Centralizing fixes both.
   array/exact columns (trips.gallery, image/pdf/video) use exact match, not LIKE.
 - `careers/apply` CV upload is **public**, intentionally NOT routed through this pipeline.
 
+## Durable storage — runtime files MUST NOT use public/uploads in prod
+`persistBuffer` picks storage in order: **Replit App Storage (Object Storage)** → Vercel
+Blob (`BLOB_READ_WRITE_TOKEN`) → `public/uploads` local disk.
+**Why:** a published Replit deploy has an EPHEMERAL filesystem and only serves
+build-time `public/` assets — anything written to `public/uploads` at runtime (every
+AI-generated blog cover, every admin upload) 404s in production ("broken image" in
+dev-vs-prod bug). Committed `public/images/...` assets still work because they ship at
+build time.
+**How to apply:**
+- Object Storage is the default whenever `PUBLIC_OBJECT_SEARCH_PATHS` is set
+  (`isObjectStorageConfigured()` in `lib/object-storage.ts`). Files are saved under the
+  bucket's PUBLIC search path and served back via `GET /public-objects/<key>`
+  (`app/public-objects/[...path]/route.ts`, nodejs runtime, streams via the GCS sidecar
+  client). `media_files.storage` = `"object"`.
+- The served key keeps its image extension on purpose: `proxy.ts`'s matcher excludes
+  `.png/.jpg/.svg`, so `/public-objects/...png` bypasses the password/admin auth gate and
+  is publicly fetchable (blog covers are world-readable by design).
+- **Object-storage env vars only load on process start** — after `setup_object_storage`
+  you MUST restart the "Start application" workflow or `isObjectStorageConfigured()` stays
+  false and uploads silently fall back to local disk.
+- Old rows written before the fix keep dead `/uploads/...` URLs; they don't self-heal —
+  regenerate (blog "Regenerate with AI") or re-upload to repopulate.
+- Testing dedup: identical bytes short-circuit via sha256, returning the OLD record/storage
+  — use **unique bytes** (`head -c N /dev/urandom`) to actually exercise a fresh store.
+
 ## Remote-URL image import (Palisis trip images)
 - `processImageFromUrl(url, opts)` + `localizeImageUrls(urls, uploadedBy)` download a
   remote IMAGE onto our system and record it in `media_files`. Used so Palisis/TourCMS
