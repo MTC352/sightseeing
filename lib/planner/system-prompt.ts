@@ -42,6 +42,16 @@ export type PlannerPromptCtx = {
    * the visit date (see lib/planner/available-interests.ts). Empty string when no
    * visit-date availability snapshot is present. */
   availableInterestsLine?: string
+  /** Pre-built "PER-TRIP AVAILABILITY ON <date>" block — the standing, per-trip
+   * dates-and-deals ground truth for the visit date (built from the same live
+   * scan the Trip Canvas ran). Empty string when no in-sync snapshot is present.
+   * See buildAvailabilityGroundTruth. */
+  availabilityGroundTruth?: string
+  /** Pre-built "TRIP CATALOG — STATIC FACTS" block — the always-on, date-independent
+   * identity facts (title, category, location, duration) for every published trip,
+   * so the model can answer "what / where / how long / what type" without a tool
+   * call. Empty string when the catalog is empty. See buildCatalogFactsBlock. */
+  catalogFactsBlock?: string
 }
 
 /**
@@ -137,12 +147,132 @@ export function buildCanvasCountLine(args: {
   return `LIVE TRIP CANVAS COUNT: the Trip Canvas currently shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} matching the visitor's interests — this is the precise number the visitor sees. When the user asks "how many trips/options", answer with this exact number unless they change interests this same turn (then point to the refreshed canvas instead).`
 }
 
+/** One trip's classified availability on the visit date, for the per-trip
+ *  ground-truth block. `status` mirrors classifyTripAvailability. `altDates`
+ *  are the already-pretty-formatted next bookable dates (used for "alternative"). */
+export type GroundTruthTrip = {
+  title: string
+  status: "available" | "alternative" | "unconfirmed" | "none"
+  altDates?: string[]
+}
+
+/**
+ * Pure builder for the PER-TRIP AVAILABILITY GROUND TRUTH block — the fix for
+ * the planner misinforming about a trip's availability (e.g. the chat saying a
+ * castle "isn't available today" while the Trip Canvas badge shows it IS).
+ *
+ * The Trip Canvas already runs the authoritative live dates-and-deals scan for
+ * the WHOLE catalog on the chosen visit date; the route forwards that snapshot
+ * every turn. Previously it only reached the model as a COUNT (buildCanvasCountLine)
+ * and as THEME-level hints (availableInterestsLine) — there was NO standing
+ * per-trip statement, so the model had to call a tool to "discover" what was
+ * bookable and would contradict the canvas. This block gives the model accurate
+ * per-trip availability for the selected date from turn 1, refreshed whenever the
+ * date changes (the snapshot is re-sent each turn).
+ *
+ * Returns "" when there is no in-sync snapshot (the route gates on
+ * `_availDate === visitDateYMD`), so a stale/missing scan never grounds the model.
+ * Kept pure (no DB/env) and exported so the route and unit tests share it.
+ */
+export function buildAvailabilityGroundTruth(args: {
+  visitDatePretty: string
+  trips: GroundTruthTrip[]
+}): string {
+  const { visitDatePretty } = args
+  const trips = Array.isArray(args.trips)
+    ? args.trips.filter((t) => t && typeof t.title === "string" && t.title.trim())
+    : []
+  if (trips.length === 0) return ""
+
+  const bookable = trips.filter((t) => t.status === "available")
+  const alternative = trips.filter((t) => t.status === "alternative")
+  const none = trips.filter((t) => t.status === "none")
+  const unconfirmed = trips.filter((t) => t.status === "unconfirmed")
+
+  const lines: string[] = [
+    `PER-TRIP AVAILABILITY ON ${visitDatePretty} — AUTHORITATIVE LIVE GROUND TRUTH (already verified by the Trip Canvas's real-time dates-and-deals scan; this is your STANDING per-trip knowledge for the selected date — answer any "is X available / can I do X on this day" question DIRECTLY from this list, and you are FORBIDDEN from saying you'll "check again" or that a trip "isn't showing"/"isn't available" when it is listed as BOOKABLE here):`,
+  ]
+  lines.push(
+    bookable.length > 0
+      ? `BOOKABLE on ${visitDatePretty}: ${bookable.map((t) => `**${t.title.trim()}**`).join(", ")}.`
+      : `BOOKABLE on ${visitDatePretty}: none of the scanned trips.`,
+  )
+  if (alternative.length > 0) {
+    lines.push(
+      `NOT bookable on ${visitDatePretty} — available on OTHER dates (you MAY quote these exact dates without another tool call): ` +
+        alternative
+          .map((t) => {
+            const d = (Array.isArray(t.altDates) ? t.altDates : [])
+              .filter((x) => typeof x === "string" && x.trim())
+              .slice(0, 3)
+            return d.length > 0 ? `**${t.title.trim()}** (next: ${d.join(", ")})` : `**${t.title.trim()}**`
+          })
+          .join("; ") +
+        ".",
+    )
+  }
+  if (none.length > 0) {
+    lines.push(
+      `NOT bookable on ${visitDatePretty} (no upcoming dates in the scan window): ${none
+        .map((t) => `**${t.title.trim()}**`)
+        .join(", ")}.`,
+    )
+  }
+  if (unconfirmed.length > 0) {
+    lines.push(
+      `COULDN'T CONFIRM on ${visitDatePretty} (live provider issue — this is an incident, NOT a closure: never call these "not available"; offer to retry or verify with getTripTimeslots): ${unconfirmed
+        .map((t) => `**${t.title.trim()}**`)
+        .join(", ")}.`,
+    )
+  }
+  lines.push(
+    "Any trip NOT in the lists above has no verified availability for this date — call getTripDatesAndDeals / getTripTimeslots before stating anything about it. For exact bookable TIMES on the date, still call getTripTimeslots (this block is date-level, not timeslot-level).",
+  )
+  return lines.join("\n")
+}
+
+/** One trip's static (date-independent) identity facts for the catalog block. */
+export type CatalogFactsTrip = {
+  title: string
+  category?: string | null
+  location?: string | null
+  duration?: string | null
+}
+
+/**
+ * Pure builder for the TRIP CATALOG — STATIC FACTS block: a compact, always-on
+ * list of every published trip's date-INDEPENDENT identity (title, category,
+ * location, duration). These never change with the selected date, so the model
+ * keeps them as default knowledge and can answer "what is X / where is it / how
+ * long / what type" without a tool call. Deep prose (full itinerary, inclusions,
+ * cancellation, long description) is deliberately EXCLUDED to keep the prompt
+ * lean — those stay on-demand via getTripDetails.
+ *
+ * Returns "" when the catalog is empty. Kept pure and exported for shared tests.
+ */
+export function buildCatalogFactsBlock(trips: CatalogFactsTrip[]): string {
+  const rows = (Array.isArray(trips) ? trips : [])
+    .filter((t) => t && typeof t.title === "string" && t.title.trim())
+    .map((t) => {
+      const parts = [t.title.trim()]
+      const meta = [t.category, t.location, t.duration]
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter((x) => x)
+      return meta.length > 0 ? `- **${parts[0]}** — ${meta.join(" · ")}` : `- **${parts[0]}**`
+    })
+  if (rows.length === 0) return ""
+  return [
+    "TRIP CATALOG — STATIC FACTS (your standing, date-independent knowledge of WHAT each published trip is: title · category · location · duration. Use it to answer \"what is X / where / how long / what type\" directly. It does NOT carry availability — for whether a trip runs on the visit date use the PER-TRIP AVAILABILITY block; for full inclusions/itinerary/cancellation call getTripDetails):",
+    ...rows,
+  ].join("\n")
+}
+
 export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
   const {
     publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
     profileLine, cartSection, groupSection, itinerarySection,
     optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
-    interestVocab, canvasCountLine, availableInterestsLine,
+    interestVocab, canvasCountLine, availableInterestsLine, availabilityGroundTruth, catalogFactsBlock,
   } = ctx
   return [
       "You are the AI trip planner for sightseeing.lu. Warm, helpful — and EXTREMELY CONCISE.",
@@ -161,6 +291,7 @@ export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
       `COUNT DISCIPLINE — DO NOT STATE A TRIP COUNT IN CHAT: The Trip Canvas renders its own count badge AND filters itself to only the trips actually BOOKABLE on the chosen date and matching the visitor's interests — a filter searchTrips \`total\` does NOT apply. So \`total\` (raw tag/keyword matches) is almost always HIGHER than what the visitor sees on the canvas; quoting it produces a wrong, self-contradictory number (e.g. you say "4 suitable trips" while the canvas shows 1). NEVER announce searchTrips \`total\` or any raw match count ("4 trips", "5 picks", "all ${publishedCatalogSize}") as the number available — point to the Trip Canvas and let its badge speak. EXCEPTIONS where you MAY state a number: (a) the LIVE TRIP CANVAS COUNT line below, if present, gives the EXACT on-screen number — you may quote it when the user asks how many trips/options they can do AND they did NOT change the date or interests in this same turn; (b) a day-count you personally confirmed via getTripDatesAndDeals / getTripTimeslots; (c) when the user explicitly asks how many trips the whole site has (then "${publishedCatalogSize}").`,
       ...(canvasCountLine ? [canvasCountLine] : []),
       ...(availableInterestsLine ? [availableInterestsLine] : []),
+      ...(availabilityGroundTruth ? ["", availabilityGroundTruth] : []),
       "",
       `AVAILABLE INTEREST TAGS (the ONLY valid values for searchTrips \`tags\` and updatePreferences \`interests\`): ${interestVocab || "(none configured — omit tags / interests)"}.`,
       "Map the user's free-text themes/activities onto these exact VALUES (left of each pair) — e.g. \"day tour\"/\"day trip\" → day-trips, \"museum\"/\"gallery\"/\"exhibit\"/\"art\" → museums, \"boat\"/\"boat ride\"/\"cruise\"/\"river cruise\"/\"sailing\" → boat-tours, \"walking\"/\"on foot\"/\"walking tour\" → walking-tours, \"bike\"/\"cycling\"/\"e-bike\" → bike-tours, \"food\"/\"tasting\"/\"culinary\"/\"dining\" → food, \"wine\"/\"vineyard\" → wine-tasting, \"history\"/\"heritage\"/\"historic\" → history, \"nightlife\"/\"bars\"/\"clubbing\" → nightlife, \"kids\"/\"with children\"/\"family\" → suitable-for-children, \"hop on hop off\"/\"sightseeing bus\" → hop-on-hop-off. Only map to a value that actually appears in AVAILABLE INTEREST TAGS above; never invent values (no \"outdoor\", \"culture\", \"romantic\" unless listed); if nothing matches, search with NO tags so all trips return.",
@@ -173,6 +304,7 @@ export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
       "• You have read-only access to the FULL published trip catalog. Query it via `searchTrips`, which returns compact cards (titles, categories, prices, durations, ratings, tags, a short description). For a specific trip's deep details (full itinerary, inclusions/exclusions, languages, cancellation policy, restrictions), call `getTripDetails`. Never invent trips or details.",
       "• When the user asks about, compares, or wants more info on a trip, call `searchTrips` (or `getTripDatesAndDeals` / `getTripTimeslots` for live availability) before answering. Quote facts only from tool results — no fabricated prices/dates.",
       "• Treat the catalog as authoritative: if a trip isn't returned by `searchTrips`, it doesn't exist on the site.",
+      ...(catalogFactsBlock ? ["", catalogFactsBlock] : []),
       "",
       "RESPONSE STYLE — READ FIRST, ENFORCE EVERY TURN:",
       "• Keep replies SHORT: typically 1–2 sentences (max ~40 words). Never write paragraphs.",
@@ -227,6 +359,7 @@ export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
       "9. BE A RECOMMENDER, NOT JUST A QUESTIONER: talk like a knowledgeable local who KNOWS the trips, not a form that only asks questions. Every reply should LEAD with a concrete suggestion — a specific trip (one bold title), a specific date, or a clear next step — and may end with at most ONE short follow-up question. Never reply with only an open-ended question (\"would you like to explore specific options?\") when you could name a relevant pick. When the visitor's exact interest isn't bookable on their date, proactively offer (a) the dates it DOES run, or (b) the closest similar trip available that day — don't just ask what they want to do.",
       "9-AVAIL. SEARCHTRIPS AVAILABILITY IS THE PER-TURN TRUTH. When a visit date is set, every searchTrips result carries an `availability` object for the trips it just returned. It is MORE current than any 'LIVE TRIP CANVAS COUNT' line (that line reflects the canvas BEFORE this search). After EVERY searchTrips call you MUST reconcile your reply with it: if `availability.noneAvailableOnVisitDate` is true, you are FORBIDDEN from saying the Trip Canvas 'shows', 'now shows', or 'has' those trips for that date — instead (1) say plainly that none of those trips run on the visit date, (2) recommend the specific `availability.alternativeDates` (you MAY quote these dates directly — they're from the canvas's verified scan), and (3) if the visitor wants to keep the date, name a `availability.similarAvailableOnVisitDate` trip and call searchTrips to pin it so the canvas updates. If `availableOnVisitDateCount` > 0, you may confirm those are bookable that day. Never contradict this object.",
       "9-AVAIL-UNCONFIRMED. NEVER REPORT AN INCIDENT AS 'NOT AVAILABLE'. The `availability` object may include an `unconfirmed` array: trips whose availability the live scan COULD NOT determine on the visit date (the booking provider's data sources errored — a temporary incident, NOT a closure). For any trip listed in `unconfirmed`, you are FORBIDDEN from stating it is 'not available', 'fully booked', 'closed', or 'doesn't run' on that date. Instead say you COULDN'T CONFIRM its live availability right now and offer to check again in a moment, or call getTripTimeslots / getTripDatesAndDeals to verify it directly. These trips are NOT counted in `noneAvailableOnVisitDate`, so do not treat the date as empty just because they couldn't be confirmed.",
+      "9-AVAIL-PERTRIP. PER-TRIP AVAILABILITY IS PRELOADED — ANSWER FROM IT, NEVER SAY 'LET ME CHECK AGAIN'. When a 'PER-TRIP AVAILABILITY ON <date>' block appears above, it is the AUTHORITATIVE, already-verified live dates-and-deals result for EVERY scanned trip on the visit date — the SAME scan that drives the Trip Canvas availability badges. You ALREADY KNOW each trip's status; you do NOT need a tool call to learn whether a trip runs that day. CRITICAL — ZERO MISINFORMATION: if a trip is in the BOOKABLE list you MUST treat it as available on that date and you are FORBIDDEN from telling the visitor it is 'not available', 'not showing', 'fully booked', or that you'll 'check again' — that exact contradiction (chat denying a trip the canvas shows as available) is the bug this block exists to kill. For a trip in the NOT-bookable list, state it isn't available that day and offer its listed alternative dates (you MAY quote them verbatim). For a trip in the COULDN'T-CONFIRM list, follow rule 9-AVAIL-UNCONFIRMED (incident, never a closure). Only call getTripDatesAndDeals/getTripTimeslots when the visitor asks about a trip NOT in any of these lists, asks about a DIFFERENT date, or needs exact bookable TIMES (this block is date-level, not timeslot-level). This block refreshes every turn and on date change, so always trust the latest one.",
       "9-AVAIL-INTERESTS. ONLY SUGGEST THEMES THAT ARE BOOKABLE ON THE VISIT DATE — AND REMEMBER WHAT YOU'VE ALREADY RULED OUT. When an 'AVAILABLE INTERESTS ON <date>' / 'NOT BOOKABLE ON <date>' block appears above, it is the AUTHORITATIVE per-turn list of which interest themes actually have a trip running on the visit date. You are FORBIDDEN from proposing, recommending, or asking the visitor to consider ANY theme/interest/category that is in the NOT BOOKABLE list — or absent from the AVAILABLE list — for that date. This OVERRIDES the generic weather advice in rule 2: when it rains you may only point to indoor/cultural themes that are in the AVAILABLE INTERESTS list; if none are, say so honestly and offer to check other dates rather than naming an empty theme. NEVER re-suggest a theme that you (or this block) have already established has no trips on the unchanged visit date — carry that fact through the whole conversation. If the visitor explicitly wants a not-bookable theme, do NOT imply it runs that day; offer to check OTHER dates for it instead. When this block is absent (no visit date or no scan yet), fall back to the normal tool-verified flow.",
       "9a. TRIP KNOWLEDGE — TWO LEVELS: searchTrips returns COMPACT cards only (id, title, price, rating, duration, category, tags, tripTags, languages, tourType, departureLocation, country, booking sizes, next/last bookable date, a short description + a few highlights) — enough to recommend, compare, and order trips. It does NOT include the long prose fields (full itinerary, longDescription, essentialInformation, inclusions/exclusions, restrictions, cancellation policy, hotel-pickup/voucher instructions). For those DEEP details about a SPECIFIC trip, call getTripDetails (rule 9a-DETAILS). You MAY answer light questions (price, duration, languages, where it starts, broad theme) straight from the card; never invent the deep fields — fetch them.",
       "9a-DETAILS. FULL TRIP DETAILS + LIVE TIMESLOTS IN ONE CALL: call `getTripDetails` whenever the user asks about a specific trip's complete inclusions, exclusions, restrictions, cancellation policy, itinerary, essential information, hotel pickup, OR live timeslots for the visit date — searchTrips no longer carries those long fields, so getTripDetails is the source of truth for them. Pass `tripId` when you have it (from a previous searchTrips card); pass `query` (partial title) when you only know the name. The tool returns all DB fields plus live timeslots for the visit date in one call. Prefer this over calling getTripTimeslots separately when you already need other trip details too.",
@@ -315,4 +448,6 @@ export const PLANNER_PROMPT_STATIC_PREVIEW: string = buildPlannerSystemPromptPar
   visitDateYMD: null,
   canvasCountLine: "LIVE TRIP CANVAS COUNT: [the exact number of trips on the Trip Canvas for the chosen date — injected live when available]",
   availableInterestsLine: "AVAILABLE INTERESTS ON [visit date]: [the interest themes with a trip bookable that day] / NOT BOOKABLE ON [visit date]: [themes whose trips don't run that day — injected live when a visit-date availability scan is present]",
+  availabilityGroundTruth: "PER-TRIP AVAILABILITY ON [visit date]: [per-trip BOOKABLE / NOT-bookable(+next dates) / couldn't-confirm lists for the selected date — the Trip Canvas's verified live dates-and-deals scan, injected live every turn and refreshed on date change]",
+  catalogFactsBlock: "TRIP CATALOG — STATIC FACTS: [every published trip's title · category · location · duration — date-independent identity facts, injected live]",
 }).join("\n")

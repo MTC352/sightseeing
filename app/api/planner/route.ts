@@ -8,7 +8,7 @@ import {
   validateUIMessages,
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { buildPlannerSystemPromptParts, buildCanvasCountLine } from "@/lib/planner/system-prompt"
+import { buildPlannerSystemPromptParts, buildCanvasCountLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
 import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
@@ -1308,6 +1308,16 @@ export async function POST(req: Request) {
         _availDate = visitDateYMD
       }
     }
+    // Request-local snapshot of the availability map + its date. The module-global
+    // _plannerAvail/_availDate exist so the tool executors can fall back to them,
+    // but a CONCURRENT planner request can reassign those globals before THIS
+    // request finishes building its prompt — which would let one visitor's chat
+    // quote another visitor's availability (the exact canvas↔chat contradiction
+    // this fix targets). Each request reassigns the globals to a brand-new object
+    // (never mutates in place), so capturing the reference here pins this
+    // request's truth immutably for the synchronous prompt build below.
+    const reqAvail = _plannerAvail
+    const reqAvailDate = _availDate
     let visitDateContext = ""
     if (visitDateYMD) {
       const [vy, vm, vd] = visitDateYMD.split("-").map(Number)
@@ -1392,6 +1402,57 @@ export async function POST(req: Request) {
       })
     }
 
+    // ── PER-TRIP AVAILABILITY GROUND TRUTH (preloaded dates-and-deals) ────────
+    // The client already ran the authoritative whole-catalog dates-and-deals
+    // scan for the visit date and forwards it (see _plannerAvail). Previously it
+    // only reached the model as a COUNT + theme-level hints, so the AI had no
+    // STANDING per-trip availability statement and would contradict the canvas
+    // (chat: "castle not available today" while the canvas badge shows it IS).
+    // Surface the full per-trip status so the model knows, from turn 1, exactly
+    // which trips are bookable on the selected date — no tool call, no "let me
+    // check again". Only when the snapshot reflects the CURRENT stored visit date.
+    let availabilityGroundTruth = ""
+    if (
+      visitDateYMD &&
+      reqAvailDate === visitDateYMD &&
+      Object.keys(reqAvail).length > 0 &&
+      promptCatalog.length > 0
+    ) {
+      const titleById = new Map(promptCatalog.map((t) => [t.id, t.title] as const))
+      const gtTrips: GroundTruthTrip[] = []
+      for (const [id, snap] of Object.entries(reqAvail)) {
+        const title = titleById.get(id)
+        if (!title || !title.trim()) continue // skip ids not in the public catalog
+        const cls = classifyTripAvailability(snap)
+        gtTrips.push({
+          title,
+          status: cls,
+          altDates:
+            cls === "alternative"
+              ? (snap.dates ?? []).slice(0, 3).map(prettyYMD)
+              : undefined,
+        })
+      }
+      availabilityGroundTruth = buildAvailabilityGroundTruth({
+        visitDatePretty: prettyYMD(visitDateYMD),
+        trips: gtTrips,
+      })
+    }
+
+    // ── TRIP CATALOG STATIC FACTS (always-on identity knowledge) ──────────────
+    // Date-INDEPENDENT facts (title · category · location · duration) for every
+    // published trip, so the model can answer "what / where / how long / what
+    // type" without a tool call. Deep prose stays on-demand via getTripDetails
+    // to keep the prompt lean.
+    const catalogFactsBlock = buildCatalogFactsBlock(
+      promptCatalog.map((t) => ({
+        title: t.title,
+        category: t.category,
+        location: t.departureLocation || t.city || null,
+        duration: t.duration,
+      })),
+    )
+
     // ── Live Trip Canvas count (Gap 1 — chat↔canvas count parity) ─────────────
     // The client sends the EXACT number of trips currently rendered on the Trip
     // Canvas (already filtered by visit-date availability + interests — the same
@@ -1421,7 +1482,7 @@ export async function POST(req: Request) {
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
       profileLine, cartSection, groupSection, itinerarySection,
       optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
-      interestVocab, canvasCountLine, availableInterestsLine,
+      interestVocab, canvasCountLine, availableInterestsLine, availabilityGroundTruth, catalogFactsBlock,
     })
     
     // Append admin-configured custom system prompt if available.

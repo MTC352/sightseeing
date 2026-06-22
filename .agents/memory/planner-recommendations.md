@@ -43,6 +43,19 @@ trips available today" while the canvas badge showed N>0. Two-part cause + fix:
 - *Prompt:* the count line only governed *quoting* a number, never *asserting* unavailability.
   FIX: when ready & date-matched, count>0 injects an "AVAILABILITY GROUND TRUTH" directive that
   FORBIDS claiming nothing-available / suggesting a date-switch-for-zero; no-date stays count-only.
+- *Per-trip ground truth (the COUNT was not enough):* the route held a full per-trip availability
+  snapshot for the visit date (`_plannerAvail`, gated `_availDate===visitDateYMD`) but only surfaced
+  it as an aggregate COUNT + theme hints — never a STANDING per-trip statement — so the AI still
+  "discovered" availability via tools and contradicted a canvas badge (e.g. denied Beaufort castle
+  4 turns while the badge showed it bookable). FIX: inject a per-trip block (BOOKABLE / NOT-bookable
+  +next dates / COULDN'T-CONFIRM) from turn 1, refreshed every turn, plus always-on static catalog
+  facts (title·category·location·duration); timeslots stay on-demand. Rule `9-AVAIL-PERTRIP` forbids
+  "check again"/false-negative for any trip in the BOOKABLE list. **Lesson:** availability the AI
+  must NOT contradict has to be a standing prompt fact, not something it re-derives via tools.
+  **Concurrency gotcha:** `_plannerAvail`/`_availDate` are MODULE-globals (shared so tool executors
+  can fall back to them); a concurrent request can overwrite them mid-flight. The prompt build must
+  read a REQUEST-LOCAL capture (`reqAvail`/`reqAvailDate`) taken right after assignment — safe only
+  because each request reassigns the global to a NEW object (never mutates in place).
 
 **Zero-matches branch is DIRECTIVE, not permissive.** count===0 (date-matched) used to merely
 permit "try another date", which let the model still falsely announce "the Trip Canvas now shows

@@ -9,6 +9,10 @@ const mod = await import("../../.test-build/system-prompt.js")
 const buildCanvasCountLine = mod.buildCanvasCountLine ?? mod.default?.buildCanvasCountLine
 const buildPlannerSystemPromptParts =
   mod.buildPlannerSystemPromptParts ?? mod.default?.buildPlannerSystemPromptParts
+const buildAvailabilityGroundTruth =
+  mod.buildAvailabilityGroundTruth ?? mod.default?.buildAvailabilityGroundTruth
+const buildCatalogFactsBlock =
+  mod.buildCatalogFactsBlock ?? mod.default?.buildCatalogFactsBlock
 
 function promptText(overrides = {}) {
   return buildPlannerSystemPromptParts({
@@ -183,4 +187,88 @@ test("prompt — duration accuracy + chat↔canvas title parity rules guard agai
   assert.match(p, /SEVERAL near-identical trips/)
   assert.match(p, /CHAT.CANVAS TITLE PARITY/)
   assert.match(p, /do NOT bold ONE specific title/)
+})
+
+// ── PER-TRIP AVAILABILITY GROUND TRUTH (buildAvailabilityGroundTruth) ────────
+
+test("availability ground truth — groups trips into BOOKABLE / NOT-bookable(+dates) / couldn't-confirm", () => {
+  const block = buildAvailabilityGroundTruth({
+    visitDatePretty: "Sun 21 Jun 2026",
+    trips: [
+      { title: "Beaufort Castle", status: "available" },
+      { title: "Larochette Castle", status: "alternative", altDates: ["Mon 22 Jun", "Tue 23 Jun"] },
+      { title: "Ghost Walk", status: "none" },
+      { title: "Wine Cellar Tour", status: "unconfirmed" },
+    ],
+  })
+  assert.match(block, /PER-TRIP AVAILABILITY ON Sun 21 Jun 2026/)
+  assert.match(block, /AUTHORITATIVE LIVE GROUND TRUTH/)
+  // bookable trip is named in the BOOKABLE list
+  assert.match(block, /BOOKABLE on Sun 21 Jun 2026: \*\*Beaufort Castle\*\*/)
+  // alternative trip carries its next dates
+  assert.match(block, /\*\*Larochette Castle\*\* \(next: Mon 22 Jun, Tue 23 Jun\)/)
+  // "none" trip is listed as not bookable, no upcoming dates
+  assert.match(block, /no upcoming dates in the scan window\): \*\*Ghost Walk\*\*/)
+  // unconfirmed trip is an incident, never a closure
+  assert.match(block, /COULDN'T CONFIRM on Sun 21 Jun 2026.*\*\*Wine Cellar Tour\*\*/)
+  // the directive that kills the bug: forbid 'check again' on a bookable trip
+  assert.match(block, /FORBIDDEN from saying you'll "check again"/)
+})
+
+test("availability ground truth — empty trips returns empty string (no stale grounding)", () => {
+  assert.equal(buildAvailabilityGroundTruth({ visitDatePretty: "Sun 21 Jun 2026", trips: [] }), "")
+  assert.equal(buildAvailabilityGroundTruth({ visitDatePretty: "Sun 21 Jun 2026", trips: null }), "")
+})
+
+test("availability ground truth — all unavailable still names the date and says BOOKABLE: none", () => {
+  const block = buildAvailabilityGroundTruth({
+    visitDatePretty: "Sun 21 Jun 2026",
+    trips: [{ title: "Ghost Walk", status: "none" }],
+  })
+  assert.match(block, /BOOKABLE on Sun 21 Jun 2026: none of the scanned trips/)
+})
+
+test("availability ground truth — block is injected into the full prompt and carries the new rule", () => {
+  const p = promptText({
+    availabilityGroundTruth: buildAvailabilityGroundTruth({
+      visitDatePretty: "Sun 21 Jun 2026",
+      trips: [{ title: "Beaufort Castle", status: "available" }],
+    }),
+  })
+  assert.match(p, /PER-TRIP AVAILABILITY ON Sun 21 Jun 2026/)
+  // the standing rule that references the block
+  assert.match(p, /9-AVAIL-PERTRIP\. PER-TRIP AVAILABILITY IS PRELOADED/)
+  assert.match(p, /ZERO MISINFORMATION/)
+})
+
+// ── TRIP CATALOG STATIC FACTS (buildCatalogFactsBlock) ──────────────────────
+
+test("catalog facts — renders title · category · location · duration per trip", () => {
+  const block = buildCatalogFactsBlock([
+    { title: "Beaufort Castle", category: "Tickets", location: "Beaufort", duration: "2 hours" },
+    { title: "City Train", category: "Sightseeing", location: "Luxembourg City", duration: "1 hour" },
+  ])
+  assert.match(block, /TRIP CATALOG — STATIC FACTS/)
+  assert.match(block, /- \*\*Beaufort Castle\*\* — Tickets · Beaufort · 2 hours/)
+  assert.match(block, /- \*\*City Train\*\* — Sightseeing · Luxembourg City · 1 hour/)
+  // explicitly tells the model this block carries NO availability
+  assert.match(block, /does NOT carry availability/)
+})
+
+test("catalog facts — omits missing meta gracefully and skips title-less rows", () => {
+  const block = buildCatalogFactsBlock([
+    { title: "Solo Title" },
+    { title: "", category: "X" },
+    { title: "Partial", category: "Cat", location: null, duration: "" },
+  ])
+  assert.match(block, /- \*\*Solo Title\*\*/)
+  assert.doesNotMatch(block, /Solo Title\*\* —/) // no trailing meta separator
+  assert.match(block, /- \*\*Partial\*\* — Cat/)
+  // the empty-title row must not appear
+  assert.doesNotMatch(block, /\*\*\*\*/)
+})
+
+test("catalog facts — empty catalog returns empty string", () => {
+  assert.equal(buildCatalogFactsBlock([]), "")
+  assert.equal(buildCatalogFactsBlock(null), "")
 })
