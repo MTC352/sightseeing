@@ -126,3 +126,71 @@ export function shouldAnnotateAvailability(args: {
     args.snapshotSize > 0
   )
 }
+
+/**
+ * Whether a single real-time `checkAvailability` component counts as bookable on
+ * the requested DATE.
+ *
+ * CRITICAL: this must NOT require a per-component `start_time`. "MULTI"/recurring
+ * tours (e.g. the museum Combi-ticket with 30-min departures) come back from
+ * checkavail with bookable components that carry NO concrete `start_time` — the
+ * times only materialise at booking. Requiring `start_time` here is exactly what
+ * made those trips falsely report "not available today" in the planner while the
+ * booking widget showed full slots (and is why the "Available on Today" badge
+ * undercounted). We only enforce SEATS, with the same party-size parity as the
+ * bulk datesndeals pass: UNLIMITED / missing / unparseable seat counts pass; a
+ * numeric count must hold the whole party.
+ *
+ * **Why:** date-level availability is a DATE question, not a time question. The
+ * checkavail call already supplies the rate quantity (`r1`) so TourCMS omits
+ * components that can't seat the group — this predicate is the seat-honest
+ * backstop, and dropping the `start_time` gate is what fixes the false negatives.
+ */
+export function isCheckavailComponentBookable(
+  c: { start_time?: string | null; spaces_remaining?: string | null } | null | undefined,
+  partySize = 1,
+): boolean {
+  if (!c) return false
+  const raw = c.spaces_remaining
+  if (raw == null || raw === "" || raw === "UNLIMITED") return true
+  const n = parseInt(raw, 10)
+  if (Number.isNaN(n)) return true
+  return n >= Math.max(1, partySize)
+}
+
+/**
+ * Resolve the selected-date verdict for the PASS-2 real-time fallback, given the
+ * outcome of the bulk datesndeals pass (`ddFailed`) and the checkavail call.
+ *
+ * Verdicts:
+ *  - "available"     → checkavail ok AND ≥1 component is bookable → flip the date on.
+ *  - "unknown"       → checkavail unusable (errored/threw) AND datesndeals ALSO
+ *                      failed → dual-source failure, an INCIDENT, never a
+ *                      confident "no openings".
+ *  - "not-available" → checkavail ok but no bookable component (authoritative
+ *                      empty) → confidently not bookable on the date.
+ *  - "no-change"     → checkavail unusable but datesndeals SUCCEEDED → keep the
+ *                      datesndeals verdict (already "not on date"); not an incident.
+ *
+ * **Why:** a FAILED checkavail must NEVER downgrade to a confident "not
+ * available" — only a dual-source failure becomes `unknown`, and a successful
+ * empty checkavail is the only path to a confident not-available. This is the
+ * zero-misinformation guarantee the planner depends on.
+ */
+export type SelectedDateFallbackVerdict =
+  | "available"
+  | "unknown"
+  | "not-available"
+  | "no-change"
+
+export function resolveSelectedDateFallback(input: {
+  ddFailed: boolean
+  checkavail: { ok: false } | { ok: true; bookable: boolean } | null | undefined
+}): SelectedDateFallbackVerdict {
+  const ca = input.checkavail
+  if (!ca || ca.ok === false) {
+    return input.ddFailed ? "unknown" : "no-change"
+  }
+  if (ca.bookable) return "available"
+  return "not-available"
+}

@@ -3,6 +3,7 @@ import { queryOne } from "@/lib/db"
 import { dbListTrips } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { isCheckavailComponentBookable, resolveSelectedDateFallback } from "@/lib/planner/availability-parity"
 
 export const dynamic = "force-dynamic"
 
@@ -229,26 +230,35 @@ export async function GET(req: Request) {
             }
             return
           }
-          const usable = avail.components.some((c) => {
-            if (!c.start_time) return false
-            const raw = c.spaces_remaining
-            if (raw && raw !== "UNLIMITED" && parseInt(raw, 10) <= 0) return false
-            return true
+          // A checkavail component is bookable on the DATE without needing a
+          // per-component start_time (MULTI/recurring tours omit it) — see
+          // isCheckavailComponentBookable. Requiring start_time here was the
+          // false-negative that undercounted "Available on Today".
+          const bookable = avail.components.some((c) =>
+            isCheckavailComponentBookable(c, partySize),
+          )
+          const verdict = resolveSelectedDateFallback({
+            ddFailed: item.ddFailed,
+            checkavail: { ok: true, bookable },
           })
-          if (usable) {
+          if (verdict === "available") {
             const cur = trips[item.id] ?? { availableOnSelectedDate: false, availableDates: [] }
             const dates = cur.availableDates.includes(selectedDate)
               ? cur.availableDates
               : [...cur.availableDates, selectedDate].sort()
             trips[item.id] = { availableOnSelectedDate: true, availableDates: dates }
+          } else if (verdict === "unknown") {
+            const cur = trips[item.id] ?? { availableOnSelectedDate: false, availableDates: [] }
+            trips[item.id] = { ...cur, unknown: true }
           }
-          // checkavail ok but no usable slot: if datesndeals succeeded this is a
-          // real "not available"; if datesndeals failed, an empty checkavail is
-          // still authoritative enough (it returned ok) to call it not-available.
+          // "not-available"/"no-change" → keep the datesndeals verdict (already
+          // "not on date"); never flip to a confident closure off a failed call.
         } catch {
-          // Real-time check threw. Dual failure (datesndeals also failed) =>
-          // unknown; otherwise leave the datesndeals verdict as-is.
-          if (item.ddFailed) {
+          // Real-time check threw → treat as an unusable checkavail. Dual failure
+          // (datesndeals also failed) => unknown; otherwise leave the datesndeals
+          // verdict as-is.
+          const verdict = resolveSelectedDateFallback({ ddFailed: item.ddFailed, checkavail: null })
+          if (verdict === "unknown") {
             const cur = trips[item.id] ?? { availableOnSelectedDate: false, availableDates: [] }
             trips[item.id] = { ...cur, unknown: true }
           }

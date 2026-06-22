@@ -116,3 +116,16 @@ alternative-dates > none; `isConfidentNoneAvailable` = 0 bookable AND 0 unconfir
   be silently downgraded to NO_SLOTS ("no openings").
 - Itinerary build/API failures are persisted via `logError(source:"itinerary")`
   (`lib/error-log.ts`) and reviewable at `/admin/logs`.
+
+- **Date-level availability must be `start_time`-INDEPENDENT.** Both the itinerary
+  route (`isDepartureDateBookable`) AND the planner availability scan
+  (`app/api/planner/availability/route.ts` PASS-2 checkavail fallback) must NOT
+  require a per-component `start_time`. MULTI/recurring tours return bookable
+  components with NO concrete time (times only materialise at booking), so a
+  `if (!c.start_time) return false` gate falsely reports them "not available
+  today" while the booking widget shows full slots — this directly undercounts
+  the planner "Available on Today" badge. Pure backstop:
+  `isCheckavailComponentBookable` (seats + party-size only) in
+  `lib/planner/availability-parity.ts`; verdict resolver
+  `resolveSelectedDateFallback` keeps the dual-source-failure => `unknown`
+  (never a false confident closure) rule.
