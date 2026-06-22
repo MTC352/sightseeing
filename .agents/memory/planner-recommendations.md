@@ -64,11 +64,11 @@ days; grounding it with real alt-dates + similar-trips makes the chat accurate A
 of truth; the AI must defer to it, never reach a contradictory availability conclusion.
 
 **Remove/clear chat tools.** `removeFromCart` + `clearCart` are CLIENT-side tools (no server
-`execute`) like addToCart; handled in `onToolCall` (app/planner/page.tsx). They resolve against
-the LIVE My Trip list (`cartSummaryForApiRef`, id-first then normalized-title substring) and
-emit HONEST success/failure (refuse to confirm removing a trip not in the list). NOTE: addToCart
-still uses weaker title resolution — long/suffixed titles (e.g. "... (OTA)") can mis-map; align
-it with removeFromCart's matcher if revisiting.
+`execute`) like addToCart; handled in `onToolCall` (app/planner/page.tsx). All three now share
+ONE matcher — `resolveCartToolAction` (lib/planner/trip-match.ts) — resolving against the LIVE
+My Trip list (id-first then normalized-title substring) and emitting HONEST success/failure
+(refuse to confirm removing a trip not in the list). Keep any future cart-tool matching going
+through `resolveCartToolAction` so add/remove/clear stay aligned.
 
 **Why:** Previously the canvas waited on the first AI turn completing; when the AI key was
 401 (common — both env and DB keys often fail) the canvas stuck on "Discovering…" forever

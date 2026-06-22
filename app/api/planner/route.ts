@@ -667,7 +667,7 @@ const getTripTimeslotsTool = tool({
         error: "TOURCMS_ERROR",
         providerError: res.error ?? null,
         tripId,
-        date,
+        date: effectiveDate,
         timeslots: [],
       }
     }
@@ -698,7 +698,7 @@ const getTripTimeslotsTool = tool({
       ok: true,
       tripId,
       palisisId,
-      date,
+      date: effectiveDate,
       duration: (tripRow?.duration as string | undefined) ?? null,
       title: (tripRow?.title as string | undefined) ?? null,
       componentKeyValidForSeconds: res.component_key_valid_for ?? null,
