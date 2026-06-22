@@ -1,5 +1,6 @@
 import { query } from "@/lib/db"
 import { getSession } from "@/lib/auth"
+import { decidePlannerHidden } from "@/lib/planner/visibility-decision"
 
 /**
  * Shared "is the Trip Planner hidden from the public?" check.
@@ -27,12 +28,11 @@ export async function isPlannerHidden(): Promise<boolean> {
 
     const itineraryHide = itineraryRow?.extra_config?.hidePublicPlanner === true
     const plannerHide = plannerRow?.extra_config?.hidePublicPlanner === true
-    const hideFlag = itineraryHide || plannerHide
-    if (!hideFlag) return false
+    if (!(itineraryHide || plannerHide)) return false
 
     // Admins bypass the gate (preview while hidden from the public).
     const session = await getSession().catch(() => null)
-    return !session
+    return decidePlannerHidden({ itineraryHide, plannerHide, hasSession: !!session })
   } catch {
     // Fail-open: never block the planner because of a settings read error.
     return false

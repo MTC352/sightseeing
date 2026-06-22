@@ -33,6 +33,7 @@ import {
   Maximize2, Loader2, Bookmark, Download,
 } from "lucide-react"
 import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
+import { resolveCartToolAction } from "@/lib/planner/trip-match"
 import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
@@ -2563,110 +2564,33 @@ export default function PlannerPage() {
         })
         return
       }
-      if (toolCall.toolName === "addToCart") {
-        const { tripId, tripTitle } = toolCall.input as { tripId: string; tripTitle: string }
-        // Resolve ROBUSTLY so the My Trip list always reflects what the chat
-        // claims it saved (the bug was the chat reporting "Saved X" while the
-        // list stayed blank because the id didn't match the catalog). Read from
-        // refs — useChat captures onToolCall's closure on mount, so direct
-        // `allTrips` / `aiTrips` reads would see stale values after the DB
-        // hydration replaces the catalog.
-        const pools = [allTripsRef.current, aiTripsRef.current]
-        const normTitle = (s: string) =>
-          s.trim().toLowerCase().replace(/['']/g, "").replace(/\s+/g, " ")
-        const findById = (id: string): Trip | undefined => {
-          if (!id) return undefined
-          for (const pool of pools) {
-            const hit =
-              pool.find((t) => t.id === id) ??
-              // The model sometimes passes a raw Palisis id ("5") instead of the
-              // internal "tcms_5" — try the prefixed form before giving up.
-              (id.startsWith("tcms_") ? undefined : pool.find((t) => t.id === `tcms_${id}`))
-            if (hit) return hit
-          }
-          return undefined
-        }
-        const findByTitle = (title?: string): Trip | undefined => {
-          if (!title) return undefined
-          const n = normTitle(title)
-          for (const pool of pools) {
-            const hit =
-              pool.find((t) => normTitle(t.title) === n) ??
-              pool.find((t) => normTitle(t.title).includes(n) || n.includes(normTitle(t.title)))
-            if (hit) return hit
-          }
-          return undefined
-        }
-        const trip = findById(tripId) ?? findByTitle(tripTitle)
-        if (trip) {
-          addItem(trip)
-          // Descriptive success label naming the actually-saved trip.
-          addToolOutput({
-            tool: "addToCart",
-            toolCallId: toolCall.toolCallId,
-            output: `Saved “${trip.title}” to your trip list` as never,
-          })
-        } else {
-          // HONEST failure — never claim a save we didn't make. The model relays
-          // this so it stops telling the user a trip was added when it wasn't.
-          addToolOutput({
-            tool: "addToCart",
-            toolCallId: toolCall.toolCallId,
-            output:
-              `Could not add “${tripTitle || tripId}” — I couldn't match it to a trip in the catalog. Search for it first, then I'll save it.` as never,
-          })
-        }
-      }
-
-      if (toolCall.toolName === "removeFromCart") {
-        const { tripId, tripTitle } = toolCall.input as { tripId?: string; tripTitle: string }
-        // Resolve the target against the LIVE My Trip list (the authoritative
-        // membership the route also receives), not the catalog — we can only
-        // remove what's actually in the list. Match by id first, then by a
-        // normalised title (substring either direction) so "the boat cruise"
-        // resolves to "Boat Cruise on the Moselle".
-        const normTitle = (s: string) =>
-          s.trim().toLowerCase().replace(/['']/g, "").replace(/\s+/g, " ")
+      if (
+        toolCall.toolName === "addToCart" ||
+        toolCall.toolName === "removeFromCart" ||
+        toolCall.toolName === "clearCart"
+      ) {
+        // The cart tool loop's decision + user-facing message is computed by the
+        // shared pure resolver (unit tested in lib/planner/trip-match.ts) so the
+        // chat is ALWAYS honest about what actually changed — it never claims
+        // "Saved/Removed X" without a real match, and "Cleared N" reports the
+        // true count. Reads come from refs because useChat captures this
+        // closure on mount (direct `allTrips`/`aiTrips`/`cart` reads go stale
+        // after DB hydration). The side effect is applied here per the result.
+        const { tripId, tripTitle } = toolCall.input as { tripId?: string; tripTitle?: string }
         const list = cartSummaryForApiRef.current
-        let target = tripId ? list.find((c) => c.id === tripId || c.id === `tcms_${tripId}`) : undefined
-        if (!target && tripTitle) {
-          const n = normTitle(tripTitle)
-          target =
-            list.find((c) => normTitle(c.title) === n) ??
-            list.find((c) => normTitle(c.title).includes(n) || n.includes(normTitle(c.title)))
-        }
-        if (target) {
-          removeItem(target.id)
+        const action = resolveCartToolAction(
+          toolCall.toolName,
+          { tripId, tripTitle },
+          { catalog: [allTripsRef.current, aiTripsRef.current], list },
+        )
+        if (action) {
+          if (action.kind === "add" && action.changed && action.trip) addItem(action.trip as Trip)
+          else if (action.kind === "remove" && action.changed && action.trip) removeItem(action.trip.id)
+          else if (action.kind === "clear" && action.changed) clearList()
           addToolOutput({
-            tool: "removeFromCart",
+            tool: toolCall.toolName,
             toolCallId: toolCall.toolCallId,
-            output: `Removed “${target.title}” from the trip list` as never,
-          })
-        } else {
-          // HONEST failure — the trip wasn't in the list, so nothing changed.
-          addToolOutput({
-            tool: "removeFromCart",
-            toolCallId: toolCall.toolCallId,
-            output:
-              `“${tripTitle || tripId}” isn't in the trip list, so nothing was removed.` as never,
-          })
-        }
-      }
-
-      if (toolCall.toolName === "clearCart") {
-        const count = cartSummaryForApiRef.current.length
-        if (count > 0) {
-          clearList()
-          addToolOutput({
-            tool: "clearCart",
-            toolCallId: toolCall.toolCallId,
-            output: `Cleared all ${count} trip${count === 1 ? "" : "s"} from the trip list` as never,
-          })
-        } else {
-          addToolOutput({
-            tool: "clearCart",
-            toolCallId: toolCall.toolCallId,
-            output: `The trip list is already empty — nothing to clear.` as never,
+            output: action.message as never,
           })
         }
       }
