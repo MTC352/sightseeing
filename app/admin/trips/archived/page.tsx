@@ -3,10 +3,18 @@ import { dbListArchivedTrips } from "@/lib/db/queries"
 import { ArrowLeft, Pencil } from "lucide-react"
 import { TripArchiveButton } from "../trip-archive-button"
 import { TripDeleteButton } from "../trip-delete-button"
+import { requirePermission } from "@/lib/auth-server"
+import { redirect } from "next/navigation"
 
 export const dynamic = "force-dynamic"
 
 export default async function ArchivedTripsPage() {
+  try {
+    await requirePermission("trips")
+  } catch {
+    redirect("/admin/login")
+  }
+
   const trips = await dbListArchivedTrips() as {
     id: string; palisis_id: string | null; title: string; city: string; category: string;
     price: number; image: string; status: string;
