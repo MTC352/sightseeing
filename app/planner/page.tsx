@@ -4305,6 +4305,9 @@ export default function PlannerPage() {
                             // or it is a short proper-noun phrase (=trip title).
                             return MONTH_DOW_PAT.test(inner) || tokens.length <= 6
                           }
+                          // Step 1 — strip any AI-invented bold phrases that
+                          // don't match the allowed data shapes (times, dates,
+                          // durations, prices, proper-noun trip titles).
                           const desuperBolded = sanitized.replace(
                             /\*\*([^*]+)\*\*/g,
                             (match, inner: string) => {
@@ -4312,7 +4315,38 @@ export default function PlannerPage() {
                               return inner
                             },
                           )
-                          const clean = desuperBolded
+                          // Step 2 — AUTO-BOLD TRIP TITLES: the AI sometimes
+                          // omits `**...**` around trip names (e.g. writes
+                          // "City Train" instead of "**City Train**"). Run
+                          // AFTER desuperBolded so catalog titles are never
+                          // stripped by the 6-token length cap — they are
+                          // injected fresh and bypass that filter. Split on
+                          // existing **…** first to avoid double-wrapping;
+                          // sort titles longest-first so "City Highlights
+                          // Instagram Tour by Minibus" is matched before the
+                          // shorter "City Train".
+                          const withAutoBoldTitles = (() => {
+                            const titles = allTrips
+                              .map((t) => t.title?.trim())
+                              .filter((t): t is string => !!t && t.length > 2)
+                              .sort((a, b) => b.length - a.length)
+                            if (titles.length === 0) return desuperBolded
+                            const parts = desuperBolded.split(/(\*\*[^*]+\*\*)/g)
+                            const processed = parts.map((part, i) => {
+                              if (i % 2 === 1) return part
+                              let result = part
+                              for (const title of titles) {
+                                const esc = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+                                result = result.replace(
+                                  new RegExp(`(?<![\\w*])(${esc})(?![\\w*])`, "g"),
+                                  "**$1**",
+                                )
+                              }
+                              return result
+                            })
+                            return processed.join("")
+                          })()
+                          const clean = withAutoBoldTitles
                             .replace(/^#{1,3}\s+/gm, "")
                             .replace(/!\[.*?\]\(.*?\)/g, "")
                             .replace(/^[-*]\s+/gm, "")
