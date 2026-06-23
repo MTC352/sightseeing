@@ -1189,13 +1189,14 @@ export const DEFAULT_PLANNER_FORM = {
   maxChatTurns: 0,
   // Per-step enable/disable toggles for the /planner onboarding wizard.
   // When a step is disabled the planner skips it and uses a sensible
-  // default ("solo" group / empty interests / "any" duration / "any"
-  // budget / today's date) so the AI still has a complete Preferences
-  // object to work with.
+  // default ("solo" group / "full-day" duration / "any" budget / today's
+  // date) so the AI still has a complete Preferences object to work with.
+  // "Who's coming" (groups) and "Time Available" (durations) are off by
+  // default — the AI can refine both via chat.
   enabledSteps: {
-    groups: true,
+    groups: false,
     interests: true,
-    durations: true,
+    durations: false,
     budgets: true,
     dates: true,
   },

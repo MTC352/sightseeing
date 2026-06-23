@@ -1495,6 +1495,7 @@ export async function POST(req: Request) {
       availableTodaySamples: Array.isArray(canvas?.availableTodaySamples)
         ? canvas.availableTodaySamples
         : null,
+      showingOtherDates: canvas?.showingOtherDates === true,
     })
 
     const systemPromptParts = buildPlannerSystemPromptParts({

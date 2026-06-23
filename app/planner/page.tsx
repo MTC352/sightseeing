@@ -413,7 +413,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
     switch (STEP_KEYS[i]) {
       case "groups":    { const dp = defaultPartyFor("solo"); return { ...p, group: "solo", adults: dp.adults, children: dp.children } }
       case "interests": return { ...p, interests: [] }
-      case "durations": return { ...p, duration: "any", dayCount: 1 }
+      case "durations": return { ...p, duration: "full-day", dayCount: 1 }
       case "budgets":   return { ...p, budget: "any" }
       case "dates":     return { ...p, startDate: todayYMD() }
     }
@@ -494,7 +494,7 @@ function Onboarding({ onComplete, formOptions }: { onComplete: (prefs: Preferenc
         case "interests":
           break // keep whatever (if anything) was already chosen
         case "durations":
-          if (!merged.duration) merged = { ...merged, duration: "any", dayCount: 1 }
+          if (!merged.duration) merged = { ...merged, duration: "full-day", dayCount: 1 }
           break
         case "budgets":
           if (!merged.budget) merged = { ...merged, budget: "any" }
@@ -1353,6 +1353,9 @@ export default function PlannerPage() {
   // Confirmation gate for the "reset chat" button — wiping the chat, prefs,
   // trip list and itinerary is destructive, so we ask first.
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  // Whether the Trip Canvas is in "other dates" mode (user clicked "See Trips
+  // on other dates"). Resets whenever the visit date or search results change.
+  const [showOtherDates, setShowOtherDates] = useState(false)
   const [itineraryRegenerating, setItineraryRegenerating] = useState(false)
   const itineraryRestoredRef = useRef(false)
   // Bidirectional list↔map sync. activeStopIndex/activeLegIndex are indexed
@@ -2295,6 +2298,10 @@ export default function PlannerPage() {
     // overlap with the visitor's interests, so the AI can recommend the closest
     // "similar experience" by name when their exact interest isn't running.
     availableTodaySamples: { title: string; tags: string[] }[]
+    // True when the visitor is currently viewing the "Available on other dates"
+    // group (they clicked "See Trips on other dates"). The AI uses this to know
+    // what the canvas is actually showing vs. the on-date group.
+    showingOtherDates: boolean
   }>({
     count: 0,
     date: null,
@@ -2303,6 +2310,7 @@ export default function PlannerPage() {
     otherDateSamples: [],
     availableTodayCount: 0,
     availableTodaySamples: [],
+    showingOtherDates: false,
   })
 
   // Compact live availability snapshot sent every turn so the server's
@@ -3923,8 +3931,13 @@ export default function PlannerPage() {
       .sort((a, b) => overlap(b) - overlap(a))
       .slice(0, 3)
       .map((t) => ({ title: t.title, tags: (t.tags ?? []).slice(0, 4) }))
+    // When the visitor is in "other dates" mode the canvas shows `matchingOther`
+    // instead of the on-date group, so `count` must reflect what they SEE.
+    const visibleCount = showOtherDates ? matchingOther.length : canvasCount
+    // Expand samples when in other-dates mode so the AI has the full visible list.
+    const sampleLimit = showOtherDates ? 6 : 3
     canvasCountForApiRef.current = {
-      count: canvasCount,
+      count: visibleCount,
       date: hasSelectedDate ? (prefs?.startDate ?? null) : null,
       // "ready" only once the availability scan for THIS date has settled AND we
       // actually have results to count — a loading/empty canvas count, or a
@@ -3933,15 +3946,15 @@ export default function PlannerPage() {
       // (provider incident) zero is "couldn't confirm", never a confident 0.
       ready: !availLoading && showResults && availLoadedMatchesDate && canvasCountTrustworthy,
       otherDatesCount: matchingOther.length,
-      // A few concrete trips + their (pretty-formatted) bookable dates so the AI
-      // can recommend exact dates without another tool round-trip. Bounded to
-      // keep the per-turn payload small.
-      otherDateSamples: matchingOther.slice(0, 3).map((t) => ({
+      // Concrete trips + their (pretty-formatted) bookable dates so the AI
+      // can recommend exact dates without another tool round-trip.
+      otherDateSamples: matchingOther.slice(0, sampleLimit).map((t) => ({
         title: t.title,
         dates: (plannerAvail[t.id]?.availableDates ?? []).slice(0, 4).map(formatYMDPretty),
       })),
       availableTodayCount: availableToday.length,
       availableTodaySamples,
+      showingOtherDates: showOtherDates,
     }
     // Whole-catalog availability snapshot for the server's searchTrips tool.
     // Sent only when a date is selected and the scan FOR THAT date has settled;
@@ -3962,7 +3975,14 @@ export default function PlannerPage() {
     } else {
       availabilityForApiRef.current = { date: null, trips: {} }
     }
-  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips, availLoadedMatchesDate, canvasCountTrustworthy])
+  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips, availLoadedMatchesDate, canvasCountTrustworthy, showOtherDates])
+
+  // Reset "other dates" view whenever the visit date changes or the AI returns
+  // a fresh set of search results — so old other-date trips never linger after
+  // the visitor refines their query or picks a different date.
+  useEffect(() => { setShowOtherDates(false) }, [prefs?.startDate])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setShowOtherDates(false) }, [aiTrips])
 
   /* Auto-expand map and center it when AI returns a new set of results */
   const prevResultTripIds = useRef<string>("")
@@ -4792,22 +4812,6 @@ export default function PlannerPage() {
                 </div>
               </div>
 
-              {/* Context-aware quick replies — hidden while the AI is
-                  generating OR the post-stream itinerary build is still
-                  running. Showing chips at that moment is misleading
-                  because the response on screen isn't final yet (user
-                  complaint: "user thinks reply is done and types another
-                  message while itinerary card is still loading"). */}
-              {!isStreaming && !itineraryRegenerating && !chatLimitReached && suggestions.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto border-t border-border px-4 py-2 scrollbar-none">
-                  {suggestions.map((s) => (
-                    <button key={s.label} type="button" onClick={() => s.patch ? applyDirectPref(s.patch) : handleSend(s.action)}
-                      className="shrink-0 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary">
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {/* Input — disabled while streaming OR while the post-
                   stream itinerary build is still in flight. The
@@ -5214,32 +5218,53 @@ export default function PlannerPage() {
                     <div className="flex flex-col gap-5" data-testid="planner-recs-list">
                       {hasSelectedDate ? (
                         <>
-                          <div className="flex flex-col gap-3" data-testid="planner-recs-group-ondate">
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                                <Calendar className="h-3 w-3" /> Available on {formatYMDPretty(prefs!.startDate)}
-                              </span>
-                              <span className="text-xs text-muted-foreground">{onDate.length}</span>
-                              {availLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-                            </div>
-                            {onDate.length > 0 ? (
-                              <div className="flex flex-col gap-3">{onDate.map((t) => renderCard(t, false))}</div>
-                            ) : (
-                              <p className="rounded-xl border border-dashed border-border bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
-                                {availLoading
-                                  ? "Checking which trips are open on this date…"
-                                  : others.length > 0
-                                    ? `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — see other dates below.`
-                                    : `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — try another date or interest.`}
-                              </p>
-                            )}
-                          </div>
-                          {/* Fallback ONLY when nothing is bookable on the selected
-                              date — keeps the canvas from going blank without
-                              diluting a date request with non-matching dates. */}
-                          {onDate.length === 0 && !availLoading && others.length > 0 && (
-                            <div className="flex flex-col gap-3" data-testid="planner-recs-group-other">
+                          {/* ── On-date group (hidden when "other dates" mode is active) ── */}
+                          {!showOtherDates && (
+                            <div className="flex flex-col gap-3" data-testid="planner-recs-group-ondate">
                               <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                  <Calendar className="h-3 w-3" /> Available on {formatYMDPretty(prefs!.startDate)}
+                                </span>
+                                <span className="text-xs text-muted-foreground">{onDate.length}</span>
+                                {availLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                              </div>
+                              {onDate.length > 0 ? (
+                                <div className="flex flex-col gap-3">{onDate.map((t) => renderCard(t, false))}</div>
+                              ) : (
+                                <p className="rounded-xl border border-dashed border-border bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
+                                  {availLoading
+                                    ? "Checking which trips are open on this date…"
+                                    : others.length > 0
+                                      ? <>
+                                          None of your matching trips have open slots on{" "}
+                                          <strong>{formatYMDPretty(prefs!.startDate)}</strong> yet —{" "}
+                                          <button
+                                            type="button"
+                                            onClick={() => setShowOtherDates(true)}
+                                            className="underline decoration-dotted hover:text-primary transition-colors focus:outline-none"
+                                          >
+                                            See Trips on other dates
+                                          </button>
+                                        </>
+                                      : `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — try another date or interest.`}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ── Other-dates group (mutually exclusive with on-date group).
+                              Visible only when user explicitly clicks "See Trips on other
+                              dates". When shown, the on-date group is hidden above. ── */}
+                          {showOtherDates && others.length > 0 && (
+                            <div className="flex flex-col gap-3" data-testid="planner-recs-group-other">
+                              <div className="flex items-center gap-2 flex-wrap gap-y-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowOtherDates(false)}
+                                  className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary"
+                                >
+                                  ← {formatYMDPretty(prefs!.startDate)}
+                                </button>
                                 <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
                                   <Calendar className="h-3 w-3" /> Available on other dates
                                 </span>

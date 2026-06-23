@@ -87,6 +87,11 @@ export function buildCanvasCountLine(args: {
    * the visitor's interests, so the AI can recommend a SIMILAR experience by name
    * when their exact interest isn't running that day. */
   availableTodaySamples?: { title?: string | null; tags?: string[] | null }[] | null
+  /** True when the visitor clicked "See Trips on other dates" and the canvas is
+   * now showing the other-dates group instead of the on-date group.  In this
+   * mode `canvasCount` already reflects the other-dates count, and
+   * `otherDateSamples` lists the visible trips with their available dates. */
+  showingOtherDates?: boolean
 }): string {
   const { canvasReady, visitDateYMD } = args
   const canvasCount =
@@ -95,6 +100,33 @@ export function buildCanvasCountLine(args: {
     typeof args.canvasDate === "string" && args.canvasDate ? args.canvasDate : null
   const canvasDateMatches = canvasDate === (visitDateYMD ?? null)
   if (canvasCount === null || !canvasReady || !canvasDateMatches) return ""
+
+  // ── Other-Dates Mode ──────────────────────────────────────────────────────
+  // The visitor clicked "See Trips on other dates" — the canvas is now showing
+  // the other-dates group.  Tell the AI exactly what is visible so it can
+  // answer "what's on the canvas?" / "how many trips?" accurately.
+  if (args.showingOtherDates) {
+    const samples = (Array.isArray(args.otherDateSamples) ? args.otherDateSamples : [])
+      .map((s) => {
+        const title = typeof s?.title === "string" ? s.title.trim() : ""
+        const dates = Array.isArray(s?.dates)
+          ? s!.dates!.filter((d): d is string => typeof d === "string" && !!d.trim())
+          : []
+        if (!title) return null
+        return dates.length > 0 ? `**${title}** (${dates.join(", ")})` : `**${title}**`
+      })
+      .filter((s): s is string => s !== null)
+    const tripWord = canvasCount === 1 ? "trip" : "trips"
+    const sampleStr = samples.length > 0 ? ` Visible ${tripWord}: ${samples.join("; ")}.` : ""
+    return (
+      `TRIP CANVAS — OTHER DATES MODE: The visitor clicked "See Trips on other dates." ` +
+      `The canvas is currently showing EXACTLY ${canvasCount} ${tripWord} that are NOT bookable on ${canvasDate} ` +
+      `but ARE available on upcoming dates.${sampleStr} ` +
+      `When asked how many trips are on the canvas, or what is visible, answer from this list. ` +
+      `If the visitor wants to go back to trips on ${canvasDate}, they can tap the date badge. ` +
+      `Do NOT say the canvas shows trips for ${canvasDate} — it shows OTHER-DATE trips right now.`
+    )
+  }
   if (canvasDate) {
     if (canvasCount > 0) {
       return `LIVE TRIP CANVAS COUNT + AVAILABILITY GROUND TRUTH: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows EXACTLY ${canvasCount} trip${canvasCount === 1 ? "" : "s"} bookable that day matching the visitor's interests — this is the authoritative number the visitor sees. You MUST NOT tell the visitor that no trips / nothing is available on ${canvasDate}, and MUST NOT suggest switching to another date because of zero availability — trips ARE available. When the user asks "how many trips/options can I do" (and has NOT changed the date or interests in this same turn), answer with this exact number. If they DO change the date or interests this turn, this count is stale — do NOT cite it; point to the refreshed Trip Canvas instead.`
@@ -392,10 +424,15 @@ export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
       "12b. CANVAS AWARENESS: When the 'TRIP CANVAS — DAY ITINERARY IS OPEN' block above is present, the visitor is already looking at that exact plan. Treat it as ground truth — answer questions about order, timing, or contents from that block directly. If they ask to add/remove/swap a stop, acknowledge the change and call buildItinerary again with the updated sequence; the canvas will refresh automatically.",
       "13. GROUP TRIPS: When groupMembers exist, find experiences that satisfy overlapping interests. Note conflicts and suggest compromises. Mention each member by name when explaining why a trip fits.",
       "13a. PARTY SIZE: The PROFILE line above tells you exactly how many adults and children are in the party. ALWAYS factor this in when recommending trips and building itineraries — avoid adult-only venues if children are present, prefer family-friendly / stroller-accessible options when children > 0, and consider group capacity for friends groups of 6+.",
-      "13b. UPDATING PREFERENCES MID-CHAT (CRITICAL — the canvas, the onboarding chips, and stored prefs all read from this; skipping it desyncs everything): The MOMENT the user states or implies a change to ANY of these, you MUST call `updatePreferences` with ONLY the changed field(s), THEN re-run `searchTrips` (or rebuild) in the SAME turn, THEN acknowledge in one short sentence:",
+      "13b. UPDATING PREFERENCES MID-CHAT (CRITICAL — the canvas, the onboarding chips, and stored prefs all read from this; skipping it desyncs everything): Rules for when to update immediately vs. when to confirm first:",
+      "    INTENT DISTINCTION — TELLING vs. CHECKING:",
+      "    • TELLING (update immediately, no confirmation needed): The user states a fact about their own trip — \"we are 4 people\", \"I'm visiting on June 25\", \"there will be 2 adults and 1 child\", \"we want a full day\". Call updatePreferences right away.",
+      "    • CHECKING (ask first, then update): The user is exploring hypotheticals or asking what's available on a date without committing — \"what if there were 4 of us?\", \"what's happening on June 25?\", \"anything available on the 30th?\". Reply with one short sentence: e.g. \"Shall I set June 25 as your visit date?\" or \"Want me to update the party to 4?\" — and WAIT for a 'yes' before calling updatePreferences.",
+      "    When in doubt, lean toward updating immediately — misidentifying a TELLING as a CHECKING is only a minor surprise, but misidentifying a CHECKING as a TELLING can confuse visitors who were just browsing.",
+      "    FIELDS TO UPDATE (always include ONLY the changed field(s), then re-run searchTrips or rebuild in the SAME turn, then acknowledge in one short sentence):",
       "    • PARTY SIZE — \"just me\"/\"solo\" → {adults:1, children:0}; \"2 adults and 3 kids\" → {adults:2, children:3}. NEVER leave adults at 0 — minimum 1.",
       "    • DURATION (valid values: \"1-2h\", \"half-day\", \"full-day\") — \"half day\"/\"a few hours\" → {duration:\"half-day\"}; \"full day\" → {duration:\"full-day\"}; \"quick\"/\"1-2 hours\" → {duration:\"1-2h\"}.",
-      "    • DATE — asking for trips ON a day IS a date-preference change, so call updatePreferences with {startDate:\"YYYY-MM-DD\"}. Take the exact value from the RELATIVE DATES block in the DATE & TIME context — NEVER compute it yourself. \"this weekend\"/\"trips this weekend\" → the resolved \"this weekend\" startDate (the UPCOMING Saturday, NOT next week's); \"tomorrow\" → the resolved tomorrow; \"next weekend\" → the resolved next-weekend startDate. Examples: \"give me this weekend trips\" → updatePreferences({startDate:<this-weekend value>}) FIRST, then searchTrips; \"what's available this weekend\" → same. Do this even when the user only wants to browse — the canvas and the trip-list availability badges all key off this stored date. CRITICAL — DO NOT STATE A TRIP COUNT FOR A DATE: after a date change the Trip Canvas filters itself to ONLY the trips actually bookable on that date (not the whole catalog), so NEVER claim \"all N trips\" or any searchTrips `total` as the number available that day. Just point to the canvas, e.g. \"Trip Canvas now shows what's open this weekend — want me to narrow by interest?\" Cite a day-specific count ONLY when you verified it via getTripDatesAndDeals / getTripTimeslots.",
+      "    • DATE — when the user commits to a visit date, call updatePreferences with {startDate:\"YYYY-MM-DD\"}. Take the exact value from the RELATIVE DATES block in the DATE & TIME context — NEVER compute it yourself. \"this weekend\"/\"trips this weekend\" → the resolved \"this weekend\" startDate (the UPCOMING Saturday, NOT next week's); \"tomorrow\" → the resolved tomorrow; \"next weekend\" → the resolved next-weekend startDate. Examples: \"give me this weekend trips\" → updatePreferences({startDate:<this-weekend value>}) FIRST, then searchTrips; \"I'll be there on Saturday\" → same. CRITICAL — DO NOT STATE A TRIP COUNT FOR A DATE: after a date change the Trip Canvas filters itself to ONLY the trips actually bookable on that date (not the whole catalog), so NEVER claim \"all N trips\" or any searchTrips `total` as the number available that day. Just point to the canvas, e.g. \"Trip Canvas now shows what's open this weekend — want me to narrow by interest?\" Cite a day-specific count ONLY when you verified it via getTripDatesAndDeals / getTripTimeslots.",
       "    • INTEREST / THEME / TAG — this is a PREFERENCE change, not just a search. Map the phrase to a canonical VALUE from AVAILABLE INTEREST TAGS, then call updatePreferences with the FULL new `interests` ARRAY (it REPLACES the list — include every interest that should remain). To ADD an interest (\"also show museums\", \"day tours too\") append it; to SWITCH (\"actually just day tours\") send only that value; to REMOVE (\"no more walking tours\", \"drop museums\") send the array without it. Examples: user says \"show me day tours\" with no prior interests → updatePreferences({interests:[\"day-trips\"]}); already had [\"museums\"] and says \"add food\" → updatePreferences({interests:[\"museums\",\"food\"]}). After updating, call searchTrips with those SAME tags so the canvas matches the stored prefs.",
       "    • BUDGET / GROUP — \"bump the budget up\" → {budget:\"premium\"}; \"keep it cheap\" → {budget:\"casual\"}; group type changes similarly.",
       "    Acknowledge briefly, e.g. \"Updated to day tours — Trip Canvas now shows day-trip picks\". The new prefs persist for the rest of the conversation. If the user gives several changes at once, pass them all in ONE updatePreferences call.",
