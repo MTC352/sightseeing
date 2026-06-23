@@ -1153,6 +1153,7 @@ export async function POST(req: Request) {
         otherDateSamples?: { title?: string | null; dates?: string[] | null }[]
         availableTodayCount?: number
         availableTodaySamples?: { title?: string | null; tags?: string[] | null }[]
+        showingOtherDates?: boolean
       } | null
       // Compact live availability snapshot echoed by the client (its
       // /api/planner/availability scan, party + cancellation filtered). Keyed by
