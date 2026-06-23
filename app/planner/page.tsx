@@ -3859,6 +3859,18 @@ export default function PlannerPage() {
   const resultTrips: Trip[] = displayedAiTrips.length > 0 ? displayedAiTrips : recommendedTrips
   const showResults = resultTrips.length > 0
 
+  // Trips that are ACTUALLY VISIBLE in the "Recommended for you" list right now.
+  // The map and the trip counts must mirror this exactly:
+  //   • Date set, on-date view  → only trips bookable on that date
+  //   • Date set, other-dates   → only the other-dates group
+  //   • No date selected        → all result trips (unfiltered)
+  const visibleCanvasTrips = useMemo(() => {
+    if (!hasSelectedDate) return resultTrips
+    return showOtherDates
+      ? resultTrips.filter((t) => !plannerAvail[t.id]?.availableOnSelectedDate)
+      : resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
+  }, [hasSelectedDate, showOtherDates, resultTrips, plannerAvail])
+
   /* ── Live Trip Canvas count (Gap 1 — chat↔canvas count parity) ──
      The EXACT number of trip cards the visitor sees on the canvas: when a visit
      date is set it's the "Available on <date>" group (onDate), otherwise the
@@ -4917,7 +4929,7 @@ export default function PlannerPage() {
                 </button>
                 <div ref={mapSectionRef} className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
                   <SightseeingMap
-                    trips={resultTrips}
+                    trips={visibleCanvasTrips}
                     onSelect={handleTripSelect}
                     visible={mapExpanded}
                     suppressFullscreen
@@ -5091,7 +5103,7 @@ export default function PlannerPage() {
                     ))}
                   </div>
                 )}
-                <span className="ml-auto text-xs text-muted-foreground">{resultTrips.length} experiences</span>
+                <span className="ml-auto text-xs text-muted-foreground">{visibleCanvasTrips.length} experiences</span>
               </div>
 
               {/* Expandable Map */}
@@ -5104,14 +5116,14 @@ export default function PlannerPage() {
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-primary" />
                     <span className="text-sm font-medium text-foreground">Map View</span>
-                    <span className="text-xs text-muted-foreground">{resultTrips.length} locations</span>
+                    <span className="text-xs text-muted-foreground">{visibleCanvasTrips.length} locations</span>
                   </div>
                   {mapExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                 </button>
                 {/* Keep map mounted always so Mapbox persists and fitBounds fires immediately on result changes */}
                 <div className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
                   <SightseeingMap
-                    trips={resultTrips}
+                    trips={visibleCanvasTrips}
                     onSelect={handleTripSelect}
                     visible={mapExpanded}
                     suppressFullscreen={!!centerItinerary}
