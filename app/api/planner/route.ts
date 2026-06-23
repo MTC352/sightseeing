@@ -1256,10 +1256,24 @@ export async function POST(req: Request) {
     // "next weekend": the Saturday/Sunday one week after this weekend.
     const nextWeekendSatD = luxDow === 0 ? addDays(6) : addDays(daysToSat + 7)
     const nextWeekendSunD = luxDow === 0 ? addDays(7) : addDays(daysToSat + 8)
+    // Resolve each weekday name to the NEXT occurrence (today counts if not yet past).
+    // e.g. if today is Monday (1), "Monday" → today, "Tuesday" → tomorrow, "Sunday" → +6 days.
+    const nextWeekday = (target: number) => {
+      const diff = (target - luxDow + 7) % 7
+      return addDays(diff === 0 ? 0 : diff) // 0 = today itself
+    }
     const relativeDates = [
       'RELATIVE DATES (already resolved for you — use these EXACT YYYY-MM-DD values, NEVER recompute):',
       `- "today" = ${fmtRel(luxNow)}`,
       `- "tomorrow" = ${fmtRel(tomorrowD)}`,
+      // All seven weekday names → next occurrence (e.g. "Friday", "next Friday", "plan for Friday")
+      `- "Monday" / "next Monday" = ${fmtRel(nextWeekday(1))}`,
+      `- "Tuesday" / "next Tuesday" = ${fmtRel(nextWeekday(2))}`,
+      `- "Wednesday" / "next Wednesday" = ${fmtRel(nextWeekday(3))}`,
+      `- "Thursday" / "next Thursday" = ${fmtRel(nextWeekday(4))}`,
+      `- "Friday" / "next Friday" = ${fmtRel(nextWeekday(5))}`,
+      `- "Saturday" / "next Saturday" = ${fmtRel(nextWeekday(6))}`,
+      `- "Sunday" / "next Sunday" = ${fmtRel(nextWeekday(0))}`,
       thisWeekendSatD
         ? `- "this weekend" / "trips this weekend" = ${fmtRel(thisWeekendSatD)} and ${fmtRel(thisWeekendSunD)} — pass startDate=${ymdLux(thisWeekendStart)} (this is the UPCOMING weekend, NOT next week).`
         : `- "this weekend" / "trips this weekend" = ${fmtRel(thisWeekendSunD)} (today is Sunday, the weekend ends today) — pass startDate=${ymdLux(thisWeekendStart)}.`,
