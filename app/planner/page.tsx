@@ -1103,6 +1103,41 @@ function EditablePrefsBar({
       )}
 
 
+      {/* Group size (party) — always visible, capped at MAX_PARTY */}
+      <PrefPill
+        label="Group size"
+        value={`${partyTotal} ${partyTotal === 1 ? "person" : "people"}`}
+        icon={Users}
+        testid="prefpill-party"
+        contentClassName="w-72"
+      >
+        {() => (
+          <div className="flex flex-col gap-2">
+            <PartyStepper
+              label="Adults"
+              sub="Ages 13+"
+              icon={<UserRound className="h-5 w-5" />}
+              value={prefs.adults}
+              min={1}
+              onDec={() => onPatch({ adults: Math.max(1, prefs.adults - 1) })}
+              onInc={() => { if (partyTotal < MAX_PARTY) onPatch({ adults: prefs.adults + 1 }) }}
+              incDisabled={partyTotal >= MAX_PARTY}
+            />
+            <PartyStepper
+              label="Children"
+              sub="Ages 0-12"
+              icon={<Baby className="h-5 w-5" />}
+              value={prefs.children}
+              min={0}
+              onDec={() => onPatch({ children: Math.max(0, prefs.children - 1) })}
+              onInc={() => { if (partyTotal < MAX_PARTY) onPatch({ children: prefs.children + 1 }) }}
+              incDisabled={partyTotal >= MAX_PARTY}
+            />
+            <p className="px-1 text-[10px] text-muted-foreground">Up to {MAX_PARTY} people total</p>
+          </div>
+        )}
+      </PrefPill>
+
       {/* Interests (multi-select toggle) */}
       {formOptions.enabledSteps.interests &&
         prefs.interests.map((i) => (
