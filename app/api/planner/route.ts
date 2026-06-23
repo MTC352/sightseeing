@@ -220,8 +220,12 @@ const searchTripsTool = tool({
       .optional()
       .describe("Pin the Trip Canvas to EXACTLY these trip ids (in order). Use this after you've shortlisted the day's best matches so the canvas shows only those trips instead of the broader tag search. The returned `trips` will be filtered AND ordered to match this list."),
     maxResults: z.number().optional().describe("Optional cap (must be >= 1 if given). OMIT to return every matching trip — the catalog has ~17 published trips and the panel scrolls. Do NOT pass 0 to mean 'no cap' — 0 is ignored and treated as 'return all'."),
+    excludeKeywords: z
+      .array(z.string())
+      .optional()
+      .describe("Concepts to EXCLUDE from results — removes trips whose title, description, or tags match any of these words. Use when the user says 'don't want castles', 'no wine', 'without boat tours', 'skip food tours'. Pass the bare concept word(s), e.g. ['castle', 'fort'] or ['wine']. Trips matching ANY of these are removed from the canvas."),
   }),
-  execute: async ({ query, tags, ids, maxResults }) => {
+  execute: async ({ query, tags, ids, maxResults, excludeKeywords }) => {
     const wx = _liveWeather.wx
     const catalog = await loadTripCatalog()
     const catalogSize = catalog.length
@@ -352,6 +356,25 @@ const searchTripsTool = tool({
         aS += a.rating >= 4.7 ? 2 : 0; bS += b.rating >= 4.7 ? 2 : 0
         return bS - aS
       })
+    }
+
+    // Exclusion filter: remove trips whose title/description/tags match any excludeKeyword.
+    // Applied after tag/query filtering so the canvas only shows trips the visitor wants.
+    if (excludeKeywords && excludeKeywords.length > 0 && !hasValidPinnedIds) {
+      const excLower = excludeKeywords.map((k) => k.toLowerCase().trim()).filter(Boolean)
+      if (excLower.length > 0) {
+        results = results.filter((t) => {
+          const hay = [
+            t.title,
+            t.description ?? "",
+            t.shortDescription ?? "",
+            t.category ?? "",
+            ...(t.tripTags ?? []),
+            ...(t.tags ?? []),
+          ].join(" ").toLowerCase()
+          return !excLower.some((k) => hay.includes(k))
+        })
+      }
     }
 
     const finalResults = results.slice(0, limit)
@@ -511,7 +534,7 @@ const showWeatherAlertTool = tool({
 
 const buildItineraryTool = tool({
   description:
-    "Build an optimized day itinerary from the user's saved/cart trips. Call when user has 3+ saved items and asks for a plan, route, itinerary, or schedule. Generates a sequenced timeline with times and travel between stops.",
+    "Build an optimized day itinerary from the trips in the user's MY TRIP LIST (shown in the right sidebar). ONLY call this when MY TRIP LIST shows 1 or more saved trips AND the user explicitly asks for a plan, itinerary, schedule, or route. NEVER call this when MY TRIP LIST is empty — instead call searchTrips with relevant themes and ask the user to add their favourite trips to their list first. Generates a sequenced timeline with times and travel between stops; the server overwrites travel times with real Mapbox data.",
   inputSchema: z.object({
     steps: z.array(z.object({
       time: z.string().describe("Suggested start time, e.g. '09:00'"),
@@ -1548,7 +1571,7 @@ export async function POST(req: Request) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       plannerBehavior?.model || (settings.ai?.planner as any)?.model
 
-    const ai = await resolveAi({ storedModel: adminModel, defaultTier: "balanced", settings })
+    const ai = await resolveAi({ storedModel: adminModel, defaultTier: "balanced", settings, systemKey: "planner" })
     if (!ai.model) {
       // Stream a chat-shaped error so the client's useChat hook can
       // display it inline instead of failing silently on a raw 503.
@@ -1571,6 +1594,8 @@ export async function POST(req: Request) {
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       tools,
+      ...(ai.maxTokens ? { maxTokens: ai.maxTokens } : {}),
+      ...(typeof ai.temperature === "number" ? { temperature: ai.temperature } : {}),
       onError: ({ error }) => {
         void logCaughtError("ai:planner", error, { phase: "streamText" })
       },
