@@ -1174,18 +1174,6 @@ function EditablePrefsBar({
           </PrefPill>
         ))}
 
-      {/* Duration */}
-      {formOptions.enabledSteps.durations && (
-        <PrefPill label="Time available" value={durationLabel} testid="prefpill-duration">
-          {(close) => (
-            <div className="flex flex-col gap-0.5">
-              {formOptions.durations.map((d) =>
-                optionRow(prefs.duration === d.value, () => { onPatch({ duration: d.value }); close() }, d.label, d.value),
-              )}
-            </div>
-          )}
-        </PrefPill>
-      )}
 
       {/* Budget */}
       {formOptions.enabledSteps.budgets && (
