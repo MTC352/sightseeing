@@ -25,7 +25,7 @@ export const TIER_MODELS: Record<AiProvider, Record<ModelTier, string>> = {
   },
   openai: {
     fast: "gpt-4o-mini",
-    balanced: "gpt-4o",
+    balanced: "gpt-4.1-mini",
     best: "gpt-4.1",
   },
 }
@@ -35,7 +35,7 @@ export const MODEL_LABELS: Record<string, string> = {
   "claude-sonnet-4-6": "Claude Sonnet 4.6 — balanced",
   "claude-opus-4-7": "Claude Opus 4.7 — best quality",
   "gpt-4o-mini": "GPT-4o mini — fast",
-  "gpt-4o": "GPT-4o — balanced",
+  "gpt-4.1-mini": "GPT-4.1 mini — balanced",
   "gpt-4.1": "GPT-4.1 — best quality",
 }
 
@@ -67,7 +67,11 @@ export function providerOf(model: string): AiProvider | null {
 /** Classify any (prefixed or bare) model id into a capability tier. */
 export function tierOf(model: string): ModelTier {
   const m = stripProviderPrefix(model).toLowerCase()
-  // fast first — "gpt-4o-mini" also contains "gpt-4o", so "mini" must win.
+  // gpt-4.1-mini is a 4.1-family model (strong tool-calling, high rate-limit
+  // headroom) used as the OpenAI "balanced" tier — classify it BEFORE the
+  // generic "mini → fast" rule below, which is for gpt-4o-mini / haiku.
+  if (m.includes("gpt-4.1-mini")) return "balanced"
+  // fast next — "gpt-4o-mini" also contains "gpt-4o", so "mini" must win.
   if (m.includes("haiku") || m.includes("mini")) return "fast"
   if (
     m.includes("opus") ||
@@ -178,11 +182,11 @@ export const MODEL_META: Record<string, ModelMeta> = {
     maxOutput: 16_384,
     blurb: "Fast and economical. Great for short Q&A and lightweight chat, but has the lowest rate limits.",
   },
-  "gpt-4o": {
+  "gpt-4.1-mini": {
     tier: "balanced",
-    contextWindow: 128_000,
-    maxOutput: 16_384,
-    blurb: "Strong all-rounder. Handles multi-turn planning and the full trip menu comfortably.",
+    contextWindow: 1_047_576,
+    maxOutput: 32_768,
+    blurb: "GPT-4.1 family with a 1M-token context and high rate-limit headroom. Strong tool-calling and analysis for multi-turn planning — recommended for the Trip Planner chat.",
   },
   "gpt-4.1": {
     tier: "best",

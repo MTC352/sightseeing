@@ -23,6 +23,17 @@ test("tierOf classifies the OpenAI tier models correctly", () => {
   assert.equal(tierOf("gpt-4o-mini"), "fast")
 })
 
+test("gpt-4.1-mini is the OpenAI balanced tier (not fast, despite 'mini')", () => {
+  // gpt-4.1-mini is a 4.1-family model used as the OpenAI balanced slot — the
+  // generic "mini -> fast" rule must NOT capture it, and gpt-4o-mini stays fast.
+  assert.equal(TIER_MODELS.openai.balanced, "gpt-4.1-mini")
+  assert.equal(tierOf("openai/gpt-4.1-mini"), "balanced")
+  assert.equal(tierOf("gpt-4.1-mini"), "balanced")
+  assert.equal(tierOf("openai/gpt-4o-mini"), "fast")
+  // Capable (not under-powered) for the heavy planner-chat use-case.
+  assert.equal(capabilityFor("openai/gpt-4.1-mini", "planner-chat").level, "good")
+})
+
 test("MODEL_META has an entry for every tier model of every provider", () => {
   for (const provider of ["anthropic", "openai"]) {
     for (const tier of ["fast", "balanced", "best"]) {
