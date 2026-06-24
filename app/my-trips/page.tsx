@@ -5,6 +5,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { useCart, type CartItem } from "@/lib/cart-context"
+import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"
 import { ShoppingBag, X, Trash2, Clock, Star, MapPin, Loader2 } from "lucide-react"
 import {
   AlertDialog,
@@ -259,23 +260,32 @@ function BookingModal({ item, persons, onClose }: { item: CartItem; persons: num
             </Link>
           </div>
 
-          {/* Booking iframe */}
+          {/* Booking iframe — Palisis Product ID takes priority over TourCMS permalink */}
           <div className="border-t border-border">
-            <div className="booking-iframe-wrap relative">
-              {!loaded && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  <p className="text-sm text-muted-foreground">Loading booking options...</p>
-                </div>
-              )}
-              <iframe
-                src="https://sightseeingluxembourg.palisis.com/?book-direct=r-8146"
-                title={`Book ${item.trip.title}`}
-                className="booking-iframe"
-                allow="payment"
-                onLoad={() => setLoaded(true)}
-              />
-            </div>
+            {(item.trip.palisisProductId?.trim() || item.trip.permalink?.trim()) ? (
+              <div className="booking-iframe-wrap relative">
+                {!loaded && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Loading booking options...</p>
+                  </div>
+                )}
+                <iframe
+                  src={item.trip.palisisProductId?.trim()
+                    ? buildPalisisBookingUrl(item.trip.palisisProductId.trim())
+                    : substitutePlaceholders(item.trip.permalink!.trim())
+                  }
+                  title={`Book ${item.trip.title}`}
+                  className="booking-iframe"
+                  allow="payment"
+                  onLoad={() => setLoaded(true)}
+                />
+              </div>
+            ) : (
+              <p className="px-5 py-6 text-sm text-muted-foreground">
+                Booking is not available for this experience yet.
+              </p>
+            )}
           </div>
         </div>
       </div>

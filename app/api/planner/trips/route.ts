@@ -37,6 +37,7 @@ function mapDbRowToTrip(r: Record<string, unknown>): Trip {
     city: r.city != null ? String(r.city) : undefined,
     description: r.description != null ? String(r.description) : undefined,
     permalink: r.permalink != null ? String(r.permalink) : undefined,
+    palisisProductId: r.palisisProductId != null ? String(r.palisisProductId) : undefined,
     provider: r.provider != null ? String(r.provider) : undefined,
     highlights: Array.isArray(r.highlights) ? (r.highlights as string[]) : [],
     googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
