@@ -1616,6 +1616,23 @@ export default function PlannerPage() {
      and all its tool callbacks — to be declared above them. Assigned in
      an effect just after useChat below. */
   const setMessagesRef = useRef<((updater: (prev: PlannerMessage[]) => PlannerMessage[]) => void) | null>(null)
+  // Same forward-ref pattern as setMessagesRef: applyDirectPref (declared above
+  // useChat) needs to fire a real AI turn when the visit date changes so the AI
+  // re-derives the trip list and the Trip Canvas mirrors it. handleSend (which
+  // wraps useChat's sendMessage + guards) is assigned here in an effect below.
+  const sendMessageRef = useRef<((text: string) => void) | null>(null)
+  // A visit-date change wants to fire an AI re-derive turn, but handleSend drops
+  // sends while a turn is in flight (status streaming/submitted). Queue the
+  // re-derive here so it is never silently lost: flush it immediately if the
+  // chat is idle, otherwise the status-watching effect below flushes it the
+  // moment the chat becomes sendable again. Cleared exactly once on send so it
+  // can never double-fire.
+  const pendingRederiveRef = useRef<string | null>(null)
+  const flushRederiveRef = useRef<(() => void) | null>(null)
+  // Mirror of messages.length so applyDirectPref (declared above useChat) can
+  // tell whether a conversation is actually underway without depending on chat
+  // state — a more direct signal than the didSendInitial latch alone.
+  const messagesCountRef = useRef(0)
 
   /* Push a concise assistant "note" into the chat so MANUAL interactions
      (adding a trip from the canvas/modal, changing the date or a preference
@@ -2014,13 +2031,30 @@ export default function PlannerPage() {
     if (next.duration !== base.duration && next.duration) changed.push(`trip length to **${next.duration}**`)
     if (next.budget !== base.budget && next.budget) changed.push(`budget to **${next.budget}**`)
     if (arrKey(next.interests) !== arrKey(base.interests)) changed.push("your interests")
+    // A visit-date change is a "date-based search": per Option B the AI is the
+    // single source of truth, so changing the date must RE-DERIVE which trips are
+    // bookable on the new date (not just locally re-filter the previous date's
+    // canvas trips). Fire a real user turn — the server scans the whole catalog's
+    // dates-and-deals for the new date BEFORE the AI reasons (see /api/planner
+    // ensureAvailFor), so the chat prose and the Trip Canvas (which mirrors the
+    // AI's searchTrips output) stay in lockstep. Only once a conversation is live
+    // and no full itinerary is built (an existing itinerary rebuilds below).
+    const dateChanged = next.startDate !== base.startDate && !!next.startDate
+    const conversationActive = didSendInitial.current || messagesCountRef.current > 0
     if (changed.length > 0) {
       const list =
         changed.length === 1
           ? changed[0]
           : `${changed.slice(0, -1).join(", ")} and ${changed[changed.length - 1]}`
-      const tail = centerItinerary ? " — rebuilding your itinerary now." : "."
-      notifyChat(`Updated ${list}${tail}`, "manual-pref")
+      if (dateChanged && !centerItinerary && conversationActive) {
+        // Queue the re-derive (never lost if the chat is mid-turn) and try to
+        // flush it now; the status effect flushes it later if the chat is busy.
+        pendingRederiveRef.current = `I changed my ${list}. Re-check live availability and update my recommended trips for ${formatYMDPretty(next.startDate!)} (${next.startDate}) — only suggest trips that are actually bookable that day.`
+        flushRederiveRef.current?.()
+      } else {
+        const tail = centerItinerary ? " — rebuilding your itinerary now." : "."
+        notifyChat(`Updated ${list}${tail}`, "manual-pref")
+      }
     }
 
     // Only rebuild if a plan is already on the canvas; otherwise just keep
@@ -2637,6 +2671,27 @@ export default function PlannerPage() {
   // handlers (handleOpenOrRebuildFromChat, handleRegenerateItinerary)
   // can push truthful failure messages without ordering gymnastics.
   useEffect(() => { setMessagesRef.current = (updater) => setMessages(updater) }, [setMessages])
+  // No dep array: handleSend is re-created each render (it closes over status /
+  // chatLimitReached), so refresh the ref every render to keep guards current.
+  useEffect(() => { sendMessageRef.current = (text: string) => handleSend(text) })
+  useEffect(() => { messagesCountRef.current = messages.length }, [messages.length])
+  // Flush a queued visit-date re-derive once the chat is sendable. Mirrors
+  // handleSend's guard (drop only while a turn is in flight; "ready" AND "error"
+  // are both sendable so a prior AI failure never wedges the queue). On the chat
+  // limit the queued turn is discarded. Runs immediately from applyDirectPref
+  // and again whenever status changes (deferred case).
+  const flushPendingRederive = useCallback(() => {
+    const text = pendingRederiveRef.current
+    if (!text) return
+    if (status === "streaming" || status === "submitted") return
+    // Sendable now (ready/error): hand to handleSend, which itself drops the
+    // turn if the per-session chat limit is reached. Clear unconditionally so a
+    // limit-blocked re-derive is discarded rather than lingering in the queue.
+    pendingRederiveRef.current = null
+    sendMessageRef.current?.(text)
+  }, [status])
+  useEffect(() => { flushRederiveRef.current = flushPendingRederive })
+  useEffect(() => { flushPendingRederive() }, [flushPendingRederive])
 
   /* Onboarding ⇔ conversation are mutually exclusive. Once hydration settles,
    * if no prefs were restored the Onboarding wizard is showing — in that case

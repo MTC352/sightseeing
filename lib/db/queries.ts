@@ -941,8 +941,21 @@ export async function dbGetSettings() {
       maxTokens: r.max_tokens,
       extra,
     }
-    if (r.system_key === 'planner' && r.extra_config && typeof r.extra_config === 'object') {
-      plannerBehavior = { ...plannerBehavior, ...(r.extra_config as Record<string, unknown>) }
+    if (r.system_key === 'planner') {
+      if (r.extra_config && typeof r.extra_config === 'object') {
+        plannerBehavior = { ...plannerBehavior, ...(r.extra_config as Record<string, unknown>) }
+      }
+      // The planner CHAT model lives in the `model` COLUMN (Task #15 — edited on
+      // /admin/ai-systems/planner and provider-switched via dbSetAiProvider),
+      // NOT in extra_config. Reflect the column onto plannerBehavior.model so the
+      // route's model resolution (`plannerBehavior?.model || ai.planner.model`)
+      // uses the configured model instead of the stale 'openai/gpt-4o-mini'
+      // default baked into plannerBehavior above — that default was silently
+      // shadowing the real column (the planner ran gpt-4o-mini despite the admin
+      // selecting a stronger model).
+      if (typeof r.model === 'string' && r.model) {
+        plannerBehavior.model = r.model
+      }
     }
     if (r.system_key === 'itinerary') {
       const extra = (r.extra_config && typeof r.extra_config === 'object'
