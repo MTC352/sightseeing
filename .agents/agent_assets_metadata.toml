@@ -6,3 +6,9 @@ id = "s-CC0BDwWTXgz4n9TubIk"
 uri = "file://docs/departing-soon-audit.md"
 type = "text"
 title = "Departing Soon — Technical Audit"
+
+[[outputs]]
+id = "3r55mQJJHMph0UEjvqaIV"
+uri = "file://docs/trip-planner-spec.md"
+type = "text"
+title = "Trip Planner Spec + Root-Cause Analysis"
