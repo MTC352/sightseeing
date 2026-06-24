@@ -3857,6 +3857,43 @@ export default function PlannerPage() {
       : resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
   }, [hasSelectedDate, showOtherDates, resultTrips, plannerAvail])
 
+  /* ── Trip Canvas FREEZE during streaming (anti-flicker) ───────────────────
+     The whole canvas — recommended trips, date badge, interest chips, count,
+     map — must NOT mutate while an AI turn is streaming. Otherwise the visitor
+     sees it lurch mid-response: e.g. updatePreferences({startDate}) lands
+     mid-stream → the date re-filters live (shows N trips), then the final
+     searchTrips pin commits at stream end (collapses to M trips). We snapshot
+     the canvas render inputs into a ref on every render where we are NOT
+     streaming, and render that frozen snapshot for the entire streaming window —
+     revealing the updated canvas exactly ONCE when the turn completes. We capture
+     the snapshot in a COMMIT-TIME effect (only on renders where we are NOT
+     streaming) and only READ the ref during streaming, so it never mutates during
+     render (concurrent-safe) and its identity stays stable across the stream
+     (safe as a useMemo dep). */
+  const canvasFreezeRef = useRef<{
+    resultTrips: Trip[]
+    prefs: Preferences | null
+    avail: Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }>
+    showOtherDates: boolean
+    showResults: boolean
+  }>({ resultTrips: [], prefs: null, avail: {}, showOtherDates: false, showResults: false })
+  useEffect(() => {
+    if (isStreaming) return
+    canvasFreezeRef.current = { resultTrips, prefs, avail: plannerAvail, showOtherDates, showResults }
+  }, [isStreaming, resultTrips, prefs, plannerAvail, showOtherDates, showResults])
+  const canvasResultTrips = isStreaming ? canvasFreezeRef.current.resultTrips : resultTrips
+  const canvasPrefs = isStreaming ? canvasFreezeRef.current.prefs : prefs
+  const canvasAvail = isStreaming ? canvasFreezeRef.current.avail : plannerAvail
+  const canvasShowOtherDates = isStreaming ? canvasFreezeRef.current.showOtherDates : showOtherDates
+  const canvasShowResults = isStreaming ? canvasFreezeRef.current.showResults : showResults
+  const canvasHasSelectedDate = !!canvasPrefs?.startDate
+  const canvasVisibleTrips = useMemo(() => {
+    if (!canvasHasSelectedDate) return canvasResultTrips
+    return canvasShowOtherDates
+      ? canvasResultTrips.filter((t) => !canvasAvail[t.id]?.availableOnSelectedDate)
+      : canvasResultTrips.filter((t) => canvasAvail[t.id]?.availableOnSelectedDate)
+  }, [canvasHasSelectedDate, canvasShowOtherDates, canvasResultTrips, canvasAvail])
+
   /* ── Live Trip Canvas count (Gap 1 — chat↔canvas count parity) ──
      The EXACT number of trip cards the visitor sees on the canvas: when a visit
      date is set it's the "Available on <date>" group (onDate), otherwise the
@@ -4897,7 +4934,7 @@ export default function PlannerPage() {
                 ? "Map + your Day Itinerary"
                 : selectedTrip
                   ? "Trip detail"
-                  : showResults
+                  : canvasShowResults
                     ? "Map + Recommended for you"
                     : "Map + suggestions appear here"}
             </span>
@@ -4954,7 +4991,7 @@ export default function PlannerPage() {
                 onLegMethodChange={handleLegMethodChange}
               />
             </div>
-          ) : !showResults ? (
+          ) : !canvasShowResults ? (
             /* ── Welcome / Waiting ── */
             <div className="px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-12">
               {/* Live weather card — dynamic, never inline-editable. */}
@@ -5079,27 +5116,38 @@ export default function PlannerPage() {
             </div>
           ) : (
             /* ── Results: Map + Grid ── */
-            <div data-no-edit className="flex flex-col">
+            <div data-no-edit className={`relative flex flex-col ${isStreaming ? "pointer-events-none select-none" : ""}`}>
+              {/* Anti-flicker: while the AI turn streams, the canvas is frozen on
+                  its last committed snapshot, dimmed, and non-interactable. It
+                  updates exactly once when the response completes. */}
+              {isStreaming && (
+                <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center bg-background/45 backdrop-blur-[1px]" data-testid="planner-canvas-updating">
+                  <div className="mt-6 flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 shadow-md">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="text-xs font-medium text-foreground">Updating recommendations…</span>
+                  </div>
+                </div>
+              )}
               {/* Header bar */}
               <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
                 <div className={`inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 ${wx === "rainy" ? "bg-blue-50" : wx === "sunny" ? "bg-amber-50" : "bg-slate-50"}`}>
                   <WxIcon condition={wx} className={`h-3.5 w-3.5 ${wxColor(wx)}`} />
                   <span className="text-xs font-medium text-foreground">{temp}°C &bull; {condition}</span>
                 </div>
-                {prefs && (
+                {canvasPrefs && (
                   <div className="flex flex-wrap gap-1.5">
-                    {prefs.startDate && (
+                    {canvasPrefs.startDate && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
-                        <Calendar className="h-3 w-3" />{formatYMDPretty(prefs.startDate)}
+                        <Calendar className="h-3 w-3" />{formatYMDPretty(canvasPrefs.startDate)}
                       </span>
                     )}
-                    <span className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{prefs.group}</span>
-                    {prefs.interests.map((i) => (
+                    <span className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{canvasPrefs.group}</span>
+                    {canvasPrefs.interests.map((i) => (
                       <span key={i} className="rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium text-foreground capitalize">{i}</span>
                     ))}
                   </div>
                 )}
-                <span className="ml-auto text-xs text-muted-foreground">{visibleCanvasTrips.length} experiences</span>
+                <span className="ml-auto text-xs text-muted-foreground">{canvasVisibleTrips.length} experiences</span>
               </div>
 
               {/* Expandable Map */}
@@ -5112,14 +5160,14 @@ export default function PlannerPage() {
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-primary" />
                     <span className="text-sm font-medium text-foreground">Map View</span>
-                    <span className="text-xs text-muted-foreground">{visibleCanvasTrips.length} locations</span>
+                    <span className="text-xs text-muted-foreground">{canvasVisibleTrips.length} locations</span>
                   </div>
                   {mapExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                 </button>
                 {/* Keep map mounted always so Mapbox persists and fitBounds fires immediately on result changes */}
                 <div className={`border-t border-border ${mapExpanded ? "" : "hidden"}`}>
                   <SightseeingMap
-                    trips={visibleCanvasTrips}
+                    trips={canvasVisibleTrips}
                     onSelect={handleTripSelect}
                     visible={mapExpanded}
                     suppressFullscreen={!!centerItinerary}
@@ -5137,9 +5185,9 @@ export default function PlannerPage() {
               <div className="p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <h2 className="text-lg font-bold text-foreground">Recommended for you</h2>
-                  {prefs && prefs.interests.length > 0 && (
+                  {canvasPrefs && canvasPrefs.interests.length > 0 && (
                     <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground" data-testid="planner-prefs-count">
-                      {prefs.interests.length} interest{prefs.interests.length === 1 ? "" : "s"}
+                      {canvasPrefs.interests.length} interest{canvasPrefs.interests.length === 1 ? "" : "s"}
                     </span>
                   )}
                 </div>
@@ -5152,8 +5200,8 @@ export default function PlannerPage() {
                     the "canvas stuck / blank after Skip all" bug. Only fall back
                     to an empty-state message when there is genuinely nothing to
                     render. */}
-                {resultTrips.length === 0 ? (
-                  !prefs || prefs.interests.length === 0 ? (
+                {canvasResultTrips.length === 0 ? (
+                  !canvasPrefs || canvasPrefs.interests.length === 0 ? (
                     <div
                       className="rounded-xl border border-dashed border-border bg-secondary/30 p-6 text-center"
                       data-testid="planner-recs-empty"
@@ -5177,7 +5225,7 @@ export default function PlannerPage() {
                       <Sparkles className="mx-auto mb-2 h-5 w-5 text-muted-foreground/60" />
                       <p className="text-sm font-medium text-foreground">No trips fit those filters</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {durationCapHours(prefs.duration) != null
+                        {durationCapHours(canvasPrefs.duration) != null
                           ? "Nothing in the catalog matches your interests within the time you have. Try allowing more time (Half day / Full day) or picking another interest."
                           : "Nothing in the catalog matches your interests yet. Try picking another interest in the chat."}
                       </p>
@@ -5192,12 +5240,12 @@ export default function PlannerPage() {
                      NOTHING is bookable on the selected date — so the canvas is
                      never left blank. With no date picked, a single
                      availability-then-score-sorted list is shown. */
-                  const onDate = hasSelectedDate
-                    ? resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
+                  const onDate = canvasHasSelectedDate
+                    ? canvasResultTrips.filter((t) => canvasAvail[t.id]?.availableOnSelectedDate)
                     : []
-                  const others = hasSelectedDate
-                    ? resultTrips.filter((t) => !plannerAvail[t.id]?.availableOnSelectedDate)
-                    : resultTrips
+                  const others = canvasHasSelectedDate
+                    ? canvasResultTrips.filter((t) => !canvasAvail[t.id]?.availableOnSelectedDate)
+                    : canvasResultTrips
                   const renderCard = (trip: Trip, showDates: boolean) => (
                     <TripCard
                       key={trip.id}
@@ -5207,19 +5255,19 @@ export default function PlannerPage() {
                       onAdd={handleManualAddTrip}
                       isBookmarked={savedLibrary.isInCart(trip.id)}
                       onToggleBookmark={toggleBookmark}
-                      availableDates={showDates ? (plannerAvail[trip.id]?.availableDates ?? []) : undefined}
+                      availableDates={showDates ? (canvasAvail[trip.id]?.availableDates ?? []) : undefined}
                     />
                   )
                   return (
                     <div className="flex flex-col gap-5" data-testid="planner-recs-list">
-                      {hasSelectedDate ? (
+                      {canvasHasSelectedDate ? (
                         <>
                           {/* ── On-date group (hidden when "other dates" mode is active) ── */}
-                          {!showOtherDates && (
+                          {!canvasShowOtherDates && (
                             <div className="flex flex-col gap-3" data-testid="planner-recs-group-ondate">
                               <div className="flex items-center gap-2">
                                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                                  <Calendar className="h-3 w-3" /> Available on {formatYMDPretty(prefs!.startDate)}
+                                  <Calendar className="h-3 w-3" /> Available on {formatYMDPretty(canvasPrefs!.startDate)}
                                 </span>
                                 <span className="text-xs text-muted-foreground">{onDate.length}</span>
                                 {availLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
@@ -5233,7 +5281,7 @@ export default function PlannerPage() {
                                     : others.length > 0
                                       ? <>
                                           None of your matching trips have open slots on{" "}
-                                          <strong>{formatYMDPretty(prefs!.startDate)}</strong> yet —{" "}
+                                          <strong>{formatYMDPretty(canvasPrefs!.startDate)}</strong> yet —{" "}
                                           <button
                                             type="button"
                                             onClick={() => setShowOtherDates(true)}
@@ -5242,7 +5290,7 @@ export default function PlannerPage() {
                                             See Trips on other dates
                                           </button>
                                         </>
-                                      : `None of your matching trips have open slots on ${formatYMDPretty(prefs!.startDate)} yet — try another date or interest.`}
+                                      : `None of your matching trips have open slots on ${formatYMDPretty(canvasPrefs!.startDate)} yet — try another date or interest.`}
                                 </p>
                               )}
                             </div>
@@ -5251,7 +5299,7 @@ export default function PlannerPage() {
                           {/* ── Other-dates group (mutually exclusive with on-date group).
                               Visible only when user explicitly clicks "See Trips on other
                               dates". When shown, the on-date group is hidden above. ── */}
-                          {showOtherDates && others.length > 0 && (
+                          {canvasShowOtherDates && others.length > 0 && (
                             <div className="flex flex-col gap-3" data-testid="planner-recs-group-other">
                               <div className="flex items-center gap-2 flex-wrap gap-y-1">
                                 <button
@@ -5259,7 +5307,7 @@ export default function PlannerPage() {
                                   onClick={() => setShowOtherDates(false)}
                                   className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary"
                                 >
-                                  ← {formatYMDPretty(prefs!.startDate)}
+                                  ← {formatYMDPretty(canvasPrefs!.startDate)}
                                 </button>
                                 <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
                                   <Calendar className="h-3 w-3" /> Available on other dates
