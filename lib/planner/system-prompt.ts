@@ -52,6 +52,13 @@ export type PlannerPromptCtx = {
    * so the model can answer "what / where / how long / what type" without a tool
    * call. Empty string when the catalog is empty. See buildCatalogFactsBlock. */
   catalogFactsBlock?: string
+  /** Pre-built "TRIP CANVAS — WHAT THE VISITOR SEES + RECENT ACTIONS" block:
+   * the titles currently visible on the canvas plus a short log of the visitor's
+   * latest manual actions (add/remove a trip, toggle other-dates, change the
+   * date). Lets the AI describe the screen + acknowledge what they just did.
+   * Empty string when nothing is on the canvas and no actions were taken.
+   * See buildCanvasAwarenessLine. */
+  canvasAwarenessLine?: string
 }
 
 /**
@@ -161,17 +168,17 @@ export function buildCanvasCountLine(args: {
       .filter((t) => !!t)
 
     let line =
-      `AVAILABILITY GROUND TRUTH — ZERO MATCHES: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows 0 trips bookable that day matching the visitor's interests. You MUST NOT say or imply the Trip Canvas shows, now has, or displays any matching trips for ${canvasDate} — it does not. Tell the visitor plainly that none of their matching trips are bookable on ${canvasDate}. BE A RECOMMENDER, NOT A QUESTIONER: lead with a concrete suggestion (a specific alternative date OR a specific similar trip below) — do NOT merely ask an open-ended question.`
+      `AVAILABILITY GROUND TRUTH — ZERO MATCHES: the Trip Canvas has ALREADY verified live availability for ${canvasDate} and shows 0 trips bookable that day matching the visitor's interests. You MUST NOT say or imply the Trip Canvas shows, now has, or displays any matching trips for ${canvasDate} — it does not. Tell the visitor plainly that none of their matching trips are bookable on ${canvasDate}. ASK BEFORE SHOWING OTHER DATES (this OVERRIDES the general "be a recommender, not a questioner" guidance for THIS empty-date case ONLY): do NOT immediately switch the canvas to other dates, do NOT list a wall of alternative dates, and do NOT call searchTrips for a DIFFERENT date — first ASK the visitor, in ONE short sentence, whether they'd like you to look at other dates (or show similar trips bookable on ${canvasDate}). Act only on their answer.`
     if (otherDatesCount > 0 && samples.length > 0) {
       line +=
-        ` OPTION A — same experience, different day: those matching trips ARE bookable on OTHER dates (verified by the canvas's live scan — you MAY quote these exact dates without another tool call): ${samples.join("; ")}. Recommend these specific alternative date(s).`
+        ` FOR WHEN THEY SAY YES — same experience, different day: those matching trips ARE bookable on OTHER dates (verified by the canvas's live scan — you MAY quote these exact dates, but ONLY after the visitor opts in): ${samples.join("; ")}.`
     }
     if (availableTodayCount > 0 && todaySamples.length > 0) {
       line +=
-        ` OPTION B — same day, similar experience: these trips ARE bookable on ${canvasDate} and are the closest matches to the visitor's interests — ${todaySamples.map((t) => `**${t}**`).join(", ")}. If the visitor would rather keep ${canvasDate}, recommend the closest one BY NAME and call searchTrips with its matching tag(s) so the Trip Canvas updates to show it (keep chat ↔ canvas in sync).`
+        ` SAME-DAY ALTERNATIVE you may OFFER in your question: these trips ARE bookable on ${canvasDate} and are the closest matches to the visitor's interests — ${todaySamples.map((t) => `**${t}**`).join(", ")}. You may name one of these when you ask; if the visitor accepts, name it and call searchTrips with its matching tag(s) so the Trip Canvas updates (keep chat ↔ canvas in sync).`
     } else if (availableTodayCount > 0) {
       line +=
-        ` If the visitor would rather keep ${canvasDate}, OTHER trips ARE bookable that day — recommend the closest alternative and call searchTrips to refresh the canvas.`
+        ` OTHER trips ARE bookable that day — you may offer to show them when you ask, and call searchTrips to refresh the canvas only if the visitor accepts.`
     }
     line += ` Do NOT invent specific trips as available on ${canvasDate}.`
     return line
@@ -299,12 +306,51 @@ export function buildCatalogFactsBlock(trips: CatalogFactsTrip[]): string {
   ].join("\n")
 }
 
+/**
+ * Pure builder for the "TRIP CANVAS — WHAT THE VISITOR SEES + RECENT ACTIONS"
+ * block (req. #4 — AI awareness of the canvas + the visitor's manual actions).
+ *
+ * `displayedTitles` is the set of trip titles currently rendered on the Trip
+ * Canvas (after the canvas's own availability + interest filtering). `recentActions`
+ * is a most-recent-last log of the visitor's manual canvas actions this session
+ * (add/remove a trip, toggle other-dates, change the visit date) so the AI can
+ * acknowledge what they just did rather than ignoring it.
+ *
+ * Returns "" when there is nothing to say (no titles AND no actions). Kept pure
+ * (no DB/env) and exported so both the route and unit tests use identical logic.
+ */
+export function buildCanvasAwarenessLine(args: {
+  displayedTitles?: (string | null | undefined)[] | null
+  recentActions?: (string | null | undefined)[] | null
+}): string {
+  const titles = (Array.isArray(args.displayedTitles) ? args.displayedTitles : [])
+    .map((t) => (typeof t === "string" ? t.trim() : ""))
+    .filter((t) => !!t)
+  const actions = (Array.isArray(args.recentActions) ? args.recentActions : [])
+    .map((a) => (typeof a === "string" ? a.trim() : ""))
+    .filter((a) => !!a)
+  if (titles.length === 0 && actions.length === 0) return ""
+  const segs: string[] = []
+  if (titles.length > 0) {
+    segs.push(
+      `TRIP CANVAS — WHAT THE VISITOR SEES RIGHT NOW: the canvas is currently displaying these ${titles.length} trip${titles.length === 1 ? "" : "s"}: ${titles.map((t) => `**${t}**`).join(", ")}. You MAY refer to what is on screen, but do NOT enumerate this list back in chat — point to the Trip Canvas. Never name a trip that is NOT in this list as if it were on screen.`,
+    )
+  }
+  if (actions.length > 0) {
+    segs.push(
+      `RECENT MANUAL ACTIONS (most recent last) — the visitor just did these themselves via the UI: ${actions.join("; ")}. Acknowledge the relevant one naturally in ONE short clause when it's pertinent to their message (e.g. "Added that to your trip — want me to build the day now?"); never claim you performed an action the visitor did manually, and never contradict it.`,
+    )
+  }
+  return segs.join(" ")
+}
+
 export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
   const {
     publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
     profileLine, cartSection, groupSection, itinerarySection,
     optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
     interestVocab, canvasCountLine, availableInterestsLine, availabilityGroundTruth, catalogFactsBlock,
+    canvasAwarenessLine,
   } = ctx
   return [
       "You are the AI trip planner for sightseeing.lu. Warm, helpful — and EXTREMELY CONCISE.",
@@ -324,6 +370,7 @@ export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
       ...(canvasCountLine ? [canvasCountLine] : []),
       ...(availableInterestsLine ? [availableInterestsLine] : []),
       ...(availabilityGroundTruth ? ["", availabilityGroundTruth] : []),
+      ...(canvasAwarenessLine ? ["", canvasAwarenessLine] : []),
       "",
       `AVAILABLE INTEREST TAGS (the ONLY valid values for searchTrips \`tags\` and updatePreferences \`interests\`): ${interestVocab || "(none configured — omit tags / interests)"}.`,
       "Map the user's free-text themes/activities onto these exact VALUES (left of each pair) — e.g. \"day tour\"/\"day trip\" → day-trips, \"museum\"/\"gallery\"/\"exhibit\"/\"art\" → museums, \"boat\"/\"boat ride\"/\"cruise\"/\"river cruise\"/\"sailing\" → boat-tours, \"walking\"/\"on foot\"/\"walking tour\" → walking-tours, \"bike\"/\"cycling\"/\"e-bike\" → bike-tours, \"food\"/\"tasting\"/\"culinary\"/\"dining\" → food, \"wine\"/\"vineyard\" → wine-tasting, \"history\"/\"heritage\"/\"historic\" → history, \"nightlife\"/\"bars\"/\"clubbing\" → nightlife, \"kids\"/\"with children\"/\"family\" → suitable-for-children, \"hop on hop off\"/\"sightseeing bus\" → hop-on-hop-off. Only map to a value that actually appears in AVAILABLE INTEREST TAGS above; never invent values (no \"outdoor\", \"culture\", \"romantic\" unless listed); if nothing matches, search with NO tags so all trips return.",
@@ -497,6 +544,8 @@ export function buildPlannerSystemPromptParts(ctx: PlannerPromptCtx): string[] {
       "    - NEVER recommend a night-only experience for a daytime visit (or vice versa) without explicitly flagging it and offering to adjust the date/time. If the user picked a date but the trip's first available timeslot is at an incompatible time-of-day, surface that conflict and propose an alternative date.",
       "    - When the user requests an itinerary, FIRST search and shortlist by description fit + day-of-week + weather, THEN call getTripDatesAndDeals (and getTripTimeslots for finalists) using the visit date to ground the plan in real bookable slots, prices, and deals. Use the cheapest available deal when prices vary across the day.",
       "    - For multi-trip itineraries on the same visit date, ensure timeslots do not overlap and respect the planner-behavior buffer and day-window settings above.",
+      "16. CANVAS AWARENESS & MANUAL ACTIONS: When a 'TRIP CANVAS — WHAT THE VISITOR SEES RIGHT NOW' / 'RECENT MANUAL ACTIONS' block appears above, it tells you exactly which trips are on the visitor's screen and what they just did themselves (added/removed a trip, toggled other-dates, changed the date). Use it to stay grounded: you MAY reference what's on screen and acknowledge their action in ONE short clause when relevant — but never claim YOU performed an action the visitor did manually, never contradict it, and never enumerate the on-screen list back to them (point to the Trip Canvas). If the visitor's message refers to 'this one', 'that trip', or 'the one I just added', resolve it from this block.",
+      "17. NO FAVORITISM — RECOMMEND ON FIT & AVAILABILITY ALONE: Rank and recommend trips ONLY by how well they match the visitor's stated interests, party, date, time-of-day, weather, and live availability. Do NOT systematically push the same trip, the most expensive trip, a highest-margin trip, or a 'house favorite' across conversations. When several trips fit equally, present them even-handedly (point to the Trip Canvas, which is already ordered by fit) rather than always elevating one. The ONLY tie-breakers you may use are objective fit signals (interest-match strength, availability on the date, duration fit, rating) — never a hidden preference for a particular trip.",
   ]
 }
 

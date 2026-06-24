@@ -2276,6 +2276,14 @@ export default function PlannerPage() {
     // group (they clicked "See Trips on other dates"). The AI uses this to know
     // what the canvas is actually showing vs. the on-date group.
     showingOtherDates: boolean
+    // The titles of the trip cards CURRENTLY visible on the Trip Canvas, so the
+    // AI can describe exactly what the visitor is looking at ("you're seeing X,
+    // Y, Z") instead of guessing from its own tool output.
+    displayedTitles: string[]
+    // A short, most-recent-last log of the visitor's manual canvas actions
+    // (added/removed a trip from My Trip, toggled other-dates, changed the date)
+    // so the AI can acknowledge what they just did.
+    recentActions: string[]
   }>({
     count: 0,
     date: null,
@@ -2285,7 +2293,12 @@ export default function PlannerPage() {
     availableTodayCount: 0,
     availableTodaySamples: [],
     showingOtherDates: false,
+    displayedTitles: [],
+    recentActions: [],
   })
+  // Most-recent-last ring buffer of manual canvas actions (capped). Populated by
+  // the action-tracking effects below; read into canvasCountForApiRef each turn.
+  const recentActionsRef = useRef<string[]>([])
 
   // Compact live availability snapshot sent every turn so the server's
   // searchTrips tool can report ACCURATE on-visit-date availability for the
@@ -3505,6 +3518,57 @@ export default function PlannerPage() {
     return found
   }, [messages, allTrips])
 
+  /* ── AI availability snapshot (canvas mirrors AI output) ───────────────────
+     The LATEST date-annotated searchTrips output, parsed into the same shape as
+     the client `plannerAvail` scan ({ availableOnSelectedDate, availableDates,
+     unknown }) and tagged with the visit date the AI checked. This lets the Trip
+     Canvas group exactly as the AI reasoned — so the canvas and chat can never
+     disagree — instead of waiting for an independent client scan to catch up.
+     Only searches that carried an `availability.visitDate` (i.e. a date was set
+     and the server verified live availability) are considered; tagless/no-date
+     searches leave this empty and the canvas falls back to `plannerAvail`. */
+  const aiAvailInfo = useMemo(() => {
+    const empty = {
+      date: null as string | null,
+      map: {} as Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }>,
+    }
+    const firstRealIdx = firstRealUserMessageIndex(
+      messages.map((m) => ({
+        role: m.role,
+        text: m.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join(" "),
+      })),
+    )
+    if (firstRealIdx === -1) return empty
+    let result = empty
+    for (let mi = firstRealIdx; mi < messages.length; mi++) {
+      const msg = messages[mi]
+      for (const part of msg.parts) {
+        if (part.type !== "tool-searchTrips" || part.state !== "output-available") continue
+        const output = part.output as {
+          trips?: Array<{ id: string; available?: boolean | null; availableDates?: string[] }>
+          availability?: { visitDate?: string }
+        }
+        const vDate = typeof output?.availability?.visitDate === "string" ? output.availability.visitDate : null
+        // Only mirror searches the server actually date-verified. A search with
+        // no `availability` block ran without a date → nothing to mirror.
+        if (!vDate || !Array.isArray(output?.trips)) continue
+        const map: Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }> = {}
+        for (const c of output.trips) {
+          if (!c?.id || c.available === undefined) continue
+          const dates = Array.isArray(c.availableDates) ? c.availableDates.slice(0, 8) : []
+          if (c.available === true) map[c.id] = { availableOnSelectedDate: true, availableDates: dates }
+          else if (c.available === null) map[c.id] = { availableOnSelectedDate: false, availableDates: dates, unknown: true }
+          else map[c.id] = { availableOnSelectedDate: false, availableDates: dates }
+        }
+        result = { date: vDate, map }
+      }
+    }
+    return result
+  }, [messages])
+
   /* Client-side fallback trips — score every trip against the visitor's
      interests/budget/weather and return ALL trips that match at least
      one interest (i.e. their tag list intersects with the picked
@@ -3845,6 +3909,27 @@ export default function PlannerPage() {
   const resultTrips: Trip[] = displayedAiTrips.length > 0 ? displayedAiTrips : recommendedTrips
   const showResults = resultTrips.length > 0
 
+  /* ── Effective availability for canvas grouping (AI-output-driven) ─────────
+     Requirement: the canvas must MIRROR the AI's per-trip availability whenever
+     the AI has pinned a set, and only fall back to the independent client scan
+     (`plannerAvail`) when the AI hasn't produced date-verified output. When the
+     AI's latest date-annotated searchTrips matches the CURRENT visit date, merge
+     its per-trip map OVER `plannerAvail` so on-date/other-date grouping reflects
+     exactly what the AI reasoned over (no post-stream catch-up flip). Otherwise
+     (no AI output, or its data is for a different/stale date) use `plannerAvail`.
+     `plannerAvail` remains the source for the API hint + My-Trip disabled map. */
+  const effectiveAvail = useMemo(() => {
+    if (
+      displayedAiTrips.length > 0 &&
+      aiAvailInfo.date &&
+      aiAvailInfo.date === (prefs?.startDate ?? "") &&
+      Object.keys(aiAvailInfo.map).length > 0
+    ) {
+      return { ...plannerAvail, ...aiAvailInfo.map }
+    }
+    return plannerAvail
+  }, [displayedAiTrips, aiAvailInfo, prefs?.startDate, plannerAvail])
+
   // Trips that are ACTUALLY VISIBLE in the "Recommended for you" list right now.
   // The map and the trip counts must mirror this exactly:
   //   • Date set, on-date view  → only trips bookable on that date
@@ -3853,9 +3938,9 @@ export default function PlannerPage() {
   const visibleCanvasTrips = useMemo(() => {
     if (!hasSelectedDate) return resultTrips
     return showOtherDates
-      ? resultTrips.filter((t) => !plannerAvail[t.id]?.availableOnSelectedDate)
-      : resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
-  }, [hasSelectedDate, showOtherDates, resultTrips, plannerAvail])
+      ? resultTrips.filter((t) => !effectiveAvail[t.id]?.availableOnSelectedDate)
+      : resultTrips.filter((t) => effectiveAvail[t.id]?.availableOnSelectedDate)
+  }, [hasSelectedDate, showOtherDates, resultTrips, effectiveAvail])
 
   /* ── Trip Canvas FREEZE during streaming (anti-flicker) ───────────────────
      The whole canvas — recommended trips, date badge, interest chips, count,
@@ -3879,11 +3964,11 @@ export default function PlannerPage() {
   }>({ resultTrips: [], prefs: null, avail: {}, showOtherDates: false, showResults: false })
   useEffect(() => {
     if (isStreaming) return
-    canvasFreezeRef.current = { resultTrips, prefs, avail: plannerAvail, showOtherDates, showResults }
-  }, [isStreaming, resultTrips, prefs, plannerAvail, showOtherDates, showResults])
+    canvasFreezeRef.current = { resultTrips, prefs, avail: effectiveAvail, showOtherDates, showResults }
+  }, [isStreaming, resultTrips, prefs, effectiveAvail, showOtherDates, showResults])
   const canvasResultTrips = isStreaming ? canvasFreezeRef.current.resultTrips : resultTrips
   const canvasPrefs = isStreaming ? canvasFreezeRef.current.prefs : prefs
-  const canvasAvail = isStreaming ? canvasFreezeRef.current.avail : plannerAvail
+  const canvasAvail = isStreaming ? canvasFreezeRef.current.avail : effectiveAvail
   const canvasShowOtherDates = isStreaming ? canvasFreezeRef.current.showOtherDates : showOtherDates
   const canvasShowResults = isStreaming ? canvasFreezeRef.current.showResults : showResults
   const canvasHasSelectedDate = !!canvasPrefs?.startDate
@@ -3904,9 +3989,9 @@ export default function PlannerPage() {
   const canvasCount = useMemo(
     () =>
       hasSelectedDate
-        ? resultTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate).length
+        ? resultTrips.filter((t) => effectiveAvail[t.id]?.availableOnSelectedDate).length
         : resultTrips.length,
-    [hasSelectedDate, resultTrips, plannerAvail],
+    [hasSelectedDate, resultTrips, effectiveAvail],
   )
   // How many MATCHING (on-screen) trips got a DEFINITIVE availability answer on
   // the selected date — i.e. resolved, not `unknown` (dual-source TourCMS
@@ -3917,11 +4002,11 @@ export default function PlannerPage() {
     () =>
       hasSelectedDate
         ? resultTrips.filter((t) => {
-            const av = plannerAvail[t.id]
+            const av = effectiveAvail[t.id]
             return av != null && av.unknown !== true
           }).length
         : resultTrips.length,
-    [hasSelectedDate, resultTrips, plannerAvail],
+    [hasSelectedDate, resultTrips, effectiveAvail],
   )
   // Whether the canvas count is trustworthy enough to ground the AI. A failed
   // scan or an all-`unknown` (incident) zero is NEVER surfaced as a confident
@@ -3937,7 +4022,7 @@ export default function PlannerPage() {
     // the on-date group is empty (mirrors the "Available on other dates" group).
     const matchingOther = hasSelectedDate
       ? resultTrips.filter((t) => {
-          const av = plannerAvail[t.id]
+          const av = effectiveAvail[t.id]
           return av && !av.availableOnSelectedDate && (av.availableDates?.length ?? 0) > 0
         })
       : []
@@ -3947,7 +4032,7 @@ export default function PlannerPage() {
     // interests so the closest "similar experience" surfaces first.
     const interests = prefs?.interests ?? []
     const availableToday = hasSelectedDate
-      ? allTrips.filter((t) => plannerAvail[t.id]?.availableOnSelectedDate)
+      ? allTrips.filter((t) => effectiveAvail[t.id]?.availableOnSelectedDate)
       : []
     const overlap = (t: Trip) => (t.tags ?? []).filter((tag) => interests.includes(tag)).length
     const availableTodaySamples = [...availableToday]
@@ -3973,11 +4058,16 @@ export default function PlannerPage() {
       // can recommend exact dates without another tool round-trip.
       otherDateSamples: matchingOther.slice(0, sampleLimit).map((t) => ({
         title: t.title,
-        dates: (plannerAvail[t.id]?.availableDates ?? []).slice(0, 4).map(formatYMDPretty),
+        dates: (effectiveAvail[t.id]?.availableDates ?? []).slice(0, 4).map(formatYMDPretty),
       })),
       availableTodayCount: availableToday.length,
       availableTodaySamples,
       showingOtherDates: showOtherDates,
+      // What the visitor ACTUALLY sees on the canvas right now (titles of the
+      // currently-visible group) + their recent manual actions, so the AI can
+      // describe the screen + acknowledge what they just did.
+      displayedTitles: visibleCanvasTrips.map((t) => t.title).slice(0, 12),
+      recentActions: recentActionsRef.current.slice(-6),
     }
     // Whole-catalog availability snapshot for the server's searchTrips tool.
     // Sent only when a date is selected and the scan FOR THAT date has settled;
@@ -3998,7 +4088,7 @@ export default function PlannerPage() {
     } else {
       availabilityForApiRef.current = { date: null, trips: {} }
     }
-  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, allTrips, availLoadedMatchesDate, canvasCountTrustworthy, showOtherDates])
+  }, [canvasCount, hasSelectedDate, prefs?.startDate, prefs?.interests, availLoading, showResults, resultTrips, plannerAvail, effectiveAvail, allTrips, availLoadedMatchesDate, canvasCountTrustworthy, showOtherDates, visibleCanvasTrips])
 
   // Reset "other dates" view whenever the visit date changes or the AI returns
   // a fresh set of search results — so old other-date trips never linger after
@@ -4006,6 +4096,51 @@ export default function PlannerPage() {
   useEffect(() => { setShowOtherDates(false) }, [prefs?.startDate])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setShowOtherDates(false) }, [aiTrips])
+
+  /* ── Manual-action tracking (AI awareness, req. #4) ───────────────────────
+     Record the visitor's manual canvas actions into a most-recent-last ring
+     buffer so the next chat turn can tell the AI what they just did (add/remove
+     a trip from My Trip, toggle other-dates, change the visit date). These are
+     diff-based so they capture changes from ANY source (buttons, chips, modal)
+     without threading through every handler. Capped to keep the prompt lean. */
+  const pushAction = useCallback((msg: string) => {
+    const buf = recentActionsRef.current
+    if (buf[buf.length - 1] === msg) return // dedupe identical consecutive
+    buf.push(msg)
+    if (buf.length > 8) buf.splice(0, buf.length - 8)
+  }, [])
+  const prevItemIdsRef = useRef<string[] | null>(null)
+  useEffect(() => {
+    const ids = items.map((i) => i.trip.id)
+    const prev = prevItemIdsRef.current
+    if (prev !== null) {
+      for (const it of items) {
+        if (!prev.includes(it.trip.id)) pushAction(`added "${it.trip.title}" to My Trip`)
+      }
+      for (const id of prev) {
+        if (!ids.includes(id)) {
+          const t = allTrips.find((x) => x.id === id)
+          pushAction(`removed "${t?.title ?? id}" from My Trip`)
+        }
+      }
+    }
+    prevItemIdsRef.current = ids
+  }, [items, allTrips, pushAction])
+  const prevOtherDatesRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    if (prevOtherDatesRef.current !== null && prevOtherDatesRef.current !== showOtherDates) {
+      pushAction(showOtherDates ? "switched the canvas to other dates" : "switched the canvas back to the selected date")
+    }
+    prevOtherDatesRef.current = showOtherDates
+  }, [showOtherDates, pushAction])
+  const prevStartDateRef = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    const d = prefs?.startDate ?? null
+    if (prevStartDateRef.current !== undefined && prevStartDateRef.current !== d) {
+      pushAction(d ? `changed the visit date to ${formatYMDPretty(d)}` : "cleared the visit date")
+    }
+    prevStartDateRef.current = d
+  }, [prefs?.startDate, pushAction])
 
   /* Auto-expand map and center it when AI returns a new set of results */
   const prevResultTripIds = useRef<string>("")

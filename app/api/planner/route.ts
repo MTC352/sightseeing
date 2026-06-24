@@ -8,13 +8,14 @@ import {
   validateUIMessages,
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { buildPlannerSystemPromptParts, buildCanvasCountLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
+import { buildPlannerSystemPromptParts, buildCanvasCountLine, buildCanvasAwarenessLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable, shouldAnnotateAvailability } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
 import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
 import { toSearchCard, resolveSearchLimit } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
+import { scanCatalogAvailability, type PlannerTripAvailability } from "@/lib/planner/availability-scan"
 import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips, dbGetChatPlannerConfig } from "@/lib/db/queries"
@@ -80,6 +81,49 @@ let _defaultPartySize = 1
 // system-prompt canvas line is stale on the search turn). Empty = no snapshot.
 let _plannerAvail: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> = {}
 let _availDate: string | null = null
+
+/** Convert the shared scan's per-trip shape into the route's compact
+ *  {onDate,dates,unknown} map used by searchTrips + the prompt ground-truth. */
+function toRouteAvailMap(
+  trips: Record<string, PlannerTripAvailability>,
+): Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> {
+  const map: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> = {}
+  for (const [id, v] of Object.entries(trips)) {
+    if (!id || !v) continue
+    map[id] = {
+      onDate: v.availableOnSelectedDate === true,
+      dates: Array.isArray(v.availableDates)
+        ? v.availableDates.filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d))
+        : [],
+      ...(v.unknown === true ? { unknown: true } : {}),
+    }
+  }
+  return map
+}
+
+/**
+ * Ensure `_plannerAvail`/`_availDate` hold a FRESH server-side scan for `date`.
+ *
+ * This is the authoritative server-side availability refresh used both (a) at
+ * request setup when the client's snapshot is missing/stale for the visit date,
+ * and (b) inside searchTrips when the AI reasons about a DIFFERENT date mid-turn
+ * (a date just set / a date question). No-op when the globals already reflect
+ * `date`. Fail-soft: on any scan error the existing globals are left untouched
+ * so a TourCMS incident degrades gracefully instead of blanking availability.
+ *
+ * Palisis/TourCMS is READ-ONLY here (datesndeals + checkavail only).
+ */
+async function ensureAvailFor(date: string | null, partySize: number): Promise<void> {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return
+  if (_availDate === date && Object.keys(_plannerAvail).length > 0) return
+  try {
+    const scan = await scanCatalogAvailability({ selectedDate: date, partySize })
+    _plannerAvail = toRouteAvailMap(scan.trips)
+    _availDate = date
+  } catch {
+    // Fail-soft: keep whatever snapshot we already have.
+  }
+}
 
 // Format a YYYY-MM-DD string as "Wed, 24 Jun 2026" for human-readable tool
 // output (matches the canvas's pretty-date wording). Returns the raw string on
@@ -224,8 +268,24 @@ const searchTripsTool = tool({
       .array(z.string())
       .optional()
       .describe("Concepts to EXCLUDE from results — removes trips whose title, description, or tags match any of these words. Use when the user says 'don't want castles', 'no wine', 'without boat tours', 'skip food tours'. Pass the bare concept word(s), e.g. ['castle', 'fort'] or ['wine']. Trips matching ANY of these are removed from the canvas."),
+    date: z
+      .string()
+      .optional()
+      .describe("The YYYY-MM-DD date the results' availability should be checked against. ALWAYS pass this whenever the visitor changes/sets a date this turn, asks what's available on a date, or asks about a date OTHER than the stored visit date — the server then re-verifies live availability for THIS exact date so the returned `available` flags + `availability` object are correct for it (not the old date). OMIT to use the stored visit date. Take the value from the RELATIVE DATES block; never compute it yourself."),
   }),
-  execute: async ({ query, tags, ids, maxResults, excludeKeywords }) => {
+  execute: async ({ query, tags, ids, maxResults, excludeKeywords, date }) => {
+    // Tool-forced fresh availability for the date the AI is reasoning about THIS
+    // turn. effectiveDate = the explicit `date` arg (a date just set / a date
+    // question / another date) when valid, else the stored visit date. When that
+    // date isn't what the current scan reflects, re-scan server-side NOW so the
+    // per-card `available` flags + the `availability` summary below are correct
+    // for it — never one turn behind. Same shared scan the canvas runs.
+    const reqDate =
+      typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= todayYMD()
+        ? date
+        : null
+    const effectiveDate = reqDate ?? _defaultVisitDate
+    if (effectiveDate) await ensureAvailFor(effectiveDate, _defaultPartySize)
     const wx = _liveWeather.wx
     const catalog = await loadTripCatalog()
     const catalogSize = catalog.length
@@ -482,11 +542,18 @@ const searchTripsTool = tool({
           return false // "alternative" = not on visit date
         }
       : null
+    // Other bookable dates per trip (within the scan window) so the Trip Canvas
+    // can mirror the AI's grouping — render on-date vs other-dates straight from
+    // the same data the AI reasoned over, instead of an independent client scan.
+    const getTripDates = availability
+      ? (id: string): string[] => (_plannerAvail[id]?.dates ?? []).slice(0, 8)
+      : null
 
     return {
       trips: finalResults.map((t) => ({
         ...toSearchCard(t),
         ...(getTripAvailable ? { available: getTripAvailable(t.id) } : {}),
+        ...(getTripDates ? { availableDates: getTripDates(t.id) } : {}),
       })),
       weather: wx,
       total: results.length,
@@ -1167,6 +1234,8 @@ export async function POST(req: Request) {
         availableTodayCount?: number
         availableTodaySamples?: { title?: string | null; tags?: string[] | null }[]
         showingOtherDates?: boolean
+        displayedTitles?: string[]
+        recentActions?: string[]
       } | null
       // Compact live availability snapshot echoed by the client (its
       // /api/planner/availability scan, party + cancellation filtered). Keyed by
@@ -1378,6 +1447,18 @@ export async function POST(req: Request) {
         _availDate = visitDateYMD
       }
     }
+    // ── SERVER-SIDE FRESH AVAILABILITY (authoritative-by-default) ─────────────
+    // The client snapshot above is a convenience/perf hint, but it is missing on
+    // the very turn a date is first set (updatePreferences is client-only — no
+    // server execute on that turn) and can lag the stored visit date. When a
+    // visit date is set and the client didn't hand us an IN-SYNC snapshot for it,
+    // scan server-side NOW so the per-trip ground truth, the available-interests
+    // line, AND searchTrips are all fresh BEFORE the AI reasons — never one turn
+    // behind. Uses the SAME shared scan the Trip Canvas runs, so chat↔canvas can
+    // never disagree. Fail-soft (leaves the client snapshot, if any, untouched).
+    if (visitDateYMD) {
+      await ensureAvailFor(visitDateYMD, _defaultPartySize)
+    }
     // Request-local snapshot of the availability map + its date. The module-global
     // _plannerAvail/_availDate exist so the tool executors can fall back to them,
     // but a CONCURRENT planner request can reassign those globals before THIS
@@ -1549,11 +1630,23 @@ export async function POST(req: Request) {
       showingOtherDates: canvas?.showingOtherDates === true,
     })
 
+    // ── Canvas awareness + manual actions (req. #4) ───────────────────────────
+    // The client also sends the titles currently visible on the Trip Canvas and
+    // a short most-recent-last log of the visitor's manual canvas actions (add/
+    // remove a trip, toggle other-dates, change the date). We surface both so the
+    // AI can describe what's on screen and acknowledge what the visitor just did
+    // rather than ignoring or contradicting it.
+    const canvasAwarenessLine = buildCanvasAwarenessLine({
+      displayedTitles: Array.isArray(canvas?.displayedTitles) ? canvas.displayedTitles : null,
+      recentActions: Array.isArray(canvas?.recentActions) ? canvas.recentActions : null,
+    })
+
     const systemPromptParts = buildPlannerSystemPromptParts({
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
       profileLine, cartSection, groupSection, itinerarySection,
       optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
       interestVocab, canvasCountLine, availableInterestsLine, availabilityGroundTruth, catalogFactsBlock,
+      canvasAwarenessLine,
     })
     
     // Append admin-configured custom system prompt if available.

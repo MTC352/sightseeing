@@ -13,6 +13,8 @@ const buildAvailabilityGroundTruth =
   mod.buildAvailabilityGroundTruth ?? mod.default?.buildAvailabilityGroundTruth
 const buildCatalogFactsBlock =
   mod.buildCatalogFactsBlock ?? mod.default?.buildCatalogFactsBlock
+const buildCanvasAwarenessLine =
+  mod.buildCanvasAwarenessLine ?? mod.default?.buildCanvasAwarenessLine
 
 function promptText(overrides = {}) {
   return buildPlannerSystemPromptParts({
@@ -51,8 +53,8 @@ test("canvas count line — count===0 & date-matched is DIRECTIVE: forbids claim
   // the whole point of the fix: model must NOT announce the canvas shows trips
   assert.match(line, /MUST NOT say or imply the Trip Canvas shows/)
   assert.match(line, /none of their matching trips are bookable on 2026-06-21/)
-  // and it must push the model to recommend rather than only ask questions
-  assert.match(line, /RECOMMENDER, NOT A QUESTIONER/)
+  // req. #5: when nothing is bookable on the date, ASK before showing other dates
+  assert.match(line, /ASK BEFORE SHOWING OTHER DATES/)
   // must NOT carry the count>0 prohibition (that one is for when trips DO exist)
   assert.doesNotMatch(line, /MUST NOT tell the visitor that no trips/)
 })
@@ -66,9 +68,10 @@ test("canvas count line — count===0 with otherDateSamples recommends SPECIFIC 
     otherDatesCount: 1,
     otherDateSamples: [{ title: "Museums Mile", dates: ["Wed 24 Jun", "Thu 25 Jun"] }],
   })
-  assert.match(line, /OPTION A/)
+  assert.match(line, /FOR WHEN THEY SAY YES/)
   assert.match(line, /\*\*Museums Mile\*\* \(Wed 24 Jun, Thu 25 Jun\)/)
-  assert.match(line, /Recommend these specific alternative date/)
+  // dates are only offered after the visitor opts in (req. #5)
+  assert.match(line, /ONLY after the visitor opts in/)
 })
 
 test("canvas count line — count===0 with availableTodaySamples recommends a SIMILAR trip for the same day + syncs canvas", () => {
@@ -80,7 +83,7 @@ test("canvas count line — count===0 with availableTodaySamples recommends a SI
     availableTodayCount: 3,
     availableTodaySamples: [{ title: "City Train Tour", tags: ["walking-tours"] }],
   })
-  assert.match(line, /OPTION B/)
+  assert.match(line, /SAME-DAY ALTERNATIVE/)
   assert.match(line, /\*\*City Train Tour\*\*/)
   assert.match(line, /call searchTrips/)
 })
@@ -271,4 +274,43 @@ test("catalog facts — omits missing meta gracefully and skips title-less rows"
 test("catalog facts — empty catalog returns empty string", () => {
   assert.equal(buildCatalogFactsBlock([]), "")
   assert.equal(buildCatalogFactsBlock(null), "")
+})
+
+test("canvas awareness — renders displayed titles + recent actions, returns empty when both blank", () => {
+  const line = buildCanvasAwarenessLine({
+    displayedTitles: ["E-Bike Tour", "City Train", ""],
+    recentActions: ["added \"E-Bike Tour\" to My Trip", "changed the visit date to Sat 21 Jun"],
+  })
+  assert.match(line, /WHAT THE VISITOR SEES RIGHT NOW/)
+  assert.match(line, /\*\*E-Bike Tour\*\*/)
+  assert.match(line, /\*\*City Train\*\*/)
+  assert.match(line, /RECENT MANUAL ACTIONS/)
+  assert.match(line, /changed the visit date to Sat 21 Jun/)
+  // count reflects only non-empty titles
+  assert.match(line, /displaying these 2 trips/)
+  // empty inputs → empty string
+  assert.equal(buildCanvasAwarenessLine({}), "")
+  assert.equal(buildCanvasAwarenessLine({ displayedTitles: [], recentActions: [] }), "")
+})
+
+test("canvas awareness — titles only (no actions) omits the actions segment", () => {
+  const line = buildCanvasAwarenessLine({ displayedTitles: ["Boat Cruise"] })
+  assert.match(line, /WHAT THE VISITOR SEES RIGHT NOW/)
+  assert.doesNotMatch(line, /RECENT MANUAL ACTIONS/)
+})
+
+test("planner prompt includes the canvas awareness line when provided", () => {
+  const txt = promptText({
+    canvasAwarenessLine: buildCanvasAwarenessLine({
+      displayedTitles: ["Wine Tasting"],
+      recentActions: ["removed \"Boat Cruise\" from My Trip"],
+    }),
+  })
+  assert.match(txt, /WHAT THE VISITOR SEES RIGHT NOW/)
+  assert.match(txt, /removed "Boat Cruise" from My Trip/)
+})
+
+test("planner prompt contains the no-favoritism rule", () => {
+  const txt = promptText()
+  assert.match(txt, /NO FAVORITISM/)
 })
