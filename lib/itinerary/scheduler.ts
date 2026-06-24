@@ -290,7 +290,22 @@ export async function buildSchedule(opts: {
   /** Deterministic weather signal for the visit date (single-day plans). */
   weather?: { rainyDay?: boolean } | null
 }): Promise<{ steps: ScheduledStep[]; dropped: DroppedTrip[]; notes: string[] }> {
-  const { candidates, config, prefs, visitDate, addDays, computeLeg, cityTravelMin, weather } = opts
+  const { candidates, config, prefs, visitDate, addDays, computeLeg: rawComputeLeg, cityTravelMin, weather } = opts
+
+  // Memoise travel legs by origin→dest. The placement engine is now run under
+  // several candidate orderings (see below), so the same geo pair can be queried
+  // multiple times — caching keeps Mapbox/Google calls bounded to the distinct
+  // pairs regardless of how many orderings we evaluate.
+  const legCache = new Map<string, Promise<TravelLeg>>()
+  const computeLeg: ComputeLeg = (originGeo, destGeo, fromLabel, toLabel) => {
+    const key = `${originGeo}\u0000${destGeo}`
+    let cached = legCache.get(key)
+    if (!cached) {
+      cached = rawComputeLeg(originGeo, destGeo, fromLabel, toLabel)
+      legCache.set(key, cached)
+    }
+    return cached
+  }
 
   const maxStops = Math.max(1, Math.min(HARD_MAX_STOPS, Math.floor(config.maxStopsPerDay) || HARD_MAX_STOPS))
   // Pace scales the buffer and the number of stops we aim for, always clamped
@@ -412,7 +427,31 @@ export async function buildSchedule(opts: {
     const st = earliestFeasibleSlot(t)
     return st === Infinity ? Infinity : st + t.durationMin
   }
-  const orderedCandidates = [...workCandidates].sort((a, b) => {
+  // Day-window-feasible slot START times for a candidate, independent of the
+  // running placement cursor / travel. A trip with exactly ONE such start is
+  // "pinned" (inflexible) — it can only ever run at that time. Used to order
+  // most-constrained trips first so a flexible trip can't steal the sole slot an
+  // inflexible trip needs (the food-tour-vs-flexible-tour bug).
+  const dayFeasibleStarts = (t: CandidateTrip): number[] => {
+    const out: number[] = []
+    for (const s of t.slots) {
+      const st = toMin(s.startTime)
+      if (st < 0) continue
+      if (st < dayStart) continue
+      if (earlyCutoff >= 0 && st < earlyCutoff) continue
+      if (st + t.durationMin > dayEnd) continue
+      if (partySize > 1 && !fitsParty(s)) continue
+      if (!out.includes(st)) out.push(st)
+    }
+    return out.sort((a, b) => a - b)
+  }
+  // Number of distinct feasible start times. 0 → no feasible slot (will drop
+  // anyway), sorted LAST so it never displaces a placeable trip.
+  const slotFlex = (t: CandidateTrip): number => {
+    const n = dayFeasibleStarts(t).length
+    return n === 0 ? Number.POSITIVE_INFINITY : n
+  }
+  const cmpFinishThenStart = (a: CandidateTrip, b: CandidateTrip): number => {
     const fin = earliestFeasibleFinish(a) - earliestFeasibleFinish(b)
     if (fin !== 0) return fin
     // Tie-break: earlier start first (keeps a natural morning→evening arc), then
@@ -420,8 +459,33 @@ export async function buildSchedule(opts: {
     const st = earliestFeasibleSlot(a) - earliestFeasibleSlot(b)
     if (st !== 0) return st
     return a.title.localeCompare(b.title)
-  })
+  }
 
+  // Candidate orderings to try. The placement engine is GREEDY + forward-only,
+  // so the visit ORDER decides which trips fit. A single ordering can't be
+  // optimal for every shape of day, so we run the engine under a few orderings
+  // and keep whichever places the MOST stops (ties keep the first / current
+  // ordering, so existing itineraries never change unless an alternative fits
+  // strictly MORE trips).
+  //   A) earliest-feasible-FINISH — the classic earliest-deadline-first greedy.
+  //      Maximises count when each trip is freely movable, and keeps a single
+  //      long day-dominating tour LAST so it drops rather than evicting several
+  //      shorter trips.
+  //   B) most-constrained-FIRST (fewest feasible slots, then earliest finish) —
+  //      lets an inflexible trip (e.g. a food tour with a single fixed start)
+  //      claim its only slot BEFORE a flexible trip grabs it and forces the
+  //      fixed trip to be dropped. Only ever ADOPTED when it fits more stops, so
+  //      it can't regress the long-tour case (there it fits fewer → not chosen).
+  const orderings: CandidateTrip[][] = [
+    [...workCandidates].sort(cmpFinishThenStart),
+    [...workCandidates].sort((a, b) => {
+      const fx = slotFlex(a) - slotFlex(b)
+      if (fx !== 0) return fx
+      return cmpFinishThenStart(a, b)
+    }),
+  ]
+
+  const runPass = async (orderedCandidates: CandidateTrip[]): Promise<{ steps: ScheduledStep[]; dropped: DroppedTrip[]; notes: string[] }> => {
   const used = new Set<string>()
   const allSteps: ScheduledStep[] = []
   const notes: string[] = []
@@ -645,4 +709,17 @@ export async function buildSchedule(opts: {
   }
 
   return { steps: allSteps, dropped, notes }
+  }
+
+  // Run the engine under each ordering and keep whichever places the MOST stops.
+  // Ties keep the FIRST (current earliest-finish) ordering, so existing
+  // itineraries are byte-for-byte unchanged unless an alternative ordering fits
+  // strictly MORE trips — making this a pure improvement with no regression to
+  // the long-tour eviction behaviour.
+  let best = await runPass(orderings[0])
+  for (let i = 1; i < orderings.length; i++) {
+    const pass = await runPass(orderings[i])
+    if (pass.steps.length > best.steps.length) best = pass
+  }
+  return best
 }

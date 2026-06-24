@@ -103,6 +103,23 @@ daytime stops. **Caveat:** this is a strong heuristic, NOT a proof — feasibili
 travel/buffer/meal insertion + day-budget anchoring after the first start, not independent fixed
 intervals, so rare orderings can still fit fewer; accepted tradeoff for order-invariant max-fit.
 
+## Placement runs MULTIPLE orderings, keeps the one with STRICTLY MORE stops
+The forward-only greedy is now wrapped: the whole day-loop+drop logic is an inner
+`runPass(orderedCandidates)`, run under several orderings, keeping the pass whose `steps.length`
+is **strictly greater** (ties keep the FIRST ordering). Orderings: **A) earliest-feasible-FINISH**
+(the legacy default — keeps the long-tour eviction protection), **B) most-constrained-FIRST**
+(`slotFlex` = count of `dayFeasibleStarts`, fewest first, then earliest-finish).
+**Why:** a flexible trip (many slots) ordered before an inflexible one (single fixed start) stole
+the early slot, dropping the inflexible trip even though both fit on a full day (reported case:
+3h Food Tour pinned 10:45 + hourly City tour). Ordering B places the pinned trip first so the
+flexible one schedules later. **The strict-more rule is the non-regression guarantee:** existing
+itineraries are byte-identical unless an alternative ordering fits MORE trips, so the long-tour
+case (B fits fewer ⇒ not adopted) is preserved automatically.
+**How to apply:** add new orderings to the `orderings[]` array, never change the strict-`>` tie
+rule. `computeLeg` is memoized by `origin\0dest` (promise cache) so multi-pass doesn't multiply
+Mapbox calls — keep that wrapper if you add passes. Pass-local state (`used`, `allSteps`, `notes`,
+`partyCapacityBlocked`) lives INSIDE `runPass`; `accessibilityDrops` is shared (ordering-independent).
+
 ## Scheduler drop reasons must be TRUTHFUL per cause (3 buckets + party capacity)
 Every trip reaching the scheduler HAS bookable slots on the date (no-availability trips are
 filtered upstream into `unavailableTrips`), so a scheduler drop is ALWAYS a same-day fit/seat
@@ -129,7 +146,9 @@ the planner unusable and 429-blocking e2e. Production clients keep distinct real
 bucket, not your code.
 
 ## Testing the scheduler
-Whole-project `tsc` gets OOM-killed. Transpile the single file standalone:
-`npx tsc lib/itinerary/scheduler.ts --target es2022 --module es2022 --moduleResolution bundler --skipLibCheck --outDir /tmp/x`,
-then run a node `.mjs` that imports `./scheduler.js` with mock `computeLeg`/`cityTravelMin`.
+`scheduler.ts` is a PURE module (no imports) wired into the standard `pnpm test` harness:
+`pretest` has its own `tsc lib/itinerary/scheduler.ts … --outDir .test-build/itinerary` line and
+`test/itinerary/scheduler.test.mjs` imports `../../.test-build/itinerary/scheduler.js`, calling
+`buildSchedule` with mock `computeLeg`/`cityTravelMin`/`addDays` (no network/DB). Whole-project
+`tsc` OOM-kills, so keep using the per-file `--rootDir` lines (see test-harness.md).
 Remember slots before `dayStartTime` are always rejected when writing window tests.
