@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 5000",
     "lint": "next lint",
-    "pretest": "tsc lib/planner/system-prompt.ts lib/planner/availability-parity.ts lib/planner/sanitize-messages.ts lib/planner/search-card.ts lib/planner/trip-match.ts lib/planner/visibility-decision.ts lib/planner/available-interests.ts lib/planner/interest-match.ts lib/planner/canvas-trips.ts lib/planner/rebuild-decision.ts --rootDir lib/planner --outDir .test-build --module commonjs --target es2022 --skipLibCheck --esModuleInterop && tsc lib/ai/models.ts --rootDir lib/ai --outDir .test-build/ai --module commonjs --target es2022 --skipLibCheck --esModuleInterop",
+    "pretest": "tsc lib/planner/system-prompt.ts lib/planner/availability-parity.ts lib/planner/sanitize-messages.ts lib/planner/search-card.ts lib/planner/trip-match.ts lib/planner/visibility-decision.ts lib/planner/available-interests.ts lib/planner/interest-match.ts lib/planner/canvas-trips.ts lib/planner/rebuild-decision.ts lib/planner/relative-date.ts --rootDir lib/planner --outDir .test-build --module commonjs --target es2022 --skipLibCheck --esModuleInterop && tsc lib/ai/models.ts --rootDir lib/ai --outDir .test-build/ai --module commonjs --target es2022 --skipLibCheck --esModuleInterop",
     "test": "node --test test/"
   },
   "dependencies": {

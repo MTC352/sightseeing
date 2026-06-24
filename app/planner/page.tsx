@@ -38,6 +38,7 @@ import { scoreTripInterests } from "@/lib/planner/interest-match"
 import { isCanvasCountTrustworthy } from "@/lib/planner/availability-parity"
 import { AUTO_SEED_PREFIX, firstRealUserMessageIndex } from "@/lib/planner/canvas-trips"
 import { decideRebuildAction } from "@/lib/planner/rebuild-decision"
+import { resolveRelativeDate } from "@/lib/planner/relative-date"
 import type { LucideIcon } from "lucide-react"
 
 /* ─── Cookie helpers ─── */
@@ -2127,7 +2128,11 @@ export default function PlannerPage() {
             }
             if (patch.duration && !acc.duration) acc.duration = patch.duration
             if (patch.budget && !acc.budget) acc.budget = patch.budget
-            if (patch.startDate && !acc.startDate) acc.startDate = patch.startDate
+            if (!acc.startDate) {
+              const rel = resolveRelativeDate((patch as { relativeDate?: string }).relativeDate)
+              if (rel) acc.startDate = rel
+              else if (patch.startDate) acc.startDate = patch.startDate
+            }
             if (typeof patch.adults === "number" && acc.adults == null) acc.adults = patch.adults
             if (typeof patch.children === "number" && acc.children == null) acc.children = patch.children
             if (typeof patch.dayCount === "number" && acc.dayCount == null) acc.dayCount = patch.dayCount
@@ -2522,7 +2527,15 @@ export default function PlannerPage() {
             : base.interests,
           duration: typeof patch.duration === "string" && patch.duration ? patch.duration : base.duration,
           budget: typeof patch.budget === "string" && patch.budget ? patch.budget : base.budget,
-          startDate: typeof patch.startDate === "string" && patch.startDate ? patch.startDate : base.startDate,
+          // Visit date: a deterministic `relativeDate` token (resolved here, not
+          // by the model) WINS over a model-computed startDate — gpt-4o-mini was
+          // mis-computing relative dates. Fall back to an explicit startDate, then
+          // the existing value.
+          startDate: (() => {
+            const rel = resolveRelativeDate((patch as { relativeDate?: string }).relativeDate)
+            if (rel) return rel
+            return typeof patch.startDate === "string" && patch.startDate ? patch.startDate : base.startDate
+          })(),
           adults: typeof patch.adults === "number" && patch.adults >= 1 ? Math.min(MAX_PARTY, patch.adults) : base.adults,
           children: typeof patch.children === "number" && patch.children >= 0 ? Math.min(MAX_PARTY, patch.children) : base.children,
           // Preserve / clamp dayCount on AI-driven updates. If the AI is
@@ -4556,25 +4569,14 @@ export default function PlannerPage() {
                           break
                         }
                         case "tool-searchTrips": {
-                          if (part.state !== "output-available") {
-                            // Only show "Updating results..." for the FIRST pending
-                            // searchTrips part in this message. When the AI calls
-                            // searchTrips twice in one turn (broad search then
-                            // shortlist-by-ids), showing it per-call causes it to
-                            // flash on/off visibly. One indicator covers the whole turn.
-                            const alreadyShowingLoader = msg.parts.slice(0, idx).some(
-                              (p) => p.type === "tool-searchTrips" && p.state !== "output-available"
-                            )
-                            if (!alreadyShowingLoader) {
-                              textParts.push(
-                                <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
-                                  <span>Updating results...</span>
-                                </div>
-                              )
-                            }
-                          }
-                          // When output-available, render nothing -- the center panel updates automatically
+                          // No per-tool chat loader. The single "thinking dots"
+                          // indicator below (shown while the streaming message has
+                          // no visible text) plus the Trip Canvas overlay already
+                          // signal work-in-progress. A per-tool spinner here only
+                          // flashed on/off as the tool resolved and double-stacked
+                          // with the canvas overlay (visitor complaint). When
+                          // output-available, render nothing — the center panel
+                          // updates automatically.
                           break
                         }
                         case "tool-showWeather": {
@@ -4866,9 +4868,9 @@ export default function PlannerPage() {
                                 <Check className="h-3.5 w-3.5 shrink-0" /><span>{(part.output as string) || "Saved to your trip list"}</span>
                               </div>
                             )
-                          } else if (part.state === "input-available") {
-                            textParts.push(<p key={idx} className="text-xs italic text-muted-foreground">Adding to your trip...</p>)
                           }
+                          // No transient "Adding to your trip..." loader — the
+                          // single thinking-dots indicator covers the pending phase.
                           break
                         }
                         case "tool-removeFromCart":
@@ -4879,42 +4881,20 @@ export default function PlannerPage() {
                                 <Check className="h-3.5 w-3.5 shrink-0" /><span>{(part.output as string) || "Updated your trip list"}</span>
                               </div>
                             )
-                          } else if (part.state === "input-available") {
-                            textParts.push(<p key={idx} className="text-xs italic text-muted-foreground">Updating your trip list...</p>)
                           }
+                          // No transient loader (see above).
                           break
                         }
                         case "tool-getTripDetails": {
-                          if (part.state !== "output-available") {
-                            textParts.push(
-                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
-                                <span>Looking up trip details...</span>
-                              </div>
-                            )
-                          }
+                          // No transient loader — single thinking-dots indicator covers it.
                           break
                         }
                         case "tool-getTripTimeslots": {
-                          if (part.state !== "output-available") {
-                            textParts.push(
-                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
-                                <span>Checking live availability...</span>
-                              </div>
-                            )
-                          }
+                          // No transient loader — single thinking-dots indicator covers it.
                           break
                         }
                         case "tool-getTripDatesAndDeals": {
-                          if (part.state !== "output-available") {
-                            textParts.push(
-                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
-                                <span>Fetching dates and offers...</span>
-                              </div>
-                            )
-                          }
+                          // No transient loader — single thinking-dots indicator covers it.
                           break
                         }
                       }

@@ -1058,7 +1058,16 @@ const updatePreferencesTool = tool({
     interests: z.array(z.string()).max(10).optional().describe("The visitor's FULL interest list — this REPLACES the stored list, so include every interest that should remain (not just the new one). Use ONLY canonical values from 'AVAILABLE INTEREST TAGS' in the system prompt (e.g. day-trips, museums, food). To add: append to the existing list; to switch: send only the new value; to remove: send the list without it."),
     duration: z.enum(["1-2h", "half-day", "full-day"]).optional().describe("Trip duration preference."),
     budget: z.enum(["casual", "mid-range", "premium", "any"]).optional().describe("Budget preference."),
-    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Visit date in YYYY-MM-DD format."),
+    relativeDate: z.enum([
+      "today", "tomorrow",
+      "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+      "this-weekend", "next-weekend",
+    ]).optional().describe(
+      "PREFERRED way to set the visit date when the user refers to a day RELATIVELY (e.g. 'friday', 'next monday', 'tomorrow', 'this weekend'). " +
+      "Pass the matching token and the system resolves it to the correct calendar date deterministically — do NOT compute a YYYY-MM-DD yourself for relative phrases. " +
+      "Weekday tokens always mean the NEXT occurrence of that day (today counts if it IS that weekday). Use `startDate` ONLY when the user gives an explicit calendar date (e.g. 'July 4th', '2026-07-04')."
+    ),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Visit date in YYYY-MM-DD format. Use ONLY for an EXPLICIT calendar date the user names. For relative phrases ('friday', 'tomorrow', 'this weekend') use `relativeDate` instead — never compute the date yourself."),
     mealBreaks: z.array(z.object({
       type: z.enum(["lunch", "dinner", "coffee"]).describe("Which meal/break this entry describes."),
       earliest: z.string().regex(/^\d{2}:\d{2}$/).describe("Earliest acceptable start, HH:MM 24h."),
@@ -1375,21 +1384,22 @@ export async function POST(req: Request) {
       return addDays(diff === 0 ? 0 : diff) // 0 = today itself
     }
     const relativeDates = [
-      'RELATIVE DATES (already resolved for you — use these EXACT YYYY-MM-DD values, NEVER recompute):',
-      `- "today" = ${fmtRel(luxNow)}`,
-      `- "tomorrow" = ${fmtRel(tomorrowD)}`,
+      'RELATIVE DATES: when the user names a day RELATIVELY, do NOT compute a YYYY-MM-DD yourself. Call `updatePreferences` with the matching `relativeDate` TOKEN (the system resolves it to the exact date deterministically). The resolved values for reference (so you can confirm the date back to the user) are:',
+      `- "today" → relativeDate:"today" = ${fmtRel(luxNow)}`,
+      `- "tomorrow" → relativeDate:"tomorrow" = ${fmtRel(tomorrowD)}`,
       // All seven weekday names → next occurrence (e.g. "Friday", "next Friday", "plan for Friday")
-      `- "Monday" / "next Monday" = ${fmtRel(nextWeekday(1))}`,
-      `- "Tuesday" / "next Tuesday" = ${fmtRel(nextWeekday(2))}`,
-      `- "Wednesday" / "next Wednesday" = ${fmtRel(nextWeekday(3))}`,
-      `- "Thursday" / "next Thursday" = ${fmtRel(nextWeekday(4))}`,
-      `- "Friday" / "next Friday" = ${fmtRel(nextWeekday(5))}`,
-      `- "Saturday" / "next Saturday" = ${fmtRel(nextWeekday(6))}`,
-      `- "Sunday" / "next Sunday" = ${fmtRel(nextWeekday(0))}`,
+      `- "Monday" / "next Monday" → relativeDate:"monday" = ${fmtRel(nextWeekday(1))}`,
+      `- "Tuesday" / "next Tuesday" → relativeDate:"tuesday" = ${fmtRel(nextWeekday(2))}`,
+      `- "Wednesday" / "next Wednesday" → relativeDate:"wednesday" = ${fmtRel(nextWeekday(3))}`,
+      `- "Thursday" / "next Thursday" → relativeDate:"thursday" = ${fmtRel(nextWeekday(4))}`,
+      `- "Friday" / "next Friday" → relativeDate:"friday" = ${fmtRel(nextWeekday(5))}`,
+      `- "Saturday" / "next Saturday" → relativeDate:"saturday" = ${fmtRel(nextWeekday(6))}`,
+      `- "Sunday" / "next Sunday" → relativeDate:"sunday" = ${fmtRel(nextWeekday(0))}`,
       thisWeekendSatD
-        ? `- "this weekend" / "trips this weekend" = ${fmtRel(thisWeekendSatD)} and ${fmtRel(thisWeekendSunD)} — pass startDate=${ymdLux(thisWeekendStart)} (this is the UPCOMING weekend, NOT next week).`
-        : `- "this weekend" / "trips this weekend" = ${fmtRel(thisWeekendSunD)} (today is Sunday, the weekend ends today) — pass startDate=${ymdLux(thisWeekendStart)}.`,
-      `- "next weekend" = ${fmtRel(nextWeekendSatD)} and ${fmtRel(nextWeekendSunD)} — pass startDate=${ymdLux(nextWeekendSatD)}.`,
+        ? `- "this weekend" / "trips this weekend" → relativeDate:"this-weekend" = ${fmtRel(thisWeekendSatD)} and ${fmtRel(thisWeekendSunD)} (the UPCOMING weekend, NOT next week).`
+        : `- "this weekend" / "trips this weekend" → relativeDate:"this-weekend" = ${fmtRel(thisWeekendSunD)} (today is Sunday, the weekend ends today).`,
+      `- "next weekend" → relativeDate:"next-weekend" = ${fmtRel(nextWeekendSatD)} and ${fmtRel(nextWeekendSunD)}.`,
+      'Use `startDate` (YYYY-MM-DD) ONLY for an EXPLICIT calendar date the user names (e.g. "July 4th").',
     ].join("\n")
 
     const dateContext = [

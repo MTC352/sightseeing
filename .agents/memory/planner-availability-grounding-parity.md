@@ -24,6 +24,31 @@ effective map is a strict superset (only adds same-date AI overrides), so it's s
 **How to apply:** any new AI-grounding signal derived from per-trip availability keys off
 the effective map (and adds it to the deps), not the raw scan.
 
+## Relative-date resolution is DETERMINISTIC client-side, not the model's job
+The planner model (gpt-4o-mini) reliably mis-computes calendar dates from natural
+language (e.g. "friday" → the wrong day). **Fix pattern:** the model only passes a
+semantic TOKEN (`updatePreferences.relativeDate` enum: today/tomorrow/weekday/
+this-weekend/next-weekend) and the CLIENT resolves it to a concrete YYYY-MM-DD via
+`resolveRelativeDate()` in `lib/planner/relative-date.ts` (Intl `en-CA`,
+TZ=Europe/Luxembourg so it never drifts with the visitor's browser; weekday = next
+occurrence, today counts). The resolved token WINS over any `startDate` the model also
+sends, on every write path (onToolCall + chat-history recovery merge).
+
+**Why:** removing the model from date arithmetic is the only thing that makes dates
+correct across model swaps; prompt instructions to "compute the date" do not hold.
+
+**How to apply:** keep `lib/planner/relative-date.ts` in lockstep with the server's
+`nextWeekday` logic in `app/api/planner/route.ts` (same next-occurrence + weekend
+semantics). The resolver takes an injectable `now` purely for unit tests
+(`test/planner/relative-date.test.mjs`).
+
+## Loaders: ONE stable chat indicator, no per-tool transient loaders
+The chat must show a single "thinking dots" bubble (rendered when the streaming
+assistant message has no visible text yet) plus the separate Trip Canvas overlay.
+Per-tool transient text loaders ("Updating results…", etc. on searchTrips/
+getTripDetails/timeslots/datesAndDeals/cart) flash on/off as each tool resolves and
+must NOT be reintroduced. Keep tool OUTPUT cards and the buildItinerary loader.
+
 ## Related caveat — module-global per-request tool state
 The planner route keeps per-request tool inputs (default visit date/party, the scan
 snapshot, and its date) in MODULE globals that the search tool reads at execution time.
