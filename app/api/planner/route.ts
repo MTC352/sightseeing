@@ -473,8 +473,21 @@ const searchTripsTool = tool({
     // "skip all" search blows the OpenAI per-minute TOKEN limit and kills the
     // chat. Deep details are fetched per-trip on demand via getTripDetails.
     // See lib/planner/search-card.ts.
+    // Build per-trip availability lookup (only meaningful when annotation ran)
+    const getTripAvailable = availability
+      ? (id: string): boolean | null => {
+          const cls = classifyTripAvailability(_plannerAvail[id])
+          if (cls === "available") return true
+          if (cls === "unconfirmed") return null
+          return false // "alternative" = not on visit date
+        }
+      : null
+
     return {
-      trips: finalResults.map(toSearchCard),
+      trips: finalResults.map((t) => ({
+        ...toSearchCard(t),
+        ...(getTripAvailable ? { available: getTripAvailable(t.id) } : {}),
+      })),
       weather: wx,
       total: results.length,
       catalogTotal: catalogSize,

@@ -71,6 +71,15 @@ export interface SearchCard {
   minBookingSize?: number
   maxBookingSize?: number
   nonRefundable?: boolean
+  /**
+   * Per-trip availability on the visit date (injected by searchTripsTool when
+   * a plannerAvail snapshot is present).
+   *   true  = confirmed bookable on the visit date
+   *   false = running on OTHER dates but NOT on the visit date
+   *   null  = couldn't confirm (both TourCMS sources failed — incident, not closed)
+   * Absent when no visit date is set or no snapshot was available.
+   */
+  available?: boolean | null
 }
 
 /** Heavy per-trip fields deliberately EXCLUDED from search cards. */

@@ -4376,12 +4376,22 @@ export default function PlannerPage() {
                         }
                         case "tool-searchTrips": {
                           if (part.state !== "output-available") {
-                            textParts.push(
-                              <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
-                                <span>Updating results...</span>
-                              </div>
+                            // Only show "Updating results..." for the FIRST pending
+                            // searchTrips part in this message. When the AI calls
+                            // searchTrips twice in one turn (broad search then
+                            // shortlist-by-ids), showing it per-call causes it to
+                            // flash on/off visibly. One indicator covers the whole turn.
+                            const alreadyShowingLoader = msg.parts.slice(0, idx).some(
+                              (p) => p.type === "tool-searchTrips" && p.state !== "output-available"
                             )
+                            if (!alreadyShowingLoader) {
+                              textParts.push(
+                                <div key={idx} className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-transparent" />
+                                  <span>Updating results...</span>
+                                </div>
+                              )
+                            }
                           }
                           // When output-available, render nothing -- the center panel updates automatically
                           break
