@@ -2336,7 +2336,16 @@ export default function PlannerPage() {
             itinerarySummary,
             // Live on-screen Trip Canvas count so the AI can quote the EXACT
             // number the visitor sees instead of the inflated searchTrips total.
-            canvas: canvasCountForApiRef.current,
+            // `recentActions` is read STRAIGHT from its ref at send-time (not via
+            // the canvasCountForApiRef snapshot): adding/removing a My-Trip item
+            // pushes to recentActionsRef but does NOT change any dep of the effect
+            // that rebuilds canvasCountForApiRef, so the snapshot's copy can lag a
+            // turn. Reading the ref here guarantees the AI always sees the latest
+            // manual actions.
+            canvas: {
+              ...canvasCountForApiRef.current,
+              recentActions: recentActionsRef.current.slice(-6),
+            },
             // Compact availability snapshot so searchTrips reports accurate
             // on-visit-date truth for the trips it returns THIS turn.
             availability: availabilityForApiRef.current,

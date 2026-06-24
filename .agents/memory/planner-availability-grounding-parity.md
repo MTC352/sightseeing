@@ -1,38 +1,35 @@
 ---
 name: Planner availability grounding parity
-description: The AI-grounding count/samples must use the same availability source as the visible canvas, or chat and canvas disagree.
+description: AI-grounding signals must use the same availability source the visible canvas renders from, or chat and canvas disagree.
 ---
 
 # Planner availability grounding parity
 
-On `/planner` there are two availability maps in `app/planner/page.tsx`:
-- `plannerAvail` — the client's own `/api/planner/availability` whole-catalog scan.
-- `effectiveAvail` — `plannerAvail` merged with the AI's per-trip `searchTrips` output
-  (`aiAvailInfo.map`), but ONLY when the AI has pinned trips AND its data is tagged for
-  the current `prefs.startDate`. Otherwise it equals `plannerAvail`.
+`/planner` has two client availability maps: the client's own whole-catalog scan, and
+an "effective" map that merges the AI's per-trip `searchTrips` output over it (only when
+the AI has pinned trips tagged for the current visit date; otherwise the two are equal).
 
-**Rule:** anything the AI quotes about the canvas (canvasCount, matchingResolvedCount,
-matchingOther, availableToday/availableTodaySamples, otherDateSamples, displayedTitles)
-MUST derive from `effectiveAvail`, the SAME source the visible grouping uses
-(`visibleCanvasTrips`). The single exception is `availabilityForApiRef` — the client's
-raw whole-catalog snapshot sent to the server — which stays on `plannerAvail`; merging
-AI output back into it would be circular (AI → client → server → AI).
+**Rule:** every signal the AI quotes about the canvas (counts, sample titles, on-date vs
+other-date splits, displayed titles) MUST derive from the SAME effective map the visible
+grouping uses — never the raw client scan. The one exception is the raw whole-catalog
+snapshot sent to the server: merging AI output back into it would be circular
+(AI → client → server → AI), so it stays on the plain client scan.
 
-**Why:** server now does a fresh scan by default, but the client still sends a "what the
-visitor sees" count to ground the AI's narration. If that count comes from `plannerAvail`
-while the canvas renders from `effectiveAvail`, the number the AI states can diverge from
-the canvas in the exact stale-client/fresh-AI scenario — breaking the chat↔canvas-agree
-invariant. `effectiveAvail` is a strict superset of `plannerAvail` (only adds same-date
-AI overrides), so switching is safe.
+**Why:** the server now does a fresh scan by default, but the client still sends a "what
+the visitor sees" count to ground narration. If grounding reads the plain scan while the
+canvas renders the effective map, the AI can state a number that diverges from the canvas
+in the stale-client/fresh-AI case — breaking the chat↔canvas-agree invariant. The
+effective map is a strict superset (only adds same-date AI overrides), so it's safe.
 
-**How to apply:** when adding any new AI-grounding signal derived from per-trip
-availability, key it off `effectiveAvail`, not `plannerAvail`, and add `effectiveAvail`
-to the deps.
+**How to apply:** any new AI-grounding signal derived from per-trip availability keys off
+the effective map (and adds it to the deps), not the raw scan.
 
 ## Related caveat — module-global per-request tool state
-`/api/planner/route.ts` keeps per-request tool inputs in MODULE globals
-(`_defaultVisitDate`, `_defaultPartySize`, `_plannerAvail`, `_availDate`) that
-`searchTrips` reads at execution time. This is a pre-existing route-wide pattern with a
-theoretical cross-request contamination risk under concurrency. Prompt-grounding already
-captures a request-local copy. A real fix is request-scoped tool factories — a larger
-refactor, not done as part of availability-sync work.
+The planner route keeps per-request tool inputs (default visit date/party, the scan
+snapshot, and its date) in MODULE globals that the search tool reads at execution time.
+Two consequences: (1) any date-gated grounding/annotation must compare against the
+EFFECTIVE date for THAT tool call (the explicit date arg when valid, else the stored
+date) — gating on the stored date alone silently drops annotation when the AI asks about
+a different date mid-turn; (2) it carries a theoretical cross-request contamination risk
+under concurrency. The real fix is request-scoped tool factories — a larger refactor not
+done as part of availability-sync work.

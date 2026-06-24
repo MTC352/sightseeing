@@ -109,3 +109,23 @@ test("shouldAnnotateAvailability — snapshot date mismatch / missing / empty sn
     false,
   )
 })
+
+// Regression: mid-turn date override (searchTrips date=B while the stored visit
+// date is A). After ensureAvailFor(B) the snapshot is for B, and the route MUST
+// gate annotation against the EFFECTIVE date B (not the stored date A) — else the
+// per-trip available/availableDates + the availability block are silently dropped
+// for the very date the visitor asked about.
+test("shouldAnnotateAvailability — gates on the EFFECTIVE date (mid-turn date override B != stored A)", () => {
+  const storedDateA = "2026-06-22"
+  const askedDateB = "2026-06-26"
+  // Correct wiring: snapshot for B, gated against the effective date B → annotate.
+  assert.equal(
+    shouldAnnotateAvailability({ resultCount: 3, snapshotDate: askedDateB, visitDate: askedDateB, snapshotSize: 8 }),
+    true,
+  )
+  // The OLD buggy wiring gated the B-snapshot against the stored date A → skipped.
+  assert.equal(
+    shouldAnnotateAvailability({ resultCount: 3, snapshotDate: askedDateB, visitDate: storedDateA, snapshotSize: 8 }),
+    false,
+  )
+})

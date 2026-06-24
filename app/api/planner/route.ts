@@ -462,18 +462,24 @@ const searchTripsTool = tool({
       // say it couldn't confirm and suggest retrying.
       unconfirmed?: { title: string }[]
     } | undefined
-    // Fail-safe: only ground on the snapshot when its date still matches THIS
-    // request's visit date. _plannerAvail/_availDate are module-global (the
-    // established per-request-context pattern in this file), so this guard keeps
-    // a concurrent request's snapshot from leaking a wrong availability summary.
-    // Also require at least one returned trip: an EMPTY result set must never
-    // produce `noneAvailableOnVisitDate: true` (availCount 0 over zero trips),
-    // which would falsely tell the visitor nothing runs that day. When the search
-    // returned nothing there is simply no per-trip availability to assert.
+    // Fail-safe: only ground on the snapshot when its date still matches the
+    // EFFECTIVE date for THIS tool call (the explicit `date` arg when valid, else
+    // the stored visit date) — NOT the stored visit date alone. When the AI asks
+    // about a different date in-turn, `ensureAvailFor(effectiveDate)` above has
+    // already re-scanned and set `_availDate = effectiveDate`, so grounding must
+    // be gated against that same date or the annotation (and the per-card
+    // `available`/`availableDates` flags below, which share this gate) would be
+    // silently skipped for the date the visitor actually asked about.
+    // _plannerAvail/_availDate are module-global (the established per-request-
+    // context pattern in this file), so this guard also keeps a concurrent
+    // request's snapshot from leaking a wrong availability summary. Also require
+    // at least one returned trip: an EMPTY result set must never produce
+    // `noneAvailableOnVisitDate: true` (availCount 0 over zero trips), which would
+    // falsely tell the visitor nothing runs that day.
     if (shouldAnnotateAvailability({
       resultCount: finalResults.length,
       snapshotDate: _availDate,
-      visitDate: _defaultVisitDate,
+      visitDate: effectiveDate,
       snapshotSize: Object.keys(_plannerAvail).length,
     })) {
       // Classify each returned trip with the shared pure helper so the
