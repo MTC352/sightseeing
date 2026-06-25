@@ -802,8 +802,14 @@ export async function POST(req: Request) {
         .slice(0, 240)
       const tagLine = enrich?.tags?.length ? `   Tags: ${enrich.tags.slice(0, 8).join(", ")}\n` : ""
       const blurbLine = blurb ? `   What it is: ${blurb}${blurb.length === 240 ? "…" : ""}\n` : ""
+      // Flag trips with a single available slot so the AI knows they are
+      // "pinned" — they can ONLY run at that one time and must be placed FIRST
+      // to avoid being evicted by a flexible trip claiming the same slot.
+      const pinnedWarning = a.slots.length === 1
+        ? `   ⚠️ SINGLE SLOT — this trip can ONLY run at ${a.slots[0].startTime} on this date. Schedule it FIRST to avoid slot conflicts with flexible trips.\n`
+        : ""
       return `${i + 1}. "${a.trip.title}" [${a.trip.id}] — ${a.trip.city || "Luxembourg"} — duration ${dur} min — category ${a.trip.category || "n/a"}
-${blurbLine}${tagLine}    Available timeslots on ${visitDate}:
+${blurbLine}${tagLine}${pinnedWarning}    Available timeslots on ${visitDate}:
 ${slotLines}`
     }).join("\n\n")
 
@@ -1091,8 +1097,11 @@ ${coffeeRule}
           .replace(/\s+/g, " ").trim().slice(0, 240)
         const tagLine = enrich?.tags?.length ? `   Tags: ${enrich.tags.slice(0, 8).join(", ")}\n` : ""
         const blurbLine = blurb ? `   What it is: ${blurb}${blurb.length === 240 ? "…" : ""}\n` : ""
+        const pinnedWarning = a.slots.length === 1
+          ? `   ⚠️ SINGLE SLOT — this trip can ONLY run at ${a.slots[0].startTime} on this date. Schedule it FIRST.\n`
+          : ""
         return `${i + 1}. "${a.trip.title}" [${a.trip.id}] — ${a.trip.city || "Luxembourg"} — duration ${dur} min — category ${a.trip.category || "n/a"}
-${blurbLine}${tagLine}    Available timeslots on ${visitDate}:
+${blurbLine}${tagLine}${pinnedWarning}    Available timeslots on ${visitDate}:
 ${slotLines}`
       }).join("\n\n")
       tripCities = buildTripCities()
@@ -1124,6 +1133,16 @@ ${slotLines}`
         // Populated only when the full-day auto-drop branch fired above;
         // empty array otherwise. Client renders a chat note from this.
         autoDroppedForFullDay,
+        // Trips that have exactly ONE available slot on the visit date.
+        // The planner chat can surface these as "pinned" trips that must be
+        // scheduled first and cannot be rescheduled to a different time.
+        singleSlotTrips: bookable
+          .filter((b) => b.slots.length === 1)
+          .map((b) => ({
+            tripId: b.trip.id,
+            title: b.trip.title,
+            slotTime: b.slots[0].startTime,
+          })),
       })
     }
 
@@ -1440,6 +1459,13 @@ ${tipsInstructions}`
 
       // 4) Ordering. AI selects/orders WHICH trips (token-lean, stepwise);
       //    deterministic interest/band ordering is the fallback.
+      //
+      // Brief pause between the TourCMS availability fan-out (above) and the
+      // AI selectAndOrder call. Reduces 429 rate-limit errors that occur when
+      // several back-to-back itinerary builds hit the AI provider in rapid
+      // succession — especially after a warm TourCMS scan that returns fast.
+      await new Promise<void>((r) => setTimeout(r, 900))
+
       let ordered: CandidateTrip[] = deterministicOrder(candidates, prefs.interests)
       const aiOrder = await selectAndOrder({
         model: itineraryAiModel,

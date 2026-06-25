@@ -749,15 +749,40 @@ export async function buildSchedule(opts: {
   return { steps: allSteps, dropped, notes }
   }
 
-  // Run the engine under each ordering and keep whichever places the MOST stops.
-  // Ties keep the FIRST (current earliest-finish) ordering, so existing
-  // itineraries are byte-for-byte unchanged unless an alternative ordering fits
-  // strictly MORE trips — making this a pure improvement with no regression to
-  // the long-tour eviction behaviour.
+  // Count how many single-slot (pinned) trips from the work-candidate pool are
+  // INCLUDED in a given result. A pinned trip has exactly one feasible start
+  // time on the day window — it can ONLY run at that one time and cannot be
+  // rescheduled to another day/slot. Including it is strictly more valuable
+  // than including an extra flexible stop the visitor can do at any time.
+  const countPinnedIncluded = (steps: ScheduledStep[]): number => {
+    const placedIds = new Set(steps.map((s) => s.tripId))
+    return workCandidates.filter(
+      (c) => dayFeasibleStarts(c).length === 1 && placedIds.has(c.id),
+    ).length
+  }
+
+  // Prefer the ordering that:
+  //  1) Includes MORE single-slot (pinned) trips — a pinned trip can only be
+  //     done at one time, so it's never worth dropping it to fit an extra
+  //     flexible stop that can be done any day.
+  //  2) Ties on pinned count → includes more total stops.
+  //  3) Ties on both → keep the current best (no regression to previous
+  //     earliest-deadline-first behaviour).
+  const isBetter = (candidate: { steps: ScheduledStep[]; dropped: DroppedTrip[]; notes: string[] }): boolean => {
+    const cp = countPinnedIncluded(candidate.steps)
+    const bp = countPinnedIncluded(best.steps)
+    if (cp !== bp) return cp > bp
+    return candidate.steps.length > best.steps.length
+  }
+
+  // Run the engine under each ordering and keep whichever is "better" per the
+  // isBetter comparator above (pinned-trip count first, then total stops).
+  // Ties keep the FIRST ordering so existing itineraries are byte-for-byte
+  // unchanged unless an alternative strictly improves the plan.
   let best = await runPass(orderings[0])
   for (let i = 1; i < orderings.length; i++) {
     const pass = await runPass(orderings[i])
-    if (pass.steps.length > best.steps.length) best = pass
+    if (isBetter(pass)) best = pass
   }
   return best
 }
