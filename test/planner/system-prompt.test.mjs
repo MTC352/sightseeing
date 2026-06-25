@@ -325,6 +325,33 @@ test("planner prompt instructs recommend-and-ask, not auto-add from a casual pre
   assert.match(txt, /NEVER claim a trip was added/)
 })
 
+test("planner prompt — auto-pick honors the visitor's stated request, not a generic best-of", () => {
+  const txt = promptText()
+  assert.match(txt, /HONOR THE VISITOR'S STATED REQUEST/)
+  // it must instruct passing the stated themes through interests/query.
+  assert.match(txt, /pass those as `interests`/)
+  assert.match(txt, /NEVER ignore a stated request and fall back to a generic best-of/)
+})
+
+test("planner prompt — other-dates reveal is opt-in via showOtherDates only on explicit ask", () => {
+  const txt = promptText()
+  assert.match(txt, /OTHER DATES — REVEAL ONLY ON EXPLICIT ASK/)
+  assert.match(txt, /`showOtherDates`/)
+  assert.match(txt, /HIDDEN by default/)
+  // must NOT fire on a normal search or date change.
+  assert.match(txt, /Do NOT call it for a normal search/)
+})
+
+test("planner prompt — time-of-day preference selects & confirms, does NOT auto-build", () => {
+  const txt = promptText()
+  assert.match(txt, /SELECT & CONFIRM, DON'T AUTO-BUILD/)
+  // the casual preference must not silently build an itinerary.
+  assert.match(txt, /A casual time-of-day preference is NOT a request to build a full itinerary/)
+  assert.match(txt, /Call buildItinerary ONLY after the visitor confirms/)
+  // but an open-canvas edit still rebuilds directly.
+  assert.match(txt, /EXCEPTION — OPEN-CANVAS EDIT/)
+})
+
 test("planner prompt documents the deterministic conflict-free auto-pick flow", () => {
   const txt = promptText()
   assert.match(txt, /AUTO-PICK/)

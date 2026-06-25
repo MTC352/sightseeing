@@ -2745,6 +2745,19 @@ export default function PlannerPage() {
           })
         }
       }
+      if (toolCall.toolName === "showOtherDates") {
+        // Client-side reveal — the chat counterpart of the inline
+        // "See N trips available on other dates" link on the canvas.
+        // Other-date trips are hidden by default (from both the canvas and
+        // the AI's awareness); this is the explicit opt-in the AI may trigger
+        // ONLY when the visitor asks to see trips on other/different dates.
+        setShowOtherDates(true)
+        addToolOutput({
+          tool: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          output: "Revealed the trips that run on other dates on the Trip Canvas." as never,
+        })
+      }
     },
     onFinish({ usage }) {
       if (!usage) return
@@ -3231,6 +3244,24 @@ export default function PlannerPage() {
             addedThisRun.add(step.tripId)
           }
         }
+        // ─── Reconcile My Trip list to the built plan ────────────────────
+        // After a build, My Trip must contain EXACTLY the trips the plan was
+        // built from: the plan's trips are added (loop above) and any
+        // UNRELATED trips still in the list are removed. Without this, a trip
+        // the visitor mentioned-but-didn't-use (or one the build dropped as
+        // unavailable) lingers in My Trip and contradicts the itinerary.
+        // `data.steps` only holds real trips (meal breaks ride on each step's
+        // `breakAfter`), so the plan trip-id set never contains a foreign id —
+        // every plan trip stays in the cart, so the drift guard won't fire.
+        // Read the LIVE pre-build cart from the ref and snapshot the ids to
+        // remove BEFORE mutating, so we don't iterate a list we're changing.
+        const planTripIds = new Set(
+          data.steps.map((s) => s.tripId).filter((id): id is string => !!id),
+        )
+        const idsToRemove = cartItemsRef.current
+          .filter((i) => !planTripIds.has(i.trip.id))
+          .map((i) => i.trip.id)
+        for (const id of idsToRemove) removeItem(id)
         setCenterItinerary(data)
         setCenterItineraryOpen(true)
         // Mobile-only auto-open of the cart drawer (same rationale as
@@ -5818,28 +5849,34 @@ export default function PlannerPage() {
                               {onDate.length > 0 ? (
                                 <div className="flex flex-col gap-3">{onDate.map((t) => renderCard(t, false))}</div>
                               ) : (
+                                /* ── ZERO-AVAILABILITY note. The other-dates list is
+                                    NOT shown by default — when matching trips DO run on
+                                    other dates, the reveal is offered ONLY here, as a
+                                    small inline text LINK inside this note (not a big
+                                    button). Until the visitor clicks it (or asks in
+                                    chat), those trips stay out of both the canvas and
+                                    the AI's awareness. ── */
                                 <p className="rounded-xl border border-dashed border-border bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
-                                  {availLoading
-                                    ? "Checking which trips are open on this date…"
-                                    : "No matching trips have open slots on this date."}
+                                  {availLoading ? (
+                                    "Checking which trips are open on this date…"
+                                  ) : others.length > 0 ? (
+                                    <>
+                                      No matching trips have open slots on this date.{" "}
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowOtherDates(true)}
+                                        data-testid="planner-see-other-dates"
+                                        className="font-semibold text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+                                      >
+                                        See {others.length} trip{others.length === 1 ? "" : "s"} available on other dates
+                                      </button>
+                                    </>
+                                  ) : (
+                                    "No matching trips have open slots on this date."
+                                  )}
                                 </p>
                               )}
                             </div>
-
-                            {/* ── Opt-in trigger: only shown when matching trips DO
-                                run on other dates. Until clicked, those trips stay
-                                out of both the canvas and the AI's awareness. ── */}
-                            {others.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setShowOtherDates(true)}
-                                data-testid="planner-see-other-dates"
-                                className="inline-flex items-center justify-center gap-1.5 self-start rounded-xl border border-border bg-secondary/40 px-3.5 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
-                              >
-                                <Calendar className="h-3.5 w-3.5" /> See {others.length} trip{others.length === 1 ? "" : "s"} on other dates
-                                <ChevronRight className="h-3.5 w-3.5" />
-                              </button>
-                            )}
                           </>
                         )
                       ) : (

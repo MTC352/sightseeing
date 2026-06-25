@@ -1085,6 +1085,15 @@ const clearCartTool = tool({
   // No execute -- this is a client-side tool (handled in onToolCall)
 })
 
+const showOtherDatesTool = tool({
+  description:
+    "Reveal the matching trips that run on OTHER dates than the selected visit date on the Trip Canvas. Those other-date trips are HIDDEN by default. Call ONLY when the visitor EXPLICITLY asks to see trips or availability on other/different dates or another day (e.g. 'what about other dates', 'show me other days', 'any trips on a different date', 'see other dates'). Do NOT call this for a normal search, a date change, or casual browsing.",
+  inputSchema: z.object({
+    confirm: z.boolean().optional().describe("Pass true to confirm the visitor explicitly asked to see trips on other dates."),
+  }),
+  // No execute -- this is a client-side tool (handled in onToolCall)
+})
+
 const updatePreferencesTool = tool({
   description:
     "Update the user's stored trip-planning preferences whenever they ask to change any of: group (solo/couple/family/friends), adults count, children count, interests, duration, budget, visit date, OR a meal/break window (lunch, dinner, coffee). " +
@@ -1339,6 +1348,7 @@ const tools = {
   addToCart: addToCartTool,
   removeFromCart: removeFromCartTool,
   clearCart: clearCartTool,
+  showOtherDates: showOtherDatesTool,
   updatePreferences: updatePreferencesTool,
   autoPickTrips: autoPickTripsTool,
 } as const
