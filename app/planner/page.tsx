@@ -1301,17 +1301,12 @@ export default function PlannerPage() {
   }, [])
   // Admin dev-mode state — fetched once on mount.
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false)
-  // Dev mode toggle — persisted to localStorage so it survives page reloads.
-  // Only relevant (and only visible) when isAdminLoggedIn is true.
+  // Dev mode — reads the same localStorage key the admin panel sets via ?dev=1 / ?dev=0.
+  // The planner never writes this key; enable/disable from the admin panel URL.
   const [devMode, setDevMode] = useState(false)
   useEffect(() => {
-    try { setDevMode(localStorage.getItem("planner_dev_mode") === "1") } catch { /* ignore */ }
+    try { setDevMode(localStorage.getItem("admin_dev_mode") === "1") } catch { /* ignore */ }
   }, [])
-  const toggleDevMode = () => setDevMode(prev => {
-    const next = !prev
-    try { localStorage.setItem("planner_dev_mode", next ? "1" : "0") } catch { /* ignore */ }
-    return next
-  })
   const [plannerModel, setPlannerModel] = useState<string | null>(null)
   const [sessionTokens, setSessionTokens] = useState(0)
   const [lastTurnTokens, setLastTurnTokens] = useState<{ prompt: number; completion: number } | null>(null)
@@ -5423,13 +5418,7 @@ export default function PlannerPage() {
                     <div className="mt-2 rounded-lg border border-dashed border-amber-400/60 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2 text-[10px] leading-relaxed font-mono text-amber-800 dark:text-amber-300">
                       <div className="mb-1 flex items-center gap-1.5 font-semibold text-[11px] not-italic font-sans">
                         <span className="rounded bg-amber-400/20 px-1.5 py-0.5">🛠 Dev Info</span>
-                        <span className="text-muted-foreground font-normal">(dev mode)</span>
-                        <button
-                          type="button"
-                          onClick={toggleDevMode}
-                          title="Hide Dev Info"
-                          className="ml-auto rounded px-1 py-0.5 text-muted-foreground hover:bg-amber-400/20 hover:text-amber-800 dark:hover:text-amber-200"
-                        >✕</button>
+                        <span className="text-muted-foreground font-normal">(dev mode — disable via /admin?dev=0)</span>
                       </div>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
                         <span className="text-muted-foreground">Model</span>
