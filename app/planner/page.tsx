@@ -943,28 +943,24 @@ function TripCard({
         {/* Live timeslots for the selected visit date */}
         {timeslots && timeslots.length > 0 && (
           <div className="flex flex-wrap items-center gap-1" data-testid={`planner-trip-timeslots-${trip.id}`}>
-            <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground shrink-0">
               <Clock className="h-3 w-3" /> Times:
             </span>
             {timeslots.slice(0, 6).map((s, si) => {
-              const low = s.spotsLeft !== null && s.spotsLeft <= 3
+              const low = s.spotsLeft !== null && s.spotsLeft > 0 && s.spotsLeft <= 3
               const soldOut = s.spotsLeft !== null && s.spotsLeft === 0
               return (
                 <span
                   key={`${s.time}-${si}`}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                     soldOut
-                      ? "bg-red-50 text-red-600 line-through"
+                      ? "bg-red-50 text-red-500 line-through"
                       : low
                         ? "bg-amber-50 text-amber-700"
                         : "bg-emerald-50 text-emerald-700"
                   }`}
                 >
-                  {s.time}
-                  {s.spotsLeft !== null && s.spotsLeft > 0 && s.spotsLeft <= 3 && (
-                    <span className="ml-0.5 opacity-70">·{s.spotsLeft}</span>
-                  )}
-                  {soldOut && <span className="ml-0.5">full</span>}
+                  {s.time}{low ? ` ·${s.spotsLeft}` : ""}
                 </span>
               )
             })}
@@ -3883,8 +3879,14 @@ export default function PlannerPage() {
           .then((r) => (r.ok ? r.json() : null))
           .then((json) => {
             if (!json) return
-            const slots: { time: string; spotsLeft: number | null }[] = (json.forDateGroups ?? json.timeslots ?? []).map(
-              (s: { time: string; spotsLeft?: number | null }) => ({ time: s.time, spotsLeft: s.spotsLeft ?? null }),
+            // forDateGroups is TimeslotGroup[] ({ name, slots[] }) — flatten to PlannerTimeslot[]
+            const rawGroups = Array.isArray(json.forDateGroups) ? json.forDateGroups : []
+            const rawFlat: { time: string; spotsLeft?: number | null }[] =
+              rawGroups.length > 0
+                ? rawGroups.flatMap((g: { slots?: { time: string; spotsLeft?: number | null }[] }) => g.slots ?? [])
+                : (Array.isArray(json.forDate) ? json.forDate : Array.isArray(json.timeslots) ? json.timeslots : [])
+            const slots: { time: string; spotsLeft: number | null }[] = rawFlat.map(
+              (s) => ({ time: s.time, spotsLeft: s.spotsLeft ?? null }),
             )
             if (slots.length > 0) {
               setTripDateTimeslots((prev) => ({ ...prev, [id]: slots }))
