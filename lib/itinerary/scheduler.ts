@@ -152,6 +152,14 @@ export interface DroppedTrip {
   tripId: string
   title: string
   reason: string
+  /** When a trip is dropped because its only available slot conflicts with another
+   *  placed trip's slot, this describes the conflict so the UI can ask the user
+   *  to pick which trip to prioritise. */
+  slotConflictWith?: {
+    tripId: string
+    title: string
+    slotTime: string   // HH:MM of the shared/overlapping slot
+  }
 }
 
 export type ComputeLeg = (
@@ -691,12 +699,42 @@ export async function buildSchedule(opts: {
   for (const trip of orderedCandidates) {
     if (used.has(trip.id)) continue
     let reason: string
+
+    // Detect "same-slot conflict": a pinned trip (≤2 day-feasible slots) whose
+    // only option overlaps with an already-placed step's time window. Surface
+    // this as a slotConflictWith tag so the UI can ask the visitor to prioritise.
+    const feasibleStarts = dayFeasibleStarts(trip)
+    let slotConflictWith: DroppedTrip["slotConflictWith"] | undefined
+    if (feasibleStarts.length <= 2 && allSteps.length > 0 && !partyCapacityBlocked.has(trip.id) && allSteps.length < targetStops) {
+      for (const fs of feasibleStarts) {
+        const conflictingStep = allSteps.find((s) => {
+          const sStart = toMin(s.time)
+          const sEnd = sStart + s.durationMinutes
+          // Check interval overlap: [fs, fs+dur) overlaps [sStart, sEnd)
+          return fs < sEnd && fs + trip.durationMin > sStart
+        })
+        if (conflictingStep) {
+          const conflictMin = feasibleStarts[0]
+          const ch = Math.floor(conflictMin / 60).toString().padStart(2, "0")
+          const cm = (conflictMin % 60).toString().padStart(2, "0")
+          slotConflictWith = {
+            tripId: conflictingStep.tripId,
+            title: conflictingStep.tripTitle,
+            slotTime: `${ch}:${cm}`,
+          }
+          break
+        }
+      }
+    }
+
     if (partyCapacityBlocked.has(trip.id)) {
       // Truthful party-capacity reason: the trip DOES run on this date, there
       // just aren't enough seats left on any slot for the whole group.
       reason = `Not enough seats left for your group of ${partySize} on this date — try a smaller group or another date.`
     } else if (allSteps.length >= targetStops) {
       reason = `Kept to ${targetStops} stops for a ${pace} pace — extend your trip length to include it.`
+    } else if (slotConflictWith) {
+      reason = `Only available at ${slotConflictWith.slotTime} — the same time as "${slotConflictWith.title}". Only one can run at that time.`
     } else if (isFullDay || prefs.isMultiDay) {
       // The day is already full of other stops — a long tour typically needs
       // its own day. Steer the visitor to the action that actually helps.
@@ -705,7 +743,7 @@ export async function buildSchedule(opts: {
       // Shorter plans: the chosen duration window is simply too tight.
       reason = `Doesn't fit your ${prefs.duration || "selected"} time window — choose a longer day or another date.`
     }
-    dropped.push({ tripId: trip.id, title: trip.title, reason })
+    dropped.push({ tripId: trip.id, title: trip.title, reason, slotConflictWith })
   }
 
   return { steps: allSteps, dropped, notes }

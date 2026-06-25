@@ -39,6 +39,10 @@ export interface PlannerTimeslotsResponse {
   tomorrow: PlannerTimeslot[]
   todayGroups: TimeslotGroup[]
   tomorrowGroups: TimeslotGroup[]
+  /** Slots for the explicitly requested `date` param (when provided). */
+  forDate?: PlannerTimeslot[]
+  forDateGroups?: TimeslotGroup[]
+  forDateYMD?: string
   error?: string
   providerError?: string | null
 }
@@ -135,7 +139,7 @@ async function fetchSlotsForDate(
 export async function GET(req: Request) {
   schedulePrune()
   pruneTimeslotsCache()
-  const rl = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  const rl = rateLimit(req, { limit: 30, windowMs: 60_000 })
   if (!rl.allowed) return rl.response
 
   const { searchParams } = new URL(req.url)
@@ -144,6 +148,10 @@ export async function GET(req: Request) {
   // checkavail returns no timeslots without a rate quantity (see fetchSlotsForDate).
   const partyRaw = parseInt((searchParams.get("party") ?? "1").trim(), 10)
   const partySize = Number.isFinite(partyRaw) ? Math.min(20, Math.max(1, partyRaw)) : 1
+  // Optional explicit date: when the canvas has a future visit date selected, the
+  // trip card fetches slots for THAT date (not just today/tomorrow).
+  const dateParam = searchParams.get("date") ?? null
+
   if (!tripId) {
     return NextResponse.json<PlannerTimeslotsResponse>(
       { ok: false, tripId: "", palisisId: null, today: [], tomorrow: [], todayGroups: [], tomorrowGroups: [], error: "MISSING_TRIP_ID" },
@@ -170,6 +178,55 @@ export async function GET(req: Request) {
   const today = todayYMD()
   const cacheKey = `${palisisId}|${today}|p${partySize}`
   const cached = _timeslotsCache.get(cacheKey)
+
+  // When a specific future date was requested, fetch slots just for that date
+  // (the canvas needs the exact times for the visit date, not today/tomorrow).
+  if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) && dateParam !== today) {
+    const forDateCacheKey = `${palisisId}|${dateParam}|p${partySize}`
+    const forDateCached = _timeslotsCache.get(forDateCacheKey)
+    if (forDateCached && Date.now() < forDateCached.expiresAt) {
+      const base = (cached && Date.now() < cached.expiresAt) ? cached.data : { ok: true, tripId, palisisId, today: [], tomorrow: [], todayGroups: [], tomorrowGroups: [] }
+      return NextResponse.json<PlannerTimeslotsResponse>({
+        ...base,
+        ...forDateCached.data,
+        tripId,
+      })
+    }
+    // Fetch today/tomorrow (cached path) + forDate in parallel.
+    const forDateFetch = fetchSlotsForDate(config, palisisId, dateParam, partySize)
+    let base: PlannerTimeslotsResponse
+    if (cached && Date.now() < cached.expiresAt) {
+      base = cached.data
+    } else {
+      const tomorrow = addDaysYMD(today, 1)
+      const [todayRes, tomorrowRes] = await Promise.all([
+        fetchSlotsForDate(config, palisisId, today, partySize),
+        fetchSlotsForDate(config, palisisId, tomorrow, partySize),
+      ])
+      base = {
+        ok: todayRes.ok || tomorrowRes.ok,
+        tripId,
+        palisisId,
+        today: todayRes.flat,
+        tomorrow: tomorrowRes.flat,
+        todayGroups: todayRes.groups,
+        tomorrowGroups: tomorrowRes.groups,
+      }
+      _timeslotsCache.set(cacheKey, { data: base, expiresAt: Date.now() + 5 * 60_000 })
+    }
+    const forDateRes = await forDateFetch
+    const forDatePayload: PlannerTimeslotsResponse = {
+      ...base,
+      tripId,
+      forDate: forDateRes.flat,
+      forDateGroups: forDateRes.groups,
+      forDateYMD: dateParam,
+      ok: base.ok || forDateRes.ok,
+    }
+    _timeslotsCache.set(forDateCacheKey, { data: forDatePayload, expiresAt: Date.now() + 5 * 60_000 })
+    return NextResponse.json<PlannerTimeslotsResponse>(forDatePayload)
+  }
+
   if (cached && Date.now() < cached.expiresAt) {
     return NextResponse.json<PlannerTimeslotsResponse>({ ...cached.data, tripId })
   }

@@ -1593,6 +1593,16 @@ ${tipsInstructions}`
 
       void schedNotes // retained for future debugging; surfaced via summary
 
+      // Extract slot conflicts (pinned trips that share a time with a placed trip)
+      // so the UI can prompt the visitor to pick which trip to prioritise.
+      const slotConflicts = dropped
+        .filter((d) => d.slotConflictWith)
+        .map((d) => ({
+          droppedTripId: d.tripId,
+          droppedTitle: d.title,
+          conflictsWith: d.slotConflictWith!,
+        }))
+
       return Response.json({
         steps,
         summary,
@@ -1606,6 +1616,7 @@ ${tipsInstructions}`
         widgets: { showCarWidget, showHotelWidget },
         autoFilledTrips: [],
         conflict: conflictPayload,
+        slotConflicts: slotConflicts.length > 0 ? slotConflicts : undefined,
       })
     } catch (buildErr) {
       console.error("[itinerary] build pipeline failed:", buildErr)

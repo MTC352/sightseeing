@@ -814,6 +814,7 @@ function TripCard({
   isBookmarked,
   onToggleBookmark,
   availableDates,
+  timeslots,
 }: {
   trip: Trip
   onSelect: (trip: Trip) => void
@@ -826,6 +827,8 @@ function TripCard({
   /** When provided, render the trip's bookable dates (within the scan window)
    *  as small chips — used for the "Available on other dates" group. */
   availableDates?: string[]
+  /** When provided, render the live timeslots for the selected visit date. */
+  timeslots?: { time: string; spotsLeft: number | null }[]
 }) {
   // One-tick guard: cart state is render-time, so a fast double-click /
   // double-tap could fire onAdd twice before isInCart re-renders. We flip
@@ -937,14 +940,51 @@ function TripCard({
             <span className="text-base font-bold text-foreground">{trip.price > 0 ? `${trip.price.toFixed(0)}\u20AC` : "Free"}</span>
           </div>
         </div>
+        {/* Live timeslots for the selected visit date */}
+        {timeslots && timeslots.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1" data-testid={`planner-trip-timeslots-${trip.id}`}>
+            <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
+              <Clock className="h-3 w-3" /> Times:
+            </span>
+            {timeslots.slice(0, 6).map((s, si) => {
+              const low = s.spotsLeft !== null && s.spotsLeft <= 3
+              const soldOut = s.spotsLeft !== null && s.spotsLeft === 0
+              return (
+                <span
+                  key={`${s.time}-${si}`}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    soldOut
+                      ? "bg-red-50 text-red-600 line-through"
+                      : low
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  {s.time}
+                  {s.spotsLeft !== null && s.spotsLeft > 0 && s.spotsLeft <= 3 && (
+                    <span className="ml-0.5 opacity-70">·{s.spotsLeft}</span>
+                  )}
+                  {soldOut && <span className="ml-0.5">full</span>}
+                </span>
+              )
+            })}
+            {timeslots.length > 6 && (
+              <span className="text-[10px] text-muted-foreground">+{timeslots.length - 6}</span>
+            )}
+          </div>
+        )}
+
+        {/* Available dates chips (for "other dates" group) */}
         {availableDates && availableDates.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1" data-testid={`planner-trip-dates-${trip.id}`}>
-            <span className="text-[10px] font-medium text-muted-foreground">Available:</span>
-            {availableDates.slice(0, 4).map((d) => (
-              <span key={d} className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">{formatYMDPretty(d)}</span>
+          <div className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-1.5" data-testid={`planner-trip-dates-${trip.id}`}>
+            <span className="flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground">
+              <Calendar className="h-3 w-3" /> Available:
+            </span>
+            {availableDates.slice(0, 5).map((d) => (
+              <span key={d} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">{formatYMDPretty(d)}</span>
             ))}
-            {availableDates.length > 4 && (
-              <span className="text-[10px] text-muted-foreground">+{availableDates.length - 4} more</span>
+            {availableDates.length > 5 && (
+              <span className="text-[10px] text-muted-foreground">+{availableDates.length - 5} more</span>
             )}
           </div>
         )}
@@ -3206,13 +3246,36 @@ export default function PlannerPage() {
             conflict,
           })
         } else if (dropped.length > 0) {
-          handleItineraryFailure({
-            message: `Heads up — ${dropped.length} of your requested trip${dropped.length === 1 ? "" : "s"} ${dropped.length === 1 ? "isn't" : "aren't"} available on **${formatYMDPretty(data.visitDate || visitDate)}**, so the Trip Canvas shows ${data.steps.length} stop${data.steps.length === 1 ? "" : "s"} instead.`,
-            error: "PARTIAL_AVAILABILITY",
-            visitDate: data.visitDate || visitDate,
-            unavailableTrips: dropped,
-            alternativeDates: Array.isArray(data.alternativeDates) ? data.alternativeDates : [],
-          })
+          // Slot conflicts — trips with ≤2 slots that clash with a placed trip's time.
+          // Surface each conflict as a priority-choice message so the user can decide.
+          const slotConflicts = Array.isArray((data as { slotConflicts?: unknown }).slotConflicts)
+            ? (data as { slotConflicts: { droppedTripId: string; droppedTitle: string; conflictsWith: { tripId: string; title: string; slotTime: string } }[] }).slotConflicts
+            : []
+          if (slotConflicts.length > 0) {
+            for (const sc of slotConflicts) {
+              const msg =
+                `**Time conflict at ${sc.conflictsWith.slotTime}:** both "**${sc.droppedTitle}**" and "**${sc.conflictsWith.title}**" are only available at ${sc.conflictsWith.slotTime}. ` +
+                `The Trip Canvas kept **${sc.conflictsWith.title}** — which would you prefer?\n\n` +
+                `- **Keep ${sc.conflictsWith.title}** (current plan)\n` +
+                `- **Switch to ${sc.droppedTitle}** — I'll remove the other and rebuild`
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `slot-conflict-${sc.droppedTripId}-${Date.now()}`,
+                  role: "assistant" as const,
+                  parts: [{ type: "text" as const, text: msg }],
+                },
+              ])
+            }
+          } else {
+            handleItineraryFailure({
+              message: `Heads up — ${dropped.length} of your requested trip${dropped.length === 1 ? "" : "s"} ${dropped.length === 1 ? "isn't" : "aren't"} available on **${formatYMDPretty(data.visitDate || visitDate)}**, so the Trip Canvas shows ${data.steps.length} stop${data.steps.length === 1 ? "" : "s"} instead.`,
+              error: "PARTIAL_AVAILABILITY",
+              visitDate: data.visitDate || visitDate,
+              unavailableTrips: dropped,
+              alternativeDates: Array.isArray(data.alternativeDates) ? data.alternativeDates : [],
+            })
+          }
         }
       } catch {
         handleItineraryFailure({
@@ -3727,6 +3790,11 @@ export default function PlannerPage() {
   const partyForAvail = Math.max(1, prefs?.adults ?? 1) + Math.max(0, prefs?.children ?? 0)
   const [plannerAvail, setPlannerAvail] = useState<Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }>>({})
   const [availLoading, setAvailLoading] = useState(false)
+  /** Timeslots fetched for the visit date, keyed by tripId. Only populated for
+   *  trips in the "Available on selected date" group when a date is chosen. */
+  const [tripDateTimeslots, setTripDateTimeslots] = useState<Record<string, { time: string; spotsLeft: number | null }[]>>({})
+  /** The visit date the current tripDateTimeslots snapshot was fetched for. */
+  const tripDateTimeslotsDateRef = useRef<string | null>(null)
   // The visit date the currently-loaded `plannerAvail` snapshot actually
   // reflects. `null` = no scan has completed yet; "" = a no-date WINDOW scan
   // completed (no per-date availability). This is the guard against trusting a
@@ -3782,6 +3850,50 @@ export default function PlannerPage() {
       })
     return () => { cancelled = true }
   }, [selectedDateForAvail, partyForAvail])
+
+  /* ── Timeslot fetch for onDate trips ──────────────────────────────────────
+     When a visit date is chosen and the availability scan settles, fetch live
+     timeslots for each trip that is available on that date so TripCard can
+     show the concrete departure times (green/amber/red chips). We batch these
+     as individual requests (1 per trip) so partial failures don't blank
+     the whole panel. The result is keyed by tripId. */
+  useEffect(() => {
+    const date = prefs?.startDate ?? ""
+    // availLoadedMatchesDate equivalent — true when the scan covers the selected date
+    const scanMatchesDate = availLoadedDate !== null && availLoadedDate === (prefs?.startDate ?? "")
+    if (!date || !scanMatchesDate) {
+      // No date or stale scan — clear any existing timeslot data
+      setTripDateTimeslots({})
+      tripDateTimeslotsDateRef.current = null
+      return
+    }
+    // Nothing to do if we already have timeslots for this exact date
+    if (tripDateTimeslotsDateRef.current === date) return
+    tripDateTimeslotsDateRef.current = date
+    setTripDateTimeslots({})
+    // Collect trips available on the selected date. Cap at 15 to avoid a big fan-out.
+    const tripIds = Object.keys(plannerAvail)
+      .filter((id) => plannerAvail[id]?.availableOnSelectedDate)
+      .slice(0, 15)
+    if (tripIds.length === 0) return
+    const party = partyForAvail
+    Promise.allSettled(
+      tripIds.map((id) =>
+        fetch(`/api/planner/timeslots?tripId=${encodeURIComponent(id)}&date=${encodeURIComponent(date)}&party=${party}`, { cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((json) => {
+            if (!json) return
+            const slots: { time: string; spotsLeft: number | null }[] = (json.forDateGroups ?? json.timeslots ?? []).map(
+              (s: { time: string; spotsLeft?: number | null }) => ({ time: s.time, spotsLeft: s.spotsLeft ?? null }),
+            )
+            if (slots.length > 0) {
+              setTripDateTimeslots((prev) => ({ ...prev, [id]: slots }))
+            }
+          })
+      )
+    ).catch(() => {}) // allSettled never rejects but keep TS happy
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs?.startDate, availLoadedDate, plannerAvail, partyForAvail])
 
   /* Full preference-matched recommendation list, sorted by availability then
      match score. `fallbackTrips` already returns ALL trips whose tags match
@@ -5435,6 +5547,7 @@ export default function PlannerPage() {
                       isBookmarked={savedLibrary.isInCart(trip.id)}
                       onToggleBookmark={toggleBookmark}
                       availableDates={showDates ? (canvasAvail[trip.id]?.availableDates ?? []) : undefined}
+                      timeslots={!showDates && canvasHasSelectedDate ? (tripDateTimeslots[trip.id] ?? undefined) : undefined}
                     />
                   )
                   return (
