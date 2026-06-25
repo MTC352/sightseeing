@@ -5400,24 +5400,7 @@ export default function PlannerPage() {
                     <Send className="h-4 w-4" />
                   </button>
                 </form>
-                {/* ── Admin dev-mode toggle — visible only when admin is logged in ── */}
-                {isAdminLoggedIn && (
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={toggleDevMode}
-                      title={devMode ? "Hide Dev Info" : "Show Dev Info"}
-                      className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                        devMode
-                          ? "bg-amber-400/30 text-amber-700 dark:text-amber-300 hover:bg-amber-400/50"
-                          : "bg-muted text-muted-foreground hover:bg-amber-400/20 hover:text-amber-700 dark:hover:text-amber-300"
-                      }`}
-                    >
-                      🛠 Dev
-                    </button>
-                  </div>
-                )}
-                {/* ── Admin developer info bar — visible only when admin + dev mode enabled ── */}
+                {/* ── Dev Info panel — only when admin logged in AND dev mode on (localStorage: planner_dev_mode=1) ── */}
                 {isAdminLoggedIn && devMode && (() => {
                   const bare = plannerModel ? stripProviderPrefix(plannerModel) : null
                   const meta = bare ? modelMeta(bare) : null
@@ -5440,7 +5423,13 @@ export default function PlannerPage() {
                     <div className="mt-2 rounded-lg border border-dashed border-amber-400/60 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2 text-[10px] leading-relaxed font-mono text-amber-800 dark:text-amber-300">
                       <div className="mb-1 flex items-center gap-1.5 font-semibold text-[11px] not-italic font-sans">
                         <span className="rounded bg-amber-400/20 px-1.5 py-0.5">🛠 Dev Info</span>
-                        <span className="text-muted-foreground font-normal">(admin only)</span>
+                        <span className="text-muted-foreground font-normal">(dev mode)</span>
+                        <button
+                          type="button"
+                          onClick={toggleDevMode}
+                          title="Hide Dev Info"
+                          className="ml-auto rounded px-1 py-0.5 text-muted-foreground hover:bg-amber-400/20 hover:text-amber-800 dark:hover:text-amber-200"
+                        >✕</button>
                       </div>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
                         <span className="text-muted-foreground">Model</span>
