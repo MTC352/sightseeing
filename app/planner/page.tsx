@@ -4099,6 +4099,63 @@ export default function PlannerPage() {
   useEffect(() => { prefsRef.current = prefs }, [prefs])
   const isStreaming = status === "streaming" || status === "submitted"
 
+  /* ── AUTO-PICK client wiring ──────────────────────────────────────────────
+     `autoPickTrips` is a SERVER-executed tool, so `onToolCall` never fires for
+     it (that callback only runs for client-side tools without an `execute`).
+     Instead we read its output from the message stream once per toolCallId and
+     apply the deterministic result to the working My Trip list:
+       • normal pick  → addItem each id in `addedIds`
+       • replaceList  → clearList(), then addItem each id in `pickedIds`
+       • needsClear   → DO NOTHING (the AI asks the visitor to confirm clearing)
+     Deduped by toolCallId so a re-render / restore can't double-add. The SERVER
+     already computed a conflict-free set; the client only mirrors it. */
+  const processedAutoPickRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    for (const m of messages) {
+      if (m.role !== "assistant" || !Array.isArray(m.parts)) continue
+      for (const part of m.parts) {
+        const p = part as {
+          type?: string
+          state?: string
+          toolCallId?: string
+          output?: {
+            ok?: boolean
+            replaceList?: boolean
+            addedIds?: string[]
+            pickedIds?: string[]
+            needsClear?: boolean
+          }
+        }
+        if (p?.type !== "tool-autoPickTrips" || p?.state !== "output-available" || !p?.toolCallId) continue
+        if (processedAutoPickRef.current.has(p.toolCallId)) continue
+        processedAutoPickRef.current.add(p.toolCallId)
+        const out = p.output
+        if (!out || out.ok !== true || out.needsClear === true) continue
+        const resolve = (id: string): Trip | undefined =>
+          allTripsRef.current.find((t) => t.id === id) ?? aiTripsRef.current.find((t) => t.id === id)
+        if (out.replaceList === true) {
+          clearList()
+          const picked = Array.isArray(out.pickedIds) ? out.pickedIds : []
+          const added = new Set<string>()
+          for (const id of picked) {
+            if (added.has(id)) continue
+            const trip = resolve(id)
+            if (trip) { addItem(trip); added.add(id) }
+          }
+        } else {
+          const ids = Array.isArray(out.addedIds) ? out.addedIds : []
+          const added = new Set<string>()
+          for (const id of ids) {
+            if (added.has(id)) continue
+            if (cartItemsRef.current.some((i) => i.trip.id === id)) continue
+            const trip = resolve(id)
+            if (trip) { addItem(trip); added.add(id) }
+          }
+        }
+      }
+    }
+  }, [messages, addItem, clearList])
+
   /* Gate canvas updates on streaming completion so the visitor doesn't
      see the "Recommended for you" panel flash between intermediate
      shortlists during a single AI turn (the prior 4 → 7 flash). The AI

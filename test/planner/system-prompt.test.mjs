@@ -314,3 +314,27 @@ test("planner prompt contains the no-favoritism rule", () => {
   const txt = promptText()
   assert.match(txt, /NO FAVORITISM/)
 })
+
+test("planner prompt instructs recommend-and-ask, not auto-add from a casual preference", () => {
+  const txt = promptText()
+  assert.match(txt, /RECOMMEND-AND-ASK/)
+  assert.match(txt, /NEVER auto-add, auto-swap/)
+  // addToCart only on an explicit specific-trip request.
+  assert.match(txt, /addToCart` ONLY when the visitor explicitly asks/)
+  // Honesty: never claim added unless the tool result confirms it.
+  assert.match(txt, /NEVER claim a trip was added/)
+})
+
+test("planner prompt documents the deterministic conflict-free auto-pick flow", () => {
+  const txt = promptText()
+  assert.match(txt, /AUTO-PICK/)
+  assert.match(txt, /autoPickTrips\(\{ mode: 'one' \}\)/)
+  assert.match(txt, /autoPickTrips\(\{ mode: 'day' \}\)/)
+  // keep-around support.
+  assert.match(txt, /keepTripIds/)
+  // needs-clear confirmation flow → replaceList only after a yes.
+  assert.match(txt, /needsClear: true/)
+  assert.match(txt, /replaceList: true/)
+  // Honesty: confirm only addedIds.
+  assert.match(txt, /Confirm ONLY the trips in `addedIds`/)
+})

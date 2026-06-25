@@ -12,6 +12,7 @@ import { buildPlannerSystemPromptParts, buildCanvasCountLine, buildCanvasAwarene
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable, shouldAnnotateAvailability } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
 import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
+import { autoPickTrips, type AutoPickCandidate, type AutoPickSlot } from "@/lib/planner/auto-pick"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
 import { toSearchCard, resolveSearchLimit } from "@/lib/planner/search-card"
 import { isPlannerHidden } from "@/lib/planner/visibility"
@@ -81,6 +82,19 @@ let _defaultPartySize = 1
 // system-prompt canvas line is stale on the search turn). Empty = no snapshot.
 let _plannerAvail: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }> = {}
 let _availDate: string | null = null
+
+// Per-request snapshot of the visitor's MY TRIP LIST (the working list the Day
+// Itinerary is built from), echoed by the client as `cartItems`. The
+// autoPickTrips tool reads this so it can avoid scheduling clashes with trips
+// the visitor already picked (and detect the needs-clear case). Set per request
+// alongside _defaultPartySize; reset to [] when the body omits it.
+let _cartItems: { id: string; title: string }[] = []
+
+// AUTO-PICK tuning — mirrors the itinerary scheduler's timing philosophy so an
+// auto-picked set schedules the same way the final itinerary will.
+const AUTO_PICK_HARD_MAX_STOPS = 5 // matches scheduler HARD_MAX_STOPS
+const AUTO_PICK_EARLY_ARRIVAL_MIN = 5 // fixed early-arrival cushion (folded into the separation buffer)
+const AUTO_PICK_INTERCITY_TRAVEL_MIN = 30 // coarse travel estimate when two trips are in different cities
 
 /** Convert the shared scan's per-trip shape into the route's compact
  *  {onDate,dates,unknown} map used by searchTrips + the prompt ground-truth. */
@@ -252,7 +266,7 @@ async function loadTripCatalog(): Promise<RichTrip[]> {
 
 const searchTripsTool = tool({
   description:
-    "Search, filter, AND narrow the Trip Canvas to a specific shortlist. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns. Call it when the user asks for recommendations, OR when you've identified the day's best matches and want to pin the canvas to ONLY those trips (pass their ids in `ids`). Returns COMPACT trip cards (title, price, rating, duration, tags, a short description + a few highlights) — enough to recommend, compare, and order. For a specific trip's full inclusions, restrictions, itinerary, cancellation policy, or live timeslots, call `getTripDetails` instead. IMPORTANT — if the result has `noDirectMatches: true`, the visitor's requested concept matched NO trip and the returned list is the broadened full catalog, NOT matches: answer counting/existence questions honestly ('we don't currently offer any X trips') and optionally suggest the closest themes, instead of describing the broadened list as if it matched. IMPORTANT — when a visit date is set the result ALSO includes an `availability` object that is the AUTHORITATIVE per-turn truth for the trips just returned: `availableOnVisitDateCount` (how many of these trips are bookable on the visit date), `noneAvailableOnVisitDate`, `alternativeDates` (these trips' other bookable dates) and `similarAvailableOnVisitDate` (closest trips bookable that same day). You MUST base your reply on this, not on any earlier canvas count: if `noneAvailableOnVisitDate` is true, NEVER say the canvas shows/now shows these trips for that date — say plainly none run that day, then recommend `alternativeDates` and/or a `similarAvailableOnVisitDate` trip BY NAME.",
+    "Search and filter the Trip Canvas. The Trip Canvas (Recommended for you) panel renders EXACTLY what this tool returns — and it should show ALL matching, bookable trips so the visitor can choose for themselves. Call it when the user asks for recommendations or changes a filter (interest, date, party). Do NOT use it to pin the canvas to a hand-picked multi-trip 'shortlist' — recommend in chat and ASK which to add instead; reserve `ids` for the one case where the visitor wants the canvas focused on a SINGLE specific trip they named. Returns COMPACT trip cards (title, price, rating, duration, tags, a short description + a few highlights) — enough to recommend, compare, and order. For a specific trip's full inclusions, restrictions, itinerary, cancellation policy, or live timeslots, call `getTripDetails` instead. IMPORTANT — if the result has `noDirectMatches: true`, the visitor's requested concept matched NO trip and the returned list is the broadened full catalog, NOT matches: answer counting/existence questions honestly ('we don't currently offer any X trips') and optionally suggest the closest themes, instead of describing the broadened list as if it matched. IMPORTANT — when a visit date is set the result ALSO includes an `availability` object that is the AUTHORITATIVE per-turn truth for the trips just returned: `availableOnVisitDateCount` (how many of these trips are bookable on the visit date), `noneAvailableOnVisitDate`, `alternativeDates` (these trips' other bookable dates) and `similarAvailableOnVisitDate` (closest trips bookable that same day). You MUST base your reply on this, not on any earlier canvas count: if `noneAvailableOnVisitDate` is true, NEVER say the canvas shows/now shows these trips for that date — say plainly none run that day, then recommend `alternativeDates` and/or a `similarAvailableOnVisitDate` trip BY NAME.",
   inputSchema: z.object({
     query: z.string().describe("Free-text search. This FILTERS the Trip Canvas by matching the words against each trip's title, description, category and highlights — so use it for any concept the canonical tags below DON'T cover (e.g. 'castle', 'fort', 'fortress', 'ruins', 'medieval', 'vineyard', 'panoramic'). Many such trips carry no tags, so `query` is the ONLY way to find them accurately and to answer 'how many X trips' correctly. Pass the bare concept word(s); the result (and its `availability` object) will reflect exactly the matching trips. Pass an empty string when pinning by `ids`, or when you've fully captured the request as `tags` and want every trip for those tags."),
     tags: z
@@ -262,7 +276,7 @@ const searchTripsTool = tool({
     ids: z
       .array(z.string())
       .optional()
-      .describe("Pin the Trip Canvas to EXACTLY these trip ids (in order). Use this after you've shortlisted the day's best matches so the canvas shows only those trips instead of the broader tag search. The returned `trips` will be filtered AND ordered to match this list."),
+      .describe("SINGLE-TRIP FOCUS ONLY. Pass this ONLY when the visitor explicitly wants the canvas focused on ONE specific trip they named (\"show me only the boat cruise\"). Do NOT use it to pin a hand-picked multi-trip 'shortlist' to narrow recommendations — the canvas should show ALL matching trips and you recommend/ask in chat. The returned `trips` will be filtered AND ordered to match this list."),
     maxResults: z.number().optional().describe("Optional cap (must be >= 1 if given). OMIT to return every matching trip — the catalog has ~17 published trips and the panel scrolls. Do NOT pass 0 to mean 'no cap' — 0 is ignored and treated as 'return all'."),
     excludeKeywords: z
       .array(z.string())
@@ -695,6 +709,32 @@ function addDaysYMD(ymd: string, days: number): string {
   return d.toISOString().split("T")[0]
 }
 
+/** Parse an "HH:MM" 24h time into minutes-from-midnight. null on bad input. */
+function hhmmToMin(s: string | null | undefined): number | null {
+  if (!s) return null
+  const m = /^(\d{1,2}):(\d{2})/.exec(s.trim())
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null
+  return h * 60 + min
+}
+
+/** Best-effort minutes from a free-text duration string ("2 hours", "Half day",
+ *  "Full day", "90 min"). Falls back to `fallback` when nothing parses — used
+ *  ONLY to derive a slot end when TourCMS omits end_time. */
+function parseDurationMinutes(duration: string | null | undefined, fallback: number): number {
+  if (!duration) return fallback
+  const d = duration.toLowerCase()
+  if (/full[\s-]?day/.test(d)) return 8 * 60
+  if (/half[\s-]?day/.test(d)) return 4 * 60
+  const hrs = /(\d+(?:\.\d+)?)\s*(?:h|hr|hour)/.exec(d)
+  if (hrs) return Math.round(parseFloat(hrs[1]) * 60)
+  const mins = /(\d+)\s*(?:m|min)/.exec(d)
+  if (mins) return parseInt(mins[1], 10)
+  return fallback
+}
+
 const getTripDatesAndDealsTool = tool({
   description:
     "Fetch the BOOKABLE-DATES CALENDAR (with prices, deals, spaces remaining, and duration) for ONE trip across a date range. Use when the user asks 'when can I book', 'is there a date on Friday', 'any deals next week', 'cheapest day', 'what dates are available', or wants to plan a trip on a specific upcoming date. This is the wide calendar view — use getTripTimeslots after the user picks a specific date for exact timeslots.",
@@ -1081,6 +1121,212 @@ const updatePreferencesTool = tool({
   // No execute -- this is a client-side tool (handled in onToolCall)
 })
 
+/**
+ * AUTO-PICK — deterministic, conflict-free trip selection (server-executed).
+ *
+ * Called ONLY on an explicit "choose for me" request (the system prompt gates
+ * this). The AI never picks the concrete timeslots — this tool:
+ *   1) builds the candidate set from the SAME catalog/filter searchTrips uses,
+ *   2) keeps only trips bookable on the visit date for the party,
+ *   3) fetches REAL TourCMS timeslots (bounded fan-out, read-only),
+ *   4) runs the pure `autoPickTrips` selector so the result avoids time
+ *      conflicts among picks AND with the visitor's existing My Trip list, and
+ *   5) returns addedIds/skipped/needsClear so the AI confirms ONLY what the
+ *      client will actually add.
+ */
+/**
+ * Per-request context for the auto-pick tool. Captured as an immutable snapshot
+ * when the tool is built inside POST, so the tool's conflict logic reads THIS
+ * request's My Trip list / visit date / party size — never module globals that
+ * a concurrent request could overwrite between stream start and tool execution.
+ */
+type AutoPickCtx = {
+  visitDate: string | null
+  partySize: number
+  cartItems: { id: string; title: string }[]
+}
+
+const makeAutoPickTripsTool = (ctx: AutoPickCtx) => tool({
+  description:
+    "DETERMINISTIC AUTO-PICK — call ONLY when the visitor explicitly asks YOU to choose for them: 'add the best one'/'pick the best'/'surprise me' (mode 'one'), or 'fill my day'/'plan my whole day'/'best for my day' (mode 'day'). NEVER call for a casual preference, a filter change, or a vague browse — those are searchTrips + recommend-and-ask. The SERVER checks real timeslots and returns a conflict-free set that also avoids clashing with the trips already in MY TRIP LIST. You do NOT pick times. HONESTY: confirm ONLY the trips in the result's `addedIds` (by name). If `needsClear` is true, do NOT add anything — ask the visitor whether to clear their list and rebuild; only on a yes, call again with `replaceList: true`. If `addedIds` is empty and `needsClear` is false, nothing is bookable that day — say so and offer other dates.",
+  inputSchema: z.object({
+    mode: z.enum(["one", "day"]).describe("'one' = pick the single best non-conflicting trip. 'day' = fill the day with as many non-conflicting trips as fit (up to the admin stop cap)."),
+    interests: z
+      .array(z.string())
+      .optional()
+      .describe("Optional canonical interest tags to bias the pick toward (same vocabulary as searchTrips/updatePreferences). Omit to use the visitor's stored interests / whole catalog."),
+    query: z
+      .string()
+      .optional()
+      .describe("Optional free-text concept to bias the candidate pool (e.g. 'castle', 'wine'). Omit for a general best-of pick."),
+    keepTripIds: z
+      .array(z.string())
+      .optional()
+      .describe("Trip ids the visitor explicitly wants KEPT and picked around (e.g. 'keep the wine tasting'). The server locks these first (checking their availability) and chooses around them."),
+    replaceList: z
+      .boolean()
+      .optional()
+      .describe("Set true ONLY after the visitor confirmed clearing their current list (the needsClear flow). The server ignores the existing list (except keepTripIds) and the client REPLACES the list with the fresh picks."),
+  }),
+  execute: async ({ mode, interests, query, keepTripIds, replaceList }) => {
+    const effectiveDate = ctx.visitDate
+    if (!effectiveDate) {
+      return { ok: false, error: "NO_VISIT_DATE", mode, addedIds: [], addedTitles: [], pickedIds: [], removedIds: [], skipped: [], needsClear: false, message: "No visit date is set yet — ask the visitor which day they're planning for first." }
+    }
+    const config = await getTourCMSConfig()
+    if (!config) {
+      return { ok: false, error: "TOURCMS_NOT_CONFIGURED", mode, addedIds: [], addedTitles: [], pickedIds: [], removedIds: [], skipped: [], needsClear: false }
+    }
+
+    const catalog = await loadTripCatalog()
+    const byId = new Map(catalog.map((t) => [t.id, t]))
+
+    // Resolve keepTripIds (internal id or raw palisis id) → internal ids present
+    // in the catalog. Unknown ids are dropped (can't keep what we can't plan).
+    const keepSet = new Set<string>()
+    for (const raw of keepTripIds ?? []) {
+      if (byId.has(raw)) { keepSet.add(raw); continue }
+      if (/^\d+$/.test(raw)) {
+        const hit = catalog.find((t) => String((t as { palisisId?: string }).palisisId ?? "") === raw)
+        if (hit) keepSet.add(hit.id)
+      }
+    }
+    // Preselected = the visitor's current My Trip list (resolved to catalog ids).
+    const preselectedSet = new Set<string>()
+    for (const c of ctx.cartItems) {
+      if (byId.has(c.id)) preselectedSet.add(c.id)
+    }
+
+    // ── Candidate pool ────────────────────────────────────────────────────────
+    // Bias by the requested interests (or stored ones) + optional free-text, but
+    // ALWAYS include keep + preselected trips so the scheduler can lock them.
+    const tagList = (interests ?? []).filter((t) => typeof t === "string" && t.trim().length > 0)
+    const qKeywords = queryKeywords(query ?? "")
+    const scoreOf = (t: RichTrip): number => {
+      let s = 0
+      if (tagList.length > 0) {
+        const m = scoreTripInterests(t, tagList)
+        s += m.score * 10 + (m.full ? 5 : 0)
+      }
+      if (qKeywords.length > 0 && tripMatchesQuery(t, qKeywords)) s += 8
+      if (t.rating >= 4.7) s += 2
+      return s
+    }
+    const hasFilter = tagList.length > 0 || qKeywords.length > 0
+    const poolTrips = catalog.filter((t) => {
+      if (keepSet.has(t.id) || preselectedSet.has(t.id)) return true
+      if (!hasFilter) return true
+      if (tagList.length > 0 && scoreTripInterests(t, tagList).hits > 0) return true
+      if (qKeywords.length > 0 && tripMatchesQuery(t, qKeywords)) return true
+      return false
+    })
+
+    // Refresh authoritative availability for the visit date, then keep only trips
+    // that are bookable that day (plus keep/preselected, which we must still
+    // check for honest skip reasons).
+    await ensureAvailFor(effectiveDate, ctx.partySize)
+    const eligible = poolTrips.filter((t) => {
+      if (keepSet.has(t.id) || preselectedSet.has(t.id)) return true
+      const a = _plannerAvail[t.id]
+      return a ? a.onDate === true : true
+    })
+
+    // ── Fetch real timeslots (bounded fan-out, read-only) ─────────────────────
+    // Cap the pool so a single request can't fan out unbounded; keep + preselected
+    // are always included, the rest filled by score desc.
+    const FANOUT_CAP = 14
+    const ranked = eligible
+      .slice()
+      .sort((a, b) => scoreOf(b) - scoreOf(a))
+    const mustInclude = ranked.filter((t) => keepSet.has(t.id) || preselectedSet.has(t.id))
+    const rest = ranked.filter((t) => !keepSet.has(t.id) && !preselectedSet.has(t.id))
+    const toFetch = [...mustInclude, ...rest].slice(0, Math.max(FANOUT_CAP, mustInclude.length))
+
+    const DEFAULT_SLOT_FALLBACK_MIN = 120
+    const fetchSlots = async (t: RichTrip): Promise<AutoPickCandidate | null> => {
+      const { palisisId } = await resolvePalisisId(t.id)
+      if (!palisisId) return null
+      const res = await checkAvailability(config, palisisId, { date: effectiveDate, show_pickups: "0", r1: ctx.partySize }).catch(() => null)
+      if (!res || !res.ok) return null
+      const durMin = parseDurationMinutes(t.duration as string | null, DEFAULT_SLOT_FALLBACK_MIN)
+      const slots: AutoPickSlot[] = []
+      for (const c of res.components) {
+        const startMin = hhmmToMin(c.start_time)
+        if (startMin == null) continue
+        const endParsed = hhmmToMin(c.end_time)
+        const endMin = endParsed != null && endParsed > startMin ? endParsed : startMin + durMin
+        const raw = c.spaces_remaining
+        const spaces = raw === "UNLIMITED" ? null : Math.max(0, parseInt(raw ?? "0", 10))
+        slots.push({ startMin, endMin, spacesRemaining: spaces })
+      }
+      if (slots.length === 0) return null
+      return {
+        id: t.id,
+        title: t.title,
+        city: t.city ?? "",
+        score: scoreOf(t),
+        slots,
+        preselected: preselectedSet.has(t.id),
+        keep: keepSet.has(t.id),
+      }
+    }
+
+    // Bounded concurrency (chunks of 5) so we don't hammer TourCMS.
+    const candidates: AutoPickCandidate[] = []
+    for (let i = 0; i < toFetch.length; i += 5) {
+      const chunk = toFetch.slice(i, i + 5)
+      const settled = await Promise.all(chunk.map(fetchSlots))
+      for (const c of settled) if (c) candidates.push(c)
+    }
+
+    // ── Config from admin planner-behavior settings ──────────────────────────
+    const settings = await dbGetSettings()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pb = (settings as any).plannerBehavior ?? {}
+    const dayStartMin = hhmmToMin(pb.dayStartTime) ?? 9 * 60
+    const dayEndMin = hhmmToMin(pb.dayEndTime) ?? 19 * 60
+    const bufferMin = Number.isFinite(Number(pb.bufferTimeBetweenStops)) ? Number(pb.bufferTimeBetweenStops) : 30
+    const adminCap = Number.isFinite(Number(pb.maxStopsPerDay)) ? Number(pb.maxStopsPerDay) : 5
+    const maxStops = Math.max(1, Math.min(adminCap, AUTO_PICK_HARD_MAX_STOPS))
+
+    const result = autoPickTrips({
+      candidates,
+      config: {
+        partySize: ctx.partySize,
+        dayStartMin,
+        dayEndMin,
+        bufferMin: bufferMin + AUTO_PICK_EARLY_ARRIVAL_MIN,
+        maxStops,
+        travelMinBetween: (a, b) =>
+          a.city && b.city && a.city.toLowerCase() === b.city.toLowerCase() ? 0 : AUTO_PICK_INTERCITY_TRAVEL_MIN,
+      },
+      mode,
+      replaceList: replaceList === true,
+    })
+
+    const titleOf = (id: string) => byId.get(id)?.title ?? id
+    return {
+      ok: true,
+      mode,
+      visitDate: effectiveDate,
+      replaceList: replaceList === true,
+      addedIds: result.addedIds,
+      addedTitles: result.addedIds.map(titleOf),
+      pickedIds: result.pickedIds,
+      pickedTitles: result.pickedIds.map(titleOf),
+      removedIds: result.removedIds,
+      skipped: result.skipped,
+      needsClear: result.needsClear,
+    }
+  },
+})
+
+// Module-level placeholder built with an empty context — used ONLY for the
+// `typeof tools` type inference below. The REAL per-request tool (with the live
+// My Trip snapshot) is built inside POST via makeAutoPickTripsTool and spread
+// into the tools object passed to streamText.
+const autoPickTripsTool = makeAutoPickTripsTool({ visitDate: null, partySize: 1, cartItems: [] })
+
 const tools = {
   searchTrips: searchTripsTool,
   showWeather: showWeatherTool,
@@ -1094,6 +1340,7 @@ const tools = {
   removeFromCart: removeFromCartTool,
   clearCart: clearCartTool,
   updatePreferences: updatePreferencesTool,
+  autoPickTrips: autoPickTripsTool,
 } as const
 
 /* ── Exported type for client-side typed parts ── */
@@ -1431,6 +1678,12 @@ export async function POST(req: Request) {
     // fall back to it deterministically when the model omits the date arg.
     _defaultVisitDate = visitDateYMD
     _defaultPartySize = Math.max(1, adultsCount + childrenCount)
+    // Snapshot the visitor's current My Trip list for the autoPickTrips tool so
+    // it can avoid clashing with already-selected trips. Reset when omitted.
+    _cartItems = Array.isArray(cartItems)
+      ? cartItems.filter((c): c is { id: string; title: string } =>
+          !!c && typeof c.id === "string" && typeof c.title === "string")
+      : []
 
     // Capture the client's live availability snapshot so searchTrips can report
     // accurate on-visit-date availability for the trips it returns (see the
@@ -1712,11 +1965,24 @@ export async function POST(req: Request) {
     }
     const model = ai.model
 
+    // Build a REQUEST-SCOPED tools object. autoPickTrips closes over an
+    // immutable snapshot of THIS request's My Trip list / visit date / party
+    // size so its conflict logic can never be contaminated by a concurrent
+    // planner request overwriting the module globals mid-stream.
+    const requestTools = {
+      ...tools,
+      autoPickTrips: makeAutoPickTripsTool({
+        visitDate: visitDateYMD,
+        partySize: _defaultPartySize,
+        cartItems: _cartItems,
+      }),
+    }
+
     const result = streamText({
       model,
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
-      tools,
+      tools: requestTools,
       ...(ai.maxTokens ? { maxTokens: ai.maxTokens } : {}),
       ...(typeof ai.temperature === "number" ? { temperature: ai.temperature } : {}),
       onError: ({ error }) => {
