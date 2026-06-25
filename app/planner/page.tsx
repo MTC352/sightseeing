@@ -39,6 +39,7 @@ import { scoreTripInterests } from "@/lib/planner/interest-match"
 import { isCanvasCountTrustworthy } from "@/lib/planner/availability-parity"
 import { AUTO_SEED_PREFIX, firstRealUserMessageIndex } from "@/lib/planner/canvas-trips"
 import { decideRebuildAction } from "@/lib/planner/rebuild-decision"
+import { buildPartialBuildMessage } from "@/lib/planner/drop-narration"
 import { resolveRelativeDate } from "@/lib/planner/relative-date"
 import type { LucideIcon } from "lucide-react"
 
@@ -1780,7 +1781,15 @@ export default function PlannerPage() {
       currentDate,
     })
     if (action === "open" && existing) {
+      // No rebuild needed — just reveal the already-built plan. Defensively
+      // clear the build loader (in case a racing build left it on) so the
+      // "Finalizing your itinerary…" indicator never lingers, and scroll the
+      // canvas into view so the visitor actually SEES the plan they asked for.
+      setItineraryRegenerating(false)
       handleOpenItinerary(existing)
+      requestAnimationFrame(() => {
+        mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      })
       return
     }
     // Build from the AI plan's trip ids directly — NOT a cart intersection.
@@ -1837,6 +1846,11 @@ export default function PlannerPage() {
         { id: `plan-conflict-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
       ]))
     }
+    // Guard against a hung request pinning the "Finalizing your itinerary…"
+    // loader forever (cold start / dropped connection). The AbortController
+    // forces the fetch to reject so the finally block always clears the loader.
+    const ac = new AbortController()
+    const timeoutId = setTimeout(() => ac.abort(), 30_000)
     try {
       const res = await fetch("/api/itinerary", {
         method: "POST",
@@ -1846,6 +1860,7 @@ export default function PlannerPage() {
           startDate: visitDate,
           preferences: prefsRef.current,
         }),
+        signal: ac.signal,
       })
       const data = await res.json().catch(() => null) as
         | (Itinerary & { error?: string; message?: string; alternativeDates?: AlternativeDate[]; conflict?: PlanConflictPayload["conflict"] })
@@ -1902,25 +1917,27 @@ export default function PlannerPage() {
         ? ((data as { unavailableTrips: ItineraryFailurePayload["unavailableTrips"] }).unavailableTrips)
         : []
       if (droppedView.length > 0) {
-        const dateLbl = formatYMDPretty((data as { visitDate?: string }).visitDate || visitDate)
-        const names = droppedView.slice(0, 2).map((u) => `**"${u.title}"**`).join(" and ")
-        const extra = droppedView.length > 2 ? ` (+${droppedView.length - 2} more)` : ""
-        const lines = [
-          `Heads up — ${droppedView.length} of your requested trip${droppedView.length === 1 ? "" : "s"} ${droppedView.length === 1 ? "isn't" : "aren't"} available on **${dateLbl}** (${names}${extra}), so the Trip Canvas shows ${data.steps.length} stop${data.steps.length === 1 ? "" : "s"} instead.`,
-        ]
-        const alts = (data as { alternativeDates?: AlternativeDate[] }).alternativeDates || []
-        if (alts.length > 0) {
-          const top = alts.slice(0, 3).map((a) => `**${formatYMDPretty(a.date)}** (${a.tripCount} of your trips open)`).join(", ")
-          lines.push(`**Best alternative dates:** ${top}. Want me to rebuild for one of these?`)
+        // Honest per-reason narration that mirrors the canvas Smart Itinerary
+        // card: a "couldn't fit alongside" drop is never described as having no
+        // availability. (See lib/planner/drop-narration.ts.)
+        const text = buildPartialBuildMessage({
+          dropped: droppedView,
+          dateLabel: formatYMDPretty((data as { visitDate?: string }).visitDate || visitDate),
+          stops: data.steps.length,
+          alternativeDates: (data as { alternativeDates?: AlternativeDate[] }).alternativeDates || [],
+          formatDate: formatYMDPretty,
+        })
+        if (text) {
+          setMessagesRef.current?.((prev) => ([
+            ...prev,
+            { id: `itinerary-partial-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
+          ]))
         }
-        setMessagesRef.current?.((prev) => ([
-          ...prev,
-          { id: `itinerary-partial-${Date.now()}`, role: "assistant", parts: [{ type: "text", text: lines.join("\n\n") }] } as PlannerMessage,
-        ]))
       }
     } catch {
       pushFailure("Network hiccup while opening your itinerary — please try again in a moment.")
     } finally {
+      clearTimeout(timeoutId)
       setItineraryRegenerating(false)
     }
   }, [centerItinerary, items, handleOpenItinerary])
@@ -2974,13 +2991,13 @@ export default function PlannerPage() {
      true. Tracked by toolCallId so each AI invocation fires exactly once. */
   useEffect(() => {
     if (!hydrated) return
-    let latest: { toolCallId: string; tripIds: string[] } | null = null
+    let latest: { toolCallId: string; tripIds: string[]; priorityTripIds: string[] } | null = null
     outer: for (let i = messages.length - 1; i >= 0; i--) {
       for (const part of messages[i].parts) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = part as any
         if (p?.type === "tool-buildItinerary" && p?.state === "output-available") {
-          const out = p.output as { steps?: { tripId?: string }[] } | undefined
+          const out = p.output as { steps?: { tripId?: string }[]; prioritizeTripIds?: string[] } | undefined
           // Filter meal-break placeholders out of the trip-id list. The AI
           // emits steps with tripId "lunch"/"dinner"/"coffee" (or any id
           // starting with "meal_") for break stops — these aren't real
@@ -2993,7 +3010,10 @@ export default function PlannerPage() {
             .map((s) => (s?.tripId ? String(s.tripId) : ""))
             .filter((id) => id && !isMealBreakId(id))
           if (ids.length > 0 && p.toolCallId) {
-            latest = { toolCallId: String(p.toolCallId), tripIds: ids }
+            const priorityTripIds = (Array.isArray(out?.prioritizeTripIds) ? out!.prioritizeTripIds! : [])
+              .map((id) => String(id))
+              .filter((id) => id && !isMealBreakId(id) && ids.includes(id))
+            latest = { toolCallId: String(p.toolCallId), tripIds: ids, priorityTripIds }
             break outer
           }
         }
@@ -3076,7 +3096,7 @@ export default function PlannerPage() {
         const pre = await fetch("/api/itinerary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "preflight", trips: tripsForApi, startDate: visitDate, preferences: prefs }),
+          body: JSON.stringify({ mode: "preflight", trips: tripsForApi, startDate: visitDate, preferences: prefs, priorityTripIds: latest.priorityTripIds }),
         })
         const preData = await pre.json().catch(() => null) as {
           kind?: "preflight"
@@ -3178,7 +3198,7 @@ export default function PlannerPage() {
         const r = await fetch("/api/itinerary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trips: tripsForApi, startDate: visitDate, preferences: prefs }),
+          body: JSON.stringify({ trips: tripsForApi, startDate: visitDate, preferences: prefs, priorityTripIds: latest.priorityTripIds }),
         })
         const data = await r.json().catch(() => null) as
           | (Itinerary & { error?: string; message?: string; conflict?: PlanConflictPayload["conflict"]; unavailableTrips?: ItineraryFailurePayload["unavailableTrips"]; alternativeDates?: ItineraryFailurePayload["alternativeDates"]; visitDate?: string })
@@ -3377,13 +3397,23 @@ export default function PlannerPage() {
               ])
             }
           } else {
-            handleItineraryFailure({
-              message: `Heads up — ${dropped.length} of your requested trip${dropped.length === 1 ? "" : "s"} ${dropped.length === 1 ? "isn't" : "aren't"} available on **${formatYMDPretty(data.visitDate || visitDate)}**, so the Trip Canvas shows ${data.steps.length} stop${data.steps.length === 1 ? "" : "s"} instead.`,
-              error: "PARTIAL_AVAILABILITY",
-              visitDate: data.visitDate || visitDate,
-              unavailableTrips: dropped,
+            // Honest per-reason narration that mirrors the canvas Smart
+            // Itinerary card: a "couldn't fit alongside" drop is bookable that
+            // day and must NEVER be lumped in with "no availability".
+            // (See lib/planner/drop-narration.ts.)
+            const text = buildPartialBuildMessage({
+              dropped,
+              dateLabel: formatYMDPretty(data.visitDate || visitDate),
+              stops: data.steps.length,
               alternativeDates: Array.isArray(data.alternativeDates) ? data.alternativeDates : [],
+              formatDate: formatYMDPretty,
             })
+            if (text) {
+              setMessages((prev) => ([
+                ...prev,
+                { id: `itinerary-partial-${Date.now()}`, role: "assistant", parts: [{ type: "text", text }] } as PlannerMessage,
+              ]))
+            }
           }
         }
       } catch {

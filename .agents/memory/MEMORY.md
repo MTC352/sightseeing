@@ -53,3 +53,4 @@
 - [Planner availability grounding parity](planner-availability-grounding-parity.md) — AI-grounding count/samples must use effectiveAvail (same as visible canvas), NOT plannerAvail, or chat↔canvas diverge; availabilityForApiRef stays raw plannerAvail (circular otherwise).
 - [AI SDK v6 usage metadata](ai-sdk-v6-usage-metadata.md) — v6 dropped sendUsage + onFinish.usage; token usage must travel as message metadata instead.
 - [Planner auto-pick + recommend-and-ask](planner-auto-pick.md) — AI recommends+asks (no auto-add); autoPickTrips=deterministic conflict-free tool (real slots, avoids My Trip clashes, needsClear/replaceList); tool is request-scoped via factory closure (globals unsafe mid-stream).
+- [Planner build priority + drop narration](planner-build-priority-and-drops.md) — priorityTripIds threads AI tool→client→server so chat-requested trips win overflow (float front of ordered + seed keepIds); drop-narration.ts classifies 6 drop categories (fit≠unavailable).

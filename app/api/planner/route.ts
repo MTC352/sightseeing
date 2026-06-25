@@ -667,9 +667,12 @@ const buildItineraryTool = tool({
       travelToNext: z.string().optional().describe("How to get to next stop, e.g. '15 min walk' or '10 min bus'"),
     })).describe("Ordered list of itinerary steps"),
     summary: z.string().describe("Brief summary of the day plan"),
+    prioritizeTripIds: z.array(z.string()).optional().describe(
+      "Trip IDs the visitor EXPLICITLY asked to add/include THIS turn (e.g. they said 'add a food tour' or 'build my day around the boat cruise'). These trips MUST be favoured when the scheduler can't fit everything — an unrelated pre-existing My Trip list trip is dropped first instead of the one the visitor just asked for. Leave empty for a plain 'build my plan' with no specific newly-requested trip.",
+    ),
   }),
-  execute: async ({ steps, summary }) => {
-    return { steps, summary }
+  execute: async ({ steps, summary, prioritizeTripIds }) => {
+    return { steps, summary, prioritizeTripIds: prioritizeTripIds ?? [] }
   },
 })
 

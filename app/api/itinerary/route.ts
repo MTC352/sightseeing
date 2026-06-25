@@ -260,7 +260,7 @@ export async function POST(req: Request) {
 
   try {
     // eslint-disable-next-line prefer-const
-    let { trips: rawTrips, startDate, preferences, mode } = await req.json() as {
+    let { trips: rawTrips, startDate, preferences, mode, priorityTripIds: rawPriorityTripIds } = await req.json() as {
       trips: Array<Partial<TripInput> & { id: string }>
       startDate?: string
       preferences?: IncomingPreferences | null
@@ -270,7 +270,15 @@ export async function POST(req: Request) {
        *  conflicts BEFORE any "Your Day Itinerary" card or canvas load.
        *  Anything else (undefined included) does the full build. */
       mode?: "preflight" | "build"
+      /** Trip ids the visitor EXPLICITLY asked to add this turn. They are
+       *  floated to the front of the scheduler's ordering so a capacity/fit
+       *  drop sheds an unrelated pre-existing trip first, never the one the
+       *  visitor just requested. (Task #65.) */
+      priorityTripIds?: string[]
     }
+    const priorityTripIds: string[] = Array.isArray(rawPriorityTripIds)
+      ? rawPriorityTripIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : []
     if (!rawTrips?.length) {
       return Response.json({ error: "No trips provided" }, { status: 400 })
     }
@@ -1009,7 +1017,22 @@ ${coffeeRule}
       const perExtraTripOverhead = bufferTimeBetweenStops + 15
       const keepIds = new Set<string>()
       let consumed = oneMealMinutes // meal break charged once if used at all
+      // Priority trips first (Task #65): trips the visitor EXPLICITLY asked to
+      // add this turn are seeded into the kept set BEFORE the greedy shortest-
+      // first fill, so a full-day overshoot sheds an unrelated pre-existing
+      // cart trip rather than the one just requested. Preserve longest→shortest
+      // priority order; charge their minutes + overhead up front.
+      if (priorityTripIds.length > 0) {
+        const prioritySet = new Set(priorityTripIds)
+        for (const t of tripsSortedLongest) {
+          if (!prioritySet.has(t.id)) continue
+          const incremental = t.minutes + (keepIds.size > 0 ? perExtraTripOverhead : 0)
+          keepIds.add(t.id)
+          consumed += incremental
+        }
+      }
       for (const t of tripsByShortest) {
+        if (keepIds.has(t.id)) continue
         const incremental = t.minutes + (keepIds.size > 0 ? perExtraTripOverhead : 0)
         if (consumed + incremental <= availableMinutes) {
           keepIds.add(t.id)
@@ -1495,6 +1518,22 @@ ${tipsInstructions}`
         const picked = aiOrder.map((id) => byId.get(id)).filter((c): c is CandidateTrip => Boolean(c))
         const rest = ordered.filter((c) => !aiOrder.includes(c.id))
         ordered = [...picked, ...rest]
+      }
+
+      // 4b) Explicit-request priority (Task #65). The scheduler places trips
+      //     greedily in `ordered` order and drops whatever doesn't fit at the
+      //     END, so floating the visitor's just-requested trips to the FRONT
+      //     guarantees they're placed first — a capacity/fit drop then sheds an
+      //     unrelated pre-existing My Trip list trip instead of the one the
+      //     visitor explicitly asked to add. Preserves the relative order of
+      //     the priority trips and of everything else.
+      if (priorityTripIds.length > 0) {
+        const prioritySet = new Set(priorityTripIds)
+        const prioritised = ordered.filter((c) => prioritySet.has(c.id))
+        if (prioritised.length > 0) {
+          const remainder = ordered.filter((c) => !prioritySet.has(c.id))
+          ordered = [...prioritised, ...remainder]
+        }
       }
 
       // 5) Deterministic timing — the single source of truth for slots,
