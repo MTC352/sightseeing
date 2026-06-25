@@ -1304,6 +1304,10 @@ export default function PlannerPage() {
   const [plannerModel, setPlannerModel] = useState<string | null>(null)
   const [sessionTokens, setSessionTokens] = useState(0)
   const [lastTurnTokens, setLastTurnTokens] = useState<{ prompt: number; completion: number } | null>(null)
+  // Rolling 60-second token usage window — used to compute remaining TPM.
+  // Each entry is { ts: epoch-ms, tokens: number }. Entries older than 60s
+  // are pruned on every read so the "used last minute" sum stays accurate.
+  const tokenBucketRef = useRef<{ ts: number; tokens: number }[]>([])
 
   // Admin login detection — shows dev-info bar only when an admin is logged in.
   useEffect(() => {
@@ -2738,6 +2742,14 @@ export default function PlannerPage() {
       const total = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
       setLastTurnTokens({ prompt: usage.promptTokens ?? 0, completion: usage.completionTokens ?? 0 })
       setSessionTokens((prev) => prev + total)
+      // Push into rolling 60s bucket so remaining-TPM can be computed.
+      if (total > 0) {
+        const now = Date.now()
+        tokenBucketRef.current = [
+          ...tokenBucketRef.current.filter((e) => now - e.ts < 60_000),
+          { ts: now, tokens: total },
+        ]
+      }
     },
   })
 
@@ -4497,6 +4509,37 @@ export default function PlannerPage() {
     // through handleSend). Allowing sends from the "error" state lets the user
     // retry and lets non-patch pills work again.
     if (!text.trim() || status === "streaming" || status === "submitted") return
+    // TPM self-throttle: if we've used nearly all of the per-minute token
+    // budget in the last 60 seconds, block the send and tell the user to
+    // wait a moment so the next call doesn't hit a 429 rate limit.
+    // We only gate when the TPM for the active model is known and > 0.
+    const bare = plannerModel ? stripProviderPrefix(plannerModel) : null
+    const meta = bare ? modelMeta(bare) : null
+    const tpm = meta?.tpm ?? 0
+    if (tpm > 0) {
+      const nowMs = Date.now()
+      const usedLastMin = tokenBucketRef.current
+        .filter((e) => nowMs - e.ts < 60_000)
+        .reduce((s, e) => s + e.tokens, 0)
+      // Reserve at least 2 % of the TPM as headroom — if less than that is
+      // left we're at the ragged edge and the next request would likely 429.
+      const MIN_HEADROOM = Math.max(1_000, tpm * 0.02)
+      if (usedLastMin > 0 && tpm - usedLastMin < MIN_HEADROOM) {
+        // Find how many seconds until the oldest bucket entry expires.
+        const oldest = tokenBucketRef.current.reduce((min, e) => Math.min(min, e.ts), Infinity)
+        const waitSec = oldest === Infinity ? 5 : Math.max(1, Math.ceil((oldest + 60_000 - nowMs) / 1_000))
+        // Surface as an in-chat error so the user sees why the send was blocked.
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `tpm-gate-${Date.now()}`,
+            role: "assistant" as const,
+            parts: [{ type: "text" as const, text: `⏳ Rate limit headroom low — please wait ~${waitSec}s before sending to avoid a 429 error. (${(tpm - usedLastMin).toLocaleString()} tokens left this minute)` }],
+          },
+        ])
+        return
+      }
+    }
     setSelectedTrip(null)
     sendMessage({ text })
     setInput("")
@@ -5243,6 +5286,18 @@ export default function PlannerPage() {
                   const label = bare ? (MODEL_LABELS[bare] ?? bare) : "Unknown model"
                   const tpm = meta?.tpm ?? 0
                   const lastTotal = lastTurnTokens ? lastTurnTokens.prompt + lastTurnTokens.completion : null
+                  // Rolling 60s window — prune stale entries at render time.
+                  const now = Date.now()
+                  const usedLastMin = tokenBucketRef.current
+                    .filter((e) => now - e.ts < 60_000)
+                    .reduce((s, e) => s + e.tokens, 0)
+                  const remainingTpm = tpm > 0 ? Math.max(0, tpm - usedLastMin) : null
+                  const remainingPct = remainingTpm != null && tpm > 0 ? remainingTpm / tpm : null
+                  const remainingColor =
+                    remainingPct == null ? "" :
+                    remainingPct > 0.5 ? "text-green-700 dark:text-green-400" :
+                    remainingPct > 0.2 ? "text-yellow-700 dark:text-yellow-400" :
+                    "text-red-700 dark:text-red-400"
                   return (
                     <div className="mt-2 rounded-lg border border-dashed border-amber-400/60 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2 text-[10px] leading-relaxed font-mono text-amber-800 dark:text-amber-300">
                       <div className="mb-1 flex items-center gap-1.5 font-semibold text-[11px] not-italic font-sans">
@@ -5262,6 +5317,16 @@ export default function PlannerPage() {
                         </span>
                         <span className="text-muted-foreground">Session total</span>
                         <span>{sessionTokens > 0 ? sessionTokens.toLocaleString() : "—"}</span>
+                        <span className="text-muted-foreground">Used (last min)</span>
+                        <span>{usedLastMin > 0 ? usedLastMin.toLocaleString() : "—"}</span>
+                        {remainingTpm != null && (
+                          <>
+                            <span className="text-muted-foreground">Remaining TPM</span>
+                            <span className={remainingColor}>
+                              {remainingTpm.toLocaleString()} ({remainingPct != null ? Math.round(remainingPct * 100) : "?"}%)
+                            </span>
+                          </>
+                        )}
                         {tpm > 0 && lastTotal && lastTotal > 0 && (
                           <>
                             <span className="text-muted-foreground">Next input safe in</span>

@@ -1758,6 +1758,7 @@ export async function POST(req: Request) {
     // perfectly valid key. Emit a stable token: "AI_AUTH" only for real
     // credential failures, "AI_TEMP" for everything else (retryable).
     return result.toUIMessageStreamResponse({
+      sendUsage: true,
       onError: (error) => {
         const e = error as { statusCode?: number; status?: number; message?: string } | undefined
         const status = e?.statusCode ?? e?.status
