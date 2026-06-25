@@ -550,6 +550,24 @@ const searchTripsTool = tool({
         similarAvailableOnVisitDate,
         ...(unconfirmed.length > 0 ? { unconfirmed } : {}),
       }
+      // Per-requested-theme availability fold for MULTI-theme searches. The
+      // aggregate above hides the case where one theme (e.g. food) has ZERO
+      // bookable trips while other themes (city, wine) are available — the AI
+      // then treats the whole OR set as bookable and claims the canvas "shows" a
+      // food tour that day. We fold the SAME per-trip class (classOf) up to each
+      // requested theme so the AI can confirm only the themes really bookable on
+      // the date and offer real alt dates for the rest. The themes are the
+      // requested interest tags + free-text query concepts; we only attach the
+      // breakdown when the search genuinely spanned ≥2 themes (for a single theme
+      // the aggregate fields already say everything). See
+      // lib/planner/available-interests.ts → buildInterestAvailabilityBreakdown.
+      const perInterest = buildInterestAvailabilityBreakdown({
+        themes: [...((tags ?? []) as string[]), ...qKeywords].map((v) => ({ value: v })),
+        returnedTrips: finalResults,
+        statusOf: (id) => classOf(id),
+        datesOf: (id) => (_plannerAvail[id]?.dates ?? []).slice(0, 4).map(prettyYMD),
+      })
+      if (perInterest.length >= 2) availability.perInterest = perInterest
     }
 
     // Return COMPACT cards only. Heavy per-trip prose (longDescription,
