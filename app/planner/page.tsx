@@ -1301,6 +1301,17 @@ export default function PlannerPage() {
   }, [])
   // Admin dev-mode state — fetched once on mount.
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false)
+  // Dev mode toggle — persisted to localStorage so it survives page reloads.
+  // Only relevant (and only visible) when isAdminLoggedIn is true.
+  const [devMode, setDevMode] = useState(false)
+  useEffect(() => {
+    try { setDevMode(localStorage.getItem("planner_dev_mode") === "1") } catch { /* ignore */ }
+  }, [])
+  const toggleDevMode = () => setDevMode(prev => {
+    const next = !prev
+    try { localStorage.setItem("planner_dev_mode", next ? "1" : "0") } catch { /* ignore */ }
+    return next
+  })
   const [plannerModel, setPlannerModel] = useState<string | null>(null)
   const [sessionTokens, setSessionTokens] = useState(0)
   const [lastTurnTokens, setLastTurnTokens] = useState<{ prompt: number; completion: number } | null>(null)
@@ -5389,8 +5400,25 @@ export default function PlannerPage() {
                     <Send className="h-4 w-4" />
                   </button>
                 </form>
-                {/* ── Admin developer info bar — only visible when logged in as admin ── */}
-                {isAdminLoggedIn && (() => {
+                {/* ── Admin dev-mode toggle — visible only when admin is logged in ── */}
+                {isAdminLoggedIn && (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={toggleDevMode}
+                      title={devMode ? "Hide Dev Info" : "Show Dev Info"}
+                      className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                        devMode
+                          ? "bg-amber-400/30 text-amber-700 dark:text-amber-300 hover:bg-amber-400/50"
+                          : "bg-muted text-muted-foreground hover:bg-amber-400/20 hover:text-amber-700 dark:hover:text-amber-300"
+                      }`}
+                    >
+                      🛠 Dev
+                    </button>
+                  </div>
+                )}
+                {/* ── Admin developer info bar — visible only when admin + dev mode enabled ── */}
+                {isAdminLoggedIn && devMode && (() => {
                   const bare = plannerModel ? stripProviderPrefix(plannerModel) : null
                   const meta = bare ? modelMeta(bare) : null
                   const label = bare ? (MODEL_LABELS[bare] ?? bare) : "Unknown model"
