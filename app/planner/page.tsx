@@ -4629,10 +4629,15 @@ export default function PlannerPage() {
     // budget in the last 60 seconds, block the send and tell the user to
     // wait a moment so the next call doesn't hit a 429 rate limit.
     // We only gate when the TPM for the active model is known and > 0.
+    // DEV-ONLY: this is rate-limit diagnostics — the "Rate limit headroom low"
+    // chat bubble must NEVER appear for regular visitors (it's Dev Info), so the
+    // whole self-throttle is gated behind the same admin+dev-mode flag as the
+    // Dev Info panel. Regular users send normally; the server's SSE error
+    // handling covers the rare 429.
     const bare = plannerModel ? stripProviderPrefix(plannerModel) : null
     const meta = bare ? modelMeta(bare) : null
     const tpm = meta?.tpm ?? 0
-    if (tpm > 0) {
+    if (tpm > 0 && isAdminLoggedIn && devMode) {
       const nowMs = Date.now()
       const usedLastMin = tokenBucketRef.current
         .filter((e) => nowMs - e.ts < 60_000)
