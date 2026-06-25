@@ -1240,6 +1240,9 @@ export default function PlannerPage() {
   // Trip ids disabled in the working list (no timeslots on the planned date).
   // Mirrored into a ref so the async build paths declared above can exclude them.
   const plannerDisabledIdsRef = useRef<Set<string>>(new Set<string>())
+  /** Track slot-conflict pairs already auto-resolved so we never re-inject the
+   *  same conflict message when the itinerary is rebuilt after the resolution. */
+  const resolvedSlotConflictsRef = useRef<Set<string>>(new Set<string>())
 
   /* State */
   const [prefs, setPrefs] = useState<Preferences | null>(null)
@@ -3249,11 +3252,21 @@ export default function PlannerPage() {
             : []
           if (slotConflicts.length > 0) {
             for (const sc of slotConflicts) {
+              // Dedup key so we never re-show the same conflict after it's resolved.
+              const conflictKey = [sc.droppedTripId, sc.conflictsWith.tripId].sort().join("|")
+              if (resolvedSlotConflictsRef.current.has(conflictKey)) continue
+              resolvedSlotConflictsRef.current.add(conflictKey)
+
+              // Auto-resolve: remove the DROPPED trip from My Trip so the next
+              // rebuild doesn't see the same conflict again (scheduler already
+              // chose the winner; we honour that choice here).
+              removeItem(sc.droppedTripId)
+
               const msg =
-                `**Time conflict at ${sc.conflictsWith.slotTime}:** both "**${sc.droppedTitle}**" and "**${sc.conflictsWith.title}**" are only available at ${sc.conflictsWith.slotTime}. ` +
-                `The Trip Canvas kept **${sc.conflictsWith.title}** — which would you prefer?\n\n` +
-                `- **Keep ${sc.conflictsWith.title}** (current plan)\n` +
-                `- **Switch to ${sc.droppedTitle}** — I'll remove the other and rebuild`
+                `⏰ **Time conflict at ${sc.conflictsWith.slotTime}:** both "**${sc.droppedTitle}**" and "**${sc.conflictsWith.title}**" ` +
+                `are only available at ${sc.conflictsWith.slotTime}, so only one can run.\n\n` +
+                `I've kept **${sc.conflictsWith.title}** in your Trip Canvas and removed **${sc.droppedTitle}** from your Trip list.\n\n` +
+                `If you'd prefer **${sc.droppedTitle}** instead, just say "swap" or "I want ${sc.droppedTitle}" and I'll switch them.`
               setMessages((prev) => [
                 ...prev,
                 {
@@ -5556,55 +5569,34 @@ export default function PlannerPage() {
                     <div className="flex flex-col gap-5" data-testid="planner-recs-list">
                       {canvasHasSelectedDate ? (
                         <>
-                          {/* ── On-date group (hidden when "other dates" mode is active) ── */}
-                          {!canvasShowOtherDates && (
-                            <div className="flex flex-col gap-3" data-testid="planner-recs-group-ondate">
-                              <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                                  <Calendar className="h-3 w-3" /> Available on {formatYMDPretty(canvasPrefs!.startDate)}
-                                </span>
-                                <span className="text-xs text-muted-foreground">{onDate.length}</span>
-                                {availLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-                              </div>
-                              {onDate.length > 0 ? (
-                                <div className="flex flex-col gap-3">{onDate.map((t) => renderCard(t, false))}</div>
-                              ) : (
-                                <p className="rounded-xl border border-dashed border-border bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
-                                  {availLoading
-                                    ? "Checking which trips are open on this date…"
-                                    : others.length > 0
-                                      ? <>
-                                          None of your matching trips have open slots on{" "}
-                                          <strong>{formatYMDPretty(canvasPrefs!.startDate)}</strong> yet —{" "}
-                                          <button
-                                            type="button"
-                                            onClick={() => setShowOtherDates(true)}
-                                            className="underline decoration-dotted hover:text-primary transition-colors focus:outline-none"
-                                          >
-                                            See Trips on other dates
-                                          </button>
-                                        </>
-                                      : `None of your matching trips have open slots on ${formatYMDPretty(canvasPrefs!.startDate)} yet — try another date or interest.`}
-                                </p>
-                              )}
+                          {/* ── On-date group: always visible when a date is selected ── */}
+                          <div className="flex flex-col gap-3" data-testid="planner-recs-group-ondate">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                <Calendar className="h-3 w-3" /> Available on {formatYMDPretty(canvasPrefs!.startDate)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{onDate.length}</span>
+                              {availLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
                             </div>
-                          )}
+                            {onDate.length > 0 ? (
+                              <div className="flex flex-col gap-3">{onDate.map((t) => renderCard(t, false))}</div>
+                            ) : (
+                              <p className="rounded-xl border border-dashed border-border bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
+                                {availLoading
+                                  ? "Checking which trips are open on this date…"
+                                  : "No matching trips have open slots on this date — see other dates below."}
+                              </p>
+                            )}
+                          </div>
 
-                          {/* ── Other-dates group (mutually exclusive with on-date group).
-                              Visible only when user explicitly clicks "See Trips on other
-                              dates". When shown, the on-date group is hidden above. ── */}
-                          {canvasShowOtherDates && others.length > 0 && (
+                          {/* ── Other-dates group: always shown below the on-date group so all
+                              matching trips remain visible. Each card shows its available dates
+                              as chips so the visitor can pick the right day. ── */}
+                          {others.length > 0 && (
                             <div className="flex flex-col gap-3" data-testid="planner-recs-group-other">
                               <div className="flex items-center gap-2 flex-wrap gap-y-1">
-                                <button
-                                  type="button"
-                                  onClick={() => setShowOtherDates(false)}
-                                  className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary"
-                                >
-                                  ← {formatYMDPretty(canvasPrefs!.startDate)}
-                                </button>
                                 <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
-                                  <Calendar className="h-3 w-3" /> Available on other dates
+                                  <Calendar className="h-3 w-3" /> Other dates
                                 </span>
                                 <span className="text-xs text-muted-foreground">{others.length}</span>
                               </div>
