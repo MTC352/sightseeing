@@ -2759,10 +2759,17 @@ export default function PlannerPage() {
         })
       }
     },
-    onFinish({ usage }) {
+    onFinish({ message }) {
+      // AI SDK v6 dropped `usage` from this callback — token usage now arrives
+      // as message metadata attached server-side (see PlannerMessageMetadata in
+      // app/api/planner/route.ts). Read it from the just-finished assistant
+      // message so the admin-only Dev Info panel can display it.
+      const usage = message?.metadata?.usage
       if (!usage) return
-      const total = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
-      setLastTurnTokens({ prompt: usage.promptTokens ?? 0, completion: usage.completionTokens ?? 0 })
+      const inTok = usage.inputTokens ?? 0
+      const outTok = usage.outputTokens ?? 0
+      const total = usage.totalTokens ?? inTok + outTok
+      setLastTurnTokens({ prompt: inTok, completion: outTok })
       setSessionTokens((prev) => prev + total)
       // Push into rolling 60s bucket so remaining-TPM can be computed.
       if (total > 0) {
@@ -3335,7 +3342,7 @@ export default function PlannerPage() {
           // Slot conflicts — trips with ≤2 slots that clash with a placed trip's time.
           // Surface each conflict as a priority-choice message so the user can decide.
           const slotConflicts = Array.isArray((data as { slotConflicts?: unknown }).slotConflicts)
-            ? (data as { slotConflicts: { droppedTripId: string; droppedTitle: string; conflictsWith: { tripId: string; title: string; slotTime: string } }[] }).slotConflicts
+            ? (data as unknown as { slotConflicts: { droppedTripId: string; droppedTitle: string; conflictsWith: { tripId: string; title: string; slotTime: string } }[] }).slotConflicts
             : []
           if (slotConflicts.length > 0) {
             for (const sc of slotConflicts) {

@@ -1354,7 +1354,15 @@ const tools = {
 } as const
 
 /* ── Exported type for client-side typed parts ── */
-export type PlannerMessage = UIMessage<never, never, InferUITools<typeof tools>>
+// AI SDK v6 removed `sendUsage` and dropped `usage` from the client `onFinish`
+// callback. Token usage now travels to the client as MESSAGE METADATA (attached
+// server-side via `toUIMessageStreamResponse({ messageMetadata })`, read on the
+// client from `message.metadata`). This metadata type carries that usage so the
+// admin-only Dev Info panel can display it again.
+export type PlannerMessageMetadata = {
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+}
+export type PlannerMessage = UIMessage<PlannerMessageMetadata, never, InferUITools<typeof tools>>
 
 interface TravelerPreferences {
   group: string
@@ -2034,7 +2042,22 @@ export async function POST(req: Request) {
     // perfectly valid key. Emit a stable token: "AI_AUTH" only for real
     // credential failures, "AI_TEMP" for everything else (retryable).
     return result.toUIMessageStreamResponse({
-      sendUsage: true,
+      // AI SDK v6: `sendUsage` was removed. Attach token usage as message
+      // metadata on the finish part so the client can read it from
+      // `message.metadata.usage` (powers the admin-only Dev Info panel).
+      messageMetadata: ({ part }): PlannerMessageMetadata | undefined => {
+        if (part.type === "finish") {
+          const u = part.totalUsage
+          const inputTokens = u.inputTokens ?? 0
+          const outputTokens = u.outputTokens ?? 0
+          const totalTokens = u.totalTokens ?? inputTokens + outputTokens
+          // Skip emitting zeroed usage when the provider reports none, so the
+          // Dev Info panel keeps showing "—" instead of a misleading 0.
+          if (inputTokens <= 0 && outputTokens <= 0 && totalTokens <= 0) return undefined
+          return { usage: { inputTokens, outputTokens, totalTokens } }
+        }
+        return undefined
+      },
       onError: (error) => {
         const e = error as { statusCode?: number; status?: number; message?: string } | undefined
         const status = e?.statusCode ?? e?.status
