@@ -762,17 +762,20 @@ export async function buildSchedule(opts: {
   }
 
   // Prefer the ordering that:
-  //  1) Includes MORE single-slot (pinned) trips — a pinned trip can only be
-  //     done at one time, so it's never worth dropping it to fit an extra
-  //     flexible stop that can be done any day.
+  //  1) Includes MORE single-slot (pinned) trips AND keeps at least as many
+  //     total stops — a pinned trip is more valuable than a flexible one, but
+  //     only when it doesn't cost us stops overall. A long 8-hour pinned tour
+  //     that evicts three short flexible trips should NOT win just because it's
+  //     pinned; the three-stop result is strictly better for the visitor.
   //  2) Ties on pinned count → includes more total stops.
   //  3) Ties on both → keep the current best (no regression to previous
   //     earliest-deadline-first behaviour).
   const isBetter = (candidate: { steps: ScheduledStep[]; dropped: DroppedTrip[]; notes: string[] }): boolean => {
     const cp = countPinnedIncluded(candidate.steps)
     const bp = countPinnedIncluded(best.steps)
-    if (cp !== bp) return cp > bp
-    return candidate.steps.length > best.steps.length
+    if (cp > bp && candidate.steps.length >= best.steps.length) return true
+    if (cp === bp) return candidate.steps.length > best.steps.length
+    return false
   }
 
   // Run the engine under each ordering and keep whichever is "better" per the
