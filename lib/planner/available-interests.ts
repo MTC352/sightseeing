@@ -141,3 +141,118 @@ export function buildAvailableInterestsLine(args: {
   }
   return lines.join("\n")
 }
+
+/**
+ * A returned-search trip the per-interest breakdown can match themes against.
+ * Same matchable text fields as the canvas/searchTrips matcher (see
+ * interest-match), plus the id used to look up the availability class.
+ */
+export interface ReturnedTripLite extends MatchableTrip {
+  id: string
+}
+
+/** A requested theme to break availability down by. Label is optional (a bare
+ *  free-text query word has none). */
+export interface RequestedTheme {
+  value: string
+  label?: string | null
+}
+
+/**
+ * Per-trip availability class on the visit date, as produced by the shared
+ * classifier (lib/planner/availability-parity.ts → classifyTripAvailability):
+ *  - "available"   → bookable on the visit date.
+ *  - "unconfirmed" → dual-source incident — NEVER a closure.
+ *  - "alternative" → not on the visit date, but bookable on other dates.
+ *  - "none"        → confidently not bookable on the visit date.
+ */
+export type ReturnedTripStatus = "available" | "unconfirmed" | "alternative" | "none"
+
+/** One requested theme's availability among the trips searchTrips returned. */
+export interface InterestBreakdownEntry {
+  /** The requested theme slug/word (e.g. "food", "wine"). */
+  interest: string
+  /** Optional human label when the theme came from a canonical interest. */
+  label?: string
+  /** Returned trips carrying this theme. */
+  matchedCount: number
+  /** Of those, how many are bookable on the visit date. */
+  availableCount: number
+  /** Of those, how many couldn't be confirmed (incident, not a closure). */
+  unconfirmedCount: number
+  /**
+   * TRUE only when this theme has matched trips, NONE are bookable on the visit
+   * date, AND none are merely unconfirmed — i.e. a CONFIDENT empty theme. The AI
+   * must never claim the canvas "shows" a theme that is true for.
+   */
+  noneAvailableOnVisitDate: boolean
+  /** Matched trips NOT bookable on the visit date, with their real alt dates. */
+  notBookable: { title: string; dates: string[] }[]
+}
+
+/**
+ * Break a multi-theme search's availability down PER REQUESTED THEME.
+ *
+ * Why this exists (Task: planner per-interest availability honesty): the
+ * searchTrips `availability` object is AGGREGATE only — in a multi-theme (OR)
+ * search where, say, city + wine are bookable but food is not, the aggregate
+ * `noneAvailableOnVisitDate` is false and `availableOnVisitDateCount` > 0, so the
+ * model treats the WHOLE matched set (food included) as bookable and tells the
+ * visitor the canvas "shows" a food tour that day — then contradicts itself. This
+ * fold gives the model an explicit per-theme verdict so it can confirm only the
+ * themes that are really bookable and offer real alternative dates for the rest.
+ *
+ * For each requested theme it finds the RETURNED trips matching that theme (via
+ * the same content-aware `matchTripInterest` the canvas uses) and classifies each
+ * with the caller-supplied `statusOf`. Themes with no matched trip are omitted.
+ * Pure: no DB/env, so it stays unit-testable and parity-safe with the canvas.
+ */
+export function buildInterestAvailabilityBreakdown(args: {
+  themes: RequestedTheme[]
+  returnedTrips: ReturnedTripLite[]
+  statusOf: (tripId: string) => ReturnedTripStatus
+  datesOf: (tripId: string) => string[]
+  maxNotBookablePerTheme?: number
+}): InterestBreakdownEntry[] {
+  const { themes, returnedTrips, statusOf, datesOf } = args
+  const maxNot = args.maxNotBookablePerTheme ?? 4
+  const out: InterestBreakdownEntry[] = []
+  const seen = new Set<string>()
+
+  for (const theme of themes) {
+    if (!theme || typeof theme.value !== "string" || !theme.value) continue
+    const key = theme.value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    const matched = returnedTrips.filter((t) => matchTripInterest(t, theme).matched)
+    if (matched.length === 0) continue // theme not present in the returned set.
+
+    let availableCount = 0
+    let unconfirmedCount = 0
+    const notBookable: { title: string; dates: string[] }[] = []
+    for (const t of matched) {
+      const s = statusOf(t.id)
+      if (s === "available") availableCount++
+      else if (s === "unconfirmed") unconfirmedCount++
+      else if (notBookable.length < maxNot) {
+        notBookable.push({ title: t.title ?? t.id, dates: datesOf(t.id) })
+      }
+    }
+
+    out.push({
+      interest: theme.value,
+      ...(theme.label ? { label: theme.label } : {}),
+      matchedCount: matched.length,
+      availableCount,
+      unconfirmedCount,
+      // Confident empty theme: matched trips but zero bookable and zero merely
+      // unconfirmed. An all-unconfirmed theme stays FALSE (incident, not closed).
+      noneAvailableOnVisitDate:
+        matched.length > 0 && availableCount === 0 && unconfirmedCount === 0,
+      notBookable,
+    })
+  }
+
+  return out
+}

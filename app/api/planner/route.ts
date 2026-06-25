@@ -10,7 +10,7 @@ import {
 import { resolveAi } from "@/lib/ai/provider"
 import { buildPlannerSystemPromptParts, buildCanvasCountLine, buildCanvasAwarenessLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable, shouldAnnotateAvailability } from "@/lib/planner/availability-parity"
-import { computeAvailableInterests, buildAvailableInterestsLine, type InterestTripStatus } from "@/lib/planner/available-interests"
+import { computeAvailableInterests, buildAvailableInterestsLine, buildInterestAvailabilityBreakdown, type InterestTripStatus, type InterestBreakdownEntry } from "@/lib/planner/available-interests"
 import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
 import { autoPickTrips, type AutoPickCandidate, type AutoPickSlot } from "@/lib/planner/auto-pick"
 import { sanitizePlannerMessages } from "@/lib/planner/sanitize-messages"
@@ -475,6 +475,11 @@ const searchTripsTool = tool({
       // sources failed). The AI must NOT call these "not available" — it should
       // say it couldn't confirm and suggest retrying.
       unconfirmed?: { title: string }[]
+      // Per-requested-theme availability breakdown for MULTI-theme searches. Lets
+      // the AI confirm only the themes that are really bookable on the visit date
+      // and offer real alternative dates for the rest, instead of treating the
+      // whole matched (OR) set as bookable because the aggregate said "some are".
+      perInterest?: InterestBreakdownEntry[]
     } | undefined
     // Fail-safe: only ground on the snapshot when its date still matches the
     // EFFECTIVE date for THIS tool call (the explicit `date` arg when valid, else
