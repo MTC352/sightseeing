@@ -171,48 +171,67 @@ export interface ModelMeta {
   maxOutput: number
   /** Short admin-facing description of the model's strengths. */
   blurb: string
+  /**
+   * Approximate tokens-per-minute (TPM) rate limit for this model on the
+   * default/entry-level API tier. Actual limits depend on account tier and
+   * may be higher for paid plans. Used as a developer reference only.
+   */
+  tpm: number
 }
 
 /** Per-model capability metadata, keyed by BARE model id (no provider prefix). */
 export const MODEL_META: Record<string, ModelMeta> = {
-  // OpenAI
+  // OpenAI — TPM values are approximate Tier-1 (pay-as-you-go) defaults.
+  // Actual limits scale up with account spend tier.
   "gpt-4o-mini": {
     tier: "fast",
     contextWindow: 128_000,
     maxOutput: 16_384,
+    tpm: 200_000,
     blurb: "Fast and economical. Great for short Q&A and lightweight chat, but has the lowest rate limits.",
   },
   "gpt-4.1-mini": {
     tier: "balanced",
     contextWindow: 1_047_576,
     maxOutput: 32_768,
+    tpm: 2_000_000,
     blurb: "GPT-4.1 family with a 1M-token context and high rate-limit headroom. Strong tool-calling and analysis for multi-turn planning — recommended for the Trip Planner chat.",
   },
   "gpt-4.1": {
     tier: "best",
     contextWindow: 1_047_576,
     maxOutput: 32_768,
+    tpm: 2_000_000,
     blurb: "Largest context and deepest reasoning. Ideal for itinerary building over every trip's details.",
   },
-  // Anthropic
+  // Anthropic — TPM values are approximate Build-plan defaults.
+  // Usage-tier upgrades raise these limits significantly.
   "claude-haiku-4-5-20251001": {
     tier: "fast",
     contextWindow: 200_000,
     maxOutput: 8_192,
+    tpm: 100_000,
     blurb: "Fast, low-cost Claude. Good for short chats; lighter on deep analysis.",
   },
   "claude-sonnet-4-6": {
     tier: "balanced",
     contextWindow: 200_000,
     maxOutput: 16_384,
+    tpm: 80_000,
     blurb: "Balanced Claude. Reliable for planning conversations and itinerary work.",
   },
   "claude-opus-4-7": {
     tier: "best",
     contextWindow: 200_000,
     maxOutput: 32_000,
+    tpm: 40_000,
     blurb: "Most capable Claude. Best for the richest context and the most demanding analysis.",
   },
+}
+
+/** Human-readable TPM, e.g. 200_000 → "200K", 2_000_000 → "2M". Same scale as formatTokens. */
+export function formatTpm(tpm: number): string {
+  return formatTokens(tpm)
 }
 
 /** Capability metadata for any (prefixed or bare) model id. Falls back to a
@@ -224,9 +243,9 @@ export function modelMeta(model: string): ModelMeta {
   // Unknown id — synthesise a conservative estimate from its tier.
   const tier = tierOf(model)
   const byTier: Record<ModelTier, ModelMeta> = {
-    fast: { tier: "fast", contextWindow: 128_000, maxOutput: 8_192, blurb: "Fast, lightweight model." },
-    balanced: { tier: "balanced", contextWindow: 128_000, maxOutput: 16_384, blurb: "Balanced general-purpose model." },
-    best: { tier: "best", contextWindow: 200_000, maxOutput: 32_000, blurb: "High-capability model." },
+    fast:     { tier: "fast",     contextWindow: 128_000, maxOutput: 8_192,  tpm: 100_000,   blurb: "Fast, lightweight model." },
+    balanced: { tier: "balanced", contextWindow: 128_000, maxOutput: 16_384, tpm: 500_000,   blurb: "Balanced general-purpose model." },
+    best:     { tier: "best",     contextWindow: 200_000, maxOutput: 32_000, tpm: 2_000_000, blurb: "High-capability model." },
   }
   return byTier[tier]
 }

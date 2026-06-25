@@ -34,6 +34,7 @@ import {
 } from "lucide-react"
 import { downloadItineraryPdf } from "@/lib/planner/itinerary-pdf"
 import { resolveCartToolAction } from "@/lib/planner/trip-match"
+import { modelMeta, formatTpm, MODEL_LABELS, stripProviderPrefix } from "@/lib/ai/models"
 import { scoreTripInterests } from "@/lib/planner/interest-match"
 import { isCanvasCountTrustworthy } from "@/lib/planner/availability-parity"
 import { AUTO_SEED_PREFIX, firstRealUserMessageIndex } from "@/lib/planner/canvas-trips"
@@ -1298,6 +1299,27 @@ export default function PlannerPage() {
       .catch(() => { /* keep defaults */ })
     return () => { cancelled = true }
   }, [])
+  // Admin dev-mode state — fetched once on mount.
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false)
+  const [plannerModel, setPlannerModel] = useState<string | null>(null)
+  const [sessionTokens, setSessionTokens] = useState(0)
+  const [lastTurnTokens, setLastTurnTokens] = useState<{ prompt: number; completion: number } | null>(null)
+
+  // Admin login detection — shows dev-info bar only when an admin is logged in.
+  useEffect(() => {
+    fetch("/api/admin/auth/me", { credentials: "include", cache: "no-store" })
+      .then((r) => { if (r.ok) setIsAdminLoggedIn(true) })
+      .catch(() => { /* not logged in */ })
+    // Read the active planner model so the dev bar can display TPM.
+    fetch("/api/planner/form-config", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { plannerModel?: string | null } | null) => {
+        const m = data?.plannerModel
+        if (m && typeof m === "string") setPlannerModel(m)
+      })
+      .catch(() => { /* ignore */ })
+  }, [])
+
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [cartOpen, setCartOpen] = useState(false)
   const [input, setInput] = useState("")
@@ -2703,6 +2725,12 @@ export default function PlannerPage() {
           })
         }
       }
+    },
+    onFinish({ usage }) {
+      if (!usage) return
+      const total = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
+      setLastTurnTokens({ prompt: usage.promptTokens ?? 0, completion: usage.completionTokens ?? 0 })
+      setSessionTokens((prev) => prev + total)
     },
   })
 
@@ -5201,6 +5229,42 @@ export default function PlannerPage() {
                     <Send className="h-4 w-4" />
                   </button>
                 </form>
+                {/* ── Admin developer info bar — only visible when logged in as admin ── */}
+                {isAdminLoggedIn && (() => {
+                  const bare = plannerModel ? stripProviderPrefix(plannerModel) : null
+                  const meta = bare ? modelMeta(bare) : null
+                  const label = bare ? (MODEL_LABELS[bare] ?? bare) : "Unknown model"
+                  const tpm = meta?.tpm ?? 0
+                  const lastTotal = lastTurnTokens ? lastTurnTokens.prompt + lastTurnTokens.completion : null
+                  return (
+                    <div className="mt-2 rounded-lg border border-dashed border-amber-400/60 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2 text-[10px] leading-relaxed font-mono text-amber-800 dark:text-amber-300">
+                      <div className="mb-1 flex items-center gap-1.5 font-semibold text-[11px] not-italic font-sans">
+                        <span className="rounded bg-amber-400/20 px-1.5 py-0.5">🛠 Dev Info</span>
+                        <span className="text-muted-foreground font-normal">(admin only)</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                        <span className="text-muted-foreground">Model</span>
+                        <span className="truncate" title={bare ?? ""}>{label}</span>
+                        <span className="text-muted-foreground">Rate limit (TPM)</span>
+                        <span>~{tpm ? formatTpm(tpm) : "—"} tok/min</span>
+                        <span className="text-muted-foreground">Last turn tokens</span>
+                        <span>
+                          {lastTurnTokens
+                            ? `${lastTurnTokens.prompt.toLocaleString()} in + ${lastTurnTokens.completion.toLocaleString()} out = ${lastTotal!.toLocaleString()}`
+                            : "—"}
+                        </span>
+                        <span className="text-muted-foreground">Session total</span>
+                        <span>{sessionTokens > 0 ? sessionTokens.toLocaleString() : "—"}</span>
+                        {tpm > 0 && lastTotal && lastTotal > 0 && (
+                          <>
+                            <span className="text-muted-foreground">Next input safe in</span>
+                            <span>~{Math.max(0, Math.ceil((lastTotal / tpm) * 60)).toFixed(0)}s at full rate</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
                 <p className="mt-1.5 text-center text-[10px] text-muted-foreground">Powered by sightseeing.lu</p>
               </div>
             </>

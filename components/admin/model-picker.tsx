@@ -18,6 +18,7 @@ import {
   capabilityFor,
   approxConversationTurns,
   formatTokens,
+  formatTpm,
 } from "@/lib/ai/models"
 
 const VERDICT_STYLES: Record<
@@ -96,9 +97,10 @@ export function ModelPicker({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="Context window" value={`${formatTokens(meta.contextWindow)} tokens`} />
           <Stat label="Max output" value={`${formatTokens(meta.maxOutput)} tokens`} />
+          <Stat label="Rate limit (TPM)" value={`~${formatTpm(meta.tpm)} tok/min`} />
           <Stat label="Approx. chat length" value={`~${turns.toLocaleString()} messages`} />
         </div>
 
