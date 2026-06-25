@@ -4380,10 +4380,18 @@ export default function PlannerPage() {
       availableTodayCount: availableToday.length,
       availableTodaySamples,
       showingOtherDates: showOtherDates,
-      // What the visitor ACTUALLY sees on the canvas right now (titles of the
-      // currently-visible group) + their recent manual actions, so the AI can
-      // describe the screen + acknowledge what they just did.
-      displayedTitles: visibleCanvasTrips.map((t) => t.title).slice(0, 12),
+      // What the visitor ACTUALLY sees on the canvas right now + their recent
+      // manual actions, so the AI can describe the screen + acknowledge what
+      // they just did. When a date is selected the canvas renders BOTH the
+      // on-date group (visibleCanvasTrips) AND the other-dates group
+      // (matchingOther) stacked together, so the AI's view must include both —
+      // otherwise it is grounded to only half of what's on screen.
+      displayedTitles: (hasSelectedDate
+        ? [...visibleCanvasTrips, ...matchingOther]
+        : visibleCanvasTrips
+      )
+        .map((t) => t.title)
+        .slice(0, 12),
       recentActions: recentActionsRef.current.slice(-6),
     }
     // Whole-catalog availability snapshot for the server's searchTrips tool.
@@ -5740,13 +5748,13 @@ export default function PlannerPage() {
                     </div>
                   )
                 ) : (() => {
-                  /* Date feature = FILTER. When a date is selected, the canvas
-                     shows ONLY the trips actually bookable on that date (so a
-                     "this weekend" request lists just the weekend-available
-                     trips, never the whole catalog). The "Available on other
-                     dates" group is a graceful fallback that ONLY appears when
-                     NOTHING is bookable on the selected date — so the canvas is
-                     never left blank. With no date picked, a single
+                  /* Date feature = grouping, NOT a hard filter. When a date is
+                     selected the canvas shows ALL matching trips, split into two
+                     stacked groups: an "Available on <date>" group (bookable that
+                     day) and an "Other dates" group (matching trips bookable on
+                     other days, each card showing its available-date chips). Both
+                     groups are always rendered so every matching trip stays
+                     visible (no AI shortlist). With no date picked, a single
                      availability-then-score-sorted list is shown. */
                   const onDate = canvasHasSelectedDate
                     ? canvasResultTrips.filter((t) => canvasAvail[t.id]?.availableOnSelectedDate)
