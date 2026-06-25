@@ -2556,16 +2556,23 @@ export default function PlannerPage() {
       const isRateLimit = !isClientRuntime && !isAuth && /\bAI_RATE\b/.test(raw)
       const retryMatch = raw.match(/\bAI_RATE:(\d+(?:\.\d+)?)\b/)
       const retryAfterSec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : null
+      // Network / connectivity failure — the browser's fetch() threw before it
+      // ever reached the server. Typical patterns: "Failed to fetch" (Chrome),
+      // "Load failed" (Safari), "NetworkError when attempting to fetch" (Firefox),
+      // or "network error" from the AI SDK stream parser on a dropped connection.
+      const isNetworkError = !isClientRuntime && !isAuth && !isRateLimit &&
+        /network error|failed to fetch|load failed|networkerror|net::err|connection/i.test(raw)
       // Beacon the failure to the server so EVERY "couldn't reach the AI"
       // event is logged under /admin/logs (source ai:planner) — including
       // purely client-side failures (network drop, proxy stream timeout,
       // abort) that no server handler ever sees. Fire-and-forget; never block
       // or throw from the error path.
+      const beaconKind = isClientRuntime ? "client-runtime" : isAuth ? "auth" : isRateLimit ? "rate-limit" : isNetworkError ? "network" : "temp"
       try {
         void fetch("/api/planner/log-error", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: raw.slice(0, 500), kind: isClientRuntime ? "client-runtime" : isAuth ? "auth" : isRateLimit ? "rate-limit" : "temp" }),
+          body: JSON.stringify({ message: raw.slice(0, 500), kind: beaconKind }),
           keepalive: true,
         }).catch(() => { /* ignore */ })
       } catch { /* ignore */ }
@@ -2576,8 +2583,10 @@ export default function PlannerPage() {
       const errText = isAuth
         ? "⚠️ The AI assistant is unavailable right now — its API key looks invalid or expired. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas. Ask the site admin to update the AI key in the admin panel to re-enable chat."
         : isRateLimit
-          ? `⏱️ The AI assistant is busy right now — too many requests in a short window (rate limit).${retryAfterSec ? ` Please wait **${retryAfterSec} seconds** before sending your next message.` : " Please wait a moment before trying again."} You can still browse trips and add them to your day in the meantime.`
-          : "⚠️ I couldn't reach the AI assistant just now — please try again in a moment. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas."
+          ? `⏱️ The AI is rate-limited — too many requests in one minute.${retryAfterSec ? ` Please wait **${retryAfterSec} seconds** before sending your next message.` : " Please wait a moment before trying again."} You can still browse trips and add them to your day in the meantime.`
+          : isNetworkError
+            ? "🌐 Network issue — your connection to the AI assistant was interrupted. Please check your internet connection and try again in a moment. You can still browse trips and build an itinerary on the Trip Canvas."
+            : "⚠️ The AI assistant is temporarily unavailable — please try again in a moment. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas."
       // Surface a friendly assistant bubble so the chat doesn't look frozen.
       setMessagesRef.current?.((prev) => {
         const last = prev[prev.length - 1]
