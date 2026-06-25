@@ -2547,6 +2547,11 @@ export default function PlannerPage() {
       // and SKIP appending the scary fallback bubble.
       const isClientRuntime = /Maximum update depth|Minified React error|Rendered (?:more|fewer) hooks|Cannot update a component|Should have a queue/i.test(raw)
       const isAuth = !isClientRuntime && /\bAI_AUTH\b|invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key|not configured/i.test(raw)
+      // AI_RATE[:X.XX] — provider 429 rate limit, optionally with a retry-after
+      // countdown parsed from the provider's error body by the server.
+      const isRateLimit = !isClientRuntime && !isAuth && /\bAI_RATE\b/.test(raw)
+      const retryMatch = raw.match(/\bAI_RATE:(\d+(?:\.\d+)?)\b/)
+      const retryAfterSec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : null
       // Beacon the failure to the server so EVERY "couldn't reach the AI"
       // event is logged under /admin/logs (source ai:planner) — including
       // purely client-side failures (network drop, proxy stream timeout,
@@ -2556,7 +2561,7 @@ export default function PlannerPage() {
         void fetch("/api/planner/log-error", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: raw.slice(0, 500), kind: isClientRuntime ? "client-runtime" : isAuth ? "auth" : "temp" }),
+          body: JSON.stringify({ message: raw.slice(0, 500), kind: isClientRuntime ? "client-runtime" : isAuth ? "auth" : isRateLimit ? "rate-limit" : "temp" }),
           keepalive: true,
         }).catch(() => { /* ignore */ })
       } catch { /* ignore */ }
@@ -2566,7 +2571,9 @@ export default function PlannerPage() {
       if (isClientRuntime) return
       const errText = isAuth
         ? "⚠️ The AI assistant is unavailable right now — its API key looks invalid or expired. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas. Ask the site admin to update the AI key in the admin panel to re-enable chat."
-        : "⚠️ I couldn't reach the AI assistant just now — please try again in a moment. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas."
+        : isRateLimit
+          ? `⏱️ The AI assistant is busy right now — too many requests in a short window (rate limit).${retryAfterSec ? ` Please wait **${retryAfterSec} seconds** before sending your next message.` : " Please wait a moment before trying again."} You can still browse trips and add them to your day in the meantime.`
+          : "⚠️ I couldn't reach the AI assistant just now — please try again in a moment. You can still browse trips, add them to your day, and build an itinerary on the Trip Canvas."
       // Surface a friendly assistant bubble so the chat doesn't look frozen.
       setMessagesRef.current?.((prev) => {
         const last = prev[prev.length - 1]

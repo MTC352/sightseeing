@@ -1761,23 +1761,41 @@ export async function POST(req: Request) {
       onError: (error) => {
         const e = error as { statusCode?: number; status?: number; message?: string } | undefined
         const status = e?.statusCode ?? e?.status
-        const msg = (e?.message ?? String(error ?? "")).toLowerCase()
+        const rawMsg = e?.message ?? String(error ?? "")
+        const msg = rawMsg.toLowerCase()
+
         const isAuth =
           status === 401 ||
           status === 403 ||
           /invalid x-api-key|authentication|unauthor|invalid api key|api[_ ]?key/i.test(msg)
-        // ALWAYS log the stream-phase failure to admin errors. streamText.onError
-        // only covers errors raised during generation; errors surfaced while
-        // serializing the UI message stream to the HTTP response land HERE and
-        // were previously mapped to a client token WITHOUT ever being logged —
-        // which is why "couldn't reach the AI assistant" never showed up in
-        // /admin/logs. Now both phases are covered.
+
+        // 429 rate-limit: parse the "try again in X.XXXs" from the provider
+        // message so the client can surface an accurate countdown instead of
+        // the generic "couldn't reach AI" text.
+        const isRateLimit =
+          !isAuth &&
+          (status === 429 || /rate.?limit.?exceeded|too many requests/i.test(msg))
+        let retryAfterSec: number | null = null
+        if (isRateLimit) {
+          const m = rawMsg.match(/try again in (\d+(?:\.\d+)?)s/i)
+          retryAfterSec = m ? parseFloat(m[1]) : null
+        }
+
+        const classified = isAuth ? "AI_AUTH" : isRateLimit ? "AI_RATE" : "AI_TEMP"
+        // ALWAYS log the stream-phase failure to admin errors.
         void logCaughtError("ai:planner", error, {
           phase: "stream-response",
-          classified: isAuth ? "AI_AUTH" : "AI_TEMP",
+          classified,
+          ...(isRateLimit && retryAfterSec !== null ? { retryAfterSec } : {}),
           ...requestMeta(req),
         })
-        return isAuth ? "AI_AUTH" : "AI_TEMP"
+        // Return a stable token the client can match:
+        //   AI_AUTH  → credential problem
+        //   AI_RATE:X.XX → rate limit, retry after X seconds
+        //   AI_TEMP  → transient / retryable
+        if (isAuth) return "AI_AUTH"
+        if (isRateLimit) return retryAfterSec !== null ? `AI_RATE:${retryAfterSec}` : "AI_RATE"
+        return "AI_TEMP"
       },
     })
   } catch (error) {

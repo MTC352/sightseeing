@@ -181,31 +181,32 @@ export interface ModelMeta {
 
 /** Per-model capability metadata, keyed by BARE model id (no provider prefix). */
 export const MODEL_META: Record<string, ModelMeta> = {
-  // OpenAI — TPM values are approximate Tier-1 (pay-as-you-go) defaults.
-  // Actual limits scale up with account spend tier.
+  // OpenAI — TPM values are the Tier-1 (first $5 spend) API defaults.
+  // These are the MINIMUM limits — higher tiers get significantly more.
+  // Source: https://platform.openai.com/docs/guides/rate-limits
   "gpt-4o-mini": {
     tier: "fast",
     contextWindow: 128_000,
     maxOutput: 16_384,
     tpm: 200_000,
-    blurb: "Fast and economical. Great for short Q&A and lightweight chat, but has the lowest rate limits.",
+    blurb: "Fast and economical. Great for short Q&A and lightweight chat.",
   },
   "gpt-4.1-mini": {
     tier: "balanced",
     contextWindow: 1_047_576,
     maxOutput: 32_768,
-    tpm: 2_000_000,
-    blurb: "GPT-4.1 family with a 1M-token context and high rate-limit headroom. Strong tool-calling and analysis for multi-turn planning — recommended for the Trip Planner chat.",
+    tpm: 200_000,
+    blurb: "GPT-4.1 family with a 1M-token context. Strong tool-calling for multi-turn planning — recommended for the Trip Planner chat.",
   },
   "gpt-4.1": {
     tier: "best",
     contextWindow: 1_047_576,
     maxOutput: 32_768,
-    tpm: 2_000_000,
-    blurb: "Largest context and deepest reasoning. Ideal for itinerary building over every trip's details.",
+    tpm: 30_000,
+    blurb: "Largest context and deepest reasoning. Ideal for itinerary building — note the low Tier-1 TPM limit (30K); upgrade your API tier for heavy use.",
   },
-  // Anthropic — TPM values are approximate Build-plan defaults.
-  // Usage-tier upgrades raise these limits significantly.
+  // Anthropic — TPM values are approximate Build-tier defaults.
+  // Source: https://docs.anthropic.com/en/api/rate-limits
   "claude-haiku-4-5-20251001": {
     tier: "fast",
     contextWindow: 200_000,
@@ -217,14 +218,14 @@ export const MODEL_META: Record<string, ModelMeta> = {
     tier: "balanced",
     contextWindow: 200_000,
     maxOutput: 16_384,
-    tpm: 80_000,
+    tpm: 40_000,
     blurb: "Balanced Claude. Reliable for planning conversations and itinerary work.",
   },
   "claude-opus-4-7": {
     tier: "best",
     contextWindow: 200_000,
     maxOutput: 32_000,
-    tpm: 40_000,
+    tpm: 20_000,
     blurb: "Most capable Claude. Best for the richest context and the most demanding analysis.",
   },
 }
