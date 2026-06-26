@@ -1,0 +1,174 @@
+Do NOT make any changes. Read-only audit only.
+
+Give me a complete picture of how the Trip Planner PAGE 
+works — frontend, backend, and everything in between.
+Cover every section carefully.
+
+---
+
+SECTION 1 — PAGE STRUCTURE
+1. What is the file path of the Trip Planner page component?
+2. What are the main UI regions on the page?
+   (e.g. chat panel, trip canvas, map, cart sidebar)
+   For each region, which component renders it?
+3. What is the top-level state management approach?
+   (React state, Zustand, Context, Redux, or other)
+4. List every piece of state that lives at the page level 
+   with what each one holds.
+
+---
+
+SECTION 2 — CHAT PANEL
+1. Which component renders the chat?
+2. Which hook or library manages the chat messages?
+   (e.g. useChat from Vercel AI SDK, custom hook, other)
+3. What is the exact function called when user sends a message?
+4. Where is conversation history stored between messages?
+   (sessionStorage, React state, the hook's internal state)
+5. When the page refreshes, what happens to chat history?
+6. What fields are included in each message sent to the server?
+   Show the full shape of the request body.
+
+---
+
+SECTION 3 — TRIP CANVAS
+1. Which component renders the Trip Canvas?
+2. What triggers the canvas to update/re-render?
+   List every event or state change that causes it.
+3. How does a searchTrips tool call result reach the canvas?
+   Trace the exact data flow from tool response → canvas update.
+4. How does the canvas switch between:
+   - Showing all trips (unfiltered)
+   - Showing filtered trips (after interest selection)
+   - Showing the Day Itinerary view
+5. Where is the current canvas state stored?
+   (which state variable, which component owns it)
+
+---
+
+SECTION 4 — MAP VIEW
+1. Which component renders the map?
+2. What data does the map need to display trip locations?
+3. When does the map update?
+4. How do map pins/markers connect to trip cards?
+   (clicking a pin — what happens?)
+
+---
+
+SECTION 5 — CART / MY TRIP LIST
+1. Which component renders the cart sidebar?
+2. Where is cart state stored? 
+   (React state, sessionStorage, localStorage, server)
+3. How does a trip get added to the cart from:
+   a) A chat command ("add the e-bike tour")
+   b) A manual click on a trip card
+4. How does cart state get sent to the server on each 
+   chat message so the AI knows what's in the list?
+5. When a trip is removed, what updates and in what order?
+
+---
+
+SECTION 6 — DATE SELECTION AND AVAILABILITY
+1. Where is the date picker component?
+   Which component renders it?
+2. When user selects a date, what is the exact sequence:
+   a) What state updates immediately?
+   b) Is an API call made? To which endpoint?
+   c) Does it send a new chat message automatically?
+   d) How does the canvas react to the date change?
+3. Where is the selected visit date stored on the client?
+4. How does the visit date reach the server on each request?
+   Which field in the request body carries it?
+5. When availability data comes back for a date:
+   a) Which trips get shown on the canvas?
+   b) Which trips get hidden or greyed out?
+   c) Where is this availability state stored on the client?
+6. When user changes the date mid-conversation:
+   a) What re-fetches automatically?
+   b) What does the AI receive about the new date?
+   c) Does the canvas reset or update incrementally?
+
+---
+
+SECTION 7 — TOOL CALL HANDLING ON CLIENT
+1. Which file contains the onToolCall handler?
+2. List every tool handled on the client side with:
+   - Tool name
+   - What the handler does
+   - What state it updates
+   - What it returns to the AI stream
+3. For updatePreferences specifically:
+   - What fields can it update?
+   - When it updates interests, what happens to the canvas?
+   - When it updates the date, what re-fetches?
+4. For searchTrips result handling:
+   - Where does the result get processed on the client?
+   - How does it update the canvas state?
+5. For buildItinerary:
+   - What does the client do when this tool is called?
+   - How does the canvas switch to itinerary view?
+
+---
+
+SECTION 8 — DATA FLOW DIAGRAM
+Describe the complete data flow for this scenario:
+"User types: show me boat tours for Saturday"
+
+Step by step, what happens:
+1. In the chat component
+2. In the request to /api/planner
+3. In the AI model (which tools get called, in what order)
+4. In each tool's execute function
+5. Back in the client when results stream in
+6. On the Trip Canvas
+7. In the cart sidebar
+8. In the URL or any shared state
+
+---
+
+SECTION 9 — FILTERS AND INTERESTS
+1. Is there a filter bar or interest chips UI above the canvas?
+2. When user clicks an interest chip manually (not via chat):
+   - What state updates?
+   - Does it send a chat message?
+   - Does it call an API directly?
+   - How does the canvas update?
+3. How are the available interest chips determined?
+   (hardcoded, from API, from the chat's available interests)
+4. How does manual interest selection sync with the chat's 
+   knowledge of selected interests?
+
+---
+
+SECTION 10 — PAGE INITIALIZATION
+1. When the Trip Planner page first loads:
+   - What API calls are made immediately?
+   - What data is fetched before the user does anything?
+   - What is shown on the canvas by default?
+2. Is there an onboarding flow or first-message auto-sent?
+   If yes, what triggers it and what does it send?
+3. How are the 18 trips first loaded onto the canvas?
+   Is it from an API call, from the first chat message, 
+   or from a server-side prop?
+4. What happens if the user lands with a pre-selected date 
+   in the URL or query params?
+
+---
+
+SECTION 11 — SYNC BETWEEN CHAT AND CANVAS
+1. List every scenario where chat and canvas must stay in sync.
+   For each one: what keeps them in sync currently?
+2. Is there any scenario where they can go out of sync?
+   (e.g. user manually changes something the AI doesn't know)
+3. How does the AI get informed of manual canvas actions?
+   (the canvasAwarenessLine? a request field? both?)
+
+---
+
+After all sections, give me:
+1. A simple diagram (text-based) showing how chat, canvas, 
+   cart, date picker, and the server connect to each other
+2. The 3 most fragile points in the current architecture — 
+   places where a small change could break the sync
+3. The 3 things that MUST stay unchanged for the planner 
+   to keep working correctly

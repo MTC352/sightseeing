@@ -1,0 +1,124 @@
+Do NOT make any changes. Read-only analysis only.
+
+I need a complete picture of how the Trip Planner chat works 
+right now — every file, every function, every token that goes 
+into each OpenAI request. Go through each section carefully.
+
+---
+
+SECTION 1 — SYSTEM PROMPT ASSEMBLY
+In lib/planner/system-prompt.ts:
+
+1. List every function that exists in this file with a 
+   one-line description of what each one builds
+2. Show the full buildPlannerSystemPromptParts() function — 
+   every part it assembles in order, with the variable name 
+   and a short label of what that block contains
+3. For buildCatalogFactsBlock(trips):
+   - Show the full function
+   - How many trips does it receive?
+   - What fields per trip does it include in the string?
+   - Roughly how many characters/tokens does it produce 
+     for 18 trips?
+4. For buildAvailabilityGroundTruth():
+   - Show the full function
+   - What data does it inject?
+   - How large is this block roughly per turn?
+5. Are there any other large data blocks being injected? 
+   List them all with estimated sizes.
+
+---
+
+SECTION 2 — ROUTE.TS FULL REQUEST FLOW
+In app/api/planner/route.ts:
+
+1. Show lines 1–50 (imports and top-level constants)
+2. Show lines 1640–1770 (the full request handler from 
+   where context is built to where streamText is called)
+3. Specifically show:
+   - Every variable passed into buildPlannerSystemPromptParts()
+   - The exact systemPrompt assembly (the join line)
+   - The exact streamText() call with all parameters
+   - How the messages array arrives and is used
+   - Is there any trimming of messages history? 
+     Yes or No and show the code if yes.
+   - Is the system prompt built inside or outside 
+     the request handler function?
+
+---
+
+SECTION 3 — TOOLS INVENTORY
+List every tool defined in route.ts:
+
+For each tool provide:
+- Tool name
+- Server-side or client-side (has execute: or no execute:)
+- What it does in one sentence
+- Roughly how large is its typical response? 
+  (e.g. returns 18 trip cards, returns 1 trip detail, etc.)
+- Does it call an external API? Which one?
+
+---
+
+SECTION 4 — TOKEN COST BREAKDOWN
+Based on what you've read, estimate the token count for 
+a typical Turn 3 message (user has been chatting for 3 turns):
+
+Break it down line by line:
+- Static rules in system prompt: X tokens
+- Catalog facts block (18 trips): X tokens  
+- Availability ground truth block: X tokens
+- Interest tags block: X tokens
+- Weather/date/profile context: X tokens
+- Conversation history (3 turns × input+output): X tokens
+- searchTrips tool result (if called): X tokens
+- Any other tool results: X tokens
+- TOTAL estimated: X tokens
+
+If you can run a quick token count on the static system 
+prompt string, do that and show the actual number.
+
+---
+
+SECTION 5 — WHAT NEVER CHANGES BETWEEN REQUESTS
+Looking at everything assembled in buildPlannerSystemPromptParts():
+
+List every block/section that is:
+A) Completely static — identical on every single request 
+   for every user (never changes)
+B) Per-user but stable — same for a user's whole session 
+   but different across users
+C) Changes every turn — availability, canvas state, 
+   tool results etc.
+
+---
+
+SECTION 6 — SESSION / HISTORY MANAGEMENT
+1. Where does the conversation messages array come from? 
+   (request body? database? in-memory?)
+2. Is there any limit on how many messages are kept?
+3. Is there any server-side session storage (Redis, DB, 
+   in-memory Map) for conversation history?
+4. What happens to the conversation when the user 
+   refreshes the page?
+5. Is the same API key used for all users simultaneously?
+
+---
+
+SECTION 7 — PROVIDER / MODEL CONFIG
+In lib/ai/provider.ts:
+1. Show the full file
+2. What is the current active model? (gpt-4.1-mini or other)
+3. What is the current TPM tier on the OpenAI account 
+   if visible anywhere in config or env?
+4. Is there any retry logic or rate limit handling 
+   anywhere in the codebase for OpenAI errors?
+5. Search the whole codebase for "429" or "rate_limit" or 
+   "TPM" or "tokens per minute" — show any matches found.
+
+---
+
+After completing all 7 sections, give me a one-paragraph 
+summary of the biggest inefficiencies you found — 
+what is consuming the most tokens per request and 
+what is being rebuilt unnecessarily on every turn.

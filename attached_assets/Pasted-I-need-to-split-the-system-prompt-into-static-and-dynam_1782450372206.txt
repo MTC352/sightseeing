@@ -1,0 +1,78 @@
+I need to split the system prompt into static and dynamic 
+parts so OpenAI caches the static portion automatically.
+Make changes across two files only.
+
+SAFETY RULES — do not violate these:
+- availabilityGroundTruth must stay in dynamic prompt
+- visitDate, cartSection, profileLine must stay in dynamic prompt
+- canvasCountLine, canvasAwarenessLine must stay in dynamic prompt
+- client-side tools must not change (no execute added)
+- canvas sync mechanism must not be touched
+- prepareSendMessagesRequest body shape must not change
+
+---
+
+FILE 1 — lib/planner/system-prompt.ts:
+
+Add a new exported function: buildStaticSystemPromptParts()
+
+This function:
+- Takes NO arguments
+- Returns ONLY parts that are identical for every user 
+  on every request:
+    - All numbered rules (1 through 15 and all sub-rules)
+    - Response style instructions
+    - Formatting rules (bold allow-list, no lists etc.)
+    - Planner behavior settings (buffer, day window, max stops)
+    - Tool usage instructions
+    - Interest tag mapping instructions
+- Must contain ZERO references to ctx, dates, weather, 
+  user data, availability, or any runtime value
+
+Keep existing buildPlannerSystemPromptParts(ctx) working 
+as before — it should now internally call both 
+buildStaticSystemPromptParts() and the dynamic parts 
+so nothing else in the codebase breaks.
+
+---
+
+FILE 2 — app/api/planner/route.ts:
+
+CHANGE 1 — At MODULE LEVEL, outside and above the POST 
+handler, add:
+
+  import { buildStaticSystemPromptParts } from 
+    "@/lib/planner/system-prompt"
+  const STATIC_SYSTEM_PROMPT = 
+    buildStaticSystemPromptParts().join("\n")
+
+This runs once when the server starts, never per request.
+
+CHANGE 2 — Inside the POST handler, keep building only 
+the dynamic part:
+
+  const dynamicPrompt = 
+    buildDynamicSystemPromptParts({...same ctx as before}).join("\n")
+
+CHANGE 3 — Change the streamText call:
+Remove the  system: systemPrompt  parameter entirely.
+Instead prepend two system messages at the START of 
+the messages array passed to streamText:
+
+  const messagesWithSystem = [
+    { role: 'system' as const, content: STATIC_SYSTEM_PROMPT },
+    { role: 'system' as const, content: dynamicPrompt },
+    ...convertedMessages
+  ]
+
+Pass messagesWithSystem as the messages argument.
+Remove system: parameter from streamText.
+
+---
+
+After changes show me:
+1. The new module-level STATIC_SYSTEM_PROMPT line
+2. The new streamText call with two system messages
+3. Confirm availabilityGroundTruth is in dynamicPrompt
+4. Confirm catalogFactsBlock location (static or dynamic)
+TypeScript must stay valid.
