@@ -8,7 +8,7 @@ import {
   validateUIMessages,
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { buildPlannerSystemPromptParts, buildCanvasCountLine, buildCanvasAwarenessLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
+import { buildStaticSystemPromptParts, buildDynamicSystemPromptParts, buildCanvasCountLine, buildCanvasAwarenessLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable, shouldAnnotateAvailability } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, buildInterestAvailabilityBreakdown, type InterestTripStatus, type InterestBreakdownEntry } from "@/lib/planner/available-interests"
 import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
@@ -1491,6 +1491,12 @@ function getUpcomingLuxembourgHolidays(luxDate: Date, days: number): { name: str
     }))
 }
 
+// STATIC system-prompt prefix: user-invariant, identical on every request, so
+// we compute it once at module load. Sent as the FIRST system message so the
+// model provider (OpenAI) prompt-caches this stable prefix automatically; the
+// per-request DYNAMIC portion follows as a second system message.
+const STATIC_SYSTEM_PROMPT = buildStaticSystemPromptParts().join("\n")
+
 export async function POST(req: Request) {
   schedulePrune()
   const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
@@ -1954,7 +1960,7 @@ export async function POST(req: Request) {
       recentActions: Array.isArray(canvas?.recentActions) ? canvas.recentActions : null,
     })
 
-    const systemPromptParts = buildPlannerSystemPromptParts({
+    const systemPromptParts = buildDynamicSystemPromptParts({
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
       profileLine, cartSection, groupSection, itinerarySection,
       optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
@@ -2024,8 +2030,11 @@ export async function POST(req: Request) {
 
     const result = streamText({
       model,
-      system: systemPrompt,
-      messages: await convertToModelMessages(messages),
+      messages: [
+        { role: "system" as const, content: STATIC_SYSTEM_PROMPT },
+        { role: "system" as const, content: systemPrompt },
+        ...(await convertToModelMessages(messages)),
+      ],
       tools: requestTools,
       ...(ai.maxTokens ? { maxTokens: ai.maxTokens } : {}),
       ...(typeof ai.temperature === "number" ? { temperature: ai.temperature } : {}),
