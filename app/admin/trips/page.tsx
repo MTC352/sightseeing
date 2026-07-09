@@ -8,6 +8,7 @@ import { TripToggleButton } from "./trip-toggle-button"
 import { TripStatusButton } from "./trip-status-button"
 import { TripArchiveButton } from "./trip-archive-button"
 import { TripSyncButton } from "./trip-sync-button"
+import { TripDeactivateButton } from "./trip-deactivate-button"
 import { requirePermission } from "@/lib/auth-server"
 import { redirect } from "next/navigation"
 
@@ -89,7 +90,7 @@ export default async function AdminTripsPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {trips.map((trip) => (
-                <tr key={trip.id} className="group transition-colors hover:bg-secondary/40">
+                <tr key={trip.id} className={`group transition-colors hover:bg-secondary/40 ${trip.status === "deactivated" ? "opacity-60" : ""}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <Link
@@ -167,6 +168,7 @@ export default async function AdminTripsPage() {
                         <Pencil className="h-3.5 w-3.5" />
                       </Link>
                       <TripSyncButton palisisId={trip.palisis_id} />
+                      <TripDeactivateButton tripId={trip.id} status={trip.status} />
                       <TripArchiveButton tripId={trip.id} isArchived={false} />
                       <TripDeleteButton tripId={trip.id} tripTitle={trip.title} />
                     </div>

@@ -137,6 +137,7 @@ export async function POST(req: Request) {
     title?: string
     description?: string
     permalink?: string
+    status?: string
   }>
   const byPalisis = new Map(
     existing.filter(t => t.palisis_id).map(t => [t.palisis_id!, t])
@@ -188,6 +189,16 @@ export async function POST(req: Request) {
       } else if (overrideAll) {
         // ── Override mode: re-fetch and update ──────────────────────────────
         const localTrip = byPalisis.get(palisisId)!
+
+        // GUARD: Never reactivate a deliberately deactivated trip during import.
+        // Deactivated status is an admin-only decision; Palisis has no knowledge of it.
+        if (localTrip.status === "deactivated") {
+          logs.push(`[${ts()}] SKIPPED: Trip ${palisisId} ("${localTrip.title ?? leanTitle}") is deactivated — override will not reactivate it`)
+          tourResults.push({ palisisId, title: localTrip.title ?? leanTitle, action: "skipped_deactivated" })
+          skipped++
+          continue
+        }
+
         const detail    = await tourcms.showTour(palisisId, { show_options: "1" }, tourChannelId)
 
         if (!detail.ok || !detail.tour) {

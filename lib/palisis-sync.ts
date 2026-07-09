@@ -111,16 +111,28 @@ export async function syncSingleTripFromPalisis(
   const title  = mapped.title || `Tour ${id}`
 
   // Find existing trip by palisis_id
-  const existing = await dbListTrips() as Array<{ id: string; palisis_id?: string; permalink?: string }>
+  const existing = await dbListTrips() as Array<{ id: string; palisis_id?: string; permalink?: string; status?: string }>
   const local    = existing.find(t => t.palisis_id === id)
 
-  let action: "created" | "updated"
+  let action: "created" | "updated" | "skipped"
   let tripId: string
 
   if (!local) {
     const created = await dbCreateTrip({ ...mapped, palisisId: id, title })
     tripId = (created as { id: string }).id
     action = "created"
+  } else if (local.status === "deactivated") {
+    // GUARD: Never sync-overwrite a deliberately deactivated trip.
+    // Deactivated status is an admin-only decision; Palisis has no knowledge of it.
+    const duration_ms = Date.now() - startedAt
+    await dbInsertPalisisSyncLog({
+      trigger_type: triggerType,
+      action: "single_sync",
+      palisis_id: id,
+      note: `SKIPPED: "${title}" is deactivated — sync will not reactivate it`,
+      changes: { ok: true, palisisId: id, tripId: local.id, title, action: "skipped", duration_ms },
+    })
+    return { ok: true, action: "skipped", palisisId: id, tripId: local.id, title, duration_ms }
   } else {
     // Apply the admin-default override exclusions so manually-kept fields (e.g. a
     // hand-edited description) survive webhook/manual single-tour re-syncs too.

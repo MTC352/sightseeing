@@ -9,6 +9,7 @@ export function TripStatusButton({ tripId, status }: { tripId: string; status: s
   const router = useRouter()
 
   async function toggle() {
+    if (optimistic === "deactivated") return
     const next = optimistic === "published" ? "draft" : "published"
     setPending(true)
     setOptimistic(next)
@@ -19,6 +20,14 @@ export function TripStatusButton({ tripId, status }: { tripId: string; status: s
     })
     router.refresh()
     setPending(false)
+  }
+
+  if (optimistic === "deactivated") {
+    return (
+      <span className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold bg-red-500/15 text-red-600">
+        deactivated
+      </span>
+    )
   }
 
   const isPublished = optimistic === "published"
