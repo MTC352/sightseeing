@@ -3,6 +3,7 @@ import { permanentRedirect } from "next/navigation"
 import { getTripById, getTripDetail } from "@/lib/data"
 import type { Trip } from "@/lib/data"
 import TripDetailClient, { type TripDbDetail, type TripFaq, type RelatedTrip } from "./trip-detail-view"
+import { SiteFooter } from "@/components/site-footer"
 import { dbGetTrip, dbListTrips, dbTripStatus } from "@/lib/db/queries"
 
 function mapDbTrip(r: Record<string, unknown>): Trip {
@@ -376,6 +377,7 @@ export default async function TripPage({
         selectedDate={selectedDate}
         selectedTime={selectedTime}
         selectedFrom={selectedFrom}
+        footer={<SiteFooter />}
       />
     )
   }
@@ -515,6 +517,7 @@ export default async function TripPage({
         selectedDate={selectedDate}
         selectedTime={selectedTime}
         selectedFrom={selectedFrom}
+        footer={<SiteFooter />}
       />
     </>
   )

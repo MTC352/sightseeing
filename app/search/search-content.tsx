@@ -5,7 +5,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
-import { SiteFooter } from "@/components/site-footer"
+import type { ReactNode } from "react"
 import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
@@ -783,9 +783,11 @@ function SearchListCard({
 export function SearchContent({
   initialTrips,
   filtersConfig = DEFAULT_SEARCH_FILTERS_CONFIG,
+  footer,
 }: {
   initialTrips: SearchTrip[]
   filtersConfig?: SearchFiltersConfig
+  footer?: ReactNode
 }) {
   const searchParams = useSearchParams()
   const router       = useRouter()
@@ -1365,7 +1367,7 @@ export function SearchContent({
         )}
       </div>
 
-      <SiteFooter />
+      {footer}
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Navbar } from "@/components/site-navbar"
-import { SiteFooter } from "@/components/site-footer"
+import type { ReactNode } from "react"
 import { SightseeingList } from "@/components/chatgpt-widgets/sightseeing-list"
 import { SightseeingCarousel } from "@/components/chatgpt-widgets/sightseeing-carousel"
 import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
@@ -22,9 +22,10 @@ type WidgetId = (typeof WIDGETS)[number]["id"]
 interface Props {
   trips: Trip[]
   featureTrip: Trip
+  footer?: ReactNode
 }
 
-export function WidgetsShowcase({ trips, featureTrip }: Props) {
+export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
   const [active, setActive] = useState<WidgetId>("list")
 
   return (
@@ -167,7 +168,7 @@ export function WidgetsShowcase({ trips, featureTrip }: Props) {
         </div>
       </main>
 
-      <SiteFooter />
+      {footer}
     </div>
   )
 }

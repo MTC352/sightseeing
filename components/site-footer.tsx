@@ -1,23 +1,9 @@
-"use client"
-
 import Link from "next/link"
 import Image from "next/image"
 import { MapPin, Mail, Phone } from "lucide-react"
-import { useState, useEffect } from "react"
 import { EditableText } from "@/components/editable-text"
 import { CookieSettingsButton } from "@/components/cookie-banner"
-
-interface ContactInfo {
-  address: string
-  email: string
-  phone: string
-}
-
-const DEFAULTS: ContactInfo = {
-  address: "430-434 route de Longwy, L-1940 Luxembourg",
-  email: "hello@sightseeing.lu",
-  phone: "+352 266 51 2200",
-}
+import { dbGetContactInfo } from "@/lib/db/queries"
 
 const LINKS = {
   "About sightseeing.lu": [
@@ -59,23 +45,17 @@ const LINKS = {
   ],
 }
 
-export function SiteFooter() {
-  const [contact, setContact] = useState<ContactInfo>(DEFAULTS)
-
-  useEffect(() => {
-    fetch("/api/contact-info")
-      .then((r) => r.json())
-      .then((data: ContactInfo) => {
-        if (data?.address) setContact(data)
-      })
-      .catch(() => {})
-  }, [])
+export async function SiteFooter() {
+  const contact = await dbGetContactInfo().catch(() => ({
+    address: "430-434 route de Longwy, L-1940 Luxembourg",
+    email: "hello@sightseeing.lu",
+    phone: "+352 266 51 2200",
+  }))
 
   return (
     <footer className="border-t border-border bg-card">
       <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-5">
-          {/* Brand */}
           <div>
             <Image src="/images/logo.png" alt="sightseeing.lu" width={140} height={32} className="h-7 w-auto" />
             <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
@@ -87,7 +67,6 @@ export function SiteFooter() {
               <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> <EditableText id="footer:contact:phone" defaultValue={contact.phone} /></span>
             </div>
           </div>
-          {/* Link columns */}
           {Object.entries(LINKS).map(([title, links]) => (
             <nav key={title} aria-label={title}>
               <h4 className="text-sm font-semibold text-foreground">{title}</h4>

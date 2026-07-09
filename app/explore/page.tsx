@@ -3,6 +3,7 @@ import type { Trip } from "@/lib/data"
 import ExploreClient from "./explore-client"
 import { dbListTrips } from "@/lib/db/queries"
 import { safeJsonLd } from "@/lib/json-ld"
+import { SiteFooter } from "@/components/site-footer"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -72,7 +73,7 @@ export default async function ExplorePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListLd) }}
       />
-      <ExploreClient initialTrips={tripList} />
+      <ExploreClient initialTrips={tripList} footer={<SiteFooter />} />
     </>
   )
 }

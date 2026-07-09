@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { dbListTrips } from "@/lib/db/queries"
 import type { Trip } from "@/lib/data"
 import { WidgetsShowcase } from "./widgets-showcase"
+import { SiteFooter } from "@/components/site-footer"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -50,5 +51,5 @@ export default async function WidgetsPage() {
     )
   }
 
-  return <WidgetsShowcase trips={sample} featureTrip={featureTrip} />
+  return <WidgetsShowcase trips={sample} featureTrip={featureTrip} footer={<SiteFooter />} />
 }

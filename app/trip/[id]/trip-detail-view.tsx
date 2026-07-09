@@ -7,7 +7,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 import { Navbar } from "@/components/site-navbar"
-import { SiteFooter } from "@/components/site-footer"
+import type { ReactNode } from "react"
 import { TripCard } from "@/components/trip-card"
 import { TripChat } from "@/components/trip-chat"
 import { GoogleReviews } from "@/components/google-reviews"
@@ -108,6 +108,7 @@ export default function TripDetailClient({
   selectedDate,
   selectedTime,
   selectedFrom,
+  footer,
 }: {
   id: string
   trip: Trip | null
@@ -120,6 +121,7 @@ export default function TripDetailClient({
    *  can be labelled accurately ("Fill up fast slot", "Soon departuring slot",
    *  "Trip Planner Slot") instead of the generic "Your selected slot". */
   selectedFrom?: "deals" | "departing" | "planner"
+  footer?: ReactNode
 }) {
   // Map of source → eyebrow text shown above the date/time inside the
   // selected-slot card. Falls back to the original generic label when the
@@ -628,7 +630,7 @@ export default function TripDetailClient({
         )}
       </div>
 
-      <SiteFooter />
+      {footer}
     </div>
   )
 }

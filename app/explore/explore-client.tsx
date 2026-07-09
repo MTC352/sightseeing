@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
-import { SiteFooter } from "@/components/site-footer"
+import type { ReactNode } from "react"
 import { categories } from "@/lib/data"
 import { Star, Clock, ChevronDown, ChevronUp, MapPin, Utensils, Bike, Landmark, Map, Users, Wine, Sparkles, Heart, SlidersHorizontal, X, ChevronRight, CalendarDays, ChevronLeft, Search, Check, Plus, Sun, LayoutGrid, List } from "lucide-react"
 import type { Trip } from "@/lib/data"
@@ -573,7 +573,7 @@ const INSIDER_TIPS = [
 ]
 
 /* ── Main component ── */
-export default function ExplorePage({ initialTrips }: { initialTrips?: Trip[] }) {
+export default function ExplorePage({ initialTrips, footer }: { initialTrips?: Trip[]; footer?: ReactNode }) {
   // Fail-closed: server always passes DB-backed publicOnly trips. Never fall
   // back to the static seed catalog (would resurface archived/draft trips).
   const tripList: Trip[] = initialTrips ?? []
@@ -922,7 +922,7 @@ export default function ExplorePage({ initialTrips }: { initialTrips?: Trip[] })
 
       </div>
 
-      <SiteFooter />
+      {footer}
     </div>
   )
 }

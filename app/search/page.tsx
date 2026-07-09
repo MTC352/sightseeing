@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Suspense } from "react"
 import { SearchContent, type SearchTrip } from "./search-content"
 import { dbListTrips, dbGetSettings } from "@/lib/db/queries"
+import { SiteFooter } from "@/components/site-footer"
 import {
   readSearchFiltersConfig,
   DEFAULT_SEARCH_FILTERS_CONFIG,
@@ -66,7 +67,7 @@ export default async function SearchPage() {
 
   return (
     <Suspense fallback={null}>
-      <SearchContent initialTrips={trips} filtersConfig={filtersConfig} />
+      <SearchContent initialTrips={trips} filtersConfig={filtersConfig} footer={<SiteFooter />} />
     </Suspense>
   )
 }
