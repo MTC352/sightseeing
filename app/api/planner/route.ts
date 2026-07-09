@@ -1525,7 +1525,7 @@ async function classifyIntent(
   try {
     const result = await generateText({
       model,
-      maxTokens: 10,
+      maxOutputTokens: 10,
       messages: [{
         role: "user" as const,
         content: `Classify this trip planner message into exactly one of these words:
@@ -2109,10 +2109,12 @@ export async function POST(req: Request) {
     const model = ai.model
 
     // ── Intent classification (dynamic step budget) ──────────────────────────
+    // UIMessages carry their text in `parts`, not `content`.
     const lastUserMsg = [...messages].reverse().find(m => m.role === "user")
-    const lastUserText = typeof lastUserMsg?.content === "string"
-      ? lastUserMsg.content
-      : JSON.stringify(lastUserMsg?.content ?? "")
+    const lastUserText = (lastUserMsg?.parts ?? [])
+      .map(p => (p?.type === "text" && typeof (p as { text?: unknown }).text === "string" ? (p as { text: string }).text : ""))
+      .filter(Boolean)
+      .join(" ")
 
     const intent = await Promise.race([
       classifyIntent(lastUserText, model),
@@ -2140,16 +2142,29 @@ export async function POST(req: Request) {
     // last KEEP_RECENT. The model still sees that the tool was called (the
     // tool-call message is untouched) but skips re-reading large card arrays,
     // availability dumps, timeslot lists, etc. from stale turns.
+    // NOTE: these are UIMessages — there is NO "tool" role. Tool results live
+    // as `tool-*` / "dynamic-tool" parts on ASSISTANT messages, so we blank the
+    // `output` of resolved tool parts on old assistant turns (the call/result
+    // pair stays intact inside the same part, so conversion never orphans it).
     const KEEP_RECENT = 6
     const processedMessages = messages.map((msg, index) => {
       const isOld = index < messages.length - KEEP_RECENT
-      if (isOld && msg.role === "tool") {
-        return {
-          ...msg,
-          content: "[tool result omitted — see current turn]",
+      if (!isOld || msg.role !== "assistant" || !Array.isArray(msg.parts)) return msg
+      let changed = false
+      const parts = msg.parts.map((part) => {
+        const p = part as { type?: unknown; state?: unknown; output?: unknown }
+        if (
+          typeof p?.type === "string" &&
+          (p.type.startsWith("tool-") || p.type === "dynamic-tool") &&
+          p.state === "output-available" &&
+          p.output !== undefined
+        ) {
+          changed = true
+          return { ...(part as object), output: "[tool result omitted — see current turn]" }
         }
-      }
-      return msg
+        return part
+      })
+      return changed ? ({ ...msg, parts } as PlannerMessage) : msg
     })
     // Step 2: hard cap at the last 20 messages so very long sessions never
     // grow the context unboundedly. PLANNER_BUDGET already guards the raw
