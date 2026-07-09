@@ -7,16 +7,19 @@ export function TripToggleButton({
   tripId,
   field,
   value,
+  disabled: disabledProp = false,
 }: {
   tripId: string
   field: "featured" | "featuredDeparture"
   value: boolean
+  disabled?: boolean
 }) {
   const [optimistic, setOptimistic] = useState(value)
   const [pending, setPending] = useState(false)
   const router = useRouter()
 
   async function toggle() {
+    if (disabledProp) return
     setPending(true)
     setOptimistic((v) => !v)
     await fetch(`/api/admin/trips/${tripId}`, {
@@ -32,8 +35,8 @@ export function TripToggleButton({
     <button
       type="button"
       onClick={toggle}
-      disabled={pending}
-      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-50 ${
+      disabled={pending || disabledProp}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
         optimistic ? "bg-primary" : "bg-border"
       }`}
       aria-checked={optimistic}

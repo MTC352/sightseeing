@@ -47,7 +47,7 @@ export interface AdminTrip {
   palisisProductId?: string | null
   featured: boolean
   featuredDeparture?: boolean
-  status?: "published" | "draft"
+  status?: "published" | "draft" | "deactivated"
 
   // ── Rich Palisis fields (imported from showTour, editable in admin) ────────
   tourType?: string | null

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
 import { isFieldEditable, resolvePolicy, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
-import { Lock, Eye, EyeOff } from "lucide-react"
+import { Lock, Eye, EyeOff, PowerOff } from "lucide-react"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -97,7 +97,9 @@ export function TripEditForm({
   hideReadonlyByDefault?: boolean
 }) {
   const policy = policyProp ?? resolvePolicy(null)
-  const can = (key: string) => isFieldEditable(policy, key)
+  const isDeactivated = trip?.status === "deactivated"
+  // When a trip is deactivated all fields are read-only until it is reactivated.
+  const can = (key: string) => !isDeactivated && isFieldEditable(policy, key)
 
   // ── Read-only field visibility ────────────────────────────────────────────
   // Defaults to the admin setting (Settings → Manage Trip Fields). The admin can
@@ -370,7 +372,7 @@ export function TripEditForm({
               {hideReadonly ? `Show read-only (${readonlyCount})` : "Hide read-only"}
             </button>
           )}
-          {trip && (
+          {trip && !isDeactivated && (
             <Link
               href={`/trip/${trip.slug ?? trip.id}`}
               target="_blank"
@@ -380,11 +382,11 @@ export function TripEditForm({
               <ExternalLink className="h-3.5 w-3.5" /> View on site
             </Link>
           )}
-          {trip?.palisis_id && <TripSyncButton palisisId={trip.palisis_id} variant="icon" />}
+          {trip?.palisis_id && <TripSyncButton palisisId={trip.palisis_id} variant="icon" disabled={isDeactivated} />}
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || !isDirty}
+            disabled={saving || !isDirty || isDeactivated}
             className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
@@ -394,6 +396,15 @@ export function TripEditForm({
       </div>
 
       <div className="mx-auto max-w-3xl">
+      {isDeactivated && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/8 px-4 py-3 text-sm text-red-700">
+          <PowerOff className="h-4 w-4 shrink-0" />
+          <span className="flex-1 font-medium">
+            This trip is deactivated — it is hidden from the site and all AI systems.
+            Go to the <Link href="/admin/trips" className="underline hover:no-underline">Trips list</Link> and click the power icon to reactivate it before making edits.
+          </span>
+        </div>
+      )}
       {saveError && (
         <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -418,7 +429,7 @@ export function TripEditForm({
               {hideReadonly ? `Show read-only (${readonlyCount})` : "Hide read-only"}
             </button>
           )}
-          {trip && (
+          {trip && !isDeactivated && (
             <Link
               href={`/trip/${trip.slug ?? trip.id}`}
               target="_blank"
@@ -430,7 +441,7 @@ export function TripEditForm({
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || !isDirty}
+            disabled={saving || !isDirty || isDeactivated}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
@@ -1080,7 +1091,7 @@ export function TripEditForm({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               {(
                 [
-                  { key: "status" as const, label: "Status", type: "select", options: ["published", "draft"] },
+                  { key: "status" as const, label: "Status", type: "select", options: isDeactivated ? ["deactivated", "published", "draft"] : ["published", "draft"] },
                 ] as const
               ).map(({ key, label, options }) => (
                 <div key={key} className={cn(roHidden("status") && "hidden")}>
@@ -1154,7 +1165,7 @@ export function TripEditForm({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || isDeactivated}
                 className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Save className="h-4 w-4" />

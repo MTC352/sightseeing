@@ -12,9 +12,10 @@ import {
 interface Props {
   palisisId: string | null | undefined
   variant?: "icon" | "full"
+  disabled?: boolean
 }
 
-export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
+export function TripSyncButton({ palisisId, variant = "icon", disabled: disabledProp = false }: Props) {
   const router = useRouter()
   const [pending, setPending] = useState(false)
   const [status, setStatus]   = useState<"idle" | "ok" | "err">("idle")
@@ -98,13 +99,14 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          disabled={pending}
+          disabled={pending || disabledProp}
           title={
-            status === "ok"  ? message
+            disabledProp ? "Trip is deactivated — reactivate first"
+            : status === "ok"  ? message
             : status === "err" ? `Error: ${message}`
             : "Sync from Palisis (override local data)"
           }
-          className={`rounded-lg p-2 transition-colors disabled:opacity-50 ${
+          className={`rounded-lg p-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
             status === "ok"
               ? "bg-emerald-500/10 text-emerald-600"
               : status === "err"
@@ -131,8 +133,8 @@ export function TripSyncButton({ palisisId, variant = "icon" }: Props) {
       <button
         type="button"
         onClick={() => setConfirmOpen(true)}
-        disabled={pending}
-        className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-500/20 disabled:opacity-50"
+        disabled={pending || disabledProp}
+        className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3.5 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-500/20 disabled:opacity-30 disabled:cursor-not-allowed"
       >
         <RefreshCw className={`h-4 w-4 ${pending ? "animate-spin" : ""}`} />
         {pending ? "Syncing…" : "Sync from Palisis"}

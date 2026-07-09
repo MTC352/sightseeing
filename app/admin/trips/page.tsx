@@ -145,29 +145,47 @@ export default async function AdminTripsPage() {
                     €{trip.price}
                   </td>
                   <td className="hidden px-4 py-3 text-center md:table-cell">
-                    <TripToggleButton tripId={trip.id} field="featured" value={trip.featured} />
+                    <TripToggleButton tripId={trip.id} field="featured" value={trip.featured} disabled={trip.status === "deactivated"} />
                   </td>
                   <td className="px-4 py-3">
                     <TripStatusButton tripId={trip.id} status={trip.status} />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      <Link
-                        href={`/trip/${trip.id}`}
-                        target="_blank"
-                        className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
-                        title="View on site"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Link>
-                      <Link
-                        href={`/admin/trips/${trip.id}`}
-                        className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
-                        title="Edit"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Link>
-                      <TripSyncButton palisisId={trip.palisis_id} />
+                      {trip.status === "deactivated" ? (
+                        <span
+                          className="rounded-lg p-2 text-muted-foreground/25 cursor-not-allowed"
+                          title="Trip is deactivated — not visible on site"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </span>
+                      ) : (
+                        <Link
+                          href={`/trip/${trip.id}`}
+                          target="_blank"
+                          className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
+                          title="View on site"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                      )}
+                      {trip.status === "deactivated" ? (
+                        <span
+                          className="rounded-lg p-2 text-muted-foreground/25 cursor-not-allowed"
+                          title="Reactivate trip to edit it"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </span>
+                      ) : (
+                        <Link
+                          href={`/admin/trips/${trip.id}`}
+                          className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
+                          title="Edit"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Link>
+                      )}
+                      <TripSyncButton palisisId={trip.palisis_id} disabled={trip.status === "deactivated"} />
                       <TripDeactivateButton tripId={trip.id} status={trip.status} />
                       <TripArchiveButton tripId={trip.id} isArchived={false} />
                       <TripDeleteButton tripId={trip.id} tripTitle={trip.title} />
