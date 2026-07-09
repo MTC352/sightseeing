@@ -1,5 +1,6 @@
 import {
   convertToModelMessages,
+  generateText,
   InferUITools,
   stepCountIs,
   streamText,
@@ -8,7 +9,7 @@ import {
   validateUIMessages,
 } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
-import { buildStaticSystemPromptParts, buildDynamicSystemPromptParts, buildCanvasCountLine, buildCanvasAwarenessLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
+import { buildPlannerSystemPromptParts, buildStaticSystemPromptParts, buildDynamicSystemPromptParts, buildCanvasCountLine, buildCanvasAwarenessLine, buildAvailabilityGroundTruth, buildCatalogFactsBlock, type GroundTruthTrip } from "@/lib/planner/system-prompt"
 import { interpretSingleDayFallback, classifyTripAvailability, isConfidentNoneAvailable, shouldAnnotateAvailability } from "@/lib/planner/availability-parity"
 import { computeAvailableInterests, buildAvailableInterestsLine, buildInterestAvailabilityBreakdown, type InterestTripStatus, type InterestBreakdownEntry } from "@/lib/planner/available-interests"
 import { scoreTripInterests, queryKeywords, tripMatchesQuery } from "@/lib/planner/interest-match"
@@ -26,6 +27,11 @@ import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
 export const dynamic = "force-dynamic"
+
+// Built once at module load (cold start). All static instruction text — no
+// runtime context — so OpenAI's automatic prompt caching keeps this prefix hot
+// across every planner request without reprocessing it.
+const STATIC_SYSTEM_PROMPT = buildStaticSystemPromptParts().join("\n")
 
 // Per-request cost cap for the planner. searchTrips returns COMPACT cards (see
 // lib/planner/search-card.ts), so even a whole-catalog "skip all" search stays
@@ -1491,11 +1497,68 @@ function getUpcomingLuxembourgHolidays(luxDate: Date, days: number): { name: str
     }))
 }
 
-// STATIC system-prompt prefix: user-invariant, identical on every request, so
-// we compute it once at module load. Sent as the FIRST system message so the
-// model provider (OpenAI) prompt-caches this stable prefix automatically; the
-// per-request DYNAMIC portion follows as a second system message.
-const STATIC_SYSTEM_PROMPT = buildStaticSystemPromptParts().join("\n")
+type PlannerIntent =
+  | "search"        // finding/filtering trips
+  | "availability"  // asking when something is available / next dates
+  | "details"       // asking about a specific trip
+  | "itinerary"     // building/modifying day plan
+  | "cart"          // adding/removing trips
+  | "date_change"   // changing visit date only
+  | "question"      // factual question, simple answer
+  | "complex"       // multiple intents at once
+
+const INTENT_MAX_STEPS: Record<PlannerIntent, number> = {
+  search:       2,  // updatePreferences + searchTrips
+  availability: 3,  // updatePreferences + searchTrips + getTripDatesAndDeals
+  details:      1,  // getTripDetails only
+  itinerary:    3,  // searchTrips + buildItinerary + weather
+  cart:         1,  // single cart operation
+  date_change:  2,  // updatePreferences + searchTrips
+  question:     1,  // one tool call max
+  complex:      4,  // multiple things, keep buffer
+}
+
+async function classifyIntent(
+  userMessage: string,
+  model: any
+): Promise<PlannerIntent> {
+  try {
+    const result = await generateText({
+      model,
+      maxTokens: 10,
+      messages: [{
+        role: "user" as const,
+        content: `Classify this trip planner message into exactly one of these words:
+search, availability, details, itinerary, cart, date_change, question, complex
+
+Rules:
+- availability: user asking WHEN something is available, upcoming dates, next available, latest dates, "whenever available", "when can I", "what's the next". Examples: "food trip whenever available", "when is the boat tour next running", "I want food trip whenever it's available latest", "show me upcoming wine tours"
+- search: user wants to find/filter trips by interest or type RIGHT NOW with no date uncertainty. Examples: "show me bike tours", "find museum trips"
+- details: asking about one specific trip's inclusions, price, cancellation, what's included
+- itinerary: building or modifying a day plan
+- cart: adding or removing a trip
+- date_change: only changing the visit date, nothing else
+- question: simple factual question needing one answer
+- complex: multiple intents or short confirmations like "yes", "sure", "ok", "show me", "go ahead", "sounds good" (under 15 words)
+
+IMPORTANT: "whenever", "latest", "upcoming", "next available", "when is it running" are strong signals for "availability" not "search".
+IMPORTANT: If the message is a short confirmation like "yes", "sure", "ok", "show me", "show those", "show the dates", "go ahead", "sounds good", "yes please" (under 50 characters), classify it as "complex" — the user is confirming a multi-step suggestion that needs full context.
+
+Message: "${userMessage.slice(0, 300)}"
+
+Reply with ONE word only. No explanation.`
+      }]
+    })
+    const word = result.text.trim().toLowerCase() as PlannerIntent
+    const valid: PlannerIntent[] = [
+      "search", "availability", "details", "itinerary", "cart",
+      "date_change", "question", "complex"
+    ]
+    return valid.includes(word) ? word : "complex"
+  } catch {
+    return "complex"
+  }
+}
 
 export async function POST(req: Request) {
   schedulePrune()
@@ -1560,6 +1623,12 @@ export async function POST(req: Request) {
         trips?: Record<string, { onDate?: boolean; dates?: string[] | null; unknown?: boolean }>
       } | null
     }
+
+    const conversationContext = body?.conversationContext as {
+      lastExpressedInterests: string[]
+      lastExpressedQuery: string
+      pendingConfirmation: string | null
+    } | undefined
 
     let messages: PlannerMessage[]
     try {
@@ -1960,14 +2029,14 @@ export async function POST(req: Request) {
       recentActions: Array.isArray(canvas?.recentActions) ? canvas.recentActions : null,
     })
 
-    const systemPromptParts = buildDynamicSystemPromptParts({
+    const dynamicParts = buildDynamicSystemPromptParts({
       publishedCatalogSize, dateContext, visitDateContext, temp, condition, wx,
       profileLine, cartSection, groupSection, itinerarySection,
       optimizationHint, varietyHint, localBiasHint, plannerBehavior, defaultTags, visitDateYMD,
       interestVocab, canvasCountLine, availableInterestsLine, availabilityGroundTruth, catalogFactsBlock,
       canvasAwarenessLine,
     })
-    
+
     // Append admin-configured custom system prompt if available.
     // Precedence: the planner row's own `system_prompt` column wins (the
     // consolidated location, edited on /admin/ai-systems/planner-chat). For
@@ -1982,10 +2051,34 @@ export async function POST(req: Request) {
       ? plannerRowPrompt
       : (typeof legacyPlannerPrompt === "string" ? legacyPlannerPrompt : "")
     if (adminPrompt && adminPrompt.trim()) {
-      systemPromptParts.push("", "CUSTOM INSTRUCTIONS FROM ADMIN:", adminPrompt)
+      dynamicParts.push("", "CUSTOM INSTRUCTIONS FROM ADMIN:", adminPrompt)
     }
-    
-    const systemPrompt = systemPromptParts.join("\n")
+
+    const conversationContextBlock = conversationContext
+      ? [
+          "",
+          "CONVERSATION CONTEXT — FOLLOW THESE EXACTLY:",
+          conversationContext.lastExpressedQuery
+            ? `What user originally asked for: "${conversationContext.lastExpressedQuery}"`
+            : "",
+          conversationContext.lastExpressedInterests?.length
+            ? [
+                `User's ONLY active interest: ${conversationContext.lastExpressedInterests.join(", ")}`,
+                `MANDATORY: When calling updatePreferences this turn, send ONLY interests: [${conversationContext.lastExpressedInterests.map((i) => `"${i}"`).join(", ")}] — do NOT add museums, walking-tours, or any other tag.`,
+                `MANDATORY: After updatePreferences, call searchTrips with tags: [${conversationContext.lastExpressedInterests.map((i) => `"${i}"`).join(", ")}] — same turn, do not skip.`,
+              ].join("\n")
+            : "",
+          conversationContext.pendingConfirmation
+            ? [
+                `User just confirmed: "${conversationContext.pendingConfirmation}"`,
+                `They are saying YES to your previous suggestion.`,
+                `MANDATORY: Call updatePreferences with the date you suggested, then searchTrips with interests: [${(conversationContext.lastExpressedInterests ?? []).map((i) => `"${i}"`).join(", ")}] in the SAME turn.`,
+              ].join("\n")
+            : "",
+        ].filter(Boolean).join("\n")
+      : ""
+
+    const dynamicPrompt = [dynamicParts.join("\n"), conversationContextBlock].filter(Boolean).join("\n")
 
     // ── Model resolution (Task #15) ────────────────────────────────────────
     // Resolve the active provider + concrete model centrally. The stored model
@@ -2015,6 +2108,20 @@ export async function POST(req: Request) {
     }
     const model = ai.model
 
+    // ── Intent classification (dynamic step budget) ──────────────────────────
+    const lastUserMsg = [...messages].reverse().find(m => m.role === "user")
+    const lastUserText = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : JSON.stringify(lastUserMsg?.content ?? "")
+
+    const intent = await Promise.race([
+      classifyIntent(lastUserText, model),
+      new Promise<PlannerIntent>(resolve =>
+        setTimeout(() => resolve("complex"), 800)
+      )
+    ])
+    const dynamicStepCount = INTENT_MAX_STEPS[intent]
+
     // Build a REQUEST-SCOPED tools object. autoPickTrips closes over an
     // immutable snapshot of THIS request's My Trip list / visit date / party
     // size so its conflict logic can never be contaminated by a concurrent
@@ -2028,12 +2135,33 @@ export async function POST(req: Request) {
       }),
     }
 
+    // ── Conversation history trimming (token bloat prevention) ───────────────
+    // Step 1: strip heavy tool result payloads from messages older than the
+    // last KEEP_RECENT. The model still sees that the tool was called (the
+    // tool-call message is untouched) but skips re-reading large card arrays,
+    // availability dumps, timeslot lists, etc. from stale turns.
+    const KEEP_RECENT = 6
+    const processedMessages = messages.map((msg, index) => {
+      const isOld = index < messages.length - KEEP_RECENT
+      if (isOld && msg.role === "tool") {
+        return {
+          ...msg,
+          content: "[tool result omitted — see current turn]",
+        }
+      }
+      return msg
+    })
+    // Step 2: hard cap at the last 20 messages so very long sessions never
+    // grow the context unboundedly. PLANNER_BUDGET already guards the raw
+    // body above (body?.messages); this trim is model-context only.
+    const trimmedMessages = processedMessages.slice(-20)
+
     const result = streamText({
       model,
       messages: [
-        { role: "system" as const, content: STATIC_SYSTEM_PROMPT },
-        { role: "system" as const, content: systemPrompt },
-        ...(await convertToModelMessages(messages)),
+        { role: "system", content: STATIC_SYSTEM_PROMPT },
+        { role: "system", content: dynamicPrompt },
+        ...(await convertToModelMessages(trimmedMessages)),
       ],
       tools: requestTools,
       ...(ai.maxTokens ? { maxTokens: ai.maxTokens } : {}),
@@ -2041,7 +2169,7 @@ export async function POST(req: Request) {
       onError: ({ error }) => {
         void logCaughtError("ai:planner", error, { phase: "streamText" })
       },
-      stopWhen: stepCountIs(5),
+      stopWhen: stepCountIs(dynamicStepCount),
       // Hard kill-switch: if Claude starts emitting labelled-section recaps
       // (BEST MATCHES:, NOT SUITABLE:, WEATHER FIT:, DAYTIME / SUNDAY-SUITABLE,
       // ANYTIME:, NIGHT / EVENING:, FIT FOR…) or a numbered enumeration

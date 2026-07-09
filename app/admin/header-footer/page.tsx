@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
-  Megaphone, AlignLeft, AlignCenter, AlignRight, RotateCcw,
+  Megaphone, AlignLeft, AlignCenter, AlignRight, RotateCcw, MapPin, Mail, Phone,
 } from "lucide-react"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 import {
@@ -486,12 +486,97 @@ function ColorControl({
   )
 }
 
+/* ── Contact Info editor ── */
+interface ContactInfoValue {
+  address: string
+  email: string
+  phone: string
+}
+
+function ContactInfoEditor({
+  value,
+  onChange,
+}: {
+  value: ContactInfoValue
+  onChange: (v: ContactInfoValue) => void
+}) {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <div className={`flex items-center gap-3 px-5 py-4 ${expanded ? "border-b border-border" : ""}`}>
+        <MapPin className="h-5 w-5 shrink-0 text-primary" />
+        <div className="flex flex-1 flex-col min-w-0">
+          <span className="text-sm font-semibold text-foreground">Contact Info</span>
+          <span className="text-[11px] text-muted-foreground">
+            Address, email and phone shown in the site footer and Legal Notice page.
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Collapse" : "Expand"}
+          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="flex flex-col gap-4 px-5 py-4">
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <MapPin className="h-3 w-3" /> Address
+            </label>
+            <input
+              type="text"
+              value={value.address}
+              onChange={(e) => onChange({ ...value, address: e.target.value })}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+              placeholder="430-434 route de Longwy, L-1940 Luxembourg"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <Mail className="h-3 w-3" /> Email
+            </label>
+            <input
+              type="email"
+              value={value.email}
+              onChange={(e) => onChange({ ...value, email: e.target.value })}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+              placeholder="hello@sightseeing.lu"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <Phone className="h-3 w-3" /> Phone
+            </label>
+            <input
+              type="text"
+              value={value.phone}
+              onChange={(e) => onChange({ ...value, phone: e.target.value })}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+              placeholder="+352 266 51 2200"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── Main page ── */
 export default function HeaderFooterPage() {
   const [tab, setTab] = useState<Section>("header")
   const [blocks, setBlocks] = useState<Record<Section, CodeBlock[]>>(DEFAULT_BLOCKS)
   const [announcement, setAnnouncement] = useState<AnnouncementValue>({
     enabled: false, content: "", size: "md", align: "center", bgColor: "", textColor: "",
+  })
+  const [contactInfo, setContactInfo] = useState<ContactInfoValue>({
+    address: "430-434 route de Longwy, L-1940 Luxembourg",
+    email: "hello@sightseeing.lu",
+    phone: "+352 266 51 2200",
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -533,6 +618,14 @@ export default function HeaderFooterPage() {
             textColor: typeof a.textColor === "string" ? a.textColor : "",
           })
         }
+        if (s?.contactInfo) {
+          const c = s.contactInfo
+          setContactInfo({
+            address: typeof c.address === "string" && c.address ? c.address : "430-434 route de Longwy, L-1940 Luxembourg",
+            email: typeof c.email === "string" && c.email ? c.email : "hello@sightseeing.lu",
+            phone: typeof c.phone === "string" && c.phone ? c.phone : "+352 266 51 2200",
+          })
+        }
       })
       .catch(() => {})
   }, [])
@@ -566,6 +659,11 @@ export default function HeaderFooterPage() {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ section: "announcement", data: announcement }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ section: "contactInfo", data: contactInfo }),
         }),
       ])
 
@@ -658,6 +756,11 @@ export default function HeaderFooterPage() {
           {/* Structured announcement banner (header tab only) */}
           {tab === "header" && (
             <AnnouncementEditor value={announcement} onChange={setAnnouncement} />
+          )}
+
+          {/* Contact info (footer tab only) */}
+          {tab === "footer" && (
+            <ContactInfoEditor value={contactInfo} onChange={setContactInfo} />
           )}
 
           {/* Injection zone info */}

@@ -1705,6 +1705,7 @@ export default function PlannerPage() {
   // tell whether a conversation is actually underway without depending on chat
   // state — a more direct signal than the didSendInitial latch alone.
   const messagesCountRef = useRef(0)
+  const messagesRef = useRef<typeof messages>([])
 
   /* Push a concise assistant "note" into the chat so MANUAL interactions
      (adding a trip from the canvas/modal, changing the date or a preference
@@ -2437,6 +2438,16 @@ export default function PlannerPage() {
     trips: Record<string, { onDate: boolean; dates: string[]; unknown?: boolean }>
   }>({ date: null, trips: {} })
 
+  const conversationContextRef = useRef<{
+    lastExpressedInterests: string[]
+    lastExpressedQuery: string
+    pendingConfirmation: string | null
+  }>({
+    lastExpressedInterests: [],
+    lastExpressedQuery: "",
+    pendingConfirmation: null,
+  })
+
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/planner",
@@ -2476,6 +2487,10 @@ export default function PlannerPage() {
             // Compact availability snapshot so searchTrips reports accurate
             // on-visit-date truth for the trips it returns THIS turn.
             availability: availabilityForApiRef.current,
+            // Conversation context so the server can remind the AI of the
+            // user's last expressed interests/query on every turn, preventing
+            // interest context from being dropped on short confirmations.
+            conversationContext: conversationContextRef.current,
           },
         }
       },
@@ -2633,6 +2648,53 @@ export default function PlannerPage() {
     },
     onToolCall({ toolCall }) {
       if (toolCall.dynamic) return
+
+      // Block ALL preference changes and canvas pins during the auto-seed turn.
+      // The seed is the hidden first message fired on page load — the visitor
+      // has not interacted yet, so the AI must never overwrite onboarding prefs
+      // or pin the canvas with its own guess.
+      const isSeedTurn = (() => {
+        const msgs = messagesRef.current
+        const userMessages = msgs.filter((m) => m.role === "user")
+        if (userMessages.length !== 1) return false
+        const firstUser = userMessages[0]
+        const text = firstUser.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join(" ")
+        return text.trimStart().startsWith(AUTO_SEED_PREFIX)
+      })()
+
+      if (isSeedTurn && toolCall.toolName === "updatePreferences") {
+        // Return current prefs unchanged — seed turn must never mutate prefs
+        addToolOutput({
+          tool: "updatePreferences",
+          toolCallId: toolCall.toolCallId,
+          output: {
+            ok: true,
+            unchanged: true,
+            message: "Preferences locked during initial load — user has not made a request yet.",
+            preferences: prefsRef.current,
+          } as never,
+        })
+        return
+      }
+
+      if (isSeedTurn && toolCall.toolName === "searchTrips") {
+        // Return empty result — seed turn must never pin the canvas
+        addToolOutput({
+          tool: "searchTrips",
+          toolCallId: toolCall.toolCallId,
+          output: {
+            ok: true,
+            trips: [],
+            total: 0,
+            message: "Canvas not updated during initial load.",
+          } as never,
+        })
+        return
+      }
+
       if (toolCall.toolName === "updatePreferences") {
         // AI-driven preference update from chat. We read the latest
         // prefs SYNCHRONOUSLY from prefsRef (not the React state captured
@@ -2655,12 +2717,24 @@ export default function PlannerPage() {
           // none were valid, keep the existing list rather than wiping it.
           interests: Array.isArray(patch.interests)
             ? (() => {
+                // If the AI's patch contains an interest the user explicitly
+                // expressed this turn, treat the patch as a REPLACEMENT rather
+                // than a merge — start from an empty base so stale interests
+                // from prior turns (e.g. "museums" carried forward) can't
+                // piggyback on a "food only" request.
+                const isExplicitReplace =
+                  patch.interests.length > 0 &&
+                  conversationContextRef.current.lastExpressedInterests.length > 0 &&
+                  patch.interests.some((i) =>
+                    conversationContextRef.current.lastExpressedInterests.includes(i)
+                  )
+                const baseInterests = isExplicitReplace ? [] : base.interests
                 const valid = new Set(formOptions.interests.map((o) => o.value))
                 const mapped = patch.interests.filter(
                   (v): v is string => typeof v === "string" && valid.has(v),
                 )
                 const deduped = Array.from(new Set(mapped)).slice(0, formOptions.maxInterests)
-                return deduped.length > 0 || patch.interests.length === 0 ? deduped : base.interests
+                return deduped.length > 0 || patch.interests.length === 0 ? deduped : baseInterests
               })()
             : base.interests,
           duration: typeof patch.duration === "string" && patch.duration ? patch.duration : base.duration,
@@ -2813,6 +2887,7 @@ export default function PlannerPage() {
   // chatLimitReached), so refresh the ref every render to keep guards current.
   useEffect(() => { sendMessageRef.current = (text: string) => handleSend(text) })
   useEffect(() => { messagesCountRef.current = messages.length }, [messages.length])
+  useEffect(() => { messagesRef.current = messages }, [messages])
   // Flush a queued visit-date re-derive once the chat is sendable. Mirrors
   // handleSend's guard (drop only while a turn is in flight; "ready" AND "error"
   // are both sendable so a prior AI failure never wedges the queue). On the chat
@@ -3599,10 +3674,17 @@ export default function PlannerPage() {
       const t = setTimeout(() => {
         if (didSendInitial.current) return
         didSendInitial.current = true
-        const visitDate = prefs.startDate || todayYMD()
-        const isToday = visitDate === todayYMD()
-        const datePhrase = isToday ? "today" : `on ${formatYMDPretty(visitDate)} (${visitDate})`
-        sendMessage({ text: `${AUTO_SEED_PREFIX} ${datePhrase} based on my preferences and the weather. Analyse each trip's description and details (day vs night activities, opening hours, indoor vs outdoor) to match trips that genuinely fit my visit date and time-of-day. The Trip Canvas already shows which trips are bookable on ${visitDate} — recommend from those and never tell me nothing is available when the canvas lists trips.` })
+        const weatherHint = `Current weather: ${temp}°C, ${condition}.`
+        const interestHint = prefs.interests?.length
+          ? `Visitor interests: ${prefs.interests.join(", ")}.`
+          : "Visitor has no interests set yet."
+        const seedMessage = [
+          AUTO_SEED_PREFIX,
+          weatherHint,
+          interestHint,
+          "Write a welcome message only. Do not call any tools.",
+        ].filter(Boolean).join(" ")
+        sendMessage({ text: seedMessage })
       }, 300)
       return () => clearTimeout(t)
     }
@@ -4644,6 +4726,56 @@ export default function PlannerPage() {
   )
   const chatLimitReached = formOptions.maxChatTurns > 0 && userTurnCount >= formOptions.maxChatTurns
 
+  function updateConversationContext(userText: string) {
+    const text = userText.toLowerCase()
+
+    // Detect short confirmations affirming something the AI suggested
+    const isConfirmation =
+      text.length < 50 &&
+      (
+        text.includes("yes") ||
+        text.includes("sure") ||
+        text.includes("ok") ||
+        text.includes("show me") ||
+        text.includes("show those") ||
+        text.includes("show the") ||
+        text.includes("go ahead") ||
+        text.includes("sounds good") ||
+        text.includes("yeah")
+      )
+
+    if (isConfirmation) {
+      // Mark as confirmation — keep existing interest context intact
+      conversationContextRef.current = {
+        ...conversationContextRef.current,
+        pendingConfirmation: userText,
+      }
+      return // Do NOT overwrite lastExpressedInterests
+    }
+
+    // For real messages, update last expressed query
+    conversationContextRef.current = {
+      ...conversationContextRef.current,
+      lastExpressedQuery: userText.slice(0, 200),
+      pendingConfirmation: null,
+      // Keep lastExpressedInterests — only prefs update clears these
+      lastExpressedInterests:
+        prefs?.interests?.length
+          ? prefs.interests
+          : conversationContextRef.current.lastExpressedInterests,
+    }
+  }
+
+  // Keep lastExpressedInterests in sync when prefs.interests changes
+  useEffect(() => {
+    if (prefs?.interests && prefs.interests.length > 0) {
+      conversationContextRef.current = {
+        ...conversationContextRef.current,
+        lastExpressedInterests: prefs.interests,
+      }
+    }
+  }, [prefs?.interests])
+
   function handleSend(text: string) {
     // Once the admin-configured per-session chat limit is reached the visitor
     // must reset to continue — drop any further sends (typed input or pills).
@@ -4692,6 +4824,7 @@ export default function PlannerPage() {
       }
     }
     setSelectedTrip(null)
+    updateConversationContext(text)
     sendMessage({ text })
     setInput("")
   }
