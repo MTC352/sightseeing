@@ -2,13 +2,15 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
+import { dbGetContactInfo } from "@/lib/db/queries"
 
 export const metadata: Metadata = {
   title: "Legal Notice (Impressum)",
   description: "Legal notice and company information for sightseeing.lu, as required by Luxembourg law.",
 }
 
-export default function ImpressumPage() {
+export default async function ImpressumPage() {
+  const contact = await dbGetContactInfo()
   return (
     <>
       <Navbar />
@@ -23,7 +25,7 @@ export default function ImpressumPage() {
             <div className="mt-3 space-y-1">
               <p><span className="font-medium">Company name:</span> sightseeing.lu S.à r.l.</p>
               <p><span className="font-medium">Legal form:</span> Société à responsabilité limitée (S.à r.l.)</p>
-              <p><span className="font-medium">Registered address:</span> Place Guillaume II, L-1648 Luxembourg, Grand Duchy of Luxembourg</p>
+              <p><span className="font-medium">Registered address:</span> {contact.address}, Grand Duchy of Luxembourg</p>
               <p><span className="font-medium">Commercial Register:</span> Registre de Commerce et des Sociétés (RCS) Luxembourg — B [Registration number to be added]</p>
               <p><span className="font-medium">VAT number:</span> LU [VAT number to be added]</p>
             </div>
@@ -33,11 +35,11 @@ export default function ImpressumPage() {
             <h2 className="text-base font-semibold uppercase tracking-wide text-muted-foreground">Contact</h2>
             <div className="mt-3 space-y-1">
               <p><span className="font-medium">E-mail:</span>{" "}
-                <a href="mailto:hello@sightseeing.lu" className="text-primary underline underline-offset-2">
-                  hello@sightseeing.lu
+                <a href={`mailto:${contact.email}`} className="text-primary underline underline-offset-2">
+                  {contact.email}
                 </a>
               </p>
-              <p><span className="font-medium">Telephone:</span> +352 621 000 000</p>
+              <p><span className="font-medium">Telephone:</span> {contact.phone}</p>
             </div>
           </div>
 

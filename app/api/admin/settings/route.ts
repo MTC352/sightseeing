@@ -7,6 +7,7 @@ import {
   dbUpdateWeglot,
   dbUpdateHeaderFooter,
   dbUpdateAnnouncement,
+  dbUpdateContactInfo,
   dbSetImportExcludedFields,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
@@ -60,6 +61,7 @@ export async function GET() {
       filtered.header = full.header
       filtered.footer = full.footer
       filtered.announcement = full.announcement
+      filtered.contactInfo = full.contactInfo
     }
 
     if (perms.includes("palisis")) {
@@ -79,6 +81,7 @@ const SECTION_PERMISSION: Record<string, PermissionKey> = {
   ai: "ai-systems",
   weglot: "integrations",
   importSettings: "palisis",
+  contactInfo: "header-footer",
 }
 
 /**
@@ -93,7 +96,7 @@ export async function PATCH(req: Request) {
     const session = await requireAdminSession()
     const body = await req.json()
     const { section, data } = body as {
-      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement" | "importSettings"
+      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement" | "contactInfo" | "importSettings"
       data: Record<string, unknown>
     }
 
@@ -149,6 +152,8 @@ export async function PATCH(req: Request) {
       await dbUpdateHeaderFooter("footer", data.customHtml as string)
     } else if (section === "announcement") {
       await dbUpdateAnnouncement(data as { enabled?: boolean; content?: string; size?: string; align?: string; bgColor?: string; textColor?: string })
+    } else if (section === "contactInfo") {
+      await dbUpdateContactInfo(data as { address?: string; email?: string; phone?: string })
     } else if (section === "importSettings") {
       await dbSetImportExcludedFields(data.excludedFields)
     }

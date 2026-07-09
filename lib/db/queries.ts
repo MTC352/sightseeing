@@ -864,6 +864,7 @@ export async function dbGetSettings() {
     query(`SELECT system_key, system_prompt, model, temperature::float, max_tokens, extra_config FROM ai_system_configs`),
     query(`SELECT name, label, placement, html, enabled FROM header_footer_blocks`),
   ])
+  const contactInfo = await dbGetContactInfo()
 
   const apiKeys: Record<string, string> = {}
   let weglot: Record<string, unknown> = { originalLang: 'en', destinationLangs: [], showFlags: true }
@@ -1001,7 +1002,7 @@ export async function dbGetSettings() {
   const aiProviderSelected = selectedProvider(apiKeys)
   const aiProvider = effectiveProvider(apiKeys, aiEnv)
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, contactInfo, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
@@ -1895,6 +1896,49 @@ export async function dbUpdateAnnouncement(data: {
     [content, JSON.stringify(meta)],
   )
   return { enabled: meta.enabled, content, size, align, bgColor, textColor }
+}
+
+// ── Contact info (footer + impressum) ───────────────────────────────────────
+
+export interface ContactInfo {
+  address: string
+  email: string
+  phone: string
+}
+
+const CONTACT_INFO_DEFAULTS: ContactInfo = {
+  address: '430-434 route de Longwy, L-1940 Luxembourg',
+  email: 'hello@sightseeing.lu',
+  phone: '+352 266 51 2200',
+}
+
+export async function dbGetContactInfo(): Promise<ContactInfo> {
+  const row = await queryOne<{ meta: unknown }>(
+    `SELECT meta FROM integrations WHERE key = 'contact_info'`,
+  )
+  if (!row?.meta || typeof row.meta !== 'object') return { ...CONTACT_INFO_DEFAULTS }
+  const meta = row.meta as Record<string, unknown>
+  return {
+    address: typeof meta.address === 'string' && meta.address ? meta.address : CONTACT_INFO_DEFAULTS.address,
+    email: typeof meta.email === 'string' && meta.email ? meta.email : CONTACT_INFO_DEFAULTS.email,
+    phone: typeof meta.phone === 'string' && meta.phone ? meta.phone : CONTACT_INFO_DEFAULTS.phone,
+  }
+}
+
+export async function dbUpdateContactInfo(data: { address?: string; email?: string; phone?: string }): Promise<ContactInfo> {
+  const current = await dbGetContactInfo()
+  const updated: ContactInfo = {
+    address: typeof data.address === 'string' && data.address.trim() ? data.address.trim() : current.address,
+    email: typeof data.email === 'string' && data.email.trim() ? data.email.trim() : current.email,
+    phone: typeof data.phone === 'string' && data.phone.trim() ? data.phone.trim() : current.phone,
+  }
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('contact_info', 'Contact Info', '', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
+    [JSON.stringify(updated)],
+  )
+  return updated
 }
 
 // ── Site frontend protection (admin-configurable staging gate) ──────────────

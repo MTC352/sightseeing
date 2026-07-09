@@ -3,8 +3,21 @@
 import Link from "next/link"
 import Image from "next/image"
 import { MapPin, Mail, Phone } from "lucide-react"
+import { useState, useEffect } from "react"
 import { EditableText } from "@/components/editable-text"
 import { CookieSettingsButton } from "@/components/cookie-banner"
+
+interface ContactInfo {
+  address: string
+  email: string
+  phone: string
+}
+
+const DEFAULTS: ContactInfo = {
+  address: "430-434 route de Longwy, L-1940 Luxembourg",
+  email: "hello@sightseeing.lu",
+  phone: "+352 266 51 2200",
+}
 
 const LINKS = {
   "About sightseeing.lu": [
@@ -47,6 +60,17 @@ const LINKS = {
 }
 
 export function SiteFooter() {
+  const [contact, setContact] = useState<ContactInfo>(DEFAULTS)
+
+  useEffect(() => {
+    fetch("/api/contact-info")
+      .then((r) => r.json())
+      .then((data: ContactInfo) => {
+        if (data?.address) setContact(data)
+      })
+      .catch(() => {})
+  }, [])
+
   return (
     <footer className="border-t border-border bg-card">
       <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
@@ -58,9 +82,9 @@ export function SiteFooter() {
               <EditableText id="footer:brand:tagline" defaultValue="Handpicked experiences in and around Luxembourg, guided by passionate locals." multiline />
             </p>
             <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /> <EditableText id="footer:contact:address" defaultValue="Luxembourg City" /></span>
-              <span className="flex items-center gap-1.5"><Mail className="h-3 w-3" /> <EditableText id="footer:contact:email" defaultValue="info@sightseeing.lu" /></span>
-              <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> <EditableText id="footer:contact:phone" defaultValue="+352 123 456" /></span>
+              <span className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /> <EditableText id="footer:contact:address" defaultValue={contact.address} /></span>
+              <span className="flex items-center gap-1.5"><Mail className="h-3 w-3" /> <EditableText id="footer:contact:email" defaultValue={contact.email} /></span>
+              <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> <EditableText id="footer:contact:phone" defaultValue={contact.phone} /></span>
             </div>
           </div>
           {/* Link columns */}
