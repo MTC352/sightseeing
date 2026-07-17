@@ -329,7 +329,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
 
                   {/* Full-card link */}
                   <Link
-                    href={`/search?q=${encodeURIComponent(city)}`}
+                    href={`/search?departure=${encodeURIComponent(city)}`}
                     aria-label={`View all experiences departing from ${city}`}
                     className="absolute inset-0 z-10"
                   />

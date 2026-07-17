@@ -47,6 +47,7 @@ function mapDbRow(r: Record<string, unknown>): SearchTrip {
     // ── Palisis-rich fields used by the new filters ──
     tourType: r.tourType != null ? String(r.tourType) : undefined,
     tripTags: Array.isArray(r.tripTags) ? (r.tripTags as string[]) : [],
+    departureLocation: r.departureLocation != null ? String(r.departureLocation) : undefined,
     departureGeocode: r.departureGeocode != null ? String(r.departureGeocode) : undefined,
   }
 }

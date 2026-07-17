@@ -34,16 +34,22 @@ export interface SearchTrip extends Trip {
   departureGeocode?: string
 }
 
+/** Departure-point grouping key — MUST stay in sync with the /departures page
+ *  (`locationKey` in departures-client.tsx) so its links land on matching filters. */
+function departureKey(t: SearchTrip): string {
+  return t.departureLocation?.trim() || t.city?.trim() || "Luxembourg City"
+}
+
 interface Filters {
   priceMin: number; priceMax: number; ratingMin: number; durationMax: number
   persons: number; locationAddress: string; locationRadius: number
   dateFrom: string; dateTo: string; timeFrom: string; timeTo: string
-  tags: string[]; types: string[]
+  tags: string[]; types: string[]; departures: string[]
 }
 const DEFAULT_FILTERS: Filters = {
   priceMin: 0, priceMax: 500, ratingMin: 0, durationMax: 24, persons: 1,
   locationAddress: "", locationRadius: 10, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "",
-  tags: [], types: [],
+  tags: [], types: [], departures: [],
 }
 
 const RADIUS_OPTIONS = [1, 2, 5, 10, 20, 50] as const
@@ -113,7 +119,7 @@ function slotFitsTime(slot: Timeslot, timeFrom: string, timeTo: string): boolean
  * Widget visibility is controlled per-section by `config` (admin panel).
  * Apply/Reset commit changes upstream; live editing stays local until then. */
 function FilterModal({
-  open, onClose, filters, onChange, config, tagOptions, typeOptions,
+  open, onClose, filters, onChange, config, tagOptions, typeOptions, departureOptions,
 }: {
   open: boolean
   onClose: () => void
@@ -122,6 +128,7 @@ function FilterModal({
   config: SearchFiltersConfig
   tagOptions: string[]
   typeOptions: string[]
+  departureOptions: string[]
 }) {
   const [local, setLocal] = useState<Filters>(filters)
   useEffect(() => { if (open) setLocal(filters) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -129,7 +136,7 @@ function FilterModal({
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) =>
     setLocal((p) => ({ ...p, [k]: v }))
 
-  const toggleArr = (key: "tags" | "types", value: string) =>
+  const toggleArr = (key: "tags" | "types" | "departures", value: string) =>
     setLocal((p) => ({
       ...p,
       [key]: p[key].includes(value) ? p[key].filter((v) => v !== value) : [...p[key], value],
@@ -142,10 +149,10 @@ function FilterModal({
         : "border-border bg-background text-foreground hover:bg-secondary"
     }`
 
-  // At least one widget enabled?
+  // At least one widget enabled? (Departure point is always available.)
   const anyEnabled =
     config.location || config.price || config.rating || config.duration ||
-    config.tags || config.type
+    config.tags || config.type || departureOptions.length > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -250,6 +257,28 @@ function FilterModal({
                     onClick={() => set("durationMax", h)}
                     className={pill(local.durationMax === h)}>
                     {h >= 24 ? "Any" : `Up to ${h}h`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Departure point */}
+          {departureOptions.length > 0 && (
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-foreground">
+                Departure point {local.departures.length > 0 && (
+                  <span className="ml-1 text-[11px] font-normal text-muted-foreground">
+                    ({local.departures.length} selected)
+                  </span>
+                )}
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {departureOptions.map((d) => (
+                  <button key={d} type="button"
+                    onClick={() => toggleArr("departures", d)}
+                    className={`${pill(local.departures.includes(d))} max-w-full text-left`}>
+                    <span className="line-clamp-1">{d}</span>
                   </button>
                 ))}
               </div>
@@ -817,6 +846,13 @@ export function SearchContent({
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean)
+    // ?departure=Name1,Name2 — used by the /departures page cards to
+    // pre-select the departure-point filter.
+    const departureParam = searchParams.get("departure") ?? ""
+    const departuresFromUrl = departureParam
+      .split(",")
+      .map((d) => d.trim())
+      .filter(Boolean)
     return {
       ...DEFAULT_FILTERS,
       dateFrom: searchParams.get("date")     ?? "",
@@ -824,6 +860,7 @@ export function SearchContent({
       timeTo:   searchParams.get("timeTo")   ?? "",
       persons:  Math.max(1, parseInt(searchParams.get("persons") ?? "1", 10) || 1),
       tags:     tagsFromUrl,
+      departures: departuresFromUrl,
     }
   })
 
@@ -838,8 +875,9 @@ export function SearchContent({
     if (activeFilters.timeTo)    params.set("timeTo",   activeFilters.timeTo)
     if (activeFilters.persons > 1) params.set("persons", String(activeFilters.persons))
     if (activeFilters.tags.length > 0) params.set("tag", activeFilters.tags.join(","))
+    if (activeFilters.departures.length > 0) params.set("departure", activeFilters.departures.join(","))
     router.replace(`/search?${params.toString()}`, { scroll: false })
-  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons, activeFilters.tags]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons, activeFilters.tags, activeFilters.departures]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Fetch availability — only re-fires when the DATE changes.
      Time + person filtering is fully client-side so those changes never
@@ -906,6 +944,14 @@ export function SearchContent({
     return Array.from(seen).sort()
   }, [initialTrips])
 
+  /* Departure-point options — unique departure locations across all trips
+     (same grouping keys the /departures page uses). */
+  const departureOptions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const t of initialTrips) seen.add(departureKey(t))
+    return Array.from(seen).sort()
+  }, [initialTrips])
+
   /* Load Mapbox token once (used for forward geocoding of the address input). */
   useEffect(() => {
     if (!filtersConfig.location) return
@@ -938,6 +984,7 @@ export function SearchContent({
     locationActive,
     filtersConfig.tags && activeFilters.tags.length > 0,
     filtersConfig.type && activeFilters.types.length > 0,
+    activeFilters.departures.length > 0,
   ].filter(Boolean).length
 
   /* Debounced geocoding of the address input → user lat/lng for radius filter. */
@@ -973,7 +1020,7 @@ export function SearchContent({
     if (!query.trim()) return initialTrips
     const kws = query.toLowerCase().split(/\s+/).filter(Boolean)
     return initialTrips.filter((t) => {
-      const hay = [t.title, t.category, t.city ?? "", t.description ?? "", t.provider ?? "", ...(t.tags ?? [])].join(" ").toLowerCase()
+      const hay = [t.title, t.category, t.city ?? "", t.departureLocation ?? "", t.description ?? "", t.provider ?? "", ...(t.tags ?? [])].join(" ").toLowerCase()
       return kws.every((kw) => hay.includes(kw))
     })
   }, [query, initialTrips])
@@ -1010,6 +1057,9 @@ export function SearchContent({
       }
       if (filtersConfig.type && activeFilters.types.length > 0) {
         if (!t.tourType || !activeFilters.types.includes(t.tourType.trim())) return false
+      }
+      if (activeFilters.departures.length > 0) {
+        if (!activeFilters.departures.includes(departureKey(t))) return false
       }
       return true
     })
@@ -1143,6 +1193,7 @@ export function SearchContent({
         config={filtersConfig}
         tagOptions={tagOptions}
         typeOptions={typeOptions}
+        departureOptions={departureOptions}
       />
       <DateTimeModal
         open={dateOpen}
@@ -1249,6 +1300,24 @@ export function SearchContent({
             {query && (
               <p className="mb-0.5 text-xs text-muted-foreground">
                 Results for <span className="font-semibold text-foreground">&quot;{query}&quot;</span>
+              </p>
+            )}
+            {activeFilters.departures.length > 0 && (
+              <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                Departing from{" "}
+                {activeFilters.departures.map((d) => (
+                  <span key={d} className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 font-medium text-primary">
+                    <MapPin className="h-3 w-3" />{d}
+                    <button
+                      type="button"
+                      aria-label={`Remove departure filter ${d}`}
+                      onClick={() => setActiveFilters((p) => ({ ...p, departures: p.departures.filter((x) => x !== d) }))}
+                      className="ml-0.5 rounded-full hover:bg-primary/10"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
               </p>
             )}
             {dateFilterActive && (
