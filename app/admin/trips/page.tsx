@@ -102,13 +102,19 @@ export default async function AdminTripsPage() {
                         <img src={trip.image} alt="" className="h-full w-full object-cover" />
                       </Link>
                       <div className="min-w-0">
-                        <Link
-                          href={`/admin/trips/${trip.id}`}
-                          className="block truncate font-medium text-foreground max-w-[220px] hover:text-primary hover:underline underline-offset-2"
-                          title="Edit trip"
-                        >
-                          {trip.title}
-                        </Link>
+                        {trip.status === "deactivated" ? (
+                          <span className="block truncate font-medium text-muted-foreground max-w-[220px] cursor-default" title="Reactivate trip to edit it">
+                            {trip.title}
+                          </span>
+                        ) : (
+                          <Link
+                            href={`/admin/trips/${trip.id}`}
+                            className="block truncate font-medium text-foreground max-w-[220px] hover:text-primary hover:underline underline-offset-2"
+                            title="Edit trip"
+                          >
+                            {trip.title}
+                          </Link>
+                        )}
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <p className="text-xs text-muted-foreground">{trip.city}</p>
                           {isPalisis(trip) ? (

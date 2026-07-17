@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import type { AdminTrip } from "@/lib/admin-store"
 import { isFieldEditable, resolvePolicy, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
-import { Lock, Eye, EyeOff, PowerOff } from "lucide-react"
+import { Lock, Eye, EyeOff, PowerOff, Power } from "lucide-react"
 import { Save, ArrowLeft, Plus, X, ExternalLink, Upload, ImagePlus, Loader2, Trash2, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -124,6 +124,21 @@ export function TripEditForm({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [activating, setActivating] = useState(false)
+  const [confirmActivate, setConfirmActivate] = useState(false)
+
+  async function handleActivate() {
+    if (!trip) return
+    setActivating(true)
+    await fetch(`/api/admin/trips/${trip.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "draft" }),
+    })
+    router.refresh()
+    setActivating(false)
+    setConfirmActivate(false)
+  }
 
   const [form, setForm] = useState<Partial<AdminTrip>>(() => trip ?? { ...NEW_TRIP_DEFAULTS })
   // Baseline = last-saved snapshot. `isDirty` compares the live form against it
@@ -397,12 +412,49 @@ export function TripEditForm({
 
       <div className="mx-auto max-w-3xl">
       {isDeactivated && (
-        <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/8 px-4 py-3 text-sm text-red-700">
-          <PowerOff className="h-4 w-4 shrink-0" />
-          <span className="flex-1 font-medium">
-            This trip is deactivated — it is hidden from the site and all AI systems.
-            Go to the <Link href="/admin/trips" className="underline hover:no-underline">Trips list</Link> and click the power icon to reactivate it before making edits.
-          </span>
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-900/50 dark:bg-red-950/30">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40">
+              <PowerOff className="h-5 w-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div className="flex-1">
+              <p className="font-semibold text-red-800 dark:text-red-300">This trip is deactivated</p>
+              <p className="mt-0.5 text-sm text-red-600 dark:text-red-400">
+                It is hidden from the public site and all AI systems. Reactivate it to make edits, enable SEO optimisation, and manage itinerary steps.
+              </p>
+              <div className="mt-4">
+                {!confirmActivate ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmActivate(true)}
+                    className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                  >
+                    <Power className="h-4 w-4" /> Reactivate trip
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-300">Set status to <strong>Draft</strong> and enable editing?</p>
+                    <button
+                      type="button"
+                      onClick={handleActivate}
+                      disabled={activating}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {activating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
+                      {activating ? "Activating…" : "Yes, reactivate"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmActivate(false)}
+                      className="text-sm text-red-600 underline hover:no-underline dark:text-red-400"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
       {saveError && (
@@ -1118,27 +1170,31 @@ export function TripEditForm({
           </div>
         </section>
 
-        {/* SEO Optimizer */}
-        <SEOOptimizer
-          tripData={form}
-          onApplyOptimization={(field, value) => {
-            // Gate every SEO write through the field policy — UI must respect read-only.
-            if (field === "highlights" && Array.isArray(value)) {
-              if (can("highlights")) set("highlights", value as string[])
-            } else if (field === "tags" && Array.isArray(value)) {
-              if (can("tripTags")) set("tripTags", value as string[])
-            } else if (typeof value === "string") {
-              if (can(field as string)) set(field as "title" | "description", value)
-            }
-          }}
-        />
+        {/* SEO Optimizer — hidden for deactivated trips */}
+        {!isDeactivated && (
+          <SEOOptimizer
+            tripData={form}
+            onApplyOptimization={(field, value) => {
+              // Gate every SEO write through the field policy — UI must respect read-only.
+              if (field === "highlights" && Array.isArray(value)) {
+                if (can("highlights")) set("highlights", value as string[])
+              } else if (field === "tags" && Array.isArray(value)) {
+                if (can("tripTags")) set("tripTags", value as string[])
+              } else if (typeof value === "string") {
+                if (can(field as string)) set(field as "title" | "description", value)
+              }
+            }}
+          />
+        )}
 
-        {/* Itinerary steps */}
-        <ItineraryEditor
-          tripId={trip?.id}
-          steps={form.itinerarySteps ?? []}
-          onChange={(steps) => set("itinerarySteps", steps)}
-        />
+        {/* Itinerary steps — hidden for deactivated trips */}
+        {!isDeactivated && (
+          <ItineraryEditor
+            tripId={trip?.id}
+            steps={form.itinerarySteps ?? []}
+            onChange={(steps) => set("itinerarySteps", steps)}
+          />
+        )}
       </div>
 
       {/* Floating save / discard bar — sticks to the bottom of the viewport
