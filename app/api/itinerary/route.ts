@@ -9,6 +9,7 @@ import {
   type AvailabilityComponent,
 } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { sharedRateLimit } from "@/lib/shared-rate-limit"
 import { parseHumanDuration } from "@/lib/parse-duration"
 import {
   buildSchedule,
@@ -257,6 +258,18 @@ export async function POST(req: Request) {
   schedulePrune()
   const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
   if (!limit.allowed) return limit.response
+  // Shared cross-instance per-IP rate limit.  Mirrors the planner route guard:
+  // the process-local counter resets on cold starts and doesn't help across
+  // autoscaled instances.  The shared DB counter survives both.  Fail-open.
+  const { sharedRateLimit: srl, getClientIp: gcip } = await import("@/lib/shared-rate-limit")
+  const itinClientIp = gcip(req)
+  const sharedItinLimit = await srl(`itinerary:${itinClientIp}`, { limit: 10, windowMs: 60_000 })
+  if (!sharedItinLimit.allowed) {
+    return Response.json(
+      { error: "Too many requests. Please wait before trying again." },
+      { status: 429, headers: { "Retry-After": "60" } },
+    )
+  }
 
   try {
     // eslint-disable-next-line prefer-const
@@ -379,6 +392,20 @@ export async function POST(req: Request) {
       return Response.json({
         error: "MISSING_VISIT_DATE",
         message: "A valid visit date (YYYY-MM-DD, today or later) is required to build an itinerary.",
+      }, { status: 400 })
+    }
+    // Reject dates that are unreasonably far in the future.  Each accepted
+    // request fans out into one TourCMS datesndeals call per trip in the cart
+    // plus real-time checkAvailability fallbacks — so an unconstrained date
+    // range lets an attacker cycle dates to multiply upstream API costs.
+    const MAX_ITINERARY_FUTURE_DAYS = 180
+    const daysAheadVisit = Math.round(
+      (new Date(`${visitDate}T00:00:00.000Z`).getTime() - new Date(`${today}T00:00:00.000Z`).getTime()) / 86_400_000,
+    )
+    if (daysAheadVisit > MAX_ITINERARY_FUTURE_DAYS) {
+      return Response.json({
+        error: "DATE_TOO_FAR",
+        message: "Please choose a visit date within the next 6 months.",
       }, { status: 400 })
     }
 

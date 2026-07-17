@@ -3,6 +3,7 @@ import { dbGetTrip } from "@/lib/db/queries"
 import { query } from "@/lib/db"
 import { getTourCMSConfig, checkAvailability, type AvailabilityComponent } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { MAX_SELECTED_DATE_DAYS, MAX_PARTY_SIZE } from "@/lib/planner/availability-scan"
 
 export const dynamic = "force-dynamic"
 
@@ -141,16 +142,42 @@ export async function GET(req: Request) {
   pruneTimeslotsCache()
   const rl = rateLimit(req, { limit: 30, windowMs: 60_000 })
   if (!rl.allowed) return rl.response
+  // Shared cross-instance per-IP limit.  Fail-open on DB error.
+  const { sharedRateLimit: srl, getClientIp: gcip } = await import("@/lib/shared-rate-limit")
+  const tsClientIp = gcip(req)
+  const sharedTs = await srl(`timeslots:${tsClientIp}`, { limit: 30, windowMs: 60_000 })
+  if (!sharedTs.allowed) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429, headers: { "Retry-After": "60" } })
+  }
 
   const { searchParams } = new URL(req.url)
   const tripId = searchParams.get("tripId") ?? ""
   // Default party size to 1 person when the visitor never picked a head-count —
   // checkavail returns no timeslots without a rate quantity (see fetchSlotsForDate).
+  // Cap at MAX_PARTY_SIZE: the full 1-20 range would let an attacker cycle through
+  // party values to bust the per-trip cache and burn TourCMS quota.
   const partyRaw = parseInt((searchParams.get("party") ?? "1").trim(), 10)
-  const partySize = Number.isFinite(partyRaw) ? Math.min(20, Math.max(1, partyRaw)) : 1
+  const partySize = Number.isFinite(partyRaw) ? Math.min(MAX_PARTY_SIZE, Math.max(1, partyRaw)) : 1
   // Optional explicit date: when the canvas has a future visit date selected, the
   // trip card fetches slots for THAT date (not just today/tomorrow).
-  const dateParam = searchParams.get("date") ?? null
+  // Reject dates beyond MAX_SELECTED_DATE_DAYS to prevent cache-busting via
+  // arbitrary far-future dates (each unique date forces a new TourCMS call).
+  const rawDateParam = searchParams.get("date") ?? null
+  let dateParam: string | null = null
+  if (rawDateParam && /^\d{4}-\d{2}-\d{2}$/.test(rawDateParam)) {
+    const daysAhead = Math.round(
+      (new Date(`${rawDateParam}T00:00:00.000Z`).getTime() - Date.now()) / 86_400_000,
+    )
+    if (daysAhead >= 0 && daysAhead <= MAX_SELECTED_DATE_DAYS) {
+      dateParam = rawDateParam
+    } else if (daysAhead > MAX_SELECTED_DATE_DAYS) {
+      return NextResponse.json(
+        { error: "Date is too far in the future." },
+        { status: 400 },
+      )
+    }
+    // Past dates fall through as null — today/tomorrow slots are returned instead.
+  }
 
   if (!tripId) {
     return NextResponse.json<PlannerTimeslotsResponse>(

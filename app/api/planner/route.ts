@@ -23,6 +23,7 @@ import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips, dbGetChatPlannerConfig } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
+import { sharedRateLimit, getClientIp } from "@/lib/shared-rate-limit"
 import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
@@ -1564,6 +1565,20 @@ export async function POST(req: Request) {
   schedulePrune()
   const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
   if (!limit.allowed) return limit.response
+  // Shared cross-instance per-IP rate limit.  The process-local `rateLimit`
+  // above collapses all traffic behind the same Replit reverse-proxy IP into
+  // one bucket (see the dev bypass comment in lib/rate-limit.ts).  The shared
+  // limiter uses the real client IP from trusted proxy headers and counts across
+  // ALL autoscale instances, so rotating to a fresh instance no longer resets
+  // the counter.  Fail-open on any DB error.
+  const clientIp = getClientIp(req)
+  const sharedLimit = await sharedRateLimit(`planner:${clientIp}`, { limit: 10, windowMs: 60_000 })
+  if (!sharedLimit.allowed) {
+    return Response.json(
+      { error: "Too many requests. Please wait before trying again." },
+      { status: 429, headers: { "Retry-After": "60" } },
+    )
+  }
   const tooBig = oversizedBody(req, PLANNER_BUDGET.maxBytes)
   if (tooBig) return tooBig
 
@@ -1791,8 +1806,17 @@ export async function POST(req: Request) {
     const rawVisit = preferences?.startDate && /^\d{4}-\d{2}-\d{2}$/.test(preferences.startDate)
       ? preferences.startDate
       : null
-    // Reject past dates so a stale cookie can't poison the tool defaults.
-    const visitDateYMD = rawVisit && rawVisit >= todayYMD() ? rawVisit : null
+    // Reject past dates and far-future dates.  Far-future dates re-centre the
+    // availability scan window and create a unique cache key, triggering a
+    // fresh whole-catalog TourCMS sweep on every request that rotates dates.
+    // 180 days covers all realistic near-term travel planning.
+    const visitDateYMD = (() => {
+      if (!rawVisit || rawVisit < todayYMD()) return null
+      const daysAhead = Math.round(
+        (new Date(`${rawVisit}T00:00:00.000Z`).getTime() - Date.now()) / 86_400_000,
+      )
+      return daysAhead <= 180 ? rawVisit : null
+    })()
     // Publish to module scope so tools (getTripDatesAndDeals / getTripTimeslots)
     // fall back to it deterministically when the model omits the date arg.
     _defaultVisitDate = visitDateYMD

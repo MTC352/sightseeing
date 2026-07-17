@@ -17,6 +17,7 @@ import { queryOne } from "@/lib/db"
 import { dbListTrips } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
 import { isCheckavailComponentBookable, resolveSelectedDateFallback } from "@/lib/planner/availability-parity"
+import { sharedRateLimit } from "@/lib/shared-rate-limit"
 
 /** Per-trip availability over the planner scan window. */
 export interface PlannerTripAvailability {
@@ -48,8 +49,34 @@ export interface PlannerAvailabilityResponse {
 const DEFAULT_WINDOW_DAYS = 30
 const DAY_MS = 86_400_000
 
+/**
+ * Maximum days in the future a selectedDate may be.  Requests beyond this
+ * window are rejected at the route level before reaching the scanner.  The
+ * limit keeps the number of distinct cache keys finite — far-future dates
+ * re-centre the scan window and would otherwise produce an unlimited supply
+ * of unique keys, each triggering a full TourCMS catalog sweep.
+ */
+export const MAX_SELECTED_DATE_DAYS = 180
+
+/**
+ * Maximum party size accepted by the public availability and timeslots
+ * endpoints.  TourCMS clamped at 20 internally, but exposing the full range
+ * lets an attacker cycle through 20 distinct party-size cache keys per date.
+ * Eight covers every real group booking scenario on the platform.
+ */
+export const MAX_PARTY_SIZE = 8
+
 // Cache keyed by "windowStart|windowEnd|selectedDate|party"
 const _cache = new Map<string, { data: PlannerAvailabilityResponse; expiresAt: number }>()
+
+/**
+ * In-flight scan promises.  When two concurrent requests share the same cache
+ * key and the cache has not yet been populated, the second request waits for
+ * the first scan's promise instead of launching a duplicate full-catalog sweep.
+ * This prevents concurrent cache misses from each triggering their own fan-out
+ * of TourCMS calls — particularly important during cold-start bursts.
+ */
+const _inFlight = new Map<string, Promise<PlannerAvailabilityResponse>>()
 
 /** Drop expired cache entries (called on each scan). */
 export function pruneAvailabilityCache() {
@@ -115,7 +142,7 @@ export async function scanCatalogAvailability(opts: ScanOptions): Promise<Planne
       ? opts.selectedDate
       : null
   const partyRaw = typeof opts.partySize === "number" ? opts.partySize : 1
-  const partySize = Number.isFinite(partyRaw) ? Math.min(20, Math.max(1, Math.floor(partyRaw))) : 1
+  const partySize = Number.isFinite(partyRaw) ? Math.min(MAX_PARTY_SIZE, Math.max(1, Math.floor(partyRaw))) : 1
 
   const windowDays =
     typeof opts.windowDays === "number" && opts.windowDays >= 7 && opts.windowDays <= 120
@@ -155,6 +182,54 @@ export async function scanCatalogAvailability(opts: ScanOptions): Promise<Planne
     return cached.data
   }
 
+  // In-flight deduplication: if a scan for this exact window is already
+  // running in this process, wait for it instead of launching a second
+  // identical TourCMS fan-out.  This prevents concurrent cache misses (e.g.
+  // from the planner chat route and the availability route hitting the same
+  // cold instance simultaneously) from each triggering their own full sweep.
+  const existing = _inFlight.get(cacheKey)
+  if (existing) return existing
+
+  // Global cross-instance scan budget.  Each unique cache-key miss triggers a
+  // full TourCMS catalog sweep (N × datesndeals + checkavail fallbacks).  The
+  // in-flight dedup above collapses concurrent misses WITHIN one process, but
+  // cannot help across autoscaled instances.  The shared counter limits the
+  // total number of cold sweeps across ALL instances per minute, so an attacker
+  // cycling dates/party across many IPs/instances still cannot burn unbounded
+  // TourCMS quota.  Fail-open on DB error (sharedRateLimit never throws).
+  const budgetOk = await sharedRateLimit("avail_scan_global", {
+    limit: 60,        // max 60 unique-key sweeps per minute across all instances
+    windowMs: 60_000,
+  })
+  if (!budgetOk.allowed) {
+    // Budget exhausted: return an empty (but structurally valid) response.
+    // Callers degrade gracefully — the planner treats missing data as unknown.
+    return {
+      selectedDate,
+      windowStart,
+      windowEnd,
+      windowDays,
+      trips: {},
+    }
+  }
+
+  const scanPromise = _runScan(cacheKey, windowStart, windowEnd, windowDays, selectedDate, partySize)
+  _inFlight.set(cacheKey, scanPromise)
+  try {
+    return await scanPromise
+  } finally {
+    _inFlight.delete(cacheKey)
+  }
+}
+
+async function _runScan(
+  cacheKey: string,
+  windowStart: string,
+  windowEnd: string,
+  windowDays: number,
+  selectedDate: string | null,
+  partySize: number,
+): Promise<PlannerAvailabilityResponse> {
   const [config, rows] = await Promise.all([
     getTourCMSConfig(),
     dbListTrips({ publicOnly: true }).catch(() => [] as unknown[]),
