@@ -4,17 +4,24 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { PowerOff, Power } from "lucide-react"
 
-export function TripDeactivateButton({ tripId, status }: { tripId: string; status: string }) {
-  const [optimistic, setOptimistic] = useState(status)
+export function TripDeactivateButton({
+  tripId,
+  status,
+  onStatusChange,
+}: {
+  tripId: string
+  status: string
+  onStatusChange?: (status: string) => void
+}) {
   const [pending, setPending] = useState(false)
   const router = useRouter()
 
-  const isDeactivated = optimistic === "deactivated"
+  const isDeactivated = status === "deactivated"
 
   async function toggle() {
     const next = isDeactivated ? "draft" : "deactivated"
     setPending(true)
-    setOptimistic(next)
+    onStatusChange?.(next)
     await fetch(`/api/admin/trips/${tripId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

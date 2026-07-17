@@ -3,7 +3,15 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 
-export function TripStatusButton({ tripId, status }: { tripId: string; status: string }) {
+export function TripStatusButton({
+  tripId,
+  status,
+  onStatusChange,
+}: {
+  tripId: string
+  status: string
+  onStatusChange?: (status: string) => void
+}) {
   const [optimistic, setOptimistic] = useState(status)
   const [pending, setPending] = useState(false)
   const router = useRouter()
@@ -13,6 +21,7 @@ export function TripStatusButton({ tripId, status }: { tripId: string; status: s
     const next = optimistic === "published" ? "draft" : "published"
     setPending(true)
     setOptimistic(next)
+    onStatusChange?.(next)
     await fetch(`/api/admin/trips/${tripId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -22,7 +31,10 @@ export function TripStatusButton({ tripId, status }: { tripId: string; status: s
     setPending(false)
   }
 
-  if (optimistic === "deactivated") {
+  // Sync external status changes (e.g. from TripDeactivateButton in the same row)
+  const display = status === "deactivated" ? "deactivated" : optimistic
+
+  if (display === "deactivated") {
     return (
       <span className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold bg-red-500/15 text-red-600">
         deactivated
@@ -30,7 +42,7 @@ export function TripStatusButton({ tripId, status }: { tripId: string; status: s
     )
   }
 
-  const isPublished = optimistic === "published"
+  const isPublished = display === "published"
 
   return (
     <button
@@ -44,7 +56,7 @@ export function TripStatusButton({ tripId, status }: { tripId: string; status: s
           : "bg-amber-500/15 text-amber-600"
       }`}
     >
-      {optimistic}
+      {display}
     </button>
   )
 }

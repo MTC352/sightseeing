@@ -1,14 +1,7 @@
 import Link from "next/link"
 import { dbListTrips } from "@/lib/db/queries"
-import { Pencil, ExternalLink } from "lucide-react"
 import { computeStaleness } from "@/lib/seo/score"
-import { TripSeoCell } from "@/components/admin/trip-seo-cell"
-import { TripDeleteButton } from "./trip-delete-button"
-import { TripToggleButton } from "./trip-toggle-button"
-import { TripStatusButton } from "./trip-status-button"
-import { TripArchiveButton } from "./trip-archive-button"
-import { TripSyncButton } from "./trip-sync-button"
-import { TripDeactivateButton } from "./trip-deactivate-button"
+import { TripRowClient } from "./trip-row-client"
 import { requirePermission } from "@/lib/auth-server"
 import { redirect } from "next/navigation"
 
@@ -89,116 +82,18 @@ export default async function AdminTripsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {trips.map((trip) => (
-                <tr key={trip.id} className={`group transition-colors hover:bg-secondary/40 ${trip.status === "deactivated" ? "opacity-60" : ""}`}>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <Link
-                        href={`/admin/trips/${trip.id}`}
-                        className="flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted"
-                        title="Edit trip"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={trip.image} alt="" className="h-full w-full object-cover" />
-                      </Link>
-                      <div className="min-w-0">
-                        {trip.status === "deactivated" ? (
-                          <span className="block truncate font-medium text-muted-foreground max-w-[220px] cursor-default" title="Reactivate trip to edit it">
-                            {trip.title}
-                          </span>
-                        ) : (
-                          <Link
-                            href={`/admin/trips/${trip.id}`}
-                            className="block truncate font-medium text-foreground max-w-[220px] hover:text-primary hover:underline underline-offset-2"
-                            title="Edit trip"
-                          >
-                            {trip.title}
-                          </Link>
-                        )}
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <p className="text-xs text-muted-foreground">{trip.city}</p>
-                          {isPalisis(trip) ? (
-                            <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-blue-500/12 text-blue-600 ring-1 ring-inset ring-blue-500/20">
-                              Palisis
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center rounded px-1.5 py-px text-[10px] font-semibold bg-slate-400/10 text-slate-500 ring-1 ring-inset ring-slate-400/20">
-                              Manual
-                            </span>
-                          )}
-                          {(() => {
-                            const st = computeStaleness(trip)
-                            return (
-                              <TripSeoCell
-                                tripId={trip.id}
-                                tripTitle={trip.title}
-                                tripImage={trip.image}
-                                optimized={st.optimized}
-                                stale={st.stale}
-                                seoScore={typeof trip.seoScore === "number" ? trip.seoScore : null}
-                              />
-                            )
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="hidden px-4 py-3 text-muted-foreground lg:table-cell">{trip.category}</td>
-                  <td className="hidden px-4 py-3 text-foreground sm:table-cell">
-                    {trip.originalPrice && (
-                      <span className="mr-1.5 text-xs text-muted-foreground/60 line-through">€{trip.originalPrice}</span>
-                    )}
-                    €{trip.price}
-                  </td>
-                  <td className="hidden px-4 py-3 text-center md:table-cell">
-                    <TripToggleButton tripId={trip.id} field="featured" value={trip.featured} disabled={trip.status === "deactivated"} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <TripStatusButton tripId={trip.id} status={trip.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      {trip.status === "deactivated" ? (
-                        <span
-                          className="rounded-lg p-2 text-muted-foreground/25 cursor-not-allowed"
-                          title="Trip is deactivated — not visible on site"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </span>
-                      ) : (
-                        <Link
-                          href={`/trip/${trip.slug ?? trip.id}`}
-                          target="_blank"
-                          className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
-                          title="View on site"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Link>
-                      )}
-                      {trip.status === "deactivated" ? (
-                        <span
-                          className="rounded-lg p-2 text-muted-foreground/25 cursor-not-allowed"
-                          title="Reactivate trip to edit it"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </span>
-                      ) : (
-                        <Link
-                          href={`/admin/trips/${trip.id}`}
-                          className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
-                          title="Edit"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Link>
-                      )}
-                      <TripSyncButton palisisId={trip.palisis_id} disabled={trip.status === "deactivated"} />
-                      <TripDeactivateButton tripId={trip.id} status={trip.status} />
-                      <TripArchiveButton tripId={trip.id} isArchived={false} />
-                      <TripDeleteButton tripId={trip.id} tripTitle={trip.title} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {trips.map((trip) => {
+                const st = computeStaleness(trip)
+                return (
+                  <TripRowClient
+                    key={trip.id}
+                    trip={trip}
+                    isPalisis={isPalisis(trip)}
+                    seoOptimized={st.optimized}
+                    seoStale={st.stale}
+                  />
+                )
+              })}
             </tbody>
           </table>
         </div>
