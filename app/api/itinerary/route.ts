@@ -186,7 +186,7 @@ function parseDurationMinutes(raw: string | undefined, fallback: number): number
   return parseHumanDuration(raw, fallback)
 }
 
-type TripInput = { id: string; title: string; city: string; duration: string; category: string }
+type TripInput = { id: string; slug?: string | null; title: string; city: string; duration: string; category: string }
 
 interface TripAvailability {
   trip: TripInput
@@ -328,6 +328,7 @@ export async function POST(req: Request) {
       const row = (await dbGetTrip(t.id, { publicOnly: true }).catch(() => null)) as Record<string, unknown> | null
       return {
         id: t.id,
+        slug: t.slug ?? (typeof row?.slug === "string" ? row.slug : null),
         title: t.title || (typeof row?.title === "string" ? row.title : t.id),
         city: t.city || (typeof row?.city === "string" ? row.city : ""),
         duration: t.duration || (typeof row?.duration === "string" ? row.duration : ""),
@@ -1463,6 +1464,7 @@ ${tipsInstructions}`
           .replace(/\s+/g, " ").trim()
         return {
           id: b.trip.id,
+          slug: b.trip.slug ?? null,
           title: b.trip.title,
           city: (details?.city || b.trip.city || "Luxembourg").trim() || "Luxembourg",
           category: b.trip.category || "",

@@ -42,6 +42,7 @@ export interface OutdoorTodaySlot {
 
 export interface OutdoorTodayTrip {
   id: string
+  slug: string | null
   title: string
   description: string | null
   image: string | null
@@ -338,6 +339,7 @@ export async function GET(req: Request) {
       .slice(0, Math.max(displayCount, 1) * 2)
       .map(({ trip, score, reason, weatherMatch }) => ({
         id: String(trip.id),
+        slug: typeof trip.slug === "string" ? trip.slug : null,
         title: String(trip.title ?? ""),
         description: (trip.description as string | null) ?? null,
         image: (trip.image as string | null) ?? null,

@@ -140,6 +140,7 @@ interface ItineraryStep {
   time: string
   tripTitle: string
   tripId: string
+  tripSlug?: string | null
   durationMinutes: number
   travelToNext: string | null
   /** Numeric transit minutes parsed from travelToNext, so the UI can
@@ -1287,7 +1288,7 @@ function ItineraryStepCard({
     if (visitDate) qs.set("date", visitDate)
     if (displayTime) qs.set("time", displayTime)
     qs.set("from", "planner")
-    return `/trip/${encodeURIComponent(step.tripId)}?${qs.toString()}#booking`
+    return `/trip/${encodeURIComponent(step.tripSlug ?? step.tripId)}?${qs.toString()}#booking`
   })()
   return (
     <div className={`rounded-xl border bg-secondary/30 p-3.5 transition-all ${

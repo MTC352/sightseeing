@@ -59,6 +59,7 @@ export interface TravelLeg {
 
 export interface CandidateTrip {
   id: string
+  slug?: string | null
   title: string
   city: string
   category: string
@@ -122,6 +123,7 @@ export interface BreakAfter {
 
 export interface ScheduledStep {
   tripId: string
+  tripSlug: string | null
   tripTitle: string
   title: string
   time: string
@@ -602,6 +604,7 @@ export async function buildSchedule(opts: {
       const stepGeo = parseGeo(trip.departureGeo) ?? parseGeo(trip.endGeo)
       const step: ScheduledStep = {
         tripId: trip.id,
+        tripSlug: trip.slug ?? null,
         tripTitle: trip.title,
         title: trip.title,
         time: chosen.startTime,

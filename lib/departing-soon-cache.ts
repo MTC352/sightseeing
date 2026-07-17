@@ -37,6 +37,7 @@ export interface DiscoverySlot {
   tripTitle: string
   tripImage: string
   tripPermalink: string
+  tripSlug: string | null
   tripCategory: string
   tripCity: string
   date: string                 // YYYY-MM-DD (operator local date)
@@ -506,6 +507,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   const allTrips = (await dbListTrips({ publicOnly: true })) as Array<{
     id: string
     title: string
+    slug?: string
     palisis_id?: string
     image?: string
     permalink?: string
@@ -553,6 +555,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
           tripTitle: trip.title,
           tripImage: trip.image ?? "",
           tripPermalink: trip.permalink ?? "",
+          tripSlug: typeof trip.slug === "string" ? trip.slug : null,
           tripCategory: trip.category ?? "Tours",
           tripCity: trip.city ?? "Luxembourg",
           date: d.start_date,

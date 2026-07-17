@@ -161,7 +161,7 @@ export default async function AdminTripsPage() {
                         </span>
                       ) : (
                         <Link
-                          href={`/trip/${trip.id}`}
+                          href={`/trip/${trip.slug ?? trip.id}`}
                           target="_blank"
                           className="rounded-lg p-2 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground"
                           title="View on site"

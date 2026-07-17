@@ -200,7 +200,7 @@ export function DeparturesSoonSection() {
                 : label === "Tomorrow" ? "bg-primary text-primary-foreground"
                 : "bg-card text-foreground"
               const slotHref =
-                `/trip/${dep.tripId}?date=${encodeURIComponent(dep.date)}&time=${encodeURIComponent(dep.time)}&from=departing#booking`
+                `/trip/${dep.tripSlug ?? dep.tripId}?date=${encodeURIComponent(dep.date)}&time=${encodeURIComponent(dep.time)}&from=departing#booking`
               return (
                 <Link
                   data-no-edit

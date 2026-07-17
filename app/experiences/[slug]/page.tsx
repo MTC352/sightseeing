@@ -234,7 +234,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
                           <Image src={t.image} alt={t.title} fill className="object-cover" sizes="40px" />
                         </div>
                         <div>
-                          <Link href={`/trip/${t.id}`} className="font-medium text-foreground hover:text-primary">{t.title}</Link>
+                          <Link href={`/trip/${t.slug ?? t.id}`} className="font-medium text-foreground hover:text-primary">{t.title}</Link>
                           {t.badge && <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">{t.badge}</span>}
                         </div>
                       </div>
@@ -244,7 +244,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
                     <td className="px-4 py-3"><span className="flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />{t.rating} <span className="text-xs text-muted-foreground">({t.reviewCount})</span></span></td>
                     <td className="px-4 py-3 text-muted-foreground"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{t.city ?? "Luxembourg"}</span></td>
                     <td className="px-4 py-3">
-                      <Link href={`/trip/${t.id}`} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">View <ArrowRight className="h-3 w-3" /></Link>
+                      <Link href={`/trip/${t.slug ?? t.id}`} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">View <ArrowRight className="h-3 w-3" /></Link>
                     </td>
                   </tr>
                 ))}

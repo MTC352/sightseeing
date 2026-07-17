@@ -115,7 +115,7 @@ function bookingHref(step: ItineraryStep, origin: string, visitDate?: string): s
   if (visitDate) qs.set("date", visitDate)
   if (step.time) qs.set("time", step.time)
   qs.set("from", "planner")
-  return `${origin}/trip/${encodeURIComponent(step.tripId)}?${qs.toString()}#booking`
+  return `${origin}/trip/${encodeURIComponent(step.tripSlug ?? step.tripId)}?${qs.toString()}#booking`
 }
 
 /** Fetch a road-following encoded polyline PER LEG (Mapbox Directions), each

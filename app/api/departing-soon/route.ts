@@ -36,6 +36,7 @@ export interface DepartingSoonItem {
   tripTitle: string
   tripImage: string
   tripPermalink: string
+  tripSlug: string | null
   tripCategory: string
   tripCity: string
   date: string
@@ -153,6 +154,7 @@ export async function GET(req: Request) {
         tripTitle: slot.tripTitle,
         tripImage: slot.tripImage,
         tripPermalink: slot.tripPermalink,
+        tripSlug: slot.tripSlug,
         tripCategory: slot.tripCategory,
         tripCity: slot.tripCity,
         date: slot.date,

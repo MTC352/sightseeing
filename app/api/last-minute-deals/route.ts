@@ -61,6 +61,7 @@ export interface DealItem {
   duration: string
   badge?: string
   permalink?: string
+  slug?: string
 }
 
 /** Parse "€14" or "14.00 EUR" → 14 */
@@ -110,6 +111,7 @@ async function enrichSlot(
     duration:     String(db?.duration ?? ""),
     badge:        db?.badge    != null ? String(db.badge)    : undefined,
     permalink:    db?.permalink != null ? String(db.permalink) : undefined,
+    slug:         db?.slug     != null ? String(db.slug)     : undefined,
   }
 }
 

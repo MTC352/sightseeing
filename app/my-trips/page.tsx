@@ -253,7 +253,7 @@ function BookingModal({ item, persons, onClose }: { item: CartItem; persons: num
 
             {/* View full details link */}
             <Link
-              href={`/trip/${item.trip.id}`}
+              href={`/trip/${item.trip.slug ?? item.trip.id}`}
               className="mt-3 inline-flex text-xs font-medium text-primary hover:underline"
             >
               View full details

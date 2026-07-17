@@ -69,7 +69,7 @@ export function TripCart({ persons, disabledMap }: TripCartProps = {}) {
                 data-disabled={disabled ? "true" : "false"}
                 data-testid={`planner-list-item-${item.trip.id}`}
               >
-                <Link href={`/trip/${item.trip.id}`} className={`relative h-[72px] w-[88px] shrink-0 overflow-hidden rounded-xl ${disabled ? "opacity-50" : ""}`}>
+                <Link href={`/trip/${item.trip.slug ?? item.trip.id}`} className={`relative h-[72px] w-[88px] shrink-0 overflow-hidden rounded-xl ${disabled ? "opacity-50" : ""}`}>
                   <Image
                     src={item.trip.image || "/placeholder.svg"}
                     alt={item.trip.title}
@@ -80,7 +80,7 @@ export function TripCart({ persons, disabledMap }: TripCartProps = {}) {
                 </Link>
                 <div className="flex flex-1 flex-col gap-1.5 overflow-hidden">
                   <Link
-                    href={`/trip/${item.trip.id}`}
+                    href={`/trip/${item.trip.slug ?? item.trip.id}`}
                     className={`line-clamp-2 text-sm font-bold leading-tight transition-colors hover:text-primary ${disabled ? "text-muted-foreground" : "text-card-foreground"}`}
                   >
                     {item.trip.title}
