@@ -33,8 +33,10 @@ export default function AdminLiveTrackingPage() {
         const data: PageRow = await full.json()
         if (cancelled) return
         setPageId(data.id)
-        setBusEmbed(data.content?.busEmbed ?? "")
-        setTrainEmbed(data.content?.trainEmbed ?? "")
+        // Show the EFFECTIVE value: fall back to the built-in default so the
+        // admin always sees what is actually rendered on the page.
+        setBusEmbed(data.content?.busEmbed?.trim() ? data.content.busEmbed : DEFAULT_EMBED)
+        setTrainEmbed(data.content?.trainEmbed?.trim() ? data.content.trainEmbed : DEFAULT_EMBED)
       } catch (err) {
         if (!cancelled)
           setMessage({ kind: "error", text: err instanceof Error ? err.message : "Failed to load" })
