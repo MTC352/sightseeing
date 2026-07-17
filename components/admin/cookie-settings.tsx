@@ -242,7 +242,7 @@ export function CookieSettings() {
         return (
           <div key={key} className="rounded-xl border border-border bg-card p-6 space-y-4">
             <h3 className="text-sm font-semibold capitalize text-foreground">
-              {key === "functional" ? "Functional cookies" : "Marketing & affiliate cookies"}
+              {key === "functional" ? "Functional cookies" : "Marketing & analytics cookies"}
             </h3>
             <Toggle
               checked={cat.enabled}

@@ -51,9 +51,9 @@ const FALLBACK_SETTINGS: CookieBannerSettings = {
     marketing: {
       enabled: true,
       defaultOn: false,
-      title: "Marketing & affiliate tracking",
+      title: "Marketing & analytics",
       description:
-        "Affiliate cookies from Travelpayouts power our flight, hotel, and car rental search widgets. Disabled by default.",
+        "Google Analytics / Tag Manager measurement and affiliate cookies (Travelpayouts flight, hotel, and car rental widgets). Disabled by default.",
     },
   },
 }
