@@ -848,6 +848,26 @@ async function applyUpgradePlannerItineraryModels(): Promise<MigrationResult> {
 }
 
 /**
+ * Registers the Live Tracking page in the `pages` table so it appears under
+ * Admin → Pages (making its static content editable via the inline editor).
+ * DATA-only (single INSERT with ON CONFLICT DO NOTHING). Idempotent.
+ */
+async function applyLiveTrackingPage(): Promise<MigrationResult> {
+  const rows = await query(
+    `INSERT INTO pages (slug, title, description, url, is_system_page, template)
+     VALUES ('live-tracking', 'Live Tracking', 'Real-time bus and train tour tracking maps', '/live-tracking', true, 'default')
+     ON CONFLICT (slug) DO NOTHING
+     RETURNING slug`,
+  )
+  const inserted = rows.length
+  return {
+    inserted,
+    skipped: inserted ? 0 : 1,
+    detail: inserted ? "pages row 'live-tracking' inserted" : "pages row 'live-tracking' already exists",
+  }
+}
+
+/**
  * The ordered registry. Add new migrations to the END with the next numeric id.
  * Keep ids stable once shipped — they are the tracking keys.
  */
@@ -943,6 +963,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Bumps the Trip Planner chat and Itinerary builder AI Systems up to the BEST model tier of their current provider (large context + deeper analysis) and raises max_tokens to at least 4096. Both features inject the full live trip menu plus tools every turn, so the fast tier under-performs. DATA-only (UPDATEs the planner/itinerary rows; no DDL). Idempotent: a row already on the best tier with max_tokens >= 4096 is left untouched.",
     apply: applyUpgradePlannerItineraryModels,
+  },
+  {
+    id: "014-live-tracking-page",
+    name: "Live Tracking page registration",
+    description:
+      "Adds the /live-tracking page to the pages table so it shows up under Admin → Pages and its static content is editable with the inline editor. DATA-only (single INSERT; no DDL). Idempotent: skipped when the row already exists.",
+    apply: applyLiveTrackingPage,
   },
 ]
 
