@@ -50,3 +50,11 @@ next-env.d.ts
 
 # Unit-test transpile output
 .test-build/
+
+# Runtime uploads (media library files — copy separately when migrating servers)
+/public/uploads/
+
+# Database exports (contain API keys & password hashes — never commit)
+/db-export/
+*.dump
+*.sql.gz

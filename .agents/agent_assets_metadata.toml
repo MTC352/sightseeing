@@ -12,3 +12,9 @@ id = "3r55mQJJHMph0UEjvqaIV"
 uri = "file://docs/trip-planner-spec.md"
 type = "text"
 title = "Trip Planner Spec + Root-Cause Analysis"
+
+[[outputs]]
+id = "_gnSo8bOwJU5MYOO6wF9h"
+uri = "file://db-export/sightseeing-dev-export.sql.gz"
+type = "unspecified"
+title = "Dev database export (no owners/permissions, gzipped)"
