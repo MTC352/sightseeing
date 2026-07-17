@@ -58,3 +58,4 @@ next-env.d.ts
 /db-export/
 *.dump
 *.sql.gz
+*.sql
