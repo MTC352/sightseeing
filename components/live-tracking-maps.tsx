@@ -1,49 +1,75 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { Bus, TrainFront } from "lucide-react"
 
 /**
  * Live tracking maps — GreatGuideMagic (GG) map widget.
  *
- * Both tour cards embed the GG map widget. The loader script scans the DOM
- * for `.gg-map-widget` elements and mounts a Leaflet map into each one, so
- * the widget divs must be rendered BEFORE the loader script executes — the
- * script is appended in an effect (after first paint) to guarantee that.
+ * Each tour card renders an admin-editable embed (HTML + <script>) stored in
+ * the `pages` row for slug "live-tracking" (content.busEmbed / trainEmbed),
+ * editable at /admin/pages/live-tracking. Falls back to DEFAULT_EMBED when
+ * the admin has not customised it.
  *
- * To point a card at a different route later, change its `widget` config
- * below (token / center / zoom).
+ * Plain innerHTML does NOT execute <script> tags, so scripts are re-created
+ * after injection (same approach as CustomHtmlBlock). External scripts are
+ * deduplicated by src across the page so a shared loader (which scans the
+ * DOM for every `.gg-map-widget` div) runs once after ALL cards rendered.
  */
 
-const GG_LOADER_SRC = "https://remote.greatguidemagic.com/widget/map/loader.js"
+export const DEFAULT_EMBED = `<script defer src="https://remote.greatguidemagic.com/widget/map/loader.js"></script>
+<div style="height:250px;" class="gg-map-widget" data-token="QqZQdonBxy" data-language="en" data-zoom="13" data-center-lat="49.6123327" data-center-lng="6.1258432"></div>`
 
-type GgWidgetConfig = {
-  token: string
-  language: string
-  zoom: string
-  centerLat: string
-  centerLng: string
+function MapEmbed({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !html) return
+    el.innerHTML = html
+
+    const appended: HTMLScriptElement[] = []
+    const scripts = Array.from(el.querySelectorAll("script"))
+    for (const old of scripts) {
+      const src = old.getAttribute("src")
+      if (src && document.querySelector(`script[data-embed-src="${CSS.escape(src)}"]`)) {
+        // Same external script already (re)injected by another card this
+        // page-view — it executes after this effect, sees all widget divs.
+        old.remove()
+        continue
+      }
+      const s = document.createElement("script")
+      for (const attr of Array.from(old.attributes)) s.setAttribute(attr.name, attr.value)
+      s.text = old.textContent ?? ""
+      if (src) {
+        s.setAttribute("data-embed-src", src)
+        // Loaders must re-execute on every mount (client-side navigation),
+        // so drop any stale copy from a previous page view first.
+        document
+          .querySelectorAll(`script[data-embed-src="${CSS.escape(src)}"]`)
+          .forEach((e) => e.remove())
+        old.remove()
+        document.body.appendChild(s)
+        appended.push(s)
+      } else {
+        old.replaceWith(s)
+      }
+    }
+
+    return () => {
+      appended.forEach((s) => s.remove())
+      el.innerHTML = ""
+    }
+  }, [html])
+
+  return (
+    <div
+      ref={ref}
+      data-no-edit
+      className="absolute inset-0 [&_.gg-map-widget]:!h-full [&_iframe]:h-full [&_iframe]:w-full"
+    />
+  )
 }
-
-const DEFAULT_WIDGET: GgWidgetConfig = {
-  token: "QqZQdonBxy",
-  language: "en",
-  zoom: "13",
-  centerLat: "49.6123327",
-  centerLng: "6.1258432",
-}
-
-type TourMap = {
-  key: string
-  title: string
-  icon: typeof Bus
-  widget: GgWidgetConfig
-}
-
-const TOURS: TourMap[] = [
-  { key: "bus", title: "Bus Tour", icon: Bus, widget: DEFAULT_WIDGET },
-  { key: "train", title: "Train Tour", icon: TrainFront, widget: DEFAULT_WIDGET },
-]
 
 function LiveBadge() {
   return (
@@ -57,8 +83,15 @@ function LiveBadge() {
   )
 }
 
-function TourTrackingCard({ tour }: { tour: TourMap }) {
-  const Icon = tour.icon
+function TourTrackingCard({
+  title,
+  icon: Icon,
+  embed,
+}: {
+  title: string
+  icon: typeof Bus
+  embed: string
+}) {
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       {/* Header */}
@@ -67,49 +100,32 @@ function TourTrackingCard({ tour }: { tour: TourMap }) {
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <h2 className="text-base font-bold text-foreground">{tour.title}</h2>
+          <h2 className="text-base font-bold text-foreground">{title}</h2>
         </div>
         <LiveBadge />
       </div>
 
-      {/* Live map (GG widget) */}
+      {/* Live map (admin-editable embed) */}
       <div className="relative aspect-[4/3]" data-no-edit>
-        <div
-          className="gg-map-widget absolute inset-0"
-          style={{ height: "100%" }}
-          data-token={tour.widget.token}
-          data-language={tour.widget.language}
-          data-zoom={tour.widget.zoom}
-          data-center-lat={tour.widget.centerLat}
-          data-center-lng={tour.widget.centerLng}
-        />
+        <MapEmbed html={embed} />
       </div>
     </div>
   )
 }
 
-export function LiveTrackingMaps() {
-  useEffect(() => {
-    // Re-append the loader on every mount so client-side navigations
-    // (where the previous script has already executed) still initialise
-    // the freshly rendered widget divs.
-    document
-      .querySelectorAll(`script[src="${GG_LOADER_SRC}"]`)
-      .forEach((el) => el.remove())
-    const script = document.createElement("script")
-    script.src = GG_LOADER_SRC
-    script.defer = true
-    document.body.appendChild(script)
-    return () => {
-      script.remove()
-    }
-  }, [])
-
+export function LiveTrackingMaps({
+  busEmbed,
+  trainEmbed,
+}: {
+  busEmbed?: string
+  trainEmbed?: string
+}) {
+  const bus = busEmbed?.trim() ? busEmbed : DEFAULT_EMBED
+  const train = trainEmbed?.trim() ? trainEmbed : DEFAULT_EMBED
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      {TOURS.map((tour) => (
-        <TourTrackingCard key={tour.key} tour={tour} />
-      ))}
+      <TourTrackingCard title="Bus Tour" icon={Bus} embed={bus} />
+      <TourTrackingCard title="Train Tour" icon={TrainFront} embed={train} />
     </div>
   )
 }

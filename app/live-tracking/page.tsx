@@ -3,6 +3,11 @@ import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { Radio } from "lucide-react"
 import { LiveTrackingMaps } from "@/components/live-tracking-maps"
+import { dbGetPageBySlug } from "@/lib/db/queries"
+
+// DB-backed static route — must stay dynamic or the deploy build tries to
+// prerender it without a reachable database.
+export const dynamic = "force-dynamic"
 
 export const metadata: Metadata = {
   title: "Live Tracking | sightseeing.lu",
@@ -10,7 +15,19 @@ export const metadata: Metadata = {
     "Track our Luxembourg sightseeing bus and train tours in real time. Follow the live position of each tour on the map as it travels its route.",
 }
 
-export default function LiveTrackingPage() {
+export default async function LiveTrackingPage() {
+  // Admin-editable map embeds — managed at /admin/pages/live-tracking.
+  let busEmbed: string | undefined
+  let trainEmbed: string | undefined
+  try {
+    const page = (await dbGetPageBySlug("live-tracking")) as {
+      content?: { busEmbed?: string; trainEmbed?: string }
+    } | null
+    busEmbed = page?.content?.busEmbed
+    trainEmbed = page?.content?.trainEmbed
+  } catch {
+    /* fall back to the built-in default embeds */
+  }
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -34,7 +51,7 @@ export default function LiveTrackingPage() {
 
       {/* Maps */}
       <main className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
-        <LiveTrackingMaps />
+        <LiveTrackingMaps busEmbed={busEmbed} trainEmbed={trainEmbed} />
       </main>
 
       <SiteFooter />

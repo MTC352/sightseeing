@@ -1,9 +1,19 @@
 "use client"
 
 import Link from "next/link"
-import { FileText, Edit2, Eye, PenLine } from "lucide-react"
+import { FileText, Edit2, Eye, PenLine, Code2 } from "lucide-react"
 
-const MANAGED_PAGES = [
+type ManagedPage = {
+  slug: string
+  label: string
+  url: string
+  description: string
+  /** Optional dedicated management screen (e.g. script embeds). */
+  manageHref?: string
+  manageLabel?: string
+}
+
+const MANAGED_PAGES: ManagedPage[] = [
   { slug: "home",       label: "Home",            url: "/",            description: "Landing page — hero, featured trips, weather, offers" },
   { slug: "about",      label: "About",           url: "/about",       description: "About sightseeing.lu, team and mission" },
   { slug: "explore",    label: "Explore",         url: "/explore",     description: "Browse all trip categories" },
@@ -15,6 +25,7 @@ const MANAGED_PAGES = [
   { slug: "help",       label: "Help & FAQ",      url: "/help",        description: "FAQ accordion and help AI chat" },
   { slug: "checkout",   label: "My Trips",        url: "/my-trips",    description: "Saved trips and Palisis booking iframe" },
   { slug: "cfl-sightseeing", label: "CFL Sightseeing", url: "/cfl-sightseeing", description: "CFL self-guided walking tours — hero + audio-guide iframe" },
+  { slug: "live-tracking", label: "Live Tracking",   url: "/live-tracking", description: "Live bus & train tour maps — GreatGuideMagic widget embeds", manageHref: "/admin/pages/live-tracking", manageLabel: "Manage Scripts" },
 ]
 
 export default function AdminPagesPage() {
@@ -67,6 +78,15 @@ export default function AdminPagesPage() {
                 <Edit2 className="h-3.5 w-3.5" />
                 Edit Content
               </Link>
+              {"manageHref" in page && page.manageHref && (
+                <Link
+                  href={page.manageHref}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-primary/30 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                >
+                  <Code2 className="h-3.5 w-3.5" />
+                  {page.manageLabel ?? "Manage"}
+                </Link>
+              )}
               <Link
                 href={page.url}
                 target="_blank"
