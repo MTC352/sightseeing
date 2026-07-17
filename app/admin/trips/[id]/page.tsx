@@ -53,8 +53,9 @@ export default async function TripEditPage({ params }: { params: Promise<{ id: s
   ])
   if (id !== "new" && !trip) notFound()
 
-  const tripData = trip as { id: string; palisis_id?: string | null } | null
+  const tripData = trip as { id: string; palisis_id?: string | null; status?: string | null } | null
   const palisisId = tripData?.palisis_id ?? null
+  const isDeactivated = tripData?.status === "deactivated"
 
   return (
     <div className="p-6 lg:p-10">
@@ -69,7 +70,7 @@ export default async function TripEditPage({ params }: { params: Promise<{ id: s
             </p>
           )}
         </div>
-        {palisisId && <TripSyncButton palisisId={palisisId} variant="full" />}
+        {palisisId && !isDeactivated && <TripSyncButton palisisId={palisisId} variant="full" />}
       </div>
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
       <TripEditForm trip={trip as any} policy={policy} hideReadonlyByDefault={fieldSettings.hideReadonlyByDefault} />

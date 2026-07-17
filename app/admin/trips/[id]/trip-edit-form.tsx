@@ -376,7 +376,7 @@ export function TripEditForm({
             <p className="truncate text-sm font-semibold text-foreground">{form.title?.trim() || "Untitled trip"}</p>
             {trip && <p className="truncate text-[11px] text-muted-foreground">ID: {trip.id}</p>}
           </div>
-          {readonlyCount > 0 && !isDeactivated && (
+          {readonlyCount > 0 && (
             <button
               type="button"
               onClick={() => setHideReadonly((v) => !v)}
@@ -387,7 +387,7 @@ export function TripEditForm({
               {hideReadonly ? `Show read-only (${readonlyCount})` : "Hide read-only"}
             </button>
           )}
-          {trip && !isDeactivated && (
+          {trip && (
             <Link
               href={`/trip/${trip.slug ?? trip.id}`}
               target="_blank"
@@ -397,73 +397,73 @@ export function TripEditForm({
               <ExternalLink className="h-3.5 w-3.5" /> View on site
             </Link>
           )}
-          {trip?.palisis_id && !isDeactivated && <TripSyncButton palisisId={trip.palisis_id} variant="icon" />}
-          {!isDeactivated && (
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving || !isDirty}
-              className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Save className="h-4 w-4" />
-              {saving ? "Saving…" : saved ? "Saved!" : "Save"}
-            </button>
-          )}
+          {trip?.palisis_id && <TripSyncButton palisisId={trip.palisis_id} variant="icon" />}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {saving ? "Saving…" : saved ? "Saved!" : "Save"}
+          </button>
         </div>
       </div>
 
-      <div className="mx-auto max-w-3xl">
-      {isDeactivated && (
-        <Link href="/admin/trips" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Back to trips
-        </Link>
-      )}
-      {isDeactivated && (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-900/50 dark:bg-red-950/30">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40">
-              <PowerOff className="h-5 w-5 text-red-600 dark:text-red-400" />
-            </div>
-            <div className="flex-1">
-              <p className="font-semibold text-red-800 dark:text-red-300">This trip is deactivated</p>
-              <p className="mt-0.5 text-sm text-red-600 dark:text-red-400">
-                It is hidden from the public site and all AI systems. Reactivate it to make edits, enable SEO optimisation, and manage itinerary steps.
-              </p>
-              <div className="mt-4">
-                {!confirmActivate ? (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmActivate(true)}
-                    className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
-                  >
-                    <Power className="h-4 w-4" /> Reactivate trip
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <p className="text-sm font-medium text-red-800 dark:text-red-300">Set status to <strong>Draft</strong> and enable editing?</p>
+      {isDeactivated ? (
+        /* ── Deactivated view: ONLY Back to trips + reactivation card ─────── */
+        <div className="mx-auto max-w-3xl py-6">
+          <Link href="/admin/trips" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" /> Back to trips
+          </Link>
+          <div className="rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-900/50 dark:bg-red-950/30">
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40">
+                <PowerOff className="h-5 w-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-red-800 dark:text-red-300">This trip is deactivated</p>
+                <p className="mt-0.5 text-sm text-red-600 dark:text-red-400">
+                  It is hidden from the public site and all AI systems. Reactivate it to make edits, enable SEO optimisation, and manage itinerary steps.
+                </p>
+                <div className="mt-4">
+                  {!confirmActivate ? (
                     <button
                       type="button"
-                      onClick={handleActivate}
-                      disabled={activating}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                      onClick={() => setConfirmActivate(true)}
+                      className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                     >
-                      {activating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
-                      {activating ? "Activating…" : "Yes, reactivate"}
+                      <Power className="h-4 w-4" /> Reactivate trip
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmActivate(false)}
-                      className="text-sm text-red-600 underline hover:no-underline dark:text-red-400"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-medium text-red-800 dark:text-red-300">Set status to <strong>Draft</strong> and enable editing?</p>
+                      <button
+                        type="button"
+                        onClick={handleActivate}
+                        disabled={activating}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                      >
+                        {activating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
+                        {activating ? "Activating…" : "Yes, reactivate"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmActivate(false)}
+                        className="text-sm text-red-600 underline hover:no-underline dark:text-red-400"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      )}
+      ) : (
+        /* ── Active view: full edit form ─────────────────────────────────── */
+      <div className="mx-auto max-w-3xl">
       {saveError && (
         <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -471,8 +471,8 @@ export function TripEditForm({
           <button type="button" onClick={() => setSaveError(null)} className="shrink-0 opacity-60 hover:opacity-100"><X className="h-4 w-4" /></button>
         </div>
       )}
-      {/* Top actions — hidden entirely when deactivated (Back to trips moved above the deactivation card) */}
-      {!isDeactivated && <div className="mb-6 flex items-center justify-between">
+      {/* Top actions */}
+      <div className="mb-6 flex items-center justify-between">
         <Link href="/admin/trips" className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Back to trips
         </Link>
@@ -488,7 +488,7 @@ export function TripEditForm({
               {hideReadonly ? `Show read-only (${readonlyCount})` : "Hide read-only"}
             </button>
           )}
-          {trip && !isDeactivated && (
+          {trip && (
             <Link
               href={`/trip/${trip.slug ?? trip.id}`}
               target="_blank"
@@ -507,7 +507,7 @@ export function TripEditForm({
             {saving ? "Saving…" : saved ? "Saved!" : "Save"}
           </button>
         </div>
-      </div>}
+      </div>
 
       {/* Sentinel: when it scrolls past the top, the minimal header appears. */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />
@@ -1177,31 +1177,27 @@ export function TripEditForm({
           </div>
         </section>
 
-        {/* SEO Optimizer — hidden for deactivated trips */}
-        {!isDeactivated && (
-          <SEOOptimizer
-            tripData={form}
-            onApplyOptimization={(field, value) => {
-              // Gate every SEO write through the field policy — UI must respect read-only.
-              if (field === "highlights" && Array.isArray(value)) {
-                if (can("highlights")) set("highlights", value as string[])
-              } else if (field === "tags" && Array.isArray(value)) {
-                if (can("tripTags")) set("tripTags", value as string[])
-              } else if (typeof value === "string") {
-                if (can(field as string)) set(field as "title" | "description", value)
-              }
-            }}
-          />
-        )}
+        {/* SEO Optimizer */}
+        <SEOOptimizer
+          tripData={form}
+          onApplyOptimization={(field, value) => {
+            // Gate every SEO write through the field policy — UI must respect read-only.
+            if (field === "highlights" && Array.isArray(value)) {
+              if (can("highlights")) set("highlights", value as string[])
+            } else if (field === "tags" && Array.isArray(value)) {
+              if (can("tripTags")) set("tripTags", value as string[])
+            } else if (typeof value === "string") {
+              if (can(field as string)) set(field as "title" | "description", value)
+            }
+          }}
+        />
 
-        {/* Itinerary steps — hidden for deactivated trips */}
-        {!isDeactivated && (
-          <ItineraryEditor
-            tripId={trip?.id}
-            steps={form.itinerarySteps ?? []}
-            onChange={(steps) => set("itinerarySteps", steps)}
-          />
-        )}
+        {/* Itinerary steps */}
+        <ItineraryEditor
+          tripId={trip?.id}
+          steps={form.itinerarySteps ?? []}
+          onChange={(steps) => set("itinerarySteps", steps)}
+        />
       </div>
 
       {/* Floating save / discard bar — sticks to the bottom of the viewport
@@ -1228,7 +1224,7 @@ export function TripEditForm({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving || isDeactivated}
+                disabled={saving}
                 className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Save className="h-4 w-4" />
@@ -1239,6 +1235,7 @@ export function TripEditForm({
         </div>
       )}
       </div>
+      )}
 
     </div>
   )
