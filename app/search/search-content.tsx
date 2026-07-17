@@ -846,11 +846,12 @@ export function SearchContent({
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean)
-    // ?departure=Name1,Name2 — used by the /departures page cards to
-    // pre-select the departure-point filter.
-    const departureParam = searchParams.get("departure") ?? ""
-    const departuresFromUrl = departureParam
-      .split(",")
+    // ?departure=Name1&departure=Name2 — used by the /departures page cards to
+    // pre-select the departure-point filter. Repeated params (NOT comma-joined)
+    // because location names can themselves contain commas
+    // (e.g. "Banque et Caisse d'Epargne de l'Etat (BCEE), SPUERKEESS").
+    const departuresFromUrl = searchParams
+      .getAll("departure")
       .map((d) => d.trim())
       .filter(Boolean)
     return {
@@ -875,7 +876,7 @@ export function SearchContent({
     if (activeFilters.timeTo)    params.set("timeTo",   activeFilters.timeTo)
     if (activeFilters.persons > 1) params.set("persons", String(activeFilters.persons))
     if (activeFilters.tags.length > 0) params.set("tag", activeFilters.tags.join(","))
-    if (activeFilters.departures.length > 0) params.set("departure", activeFilters.departures.join(","))
+    for (const d of activeFilters.departures) params.append("departure", d)
     router.replace(`/search?${params.toString()}`, { scroll: false })
   }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons, activeFilters.tags, activeFilters.departures]) // eslint-disable-line react-hooks/exhaustive-deps
 

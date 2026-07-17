@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useRef, useEffect } from "react"
 import Link from "next/link"
-import Image from "next/image"
 import type { Trip } from "@/lib/data"
 import {
   MapPin, Clock, Calendar, ArrowRight, Users, ChevronRight,
@@ -307,7 +306,6 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
               const nextDep = soonest ? DEPARTURE_TIMES[soonest.id] : null
               const geo = groupGeocode(cityTrips)
               const mapPreview = geo && mapboxToken ? staticMapUrl(mapboxToken, geo.lat, geo.lng) : null
-              const coverImage = cityTrips[0].image
 
               return (
                 <div
@@ -344,15 +342,20 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
                         loading="lazy"
                         data-testid={`map-${city}`}
                       />
-                    ) : (
-                      <Image
-                        src={coverImage}
-                        alt={city}
-                        fill
-                        className="object-cover transition-transform duration-500 group-hover:scale-105"
-                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-                        loading="lazy"
+                    ) : geo && !mapboxToken ? (
+                      /* Map token still loading → skeleton shimmer (never trip photos) */
+                      <div
+                        className="absolute inset-0 animate-pulse bg-muted"
+                        data-testid={`map-skeleton-${city}`}
                       />
+                    ) : (
+                      /* No geocode available → neutral map-style placeholder */
+                      <div
+                        className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted via-secondary to-muted"
+                        data-testid={`map-placeholder-${city}`}
+                      >
+                        <MapPin className="h-10 w-10 text-muted-foreground/30" />
+                      </div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 via-foreground/5 to-transparent" />
                     <div className="absolute bottom-0 left-0 right-0 p-4">
