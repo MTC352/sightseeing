@@ -127,9 +127,11 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/generate-blog", keys: ["blog"] },
   // Standalone blog cover-image (re)generator — used by the blog editor.
   { prefix: "/api/admin/generate-blog-image", keys: ["blog"] },
-  // Shared content endpoints — used by trip/blog editors and the frontend edit mode.
+  // Shared upload endpoint — trips/blog/pages editors may upload images.
   { prefix: "/api/admin/trips/upload", keys: ["trips", "blog", "pages"] },
-  { prefix: "/api/admin/page-content", keys: ["pages", "trips", "blog"] },
+  // Inline public-page editor — pages permission (or superadmin) only; trip/blog editors
+  // must not be able to publish content outside their own section.
+  { prefix: "/api/admin/page-content", keys: ["pages"] },
   // Shared settings endpoint — touched by AI/Integrations screens
   // (header/footer/announcement writes are superadmin-only at the route level).
   { prefix: "/api/admin/settings", keys: ["ai-systems", "integrations", "trips", "palisis"] },

@@ -63,7 +63,20 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
       .then((res) => {
         if (cancelled) return
         if (res.ok) {
-          setAdminVerified(true)
+          return res.json().then((data: { role?: string; permissions?: string[] }) => {
+            if (cancelled) return
+            const isSuperAdmin = data?.role === "superadmin"
+            const hasPages = Array.isArray(data?.permissions) && data.permissions.includes("pages")
+            if (isSuperAdmin || hasPages) {
+              setAdminVerified(true)
+            } else {
+              setAdminVerified(false)
+              const params = new URLSearchParams(searchParams.toString())
+              params.delete("admin_edit")
+              const qs = params.toString()
+              router.replace(pathname + (qs ? `?${qs}` : ""))
+            }
+          })
         } else {
           // Session invalid or not logged in — strip param and deny.
           setAdminVerified(false)

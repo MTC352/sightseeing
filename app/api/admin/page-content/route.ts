@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { dbGetPageContent, dbSavePageContent } from "@/lib/db/queries"
-import { requireAnyPermission } from "@/lib/auth-server"
+import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
 
@@ -14,7 +14,7 @@ function isForbidden(err: unknown): boolean {
 
 export async function GET(req: Request) {
   try {
-    await requireAnyPermission(["pages","trips","blog"])
+    await requirePermission("pages")
     const { searchParams } = new URL(req.url)
     const slug = searchParams.get("slug")
     if (!slug) return NextResponse.json({ error: "slug query param required" }, { status: 400 })
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    await requireAnyPermission(["pages","trips","blog"])
+    await requirePermission("pages")
     const data = await req.json()
     const { slug, changes } = data
     if (
