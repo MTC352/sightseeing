@@ -19,6 +19,7 @@ The current deployment is publicly reachable on the internet. The client-side si
 
 - **Browser to Next.js server** — all page visits, API requests, uploads, and admin actions cross from an untrusted client into trusted server code.
 - **Admin boundary** — `/admin/*` and `/api/admin/*` are more trusted than public routes and must be enforced server-side, not just in client code.
+- **Superadmin vs grantable employee permissions** — employee section permissions are weaker than superadmin authority; grantable roles must not inherit access to raw production secrets or cross-section public-site mutation capabilities unless that power is explicitly intended.
 - **Server to PostgreSQL** — route handlers and server components query and update the database directly; injection or missing authorization here has broad impact.
 - **Server to third-party APIs** — the app calls TourCMS/Palisis, Google Places, OpenWeather, Mapbox, Weglot, and AI providers using sensitive credentials.
 - **External service to webhook endpoint** — `/api/webhooks/palisis` is intended to accept inbound events from an external provider and therefore needs explicit request authenticity checks.
@@ -27,7 +28,7 @@ The current deployment is publicly reachable on the internet. The client-side si
 ## Scan Anchors
 
 - **Production entry points:** `app/api/**/*`, `app/admin/**/*`, `proxy.ts`, `app/layout.tsx`
-- **Highest-risk code areas:** `lib/auth.ts`, `app/api/upload/route.ts`, `app/api/careers/apply/route.ts`, `app/api/webhooks/palisis/route.ts`, `app/api/admin/settings/route.ts`, `app/api/help-chat/route.ts`, `app/api/trip-chat/route.ts`, `app/api/planner/route.ts`, `app/api/itinerary/route.ts`, `app/api/google-reviews/route.ts`, `app/page.tsx`, `app/explore/page.tsx`, `lib/db/queries.ts`, `lib/tourcms.ts`
+- **Highest-risk code areas:** `lib/auth.ts`, `app/api/upload/route.ts`, `app/api/careers/apply/route.ts`, `app/api/webhooks/palisis/route.ts`, `app/api/admin/settings/route.ts`, `app/api/admin/integrations/route.ts`, `app/api/admin/page-content/route.ts`, `app/api/page-content/route.tsx`, `app/api/help-chat/route.ts`, `app/api/trip-chat/route.ts`, `app/api/planner/route.ts`, `app/api/planner/availability/route.ts`, `app/api/itinerary/route.ts`, `app/api/google-reviews/route.ts`, `app/page.tsx`, `app/explore/page.tsx`, `lib/db/queries.ts`, `lib/tourcms.ts`, `lib/planner/availability-scan.ts`, `lib/rate-limit.ts`
 - **Surface split:** public site and APIs under `app/` and `app/api/*`; admin UI and admin APIs under `app/admin/*` and `app/api/admin/*`; external webhook under `app/api/webhooks/*`
 - **Usually dev-only / lower-priority:** docs, implementation dashboards, attached assets, and historical artifacts unless they prove a live production default or active data flow
 - **Context-sensitive disclosures:** browser-exposed publishable vendor keys are not findings by themselves; treat them as in-scope only when code can disclose a server-only or broader-scoped credential, or when a masked/admin-only secret store is unintentionally bridged into a public route
@@ -46,9 +47,13 @@ Admins and trusted integrations can modify high-impact content such as trips, bl
 
 Because Palisis is upstream for synced trip data, webhook- or import-driven refreshes are integrity-sensitive. The app must prevent unauthorized actors from causing overwrite operations or writing attacker-controlled data into core catalog records.
 
+The inline public-page editor is also an integrity-sensitive path. Shared edit buckets and cross-section helper APIs must not let Blog- or Trips-scoped employees publish changes onto unrelated public pages simply because they can reach a generic edit-mode save endpoint.
+
 ### Information Disclosure
 
 The app stores multiple sensitive keys and internal prompts. Those values must never be exposed to public clients or leak through logs, public routes, or client bundles unless the specific token is intentionally publishable. Admin APIs that return settings must stay inside the admin boundary.
+
+Inside the admin boundary, raw production secrets still need least privilege. Grantable employee sections such as Integrations may need status visibility, but they should not automatically receive or overwrite the live secret values for TourCMS, AI providers, Google APIs, or other third-party credentials unless that capability is explicitly intended as equivalent to superadmin access.
 
 Error responses and rendered content must not expose secrets or unsafely execute attacker-controlled HTML. Any rich content rendered to end users must be serialized or sanitized in a way that prevents script execution.
 
@@ -64,12 +69,14 @@ In this codebase, special attention belongs on public upload handlers, job-appli
 
 Because the production deployment is public and can run across multiple processes or cold starts, process-local caches and in-memory per-instance rate limits are not sufficient as the sole abuse control for expensive public routes. Public endpoints that warm caches, fan out into TourCMS, or forward large prompts to paid AI providers need safeguards that still hold across cache-busting input, restarts, and horizontal scaling.
 
+Public multipart upload handlers need the same scrutiny. If a route buffers tens of megabytes in memory before durable quotas or shared abuse controls run, an attacker can turn nominally bounded file uploads into practical memory/CPU exhaustion even when per-IP in-process throttles exist.
+
 Public provider-backed utility routes must also stay anchored to site-owned identifiers or database-backed allowlists. If an unauthenticated caller can swap in arbitrary Place IDs, listing URLs, or other third-party resource identifiers, the route effectively becomes a generic paid proxy even when the secret key itself is never returned.
 
 ### Elevation of Privilege
 
 The core elevation-of-privilege concern is movement from public/deployment-accessible user to admin capabilities. Protected admin pages and APIs must remain secure even if perimeter assumptions fail, and insecure defaults must not let an attacker mint their own admin session.
 
-Within the admin surface, role-bearing session data should only grant the privileges actually intended by the server. Any functionality that can inject script into public pages or update integrations is effectively full-site compromise and must be treated as such.
+Within the admin surface, role-bearing session data should only grant the privileges actually intended by the server. Any grantable employee permission that can read raw provider secrets, rotate production credentials, or publish cross-section public-site changes is effectively much more powerful than ordinary section editing and must be treated accordingly. Any functionality that can inject script into public pages or update integrations is effectively full-site compromise and must be treated as such.
 
 Administrative revocation must take effect immediately on both server-rendered admin pages and admin APIs. Edge middleware may use JWT claims for coarse routing, but every sensitive page or handler must enforce fresh database-backed role, permission, and active-user checks before loading data or performing mutations.
