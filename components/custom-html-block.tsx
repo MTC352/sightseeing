@@ -9,12 +9,22 @@ import { useConsent } from "@/lib/cookie-consent"
 // re-create each <script> element after inserting the markup — this is what
 // makes analytics, tag managers, and chat widgets actually run.
 //
-// CONSENT GATE: tracking/analytics scripts (Google Analytics / gtag / Tag
-// Manager / Meta pixel / Matomo…) only run when the visitor has accepted the
-// "Marketing & Analytics" cookie category. Until then those <script> tags are
-// stripped out (non-tracking markup in the same block still renders). When the
-// banner is disabled in the admin panel, stored consent is force-set to
-// all-true by the banner, so scripts load as before.
+// CONSENT GATE (block-level): the admin "Google Analytics / Tracking" (header)
+// and "Analytics & Tracking" (footer) blocks are saved wrapped in
+// <!--consent:marketing--> … <!--/consent:marketing--> markers. Everything
+// between those markers — scripts, noscript pixels, iframes — is removed from
+// the page until the visitor accepts the "Marketing & analytics" cookie
+// category, and injected live (no reload) once they do. Content OUTSIDE the
+// markers (Head Scripts / Meta Tags, Footer Widget, chat widgets…) always
+// loads, regardless of consent.
+//
+// LEGACY FALLBACK: if the stored HTML predates the markers (none present),
+// tracking scripts are detected by pattern (GTM/GA src domains, inline
+// gtag/dataLayer/fbq/_paq snippets) and gated the same way, so old content
+// stays compliant until it is re-saved from the admin panel.
+
+const CONSENT_OPEN = "<!--consent:marketing-->"
+const CONSENT_SEGMENT = /<!--consent:marketing-->[\s\S]*?<!--\/consent:marketing-->/g
 
 const TRACKING_SRC = /googletagmanager\.com|google-analytics\.com|googleadservices\.com|doubleclick\.net|connect\.facebook\.net|matomo|clarity\.ms|hotjar/i
 const TRACKING_INLINE = /gtag\s*\(|dataLayer|GoogleAnalyticsObject|google_tag_manager|fbq\s*\(|_paq|ga\s*\(\s*['"]create/i
@@ -45,12 +55,22 @@ export function CustomHtmlBlock({ html }: { html: string }) {
   useEffect(() => {
     const el = ref.current
     if (!el || isAdmin || !html) return
-    el.innerHTML = html
+
+    const hasMarkers = html.includes(CONSENT_OPEN)
+    // Block-level gate: strip marked segments entirely when not consented.
+    const effectiveHtml =
+      hasMarkers && !marketingAllowed
+        ? html.replace(CONSENT_SEGMENT, "<!-- consent-gated block withheld -->")
+        : html
+
+    el.innerHTML = effectiveHtml
     setGaDisableFlags(html, !marketingAllowed)
+
     const scripts = Array.from(el.querySelectorAll("script"))
     for (const old of scripts) {
-      if (!marketingAllowed && isTrackingScript(old)) {
-        // No consent (yet) → drop the tracking script entirely.
+      // Legacy pattern-based gate — only for content saved before the
+      // block-level markers existed.
+      if (!hasMarkers && !marketingAllowed && isTrackingScript(old)) {
         old.remove()
         continue
       }

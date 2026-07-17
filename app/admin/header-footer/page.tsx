@@ -5,6 +5,7 @@ import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
   Megaphone, AlignLeft, AlignCenter, AlignRight, RotateCcw, MapPin, Mail, Phone,
+  ShieldCheck,
 } from "lucide-react"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 import {
@@ -29,7 +30,14 @@ const DEFAULT_BLOCKS: Record<Section, CodeBlock[]> = {
     {
       id: "header_scripts",
       label: "Head Scripts / Meta Tags",
-      description: "Analytics, tag managers, or meta tags injected before the navbar.",
+      description: "Meta tags, verification tags, and general scripts injected before the navbar. NOT gated by cookie consent — loads for every visitor.",
+      code: "",
+      enabled: false,
+    },
+    {
+      id: "header_analytics",
+      label: "Google Analytics / Tracking",
+      description: "Google Analytics, Tag Manager, or other tracking. Gated — only runs after the visitor accepts Marketing & analytics cookies.",
       code: "",
       enabled: false,
     },
@@ -45,7 +53,14 @@ const DEFAULT_BLOCKS: Record<Section, CodeBlock[]> = {
     {
       id: "footer_analytics",
       label: "Analytics & Tracking",
-      description: "Google Analytics, Meta Pixel, or other tracking scripts.",
+      description: "Google Analytics, Meta Pixel, or other tracking scripts. Gated — only runs after the visitor accepts Marketing & analytics cookies.",
+      code: "",
+      enabled: false,
+    },
+    {
+      id: "footer_widget",
+      label: "Footer Widget",
+      description: "Any widget or script loaded after the footer. NOT gated by cookie consent — loads for every visitor.",
       code: "",
       enabled: false,
     },
@@ -59,8 +74,52 @@ const DEFAULT_BLOCKS: Record<Section, CodeBlock[]> = {
   ],
 }
 
+/** Blocks whose scripts only run after the visitor accepts Marketing & analytics cookies. */
+const CONSENT_GATED_IDS = new Set(["header_analytics", "footer_analytics"])
+
+// Markers understood by <CustomHtmlBlock> on the frontend: everything between
+// them is removed from the page until marketing consent is granted.
+const CONSENT_OPEN = "<!--consent:marketing-->"
+const CONSENT_CLOSE = "<!--/consent:marketing-->"
+
+/** Split a merged per-section HTML string back into the section's blocks
+ *  using the `<!-- Label -->` comments written by save(). Unrecognized
+ *  leading content falls into the first block. */
+function splitMergedHtml(section: Section, merged: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!merged.trim()) return out
+  const defs = DEFAULT_BLOCKS[section]
+  const hits: { id: string; start: number; contentStart: number }[] = []
+  for (const d of defs) {
+    const tag = `<!-- ${d.label} -->`
+    let idx = merged.indexOf(tag)
+    while (idx !== -1) {
+      hits.push({ id: d.id, start: idx, contentStart: idx + tag.length })
+      idx = merged.indexOf(tag, idx + tag.length)
+    }
+  }
+  hits.sort((a, b) => a.start - b.start)
+  const strip = (s: string) =>
+    s.replaceAll(CONSENT_OPEN, "").replaceAll(CONSENT_CLOSE, "").trim()
+  if (hits.length === 0) {
+    out[defs[0].id] = strip(merged)
+    return out
+  }
+  const leading = merged.slice(0, hits[0].start).trim()
+  if (leading) out[defs[0].id] = strip(leading)
+  for (let i = 0; i < hits.length; i++) {
+    const end = i + 1 < hits.length ? hits[i + 1].start : merged.length
+    const chunk = strip(merged.slice(hits[i].contentStart, end))
+    if (!chunk) continue
+    out[hits[i].id] = out[hits[i].id] ? `${out[hits[i].id]}\n\n${chunk}` : chunk
+  }
+  return out
+}
+
 const PLACEHOLDERS: Record<string, string> = {
-  header_scripts: `<!-- Google Tag Manager -->
+  header_scripts: `<!-- e.g. site verification / meta tags -->
+<meta name="facebook-domain-verification" content="XXXXXXXX" />`,
+  header_analytics: `<!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
@@ -87,6 +146,8 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   gtag('js', new Date());
   gtag('config', 'G-XXXXXXXX');
 </script>`,
+  footer_widget: `<!-- Any footer widget (always loads, no consent needed) -->
+<script async src="https://example.com/widget.js"></script>`,
   footer_cookie: `<!-- Cookie consent (replace with your provider) -->
 <script src="https://cdn.cookielaw.org/scripttemplates/otSDKStub.js"
   data-domain-script="YOUR-DOMAIN-SCRIPT-ID">
@@ -172,6 +233,15 @@ function BlockCard({
           <span className="text-[11px] text-muted-foreground">{block.description}</span>
         </div>
         <div className="flex items-center gap-2">
+          {CONSENT_GATED_IDS.has(block.id) && (
+            <span
+              title="Scripts in this block only run after the visitor accepts Marketing & analytics cookies"
+              className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600"
+            >
+              <ShieldCheck className="h-3 w-3" />
+              Consent-gated
+            </span>
+          )}
           {block.code.trim() && (
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
               {block.code.trim().split("\n").length} lines
@@ -591,19 +661,15 @@ export default function HeaderFooterPage() {
         // (backwards-compatible with old single-textarea storage)
         const header = s?.header?.customHtml ?? ""
         const footer = s?.footer?.customHtml ?? ""
-        if (header) {
+        if (header || footer) {
+          const headerParts = splitMergedHtml("header", header)
+          const footerParts = splitMergedHtml("footer", footer)
           setBlocks((prev) => ({
-            ...prev,
-            header: prev.header.map((b, i) =>
-              i === 0 ? { ...b, code: header, enabled: true } : b
+            header: prev.header.map((b) =>
+              headerParts[b.id] ? { ...b, code: headerParts[b.id], enabled: true } : b
             ),
-          }))
-        }
-        if (footer) {
-          setBlocks((prev) => ({
-            ...prev,
-            footer: prev.footer.map((b, i) =>
-              i === 0 ? { ...b, code: footer, enabled: true } : b
+            footer: prev.footer.map((b) =>
+              footerParts[b.id] ? { ...b, code: footerParts[b.id], enabled: true } : b
             ),
           }))
         }
@@ -634,14 +700,20 @@ export default function HeaderFooterPage() {
     setSaving(true)
     setError("")
     try {
-      // Merge all enabled blocks into one HTML string per section
+      // Merge all enabled blocks into one HTML string per section.
+      // Consent-gated blocks are wrapped in markers the frontend injector
+      // understands: their content only runs after marketing consent.
+      const mergeBlock = (b: CodeBlock) =>
+        CONSENT_GATED_IDS.has(b.id)
+          ? `<!-- ${b.label} -->\n${CONSENT_OPEN}\n${b.code.trim()}\n${CONSENT_CLOSE}`
+          : `<!-- ${b.label} -->\n${b.code.trim()}`
       const headerHtml = blocks.header
         .filter((b) => b.enabled && b.code.trim())
-        .map((b) => `<!-- ${b.label} -->\n${b.code.trim()}`)
+        .map(mergeBlock)
         .join("\n\n")
       const footerHtml = blocks.footer
         .filter((b) => b.enabled && b.code.trim())
-        .map((b) => `<!-- ${b.label} -->\n${b.code.trim()}`)
+        .map(mergeBlock)
         .join("\n\n")
 
       const responses = await Promise.all([
