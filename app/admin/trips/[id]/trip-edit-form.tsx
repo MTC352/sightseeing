@@ -376,7 +376,7 @@ export function TripEditForm({
             <p className="truncate text-sm font-semibold text-foreground">{form.title?.trim() || "Untitled trip"}</p>
             {trip && <p className="truncate text-[11px] text-muted-foreground">ID: {trip.id}</p>}
           </div>
-          {readonlyCount > 0 && (
+          {readonlyCount > 0 && !isDeactivated && (
             <button
               type="button"
               onClick={() => setHideReadonly((v) => !v)}
@@ -397,20 +397,27 @@ export function TripEditForm({
               <ExternalLink className="h-3.5 w-3.5" /> View on site
             </Link>
           )}
-          {trip?.palisis_id && <TripSyncButton palisisId={trip.palisis_id} variant="icon" disabled={isDeactivated} />}
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || !isDirty || isDeactivated}
-            className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Save className="h-4 w-4" />
-            {saving ? "Saving…" : saved ? "Saved!" : "Save"}
-          </button>
+          {trip?.palisis_id && !isDeactivated && <TripSyncButton palisisId={trip.palisis_id} variant="icon" />}
+          {!isDeactivated && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !isDirty}
+              className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" />
+              {saving ? "Saving…" : saved ? "Saved!" : "Save"}
+            </button>
+          )}
         </div>
       </div>
 
       <div className="mx-auto max-w-3xl">
+      {isDeactivated && (
+        <Link href="/admin/trips" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> Back to trips
+        </Link>
+      )}
       {isDeactivated && (
         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-900/50 dark:bg-red-950/30">
           <div className="flex items-start gap-4">
@@ -464,8 +471,8 @@ export function TripEditForm({
           <button type="button" onClick={() => setSaveError(null)} className="shrink-0 opacity-60 hover:opacity-100"><X className="h-4 w-4" /></button>
         </div>
       )}
-      {/* Top actions */}
-      <div className="mb-6 flex items-center justify-between">
+      {/* Top actions — hidden entirely when deactivated (Back to trips moved above the deactivation card) */}
+      {!isDeactivated && <div className="mb-6 flex items-center justify-between">
         <Link href="/admin/trips" className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Back to trips
         </Link>
@@ -493,14 +500,14 @@ export function TripEditForm({
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || !isDirty || isDeactivated}
+            disabled={saving || !isDirty}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
             {saving ? "Saving…" : saved ? "Saved!" : "Save"}
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Sentinel: when it scrolls past the top, the minimal header appears. */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />
