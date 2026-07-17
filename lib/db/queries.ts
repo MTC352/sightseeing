@@ -647,6 +647,28 @@ export async function dbReserveApplication(data: {
 }
 
 /**
+ * Cheap pre-body-read global rate check.
+ *
+ * Returns true when the platform-wide application rate limit is already
+ * saturated so the caller can reject the request BEFORE reading (and
+ * buffering) the multipart body. This is intentionally a non-transactional
+ * read — it is a first-pass guard, not a substitute for the authoritative
+ * atomic check inside dbReserveApplication. A small window of
+ * over-counting or under-counting is acceptable; the goal is to gate
+ * expensive I/O for obvious over-limit states.
+ */
+export async function dbIsGlobalApplicationRateSaturated(): Promise<boolean> {
+  const GLOBAL_LIMIT = 300
+  const GLOBAL_WINDOW_MS = 60 * 60 * 1000
+  const since = new Date(Date.now() - GLOBAL_WINDOW_MS)
+  const row = await queryOne<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM job_applications WHERE created_at >= $1`,
+    [since],
+  )
+  return parseInt(row?.count ?? "0", 10) >= GLOBAL_LIMIT
+}
+
+/**
  * Fills in the blob URLs on a previously reserved application row.
  * Called once all file uploads have completed successfully.
  */

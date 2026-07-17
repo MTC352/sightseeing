@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/queries"
 import { queryOne } from "@/lib/db"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { sharedRateLimit } from "@/lib/shared-rate-limit"
 import { sanitizeExternalUrl } from "@/lib/sanitize-html"
 import { randomBytes } from "crypto"
 
@@ -81,16 +82,57 @@ async function readBodyWithLimit(
   }
 
   const merged = Buffer.concat(chunks)
+  // Release references to individual chunk buffers so the GC can reclaim them
+  // before the multipart parser runs on the merged copy — reduces peak RSS.
+  chunks.length = 0
   return { body: merged, contentType }
 }
 
 export async function POST(request: Request) {
   schedulePrune()
-  // Fast path: in-memory per-IP limiter as a first-line check.
-  // This is NOT the durable abuse control — see dbReserveApplication below.
-  const limit = rateLimit(request, { limit: 5, windowMs: 60 * 60 * 1000 })
+
+  // ── Tier-1: in-process per-IP limiter (first-line, cheap) ───────────────
+  // NOT sufficient on its own against distributed/rotating callers, but cuts
+  // trivial single-IP abuse before any I/O is incurred.
+  const limit = rateLimit(request, { limit: 3, windowMs: 60 * 60 * 1000 })
   if (!limit.allowed) return limit.response
 
+  // ── Tier-2: durable cross-instance attempt gate (pre-body-read, fail-closed)
+  // Uses a PostgreSQL-backed sliding-window counter (shared_rate_limits table)
+  // that increments on EVERY attempt — including malformed, rejected, or
+  // throwaway requests that never create a job_applications row. The counter
+  // is shared atomically across all server instances (INSERT … ON CONFLICT),
+  // so it cannot be bypassed by IP rotation, cold starts, or autoscaling.
+  //
+  // Critically, this check runs BEFORE readBodyWithLimit(), so the expensive
+  // 51 MB buffer + multipart-parse cycle is gated by a cheap DB write.
+  //
+  // failClosed=true: a DB error returns allowed=false (503) rather than
+  // proceeding to unconstrained body buffering on an outage.
+  //
+  // The authoritative per-email / per-job / global committed-application limits
+  // are still enforced inside dbReserveApplication() after parsing; this gate
+  // is the pre-body attempt guard, not a replacement for those checks.
+  //
+  // Limit: 120 attempts per 5 minutes globally (~1,440/hr) — well above any
+  // realistic legitimate submission rate but bounds concurrent body reads.
+  const attemptLimit = await sharedRateLimit("careers_apply:global", {
+    limit: 120,
+    windowMs: 5 * 60_000,
+    failClosed: true,
+  })
+  if (!attemptLimit.allowed) {
+    return NextResponse.json(
+      {
+        error: attemptLimit.dbError
+          ? "Service temporarily unavailable. Please try again later."
+          : "Too many requests. Please try again later.",
+      },
+      { status: attemptLimit.dbError ? 503 : 429 },
+    )
+  }
+
+  // ── Tier-3: body buffering with hard size cap ─────────────────────────────
   // Read and hard-limit the body BEFORE multipart parsing so oversized requests
   // — including chunked transfers that omit Content-Length — are rejected before
   // the server allocates parser memory.

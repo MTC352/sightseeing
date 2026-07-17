@@ -100,21 +100,33 @@ export interface SharedRateLimitResult {
   remaining: number
   /** Current count (approximate). */
   count: number
+  /**
+   * Set to true when `failClosed` was requested and the DB was unreachable.
+   * In this case `allowed` is false (request blocked) but the cause is a
+   * transient infrastructure error, not an exceeded limit. Callers should
+   * return a 503 rather than 429 to distinguish the two cases.
+   */
+  dbError?: boolean
 }
 
 /**
  * Increment a shared (cross-instance) rate limit counter and check whether
  * the caller is within the allowed budget.
  *
- * @param key       Bucket identifier — use a stable string that describes the
- *                  protected resource, e.g. "avail_scan" (global budget) or
- *                  "planner:1.2.3.4" (per-IP).  Keep it short.
- * @param limit     Maximum requests allowed in the window.
- * @param windowMs  Window length in milliseconds.
+ * @param key         Bucket identifier — use a stable string that describes the
+ *                    protected resource, e.g. "avail_scan" (global budget) or
+ *                    "planner:1.2.3.4" (per-IP).  Keep it short.
+ * @param limit       Maximum requests allowed in the window.
+ * @param windowMs    Window length in milliseconds.
+ * @param failClosed  When true, a DB error causes `allowed: false` (with
+ *                    `dbError: true`) instead of the default fail-open
+ *                    `allowed: true` behaviour. Use for endpoints where
+ *                    allowing unlimited throughput on DB failure would create
+ *                    a DoS risk (e.g. public upload handlers).
  */
 export async function sharedRateLimit(
   key: string,
-  { limit, windowMs }: { limit: number; windowMs: number },
+  { limit, windowMs, failClosed = false }: { limit: number; windowMs: number; failClosed?: boolean },
 ): Promise<SharedRateLimitResult> {
   // Skip shared limiting in dev — the same single proxy IP would exhaust the
   // global budget and make the planner unusable during local development.
@@ -142,7 +154,12 @@ export async function sharedRateLimit(
     const remaining = Math.max(0, limit - count)
     return { allowed, remaining, count }
   } catch {
-    // Fail open: a DB error must not break the user experience.
+    if (failClosed) {
+      // Fail closed: a DB error blocks the request so an attacker cannot
+      // exploit a DB outage to bypass the shared limit and exhaust memory.
+      return { allowed: false, remaining: 0, count: 0, dbError: true }
+    }
+    // Fail open: a DB error must not break the user experience (default).
     return { allowed: true, remaining: limit, count: 0 }
   }
 }
