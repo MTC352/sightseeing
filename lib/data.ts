@@ -41,6 +41,10 @@ export interface Trip {
   highlights?: string[]
   googleBusinessUrl?: string
   palisisProductId?: string | null
+  /** Friendly name of the departure/start point (e.g. "Place de Paris"). */
+  departureLocation?: string | null
+  /** "lat,lng" string of the departure point. */
+  departureGeocode?: string | null
 }
 
 export interface Guide {

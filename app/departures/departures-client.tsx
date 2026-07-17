@@ -6,8 +6,9 @@ import Image from "next/image"
 import type { Trip } from "@/lib/data"
 import {
   MapPin, Clock, Calendar, ArrowRight, Users, ChevronRight,
-  Search, X, ChevronDown, SlidersHorizontal,
+  Search, X, ChevronDown, SlidersHorizontal, Navigation,
 } from "lucide-react"
+import { useGetMapboxTokenQuery } from "@/store/site/api"
 
 const DEPARTURE_TIMES: Record<string, { time: string; date: string; spots: number }> = {
   "31898": { time: "09:30", date: "Today", spots: 4 },
@@ -24,14 +25,50 @@ const DEPARTURE_TIMES: Record<string, { time: string; date: string; spots: numbe
   "31532": { time: "10:00", date: "Fri, 28 Mar", spots: 30 },
 }
 
-function groupByCity(tripList: Trip[]): [string, Trip[]][] {
+/** Grouping key for a trip = its departure point name (fallback: city). */
+function locationKey(trip: Trip): string {
+  return trip.departureLocation?.trim() || trip.city?.trim() || "Luxembourg City"
+}
+
+/** Parse a "lat,lng" geocode string. Returns null when absent/malformed. */
+export function parseGeocode(geocode?: string | null): { lat: number; lng: number } | null {
+  if (!geocode) return null
+  const parts = geocode.split(",").map((p) => Number(p.trim()))
+  if (parts.length !== 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) return null
+  const [lat, lng] = parts
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
+  return { lat, lng }
+}
+
+export function groupByLocation(tripList: Trip[]): [string, Trip[]][] {
   const map: Record<string, Trip[]> = {}
   for (const trip of tripList) {
-    const city = trip.city ?? "Luxembourg City"
-    if (!map[city]) map[city] = []
-    map[city].push(trip)
+    const key = locationKey(trip)
+    if (!map[key]) map[key] = []
+    map[key].push(trip)
   }
   return Object.entries(map).sort((a, b) => b[1].length - a[1].length)
+}
+
+/** First usable geocode among a location's trips. */
+function groupGeocode(cityTrips: Trip[]): { lat: number; lng: number } | null {
+  for (const t of cityTrips) {
+    const g = parseGeocode(t.departureGeocode)
+    if (g) return g
+  }
+  return null
+}
+
+/** Mapbox Static Images preview centered on the departure point. */
+function staticMapUrl(token: string, lat: number, lng: number): string {
+  const pin = `pin-l+e11d48(${lng},${lat})`
+  return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${pin}/${lng},${lat},14.5,0/640x360@2x?access_token=${encodeURIComponent(token)}`
+}
+
+/** Google Maps directions deep link (works on mobile map apps too). */
+function directionsUrl(geo: { lat: number; lng: number } | null, label: string): string {
+  const destination = geo ? `${geo.lat},${geo.lng}` : `${label}, Luxembourg`
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`
 }
 
 function cityStats(cityTrips: Trip[]) {
@@ -173,12 +210,15 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
   const tripList: Trip[] = initialTrips ?? []
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
 
+  const { data: mapboxData } = useGetMapboxTokenQuery()
+  const mapboxToken = mapboxData?.token || null
+
   const grouped = useMemo(() => {
-    if (!selectedProductId) return groupByCity(tripList)
+    if (!selectedProductId) return groupByLocation(tripList)
     const product = tripList.find((t) => t.id === selectedProductId)
-    if (!product) return groupByCity(tripList)
-    const city = product.city ?? "Luxembourg City"
-    return [[city, tripList.filter((t) => (t.city ?? "Luxembourg City") === city)]] as [string, Trip[]][]
+    if (!product) return groupByLocation(tripList)
+    const key = product.departureLocation?.trim() || product.city?.trim() || "Luxembourg City"
+    return [[key, tripList.filter((t) => (t.departureLocation?.trim() || t.city?.trim() || "Luxembourg City") === key)]] as [string, Trip[]][]
   }, [selectedProductId, tripList])
 
   const selectedTrip = tripList.find((t) => t.id === selectedProductId)
@@ -207,7 +247,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
             </span>
             <span className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5">
               <MapPin className="h-3.5 w-3.5 text-primary" />
-              {groupByCity(tripList).length} departure cities
+              {groupByLocation(tripList).length} departure points
             </span>
             <span className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5">
               <Clock className="h-3.5 w-3.5 text-primary" />
@@ -242,7 +282,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
                 <span className="text-primary">{selectedTrip.title}</span>
               </p>
               <p className="text-xs text-muted-foreground">
-                Departs from <strong>{selectedTrip.city ?? "Luxembourg City"}</strong>
+                Departs from <strong>{selectedTrip.departureLocation ?? selectedTrip.city ?? "Luxembourg City"}</strong>
               </p>
             </div>
             <button
@@ -265,30 +305,62 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
             {grouped.map(([city, cityTrips]) => {
               const { soonest, minPrice } = cityStats(cityTrips)
               const nextDep = soonest ? DEPARTURE_TIMES[soonest.id] : null
+              const geo = groupGeocode(cityTrips)
+              const mapPreview = geo && mapboxToken ? staticMapUrl(mapboxToken, geo.lat, geo.lng) : null
               const coverImage = cityTrips[0].image
 
               return (
-                <Link
+                <div
                   key={city}
-                  href={`/search?q=${encodeURIComponent(city)}`}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg"
                 >
+                  {/* Start navigation — sits above the card link */}
+                  <a
+                    href={directionsUrl(geo, city)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Start navigation to ${city}`}
+                    title="Start navigation"
+                    data-testid={`nav-${city}`}
+                    className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-primary shadow-md ring-1 ring-border transition-all hover:scale-105 hover:bg-primary hover:text-primary-foreground"
+                  >
+                    <Navigation className="h-4 w-4" />
+                  </a>
+
+                  {/* Full-card link */}
+                  <Link
+                    href={`/search?q=${encodeURIComponent(city)}`}
+                    aria-label={`View all experiences departing from ${city}`}
+                    className="absolute inset-0 z-10"
+                  />
+
                   <div className="relative h-44 w-full overflow-hidden">
-                    <Image
-                      src={coverImage}
-                      alt={city}
-                      fill
-                      className="object-cover transition-transform duration-500 group-hover:scale-105"
-                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-                      loading="lazy"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 via-foreground/10 to-transparent" />
+                    {mapPreview ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={mapPreview}
+                        alt={`Map of ${city}`}
+                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        loading="lazy"
+                        data-testid={`map-${city}`}
+                      />
+                    ) : (
+                      <Image
+                        src={coverImage}
+                        alt={city}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-foreground/60 via-foreground/5 to-transparent" />
                     <div className="absolute bottom-0 left-0 right-0 p-4">
                       <div className="flex items-center gap-1.5">
-                        <MapPin className="h-4 w-4 text-white/90" />
-                        <h2 className="text-base font-bold text-white">{city}</h2>
+                        <MapPin className="h-4 w-4 shrink-0 text-white/90" />
+                        <h2 className="text-base font-bold leading-snug text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">{city}</h2>
                       </div>
-                      <p className="mt-0.5 text-xs text-white/70">
+                      <p className="mt-0.5 text-xs text-white/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.5)]">
                         {cityTrips.length} {cityTrips.length === 1 ? "experience" : "experiences"}
                       </p>
                     </div>
@@ -357,7 +429,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
                       </span>
                     </div>
                   </div>
-                </Link>
+                </div>
               )
             })}
           </div>

@@ -19,6 +19,7 @@ export default async function DeparturesPage() {
     .filter((r) => (r.status as string) === "published")
     .map((r) => ({
       id: String(r.id),
+      slug: r.slug != null ? String(r.slug) : undefined,
       title: String((r.title_override ?? r.title) ?? ""),
       image: String(r.image ?? "/images/placeholder.jpg"),
       price: Number(r.price ?? 0),
@@ -35,6 +36,8 @@ export default async function DeparturesPage() {
       provider: r.provider != null ? String(r.provider) : undefined,
       highlights: Array.isArray(r.highlights) ? (r.highlights as string[]) : [],
       googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
+      departureLocation: r.departureLocation != null ? String(r.departureLocation) : undefined,
+      departureGeocode: r.departureGeocode != null ? String(r.departureGeocode) : undefined,
     }))
 
   // Fail-closed: never fall back to static seed data, which would resurface
