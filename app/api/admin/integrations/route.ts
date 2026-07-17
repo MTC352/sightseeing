@@ -2,8 +2,9 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListIntegrations, dbUpsertIntegration, dbGetIntegration } from "@/lib/db/queries"
 import { clearTourCMSConfigCache } from "@/lib/tourcms"
-import { requirePermission } from "@/lib/auth-server"
+import { requirePermission, requireSuperAdmin } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
 
 export const dynamic = "force-dynamic"
 
@@ -17,8 +18,19 @@ function isForbidden(err: unknown): boolean {
 
 export async function GET() {
   try {
-    await requirePermission("integrations")
+    const session = await requirePermission("integrations")
     const rows = await dbListIntegrations()
+
+    if (session.role !== FULL_ACCESS_ROLE) {
+      // Non-superadmin employees may see which integrations are configured but
+      // must not receive the actual credential values.
+      const masked = rows.map((r: Record<string, unknown>) => ({
+        ...r,
+        value: r.value ? "••••••••" : "",
+      }))
+      return NextResponse.json(masked)
+    }
+
     return NextResponse.json(rows)
   } catch (err) {
     if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
@@ -37,7 +49,10 @@ const PROTECTED_INTEGRATION_KEYS = new Set(["announcement"])
 
 export async function PATCH(req: Request) {
   try {
-    const session = await requirePermission("integrations")
+    // Writing integration rows (API credentials, feature flags) is a superadmin-
+    // only action. A grantable "integrations" employee permission is intentionally
+    // limited to read-only status visibility (masked values).
+    const session = await requireSuperAdmin()
     const body = await req.json() as { key: string; label?: string; value: string } | Array<{ key: string; label?: string; value: string }>
 
     const items = Array.isArray(body) ? body : [body]

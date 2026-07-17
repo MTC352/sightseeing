@@ -494,7 +494,7 @@ export default function IntegrationsPage() {
             Manage API keys, third-party service connections, and platform settings.
           </p>
         </div>
-        {tab === "keys" && (
+        {tab === "keys" && isSuperadmin && (
           <button
             type="button"
             onClick={save}
@@ -606,6 +606,12 @@ export default function IntegrationsPage() {
       {tab === "cookies" && <CookieSettings />}
 
       {/* ── API KEYS TAB ─────────────────────────────────────────── */}
+      {tab === "keys" && !isSuperadmin && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+          <Lock className="h-4 w-4 shrink-0" />
+          API keys are read-only for your account. Contact a superadmin to update credentials.
+        </div>
+      )}
       {tab === "keys" && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <table className="w-full text-sm">
@@ -656,9 +662,10 @@ export default function IntegrationsPage() {
                           <input
                             type={isSecret ? (shown[field.key] ? "text" : "password") : "text"}
                             value={keys[field.key] ?? ""}
-                            onChange={(e) => setKeys((k) => ({ ...k, [field.key]: e.target.value }))}
+                            onChange={(e) => isSuperadmin && setKeys((k) => ({ ...k, [field.key]: e.target.value }))}
                             placeholder={field.placeholder}
                             className={inputBase}
+                            readOnly={!isSuperadmin}
                             autoComplete="off"
                             spellCheck={false}
                           />

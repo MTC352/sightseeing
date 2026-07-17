@@ -44,8 +44,21 @@ export async function GET() {
     const filtered: Record<string, unknown> = {}
 
     if (perms.includes("integrations")) {
-      filtered.apiKeys = full.apiKeys
-      filtered.weglot = full.weglot
+      // Mask raw secret values — employees may view connection status (set vs
+      // not-set) but must not receive actual credential material.
+      const maskedApiKeys: Record<string, string> = {}
+      for (const [k, v] of Object.entries(full.apiKeys as Record<string, string>)) {
+        maskedApiKeys[k] = v ? "••••••••" : ""
+      }
+      filtered.apiKeys = maskedApiKeys
+
+      // Mask weglot: non-secret config fields pass through; apiKey is masked.
+      if (full.weglot && typeof full.weglot === "object") {
+        const { apiKey: _apiKey, ...weglotConfig } = full.weglot as Record<string, unknown>
+        const rawKey = _apiKey as string | undefined
+        filtered.weglot = { ...weglotConfig, apiKey: rawKey ? "••••••••" : "" }
+      }
+
       filtered.aiProvider = full.aiProvider
       filtered.aiProviderSelected = full.aiProviderSelected
     }
@@ -77,19 +90,24 @@ export async function GET() {
 }
 
 const SECTION_PERMISSION: Record<string, PermissionKey> = {
-  apiKeys: "integrations",
   ai: "ai-systems",
-  weglot: "integrations",
   importSettings: "palisis",
   contactInfo: "header-footer",
 }
 
 /**
- * Sections that inject content or arbitrary script into every public page.
+ * Sections that inject content or arbitrary script into every public page,
+ * or that write production API credentials.
  * Only superadmins may write to them — the permission is never grantable to
  * employee accounts.
  */
-const SUPERADMIN_ONLY_SECTIONS = new Set(["header", "footer", "announcement"])
+const SUPERADMIN_ONLY_SECTIONS = new Set([
+  "header",
+  "footer",
+  "announcement",
+  "apiKeys",
+  "weglot",
+])
 
 export async function PATCH(req: Request) {
   try {

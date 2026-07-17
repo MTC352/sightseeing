@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Save, Check, Plus, X, AlertCircle, Globe } from "lucide-react"
+import { ArrowLeft, Save, Check, Plus, X, AlertCircle, Globe, Lock } from "lucide-react"
+import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
 
 const SUPPORTED_LANGS = [
   { code: "fr", name: "French", flag: "🇫🇷" },
@@ -55,11 +56,16 @@ export default function WeglotSettingsPage() {
   const [error, setError] = useState("")
   const [newUrl, setNewUrl] = useState("")
   const [newBlock, setNewBlock] = useState("")
+  const [isSuperadmin, setIsSuperadmin] = useState(false)
 
   useEffect(() => {
     fetch("/api/admin/settings")
       .then((r) => r.json())
       .then((s) => { if (s?.weglot) setForm({ ...DEFAULTS, ...s.weglot }) })
+      .catch(() => {})
+    fetch("/api/admin/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => setIsSuperadmin(me?.role === FULL_ACCESS_ROLE))
       .catch(() => {})
   }, [])
 
@@ -132,18 +138,27 @@ export default function WeglotSettingsPage() {
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Configure multi-language support for sightseeing.lu</p>
         </div>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
-            saved ? "bg-emerald-500/15 text-emerald-600" : "bg-primary text-primary-foreground hover:bg-primary/90"
-          }`}
-        >
-          {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-          {saved ? "Saved!" : saving ? "Saving…" : "Save"}
-        </button>
+        {isSuperadmin && (
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className={`flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60 ${
+              saved ? "bg-emerald-500/15 text-emerald-600" : "bg-primary text-primary-foreground hover:bg-primary/90"
+            }`}
+          >
+            {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+            {saved ? "Saved!" : saving ? "Saving…" : "Save"}
+          </button>
+        )}
       </div>
+
+      {!isSuperadmin && (
+        <div className="mb-6 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+          <Lock className="h-4 w-4 shrink-0" />
+          Weglot settings are read-only for your account. Contact a superadmin to update credentials.
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
