@@ -11,7 +11,7 @@ import { useCart } from "@/lib/cart-context"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 import {
   Star, Clock, MapPin, SlidersHorizontal, CalendarDays, X,
-  ChevronRight, Sparkles, Check, Plus, Sun, LayoutGrid, List, ArrowRight,
+  Sparkles, Check, Plus, Sun, LayoutGrid, List, ArrowRight,
   Users, Minus, CalendarClock,
 } from "lucide-react"
 import { DateTimeModal } from "@/components/date-time-modal"
@@ -1206,90 +1206,82 @@ export function SearchContent({
       {/* ── Sticky filter bar ── */}
       <div className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
-          <div className="flex items-center py-2.5">
-            {/* Left pills */}
-            <div className="flex shrink-0 items-center gap-2 pr-2">
-              {/* Filter button */}
-              <button type="button" onClick={() => setFiltersOpen(true)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                  activeFilterCount > 0 ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
-                }`}>
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Filters
-                {activeFilterCount > 0 && (
-                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-background text-[10px] font-bold text-foreground">{activeFilterCount}</span>
-                )}
-              </button>
+          <div className="flex items-center gap-2 overflow-x-auto py-2.5 scrollbar-none">
+            {/* Filter button */}
+            <button type="button" onClick={() => setFiltersOpen(true)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                activeFilterCount > 0 ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
+              }`}>
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-background text-[10px] font-bold text-foreground">{activeFilterCount}</span>
+              )}
+            </button>
 
-              {/* Dates & Times pill */}
-              <button type="button" onClick={() => setDateOpen(true)}
+            {/* Dates & Times pill */}
+            <button type="button" onClick={() => setDateOpen(true)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                hasDate ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
+              }`}>
+              <CalendarDays className="h-3.5 w-3.5" />
+              {datePillLabel}
+              {hasDate && (
+                <span role="button" tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); clearDate() }}
+                  onKeyDown={(e) => e.key === "Enter" && clearDate()}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-background/20" aria-label="Clear dates">
+                  <X className="h-3 w-3" />
+                </span>
+              )}
+            </button>
+
+            {/* Guests pill with inline popover */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setPersonsOpen((o) => !o)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                  hasDate ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
-                }`}>
-                <CalendarDays className="h-3.5 w-3.5" />
-                {datePillLabel}
-                {hasDate && (
-                  <span role="button" tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); clearDate() }}
-                    onKeyDown={(e) => e.key === "Enter" && clearDate()}
-                    className="ml-0.5 rounded-full p-0.5 hover:bg-background/20" aria-label="Clear dates">
+                  hasPersons ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
+                }`}
+              >
+                <Users className="h-3.5 w-3.5" />
+                {hasPersons ? `${persons} guest${persons !== 1 ? "s" : ""}` : "Guests"}
+                {hasPersons && (
+                  <span
+                    role="button" tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setActiveFilters((p) => ({ ...p, persons: 1 })); setPersonsOpen(false) }}
+                    onKeyDown={(e) => e.key === "Enter" && setActiveFilters((p) => ({ ...p, persons: 1 }))}
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-background/20" aria-label="Clear guests"
+                  >
                     <X className="h-3 w-3" />
                   </span>
                 )}
               </button>
+              {personsOpen && (
+                <PersonsPopover
+                  persons={persons}
+                  onChange={(n) => setActiveFilters((p) => ({ ...p, persons: n }))}
+                  onClose={() => setPersonsOpen(false)}
+                />
+              )}
+            </div>
 
-              {/* Guests pill with inline popover */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setPersonsOpen((o) => !o)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                    hasPersons ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
-                  }`}
-                >
-                  <Users className="h-3.5 w-3.5" />
-                  {hasPersons ? `${persons} guest${persons !== 1 ? "s" : ""}` : "Guests"}
-                  {hasPersons && (
-                    <span
-                      role="button" tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); setActiveFilters((p) => ({ ...p, persons: 1 })); setPersonsOpen(false) }}
-                      onKeyDown={(e) => e.key === "Enter" && setActiveFilters((p) => ({ ...p, persons: 1 }))}
-                      className="ml-0.5 rounded-full p-0.5 hover:bg-background/20" aria-label="Clear guests"
-                    >
-                      <X className="h-3 w-3" />
-                    </span>
-                  )}
+            <div className="h-5 w-px shrink-0 bg-border" />
+
+            {/* Category pills */}
+            {categories.map((cat) => {
+              const isActive = activeCategory === cat
+              return (
+                <button type="button" key={cat}
+                  onClick={() => setActiveCategory(isActive ? null : cat)}
+                  className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                    isActive ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
+                  }`}>
+                  {cat}
                 </button>
-                {personsOpen && (
-                  <PersonsPopover
-                    persons={persons}
-                    onChange={(n) => setActiveFilters((p) => ({ ...p, persons: n }))}
-                    onClose={() => setPersonsOpen(false)}
-                  />
-                )}
-              </div>
-
-              <div className="h-5 w-px bg-border" />
-            </div>
-
-            {/* Category pills (scrollable) */}
-            <div className="flex flex-1 gap-2 overflow-x-auto scrollbar-none">
-              {categories.map((cat) => {
-                const isActive = activeCategory === cat
-                return (
-                  <button type="button" key={cat}
-                    onClick={() => setActiveCategory(isActive ? null : cat)}
-                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                      isActive ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
-                    }`}>
-                    {cat}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="shrink-0 pl-1">
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </div>
+              )
+            })}
           </div>
         </div>
       </div>

@@ -13,7 +13,8 @@ import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
 import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent } from "@/lib/db/queries"
+import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
 import { withTimeout } from "@/lib/db"
 import { headers, cookies } from "next/headers"
 import {
@@ -112,7 +113,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // visible homepage element is client-fetched — so an empty fallback during
   // the brief cold window has no user-facing impact. A warm DB (~50ms) always
   // resolves them fully.
-  const [injection, weglotApiKey, announcement, protection, cookieSettings] = await Promise.all([
+  const [injection, weglotApiKey, announcement, protection, cookieSettings, pageContent] = await Promise.all([
     withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
     withTimeout(dbGetWeglotApiKey().catch(() => ""), 250, ""),
     withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
@@ -121,6 +122,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     // visitors (valid cookie) still get through.
     withTimeout(dbGetSiteProtection().catch(() => null), 250, null),
     withTimeout(dbGetCookieSettings().catch(() => DEFAULT_COOKIE_SETTINGS), 250, DEFAULT_COOKIE_SETTINGS),
+    withTimeout(dbGetPageContent(INLINE_CONTENT_SLUG).catch(() => ({})), 500, {}),
   ])
 
   // ── Frontend password gate (server-side, no content flash) ────────────────
@@ -231,7 +233,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <PlannerListProvider>
             <WeatherProvider>
               <Suspense>
-                <EditModeProvider>
+                <EditModeProvider initialContent={pageContent}>
                   {/* Admin-configured custom HTML injected above the navbar
                       (head scripts, analytics). */}
                   <CustomHtmlBlock html={injection.header} />

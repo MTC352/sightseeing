@@ -5556,7 +5556,7 @@ export default function PlannerPage() {
                             ? "Finalizing your itinerary…"
                             : "Ask anything..."
                     }
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed"
+                    className="flex-1 bg-transparent text-base md:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed"
                     disabled={isStreaming || itineraryRegenerating || chatLimitReached} />
                   <button type="submit" disabled={!input.trim() || isStreaming || itineraryRegenerating || chatLimitReached}
                     className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">

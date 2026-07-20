@@ -32,7 +32,7 @@ export function useEditMode() {
   return useContext(EditModeContext)
 }
 
-export function EditModeProvider({ children }: { children: React.ReactNode }) {
+export function EditModeProvider({ children, initialContent = {} }: { children: React.ReactNode; initialContent?: Record<string, string> }) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -46,7 +46,7 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   const [adminVerified, setAdminVerified] = useState(false)
 
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({})
-  const [savedChanges, setSavedChanges] = useState<Record<string, string>>({})
+  const [savedChanges, setSavedChanges] = useState<Record<string, string>>(initialContent)
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle")
 
   // Whenever the param appears (or the page mounts with it), check the
@@ -101,9 +101,9 @@ export function EditModeProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramRequested, pathname])
 
-  // The actual gate: both the URL param AND the server-verified session
-  // must be true.
-  const isEditMode = paramRequested && adminVerified
+  // The actual gate: the URL param AND a verified session must both be true,
+  // AND the current page must not be an admin route.
+  const isEditMode = paramRequested && adminVerified && !pathname.startsWith("/admin")
 
   // Load all persisted inline edits once on mount — for EVERY visitor, not just
   // admins — so the live site reflects saved edits immediately.

@@ -520,7 +520,7 @@ export function HelpClient({ articles }: Props) {
                   }
                 }}
                 disabled={isStreaming}
-                className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
+                className="flex-1 rounded-full border border-border bg-background px-4 py-2 text-base md:text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-50"
               />
               <button
                 type="button"
