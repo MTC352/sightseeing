@@ -287,6 +287,7 @@ export default function TripDetailClient({
                     alt={`${trip.title} — photo ${i + 1}`}
                     fill
                     priority={i === 0}
+                    unoptimized={!!src?.startsWith('/uploads/')}
                     loading={eager ? "eager" : "lazy"}
                     aria-hidden={isActive ? undefined : true}
                     className={`object-cover transition-opacity duration-300 ${isActive ? "opacity-100" : "opacity-0"}`}
@@ -332,7 +333,7 @@ export default function TripDetailClient({
                     className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2 transition-all ${i === galleryIdx ? "border-primary" : "border-transparent opacity-60 hover:opacity-100"}`}
                     aria-label={`View photo ${i + 1}`}
                   >
-                    <Image src={src} alt={`${trip.title} thumbnail ${i + 1}`} fill className="object-cover" sizes="96px" />
+                    <Image src={src} alt={`${trip.title} thumbnail ${i + 1}`} fill unoptimized={!!src?.startsWith('/uploads/')} className="object-cover" sizes="96px" />
                   </button>
                 ))}
               </div>

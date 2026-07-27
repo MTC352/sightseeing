@@ -470,6 +470,7 @@ function SearchCard({ trip, priority = false, hasTodaySlots = false }: { trip: T
     <Link href={`/trip/${trip.slug ?? trip.id}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md">
       <div className="relative aspect-[4/3] overflow-hidden">
         <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority}
+          unoptimized={!!trip.image?.startsWith('/uploads/')}
           className="object-cover transition-transform duration-300 group-hover:scale-105"
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" />
         {showBadge && (
@@ -720,6 +721,7 @@ function SearchListCard({
       <div className="relative aspect-[16/10] sm:aspect-auto sm:w-56 lg:w-64 shrink-0">
         <Link href={`/trip/${trip.slug ?? trip.id}`} className="absolute inset-0">
           <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority}
+            unoptimized={!!trip.image?.startsWith('/uploads/')}
             className="object-cover transition-transform duration-300 group-hover:scale-105"
             sizes="(max-width: 640px) 100vw, 256px" />
         </Link>
