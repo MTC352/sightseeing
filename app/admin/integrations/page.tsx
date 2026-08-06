@@ -165,6 +165,21 @@ const SECTIONS: { id: string; title: string; icon: typeof Cloud; fields: ApiKeyF
       },
     ],
   },
+  {
+    id: "cookiebot",
+    title: "Cookiebot Consent",
+    icon: Cookie,
+    fields: [
+      {
+        key: "cookiebot",
+        label: "Domain Group ID",
+        placeholder: "e.g. 12345678-abcd-…",
+        hint: "The data-cbid from your Cookiebot dashboard. When set, Cookiebot becomes the active consent platform: the built-in cookie banner is hidden and the injected analytics load under Google Consent Mode. Paste the Cookiebot loader + Consent Mode snippet in Header/Footer → Custom Code Injection. Leave blank to keep the built-in banner.",
+        docsUrl: "https://www.cookiebot.com/en/help/",
+        secret: false,
+      },
+    ],
+  },
 ]
 
 type ApiKeys = Record<string, string>

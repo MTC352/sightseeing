@@ -7,6 +7,7 @@ import {
   getConsent,
   saveConsent,
   openCookiePreferences,
+  useConsent,
   CONSENT_PREFS_OPEN_EVENT,
   type ConsentState,
 } from "@/lib/cookie-consent"
@@ -351,6 +352,24 @@ function WeglotScript({ apiKey }: { apiKey: string }) {
         `,
       }}
     />
+  )
+}
+
+/**
+ * Consent-driven third-party scripts, decoupled from the banner UI.
+ *
+ * The built-in <CookieBanner> renders these itself. In Cookiebot mode the banner
+ * UI is replaced by Cookiebot, so this component is rendered directly and reads
+ * the shared consent signal (fed by <CookiebotConsentBridge>) to decide whether
+ * to load Weglot (functional) and enable the Travelpayouts widgets (marketing).
+ */
+export function ConsentedScripts({ weglotApiKey = "" }: { weglotApiKey?: string }) {
+  const consent = useConsent()
+  return (
+    <>
+      {consent?.functional && <WeglotScript apiKey={weglotApiKey} />}
+      {consent?.marketing && <TravelpayoutsAllowed />}
+    </>
   )
 }
 

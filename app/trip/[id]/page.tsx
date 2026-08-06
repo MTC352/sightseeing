@@ -4,6 +4,7 @@ import { getTripById, getTripDetail } from "@/lib/data"
 import type { Trip } from "@/lib/data"
 import TripDetailClient, { type TripDbDetail, type TripFaq, type RelatedTrip } from "./trip-detail-view"
 import { SiteFooter } from "@/components/site-footer"
+import { ViewItemTracker } from "@/components/analytics/view-item-tracker"
 import { dbGetTrip, dbListTrips, dbTripStatus } from "@/lib/db/queries"
 
 function mapDbTrip(r: Record<string, unknown>): Trip {
@@ -507,6 +508,13 @@ export default async function TripPage({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: safeJsonLd }}
+      />
+      {/* GA4 view_item — pushed to the dataLayer on product-page mount for GTM. */}
+      <ViewItemTracker
+        id={trip.slug ?? trip.id}
+        name={trip.title}
+        category={trip.category}
+        price={trip.price}
       />
       <TripDetailClient
         id={id}

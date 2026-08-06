@@ -2420,6 +2420,23 @@ export async function dbGetWeglotApiKey(): Promise<string> {
   return key
 }
 
+/** Resolve the Cookiebot Domain Group ID (data-cbid). Admin-panel DB key
+ *  (integrations.cookiebot) is the source of truth; env NEXT_PUBLIC_COOKIEBOT_CBID
+ *  is a dev fallback. A non-empty value switches the site into Cookiebot mode:
+ *  the built-in cookie banner is hidden and admin-injected analytics load
+ *  unconditionally (Google Consent Mode governs firing). Returns "" when unset. */
+export async function dbGetCookiebotId(): Promise<string> {
+  let id = ""
+  try {
+    const row = await dbGetIntegration("cookiebot")
+    id = (row?.value ?? "").trim()
+  } catch {
+    /* DB unavailable — fall through to env */
+  }
+  if (!id) id = (process.env.NEXT_PUBLIC_COOKIEBOT_CBID ?? "").trim()
+  return id
+}
+
 export async function dbUpsertIntegration(key: string, label: string, value: string) {
   return queryOne<{ key: string }>(
     `INSERT INTO integrations (key, label, value, updated_at)

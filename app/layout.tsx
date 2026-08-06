@@ -7,13 +7,14 @@ import { PlannerListProvider } from "@/lib/planner-list-context"
 import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
-import { CookieBanner } from "@/components/cookie-banner"
+import { CookieBanner, ConsentedScripts } from "@/components/cookie-banner"
+import { CookiebotConsentBridge } from "@/components/cookiebot-consent-bridge"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
 import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent, dbGetCookiebotId } from "@/lib/db/queries"
 import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
 import { withTimeout } from "@/lib/db"
 import { headers, cookies } from "next/headers"
@@ -33,6 +34,7 @@ const instrumentSans = Instrument_Sans({
 })
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
+
 
 export const metadata: Metadata = {
   metadataBase: new URL(BASE),
@@ -113,7 +115,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // visible homepage element is client-fetched — so an empty fallback during
   // the brief cold window has no user-facing impact. A warm DB (~50ms) always
   // resolves them fully.
-  const [injection, weglotApiKey, announcement, protection, cookieSettings, pageContent] = await Promise.all([
+  const [injection, weglotApiKey, announcement, protection, cookieSettings, pageContent, cookiebotId] = await Promise.all([
     withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
     withTimeout(dbGetWeglotApiKey().catch(() => ""), 250, ""),
     withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
@@ -123,7 +125,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     withTimeout(dbGetSiteProtection().catch(() => null), 250, null),
     withTimeout(dbGetCookieSettings().catch(() => DEFAULT_COOKIE_SETTINGS), 250, DEFAULT_COOKIE_SETTINGS),
     withTimeout(dbGetPageContent(INLINE_CONTENT_SLUG).catch(() => ({})), 500, {}),
+    withTimeout(dbGetCookiebotId().catch(() => ""), 250, ""),
   ])
+
+  // When a Cookiebot Domain Group ID is configured (Admin → API Keys), Cookiebot
+  // is the active CMP: the built-in banner is hidden and admin-injected analytics
+  // load unconditionally (Google Consent Mode governs firing). The Cookiebot
+  // loader / Consent Mode snippet / GTM are pasted in the admin panel, not here.
+  const cookiebotActive = cookiebotId.trim().length > 0
 
   // ── Frontend password gate (server-side, no content flash) ────────────────
   // The page HTML is never rendered until the visitor is authenticated. Admin
@@ -236,11 +245,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 <EditModeProvider initialContent={pageContent}>
                   {/* Admin-configured custom HTML injected above the navbar
                       (head scripts, analytics). */}
-                  <CustomHtmlBlock html={injection.header} />
+                  <CustomHtmlBlock html={injection.header} cookiebotActive={cookiebotActive} />
                   {children}
                   {/* Admin-configured custom HTML injected below the footer
                       (chat widgets, body-end scripts). */}
-                  <CustomHtmlBlock html={injection.footer} />
+                  <CustomHtmlBlock html={injection.footer} cookiebotActive={cookiebotActive} />
                 </EditModeProvider>
               </Suspense>
             </WeatherProvider>
@@ -248,10 +257,19 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           </CartProvider>
         </SiteStoreProvider>
 
-        {/* ── Cookie consent banner ────────────────────────────────────────
-            Client component. Also conditionally loads Weglot only after
-            the user accepts functional cookies. */}
-        <CookieBanner weglotApiKey={weglotApiKey} settings={cookieSettings} />
+        {/* ── Cookie consent ───────────────────────────────────────────────
+            Cookiebot mode (cookiebotActive): Cookiebot renders its own banner +
+            Consent Mode from <head>; the bridge mirrors its consent into the
+            app's signal, and ConsentedScripts loads Weglot / enables Travelpayouts
+            accordingly. Otherwise the built-in banner handles everything. */}
+        {cookiebotActive ? (
+          <>
+            <CookiebotConsentBridge />
+            <ConsentedScripts weglotApiKey={weglotApiKey} />
+          </>
+        ) : (
+          <CookieBanner weglotApiKey={weglotApiKey} settings={cookieSettings} />
+        )}
 
         {/* ── Accessibility toolbar ────────────────────────────────────────
             Built-in WCAG 2.1 AA / EAA 2025 accessibility panel.

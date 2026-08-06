@@ -56,8 +56,16 @@ export function clearConsent(): void {
   } catch { /* ignore */ }
 }
 
-/** Ask the cookie banner to open its preferences panel. */
+/** Open the consent preferences UI. When Cookiebot is the active CMP, reopen its
+ *  own dialog; otherwise fall back to the built-in banner's preferences panel. */
 export function openCookiePreferences(): void {
+  try {
+    const cb = (window as unknown as { Cookiebot?: { renew?: () => void } }).Cookiebot
+    if (cb && typeof cb.renew === "function") {
+      cb.renew()
+      return
+    }
+  } catch { /* ignore — fall through to built-in banner */ }
   try {
     window.dispatchEvent(new Event(CONSENT_PREFS_OPEN_EVENT))
   } catch { /* ignore */ }

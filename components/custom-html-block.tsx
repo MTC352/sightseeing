@@ -45,12 +45,26 @@ function setGaDisableFlags(html: string, disabled: boolean) {
   }
 }
 
-export function CustomHtmlBlock({ html }: { html: string }) {
+// When Cookiebot is the active CMP (`cookiebotActive`), Google Consent Mode
+// governs whether tags actually fire, so the tag manager itself must load
+// unconditionally — we no longer strip it before consent. Without Cookiebot
+// configured, the legacy block-level / pattern gate stays in force so tracking
+// still waits for the built-in banner's marketing consent.
+export function CustomHtmlBlock({
+  html,
+  cookiebotActive = false,
+}: {
+  html: string
+  cookiebotActive?: boolean
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
   const isAdmin = pathname?.startsWith("/admin") ?? false
   const consent = useConsent()
-  const marketingAllowed = consent?.marketing === true
+  // In Cookiebot mode consent never gates injection (Consent Mode governs tag
+  // firing), so collapse to a stable `true`. This keeps the effect from re-running
+  // — and needlessly re-injecting the container — every time consent changes.
+  const marketingAllowed = cookiebotActive ? true : consent?.marketing === true
 
   useEffect(() => {
     const el = ref.current
@@ -58,6 +72,7 @@ export function CustomHtmlBlock({ html }: { html: string }) {
 
     const hasMarkers = html.includes(CONSENT_OPEN)
     // Block-level gate: strip marked segments entirely when not consented.
+    // In Cookiebot mode `marketingAllowed` is always true, so nothing is stripped.
     const effectiveHtml =
       hasMarkers && !marketingAllowed
         ? html.replace(CONSENT_SEGMENT, "<!-- consent-gated block withheld -->")
@@ -69,8 +84,8 @@ export function CustomHtmlBlock({ html }: { html: string }) {
     const scripts = Array.from(el.querySelectorAll("script"))
     for (const old of scripts) {
       // Legacy pattern-based gate — only for content saved before the
-      // block-level markers existed.
-      if (!hasMarkers && !marketingAllowed && isTrackingScript(old)) {
+      // block-level markers existed (never trips in Cookiebot mode).
+      if (!marketingAllowed && !hasMarkers && isTrackingScript(old)) {
         old.remove()
         continue
       }
