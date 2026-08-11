@@ -688,12 +688,23 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
               />
               <button type="button" title="Move up" onClick={() => setGroups(move(value.groups, gi, gi - 1))} className="rounded p-1 text-muted-foreground hover:bg-muted">▲</button>
               <button type="button" title="Move down" onClick={() => setGroups(move(value.groups, gi, gi + 1))} className="rounded p-1 text-muted-foreground hover:bg-muted">▼</button>
-              <button type="button" title="Delete group" onClick={() => setGroups(value.groups.filter((_, i) => i !== gi))} className="rounded p-1 text-destructive hover:bg-destructive/10">✕</button>
+              <button
+                type="button"
+                title="Delete group"
+                onClick={() => {
+                  if (window.confirm(`Delete the group "${group.title || "Untitled"}" and its ${group.items.length} item${group.items.length === 1 ? "" : "s"}? This cannot be undone until you reload without saving.`)) {
+                    setGroups(value.groups.filter((_, i) => i !== gi))
+                  }
+                }}
+                className="rounded p-1 text-destructive hover:bg-destructive/10"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="mt-3 flex flex-col gap-2">
+            <div className="mt-3 flex flex-col divide-y divide-border/40 border-t border-border/40">
               {group.items.map((item, ii) => (
-                <div key={item.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-card px-2 py-1.5">
+                <div key={item.id} className="flex flex-wrap items-center gap-2 px-1 py-2">
                   <input
                     value={item.label}
                     onChange={(e) => updateItem(gi, ii, { label: e.target.value })}
@@ -717,17 +728,28 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
                   )}
                   <button type="button" title="Move up" onClick={() => updateGroup(gi, { items: move(group.items, ii, ii - 1) })} className="rounded p-1 text-muted-foreground hover:bg-muted">▲</button>
                   <button type="button" title="Move down" onClick={() => updateGroup(gi, { items: move(group.items, ii, ii + 1) })} className="rounded p-1 text-muted-foreground hover:bg-muted">▼</button>
-                  <button type="button" title="Delete item" onClick={() => updateGroup(gi, { items: group.items.filter((_, i) => i !== ii) })} className="rounded p-1 text-destructive hover:bg-destructive/10">✕</button>
+                  <button
+                    type="button"
+                    title="Delete item"
+                    onClick={() => {
+                      if (window.confirm(`Delete the footer link "${item.label || item.href || "this item"}"?`)) {
+                        updateGroup(gi, { items: group.items.filter((_, i) => i !== ii) })
+                      }
+                    }}
+                    className="rounded p-1 text-destructive hover:bg-destructive/10"
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
-              <button
-                type="button"
-                onClick={() => updateGroup(gi, { items: [...group.items, { id: newId("item"), label: "New link", href: "/", pageKey: null }] })}
-                className="self-start rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                + Add item
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => updateGroup(gi, { items: [...group.items, { id: newId("item"), label: "New link", href: "/", pageKey: null }] })}
+              className="mt-3 self-start rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              + Add item
+            </button>
           </div>
         ))}
         <button
