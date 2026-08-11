@@ -7,6 +7,7 @@ import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
 import { OutdoorTodayTrips } from "./outdoor-today-trips"
 import { tripSummaries as staticTrips, categories, type Trip } from "@/lib/data"
 import { GOOGLE_PROFILE_URL } from "@/lib/google-reviews-normalize"
+import { ReviewAvatar } from "@/components/review-avatar"
 import { useGetPublicTripsQuery, useGetGoogleReviewsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
 import { useRecentlyViewed } from "@/lib/use-recently-viewed"
@@ -680,19 +681,7 @@ function ReviewSlider({ reviews }: { reviews: LiveReview[] }) {
               <div className="group flex h-full flex-col rounded-2xl border border-border bg-card p-6 shadow-sm">
                 {/* Reviewer header */}
                 <div className="flex items-start gap-3">
-                  {review.avatar ? (
-                    <img
-                      src={review.avatar}
-                      alt={review.author}
-                      width={44}
-                      height={44}
-                      className="h-11 w-11 rounded-full object-cover ring-2 ring-border"
-                    />
-                  ) : (
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-bold text-primary">
-                      {review.author.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <ReviewAvatar src={review.avatar} name={review.author} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-foreground">{review.author}</p>
                     <p className="text-xs text-muted-foreground">{review.date}</p>
