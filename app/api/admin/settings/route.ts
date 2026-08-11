@@ -9,11 +9,13 @@ import {
   dbUpdateAnnouncement,
   dbUpdateContactInfo,
   dbSetImportExcludedFields,
+  dbUpdateFooterMenu,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 import { clearTourCMSConfigCache } from "@/lib/tourcms"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
+import { normalizeFooterMenu } from "@/lib/footer-menu-normalize"
 
 export const dynamic = "force-dynamic"
 
@@ -75,6 +77,7 @@ export async function GET() {
       filtered.footer = full.footer
       filtered.announcement = full.announcement
       filtered.contactInfo = full.contactInfo
+      filtered.footerMenu = full.footerMenu
     }
 
     if (perms.includes("palisis")) {
@@ -93,6 +96,7 @@ const SECTION_PERMISSION: Record<string, PermissionKey> = {
   ai: "ai-systems",
   importSettings: "palisis",
   contactInfo: "header-footer",
+  footerMenu: "header-footer",
 }
 
 /**
@@ -114,7 +118,7 @@ export async function PATCH(req: Request) {
     const session = await requireAdminSession()
     const body = await req.json()
     const { section, data } = body as {
-      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement" | "contactInfo" | "importSettings"
+      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement" | "contactInfo" | "importSettings" | "footerMenu"
       data: Record<string, unknown>
     }
 
@@ -174,6 +178,8 @@ export async function PATCH(req: Request) {
       await dbUpdateContactInfo(data as { address?: string; email?: string; phone?: string })
     } else if (section === "importSettings") {
       await dbSetImportExcludedFields(data.excludedFields)
+    } else if (section === "footerMenu") {
+      await dbUpdateFooterMenu(normalizeFooterMenu((data as { menu?: unknown }).menu))
     }
 
     void logActivity({
