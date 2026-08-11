@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { dbGetSettings, dbGetTrip, dbUpdateTrip } from "@/lib/db/queries"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import {
+  getGlobalGoogleReviews,
+  findPlaceIdByName,
+  fetchPlaceDetails,
+  type PlaceDetails,
+} from "@/lib/google-reviews-global"
 
 /* -----------------------------------------------------------------------
    Extracts a Place ID from a variety of Google Maps URL formats:
@@ -28,54 +34,8 @@ function extractPlaceId(url: string): string | null {
   }
 }
 
-/* Use Google Text Search to find Place ID by business name */
-async function findPlaceIdByName(name: string, apiKey: string): Promise<string | null> {
-  try {
-    const searchUrl =
-      `https://maps.googleapis.com/maps/api/place/findplacefromtext/json` +
-      `?input=${encodeURIComponent(name)}&inputtype=textquery&fields=place_id&key=${apiKey}`
-    const res = await fetch(searchUrl)
-    const json = await res.json()
-    if (json.status === "OK" && json.candidates?.length > 0) {
-      return json.candidates[0].place_id
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-interface PlaceDetails {
-  name?: string
-  rating?: number
-  user_ratings_total?: number
-  reviews?: Array<Record<string, unknown>>
-}
-
-/* Fetch place details + reviews. Returns `{ ok:false, status }` for resolvable
-   "bad place id" responses (NOT_FOUND / INVALID_REQUEST) so the caller can retry
-   with a text-search-derived id; throws on transport / quota errors. */
-async function fetchPlaceDetails(
-  placeId: string,
-  apiKey: string,
-): Promise<{ ok: true; result: PlaceDetails } | { ok: false; status: string }> {
-  const fields = "name,rating,user_ratings_total,reviews"
-  const apiUrl =
-    `https://maps.googleapis.com/maps/api/place/details/json` +
-    `?place_id=${encodeURIComponent(placeId)}&fields=${fields}&key=${apiKey}&language=en`
-
-  const res = await fetch(apiUrl)
-  if (!res.ok) throw new Error(`Places API HTTP ${res.status}`)
-  const json = await res.json()
-
-  if (json.status === "OK") return { ok: true, result: json.result as PlaceDetails }
-  // Bad/stale place id — recoverable via text search
-  if (json.status === "NOT_FOUND" || json.status === "INVALID_REQUEST" || json.status === "ZERO_RESULTS") {
-    return { ok: false, status: json.status }
-  }
-  // Quota / auth / server errors — not recoverable by retrying with another id
-  throw new Error(`Places API: ${json.status} — ${json.error_message ?? "unknown error"}`)
-}
+/* `findPlaceIdByName`, `fetchPlaceDetails`, and the `PlaceDetails` type now live
+   in `@/lib/google-reviews-global` (shared with the About page). Imported above. */
 
 /* Allowlist of hostnames that are valid Google shortlink input domains */
 const SHORTLINK_ALLOWED_HOSTS = new Set([
@@ -366,79 +326,14 @@ export async function GET(request: NextRequest) {
   }
 
   // ── Global / homepage scope ─────────────────────────────────────────
-  // The caller-supplied `url` parameter is intentionally ignored here.
-  // Identity is resolved exclusively from server-side-controlled sources:
-  //   1. Admin-configured `googlePlaceId` (most specific, always preferred)
-  //   2. Hardcoded fallback text search for the known business name
-  // This prevents the unauthenticated endpoint from acting as a general-purpose
-  // Google Places proxy for arbitrary caller-supplied identifiers.
-
-  let placeId: string | null =
-    ((settings.apiKeys as Record<string, string> | undefined)?.googlePlaceId ?? "").trim() || null
-
-  const cacheKey = placeId ?? "global:sightseeing-luxembourg"
-
-  const cached = _reviewsCache.get(cacheKey)
-  if (cached && Date.now() < cached.expiresAt) {
-    return NextResponse.json(cached.data)
+  // Identity is resolved exclusively from server-side sources inside the
+  // shared helper (admin `googlePlaceId`, else a fixed text search). The
+  // caller-supplied `url` parameter is intentionally ignored, so the
+  // unauthenticated endpoint cannot act as a general-purpose Places proxy.
+  const payload = await getGlobalGoogleReviews()
+  if (payload.error && payload.reviews.length === 0) {
+    const status = payload.error.includes("not configured") ? 503 : 400
+    return NextResponse.json({ error: payload.error, reviews: [] }, { status })
   }
-
-  try {
-    // If no admin-configured Place ID, fall back to the known house business name.
-    // This is a fixed server-side string — not influenced by caller input.
-    if (!placeId) {
-      placeId = await findPlaceIdByName("Sightseeing Luxembourg", apiKey)
-    }
-
-    if (!placeId) {
-      return NextResponse.json(
-        {
-          error:
-            "Could not resolve a Google Place ID. Go to Admin → Integrations → Google Reviews " +
-            "and paste your Place ID directly (find it at developers.google.com/maps/documentation/places/web-service/place-id).",
-          reviews: [],
-        },
-        { status: 400 },
-      )
-    }
-
-    // Fetch place details + reviews.
-    let details = await fetchPlaceDetails(placeId, apiKey)
-    if (!details.ok) {
-      throw new Error(`Places API: ${details.status}`)
-    }
-
-    const { name, rating, user_ratings_total, reviews } = details.result as {
-      name?: string
-      rating?: number
-      user_ratings_total?: number
-      reviews?: Array<Record<string, unknown>>
-    }
-
-    const payload = {
-      name,
-      rating,
-      totalReviews: user_ratings_total,
-      reviews: (reviews ?? []).slice(0, 5).map((r) => ({
-        author: r.author_name as string,
-        avatar: r.profile_photo_url as string,
-        rating: r.rating as number,
-        date: r.relative_time_description as string,
-        text: r.text as string,
-        url: r.author_url as string,
-      })),
-    }
-
-    _reviewsCache.set(cacheKey, { data: payload, expiresAt: Date.now() + 30 * 60_000 })
-    return NextResponse.json(payload)
-  } catch (err) {
-    console.error("[google-reviews] fetch error:", err)
-    return NextResponse.json(
-      {
-        error: err instanceof Error ? err.message : "Failed to fetch Google reviews",
-        reviews: [],
-      },
-      { status: 500 },
-    )
-  }
+  return NextResponse.json(payload)
 }
