@@ -990,7 +990,7 @@ export default function HeaderFooterPage() {
           { key: "header", label: "Header", Icon: ArrowUpToLine },
           { key: "footer", label: "Footer", Icon: ArrowDownToLine },
           { key: "footer-menu", label: "Footer Menu", Icon: ListTree },
-          { key: "pages", label: "Development Pages", Icon: FileText },
+          { key: "pages", label: "Extra Pages", Icon: FileText },
         ] as const).map(({ key, label, Icon }) => {
           const count = key === "header" ? headerActive : key === "footer" ? footerActive : 0
           return (

@@ -2,9 +2,6 @@ import React, { Suspense } from "react"
 import type { Metadata, Viewport } from "next"
 import { Instrument_Sans } from "next/font/google"
 import Script from "next/script"
-import { notFound } from "next/navigation"
-import { verifySession } from "@/lib/auth"
-import { isDevPageBlocked, topLevelSlug, DEVELOPMENT_PAGE_SLUGS } from "@/lib/development-pages"
 import { CartProvider } from "@/lib/cart-context"
 import { PlannerListProvider } from "@/lib/planner-list-context"
 import { WeatherProvider } from "@/lib/weather-context"
@@ -17,7 +14,7 @@ import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
 import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent, dbGetCookiebotId, dbGetDisabledPages } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent, dbGetCookiebotId } from "@/lib/db/queries"
 import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
 import { withTimeout } from "@/lib/db"
 import { headers, cookies } from "next/headers"
@@ -152,21 +149,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const pathname = pathnameTrusted && rawPathname ? rawPathname : "/"
   const isAdminRoute = pathname.startsWith("/admin")
 
-  // ── Development-page visibility gate (real 404 for disabled pages) ─────────
-  // Governed static pages (see lib/development-pages.ts) can be toggled off in
-  // Admin → Header & Footer → Development Pages. A disabled page 404s for the
-  // public but still renders for a logged-in admin (preview). Only touches the
-  // DB when the path is actually a governed slug.
-  if (!isAdminRoute) {
-    if (DEVELOPMENT_PAGE_SLUGS.has(topLevelSlug(pathname))) {
-      const adminToken = (await cookies()).get("admin_session")?.value
-      const isAdmin = adminToken ? Boolean(await verifySession(adminToken)) : false
-      const disabled = await dbGetDisabledPages().catch(() => [] as string[])
-      if (isDevPageBlocked(pathname, disabled, isAdmin)) {
-        notFound()
-      }
-    }
-  }
+  // Development-page visibility gate (real 404 for disabled pages) lives in
+  // app/(gated)/layout.tsx — a nested layout is allowed to call notFound(),
+  // whereas the root layout is not (Next.js 16).
 
   const protectionEnabled = protection === null ? true : protection.enabled
   let locked = false
