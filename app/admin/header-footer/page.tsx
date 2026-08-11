@@ -684,7 +684,7 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
                 value={group.title}
                 onChange={(e) => updateGroup(gi, { title: e.target.value })}
                 placeholder="Group title"
-                className="flex-1 rounded-md border border-border bg-card px-2 py-1 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <button type="button" title="Move up" onClick={() => setGroups(move(value.groups, gi, gi - 1))} className="rounded p-1 text-muted-foreground hover:bg-muted">▲</button>
               <button type="button" title="Move down" onClick={() => setGroups(move(value.groups, gi, gi + 1))} className="rounded p-1 text-muted-foreground hover:bg-muted">▼</button>
@@ -709,18 +709,18 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
                     value={item.label}
                     onChange={(e) => updateItem(gi, ii, { label: e.target.value })}
                     placeholder="Label"
-                    className="w-40 rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    className="w-44 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   />
                   <input
                     value={item.href}
                     onChange={(e) => updateItem(gi, ii, { href: e.target.value })}
                     placeholder="https://… or /path"
-                    className="min-w-[220px] flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    className="min-w-[220px] flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   />
-                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <label className="flex items-center gap-1.5 text-xs text-foreground">
                     <input type="checkbox" checked={!!item.external} onChange={(e) => updateItem(gi, ii, { external: e.target.checked })} /> External
                   </label>
-                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <label className="flex items-center gap-1.5 text-xs text-foreground">
                     <input type="checkbox" checked={!!item.hidden} onChange={(e) => updateItem(gi, ii, { hidden: e.target.checked })} /> Hidden
                   </label>
                   {item.pageKey && (
