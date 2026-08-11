@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, Fragment } from "react"
 import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
@@ -678,7 +678,9 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
 
       <div className="mt-4 flex flex-col gap-4">
         {value.groups.map((group, gi) => (
-          <div key={group.id} className="rounded-lg border border-border/70 bg-card p-3">
+          <Fragment key={group.id}>
+            {gi > 0 && <hr className="my-1 border-t border-border" />}
+          <div className="rounded-lg border border-border/70 bg-card p-3">
             <div className="flex items-center gap-2">
               <input
                 value={group.title}
@@ -751,6 +753,7 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
               + Add item
             </button>
           </div>
+          </Fragment>
         ))}
         <button
           type="button"
