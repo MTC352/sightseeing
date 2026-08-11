@@ -57,3 +57,33 @@ test("default document round-trips (normalize is a no-op on it)", () => {
   const keys = out.groups.flatMap((g) => g.items.map((i) => i.pageKey).filter(Boolean)).sort()
   assert.deepEqual(keys, ["cars", "flights", "hotels", "trains", "travel"])
 })
+
+test("caps groups to MAX_GROUPS (24)", () => {
+  const groups = Array.from({ length: 40 }, (_, gi) => ({
+    id: `g${gi}`,
+    title: `Group ${gi}`,
+    items: [{ label: "Link", href: "/link" }],
+  }))
+  const out = normalizeFooterMenu({ groups })
+  assert.equal(out.groups.length, 24)
+})
+
+test("caps items per group to MAX_ITEMS_PER_GROUP (60)", () => {
+  const items = Array.from({ length: 100 }, (_, ii) => ({
+    label: `Item ${ii}`,
+    href: `/item-${ii}`,
+  }))
+  const out = normalizeFooterMenu({ groups: [{ id: "g1", title: "G1", items }] })
+  assert.equal(out.groups[0].items.length, 60)
+})
+
+test("truncates over-long label and href to MAX_TEXT / MAX_HREF", () => {
+  const longLabel = "L".repeat(500)
+  const longHref = "/" + "h".repeat(3000)
+  const out = normalizeFooterMenu({
+    groups: [{ id: "g1", title: "G1", items: [{ label: longLabel, href: longHref }] }],
+  })
+  const item = out.groups[0].items[0]
+  assert.equal(item.label.length, 300)
+  assert.equal(item.href.length, 2048)
+})
