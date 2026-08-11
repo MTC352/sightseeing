@@ -10,6 +10,7 @@ import {
   dbUpdateContactInfo,
   dbSetImportExcludedFields,
   dbUpdateFooterMenu,
+  dbUpdatePageVisibility,
 } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
@@ -78,6 +79,7 @@ export async function GET() {
       filtered.announcement = full.announcement
       filtered.contactInfo = full.contactInfo
       filtered.footerMenu = full.footerMenu
+      filtered.pageVisibility = full.pageVisibility
     }
 
     if (perms.includes("palisis")) {
@@ -97,6 +99,7 @@ const SECTION_PERMISSION: Record<string, PermissionKey> = {
   importSettings: "palisis",
   contactInfo: "header-footer",
   footerMenu: "header-footer",
+  pageVisibility: "header-footer",
 }
 
 /**
@@ -118,7 +121,7 @@ export async function PATCH(req: Request) {
     const session = await requireAdminSession()
     const body = await req.json()
     const { section, data } = body as {
-      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement" | "contactInfo" | "importSettings" | "footerMenu"
+      section: "apiKeys" | "ai" | "weglot" | "header" | "footer" | "announcement" | "contactInfo" | "importSettings" | "footerMenu" | "pageVisibility"
       data: Record<string, unknown>
     }
 
@@ -180,6 +183,11 @@ export async function PATCH(req: Request) {
       await dbSetImportExcludedFields(data.excludedFields)
     } else if (section === "footerMenu") {
       await dbUpdateFooterMenu(normalizeFooterMenu((data as { menu?: unknown }).menu))
+    } else if (section === "pageVisibility") {
+      const disabled = Array.isArray((data as { disabled?: unknown }).disabled)
+        ? ((data as { disabled: unknown[] }).disabled as string[])
+        : []
+      await dbUpdatePageVisibility(disabled)
     }
 
     void logActivity({

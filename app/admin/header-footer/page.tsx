@@ -5,7 +5,7 @@ import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
   Megaphone, AlignLeft, AlignCenter, AlignRight, RotateCcw, MapPin, Mail, Phone,
-  ShieldCheck, ListTree,
+  ShieldCheck, ListTree, FileText,
 } from "lucide-react"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 import {
@@ -16,12 +16,14 @@ import {
 import type { FooterMenu, FooterGroup, FooterItem } from "@/lib/footer-menu-types"
 import { newId } from "@/lib/footer-menu-normalize"
 import { FOOTER_MENU_DEFAULT } from "@/lib/footer-menu-default"
+import { DEVELOPMENT_PAGES } from "@/lib/development-pages"
 
 /* ── Types ── */
 type Section = "header" | "footer"
 /** Tabs shown in the editor. `header`/`footer` drive the code-injection blocks
- *  (keyed by Section); `footer-menu` is a standalone panel for the footer menu. */
-type TabKey = Section | "footer-menu"
+ *  (keyed by Section); `footer-menu` is a standalone panel for the footer menu;
+ *  `pages` is a standalone panel for the Development Pages visibility toggles. */
+type TabKey = Section | "footer-menu" | "pages"
 
 interface CodeBlock {
   id: string
@@ -767,6 +769,49 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
   )
 }
 
+function DevelopmentPagesEditor({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const disabled = new Set(value)
+  const toggle = (slug: string) => {
+    const next = new Set(value)
+    if (next.has(slug)) next.delete(slug)
+    else next.add(slug)
+    onChange([...next])
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+        <span className="font-semibold">Enabled pages</span> are public. <span className="font-semibold">Disabled pages</span> return a 404 to visitors (you, as an admin, can still preview them). Click <span className="font-semibold">Save</span> to apply.
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {DEVELOPMENT_PAGES.map((p) => {
+          const isEnabled = !disabled.has(p.slug)
+          return (
+            <div key={p.slug} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">{p.label}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{p.url} — {p.description}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <a href={p.url} target="_blank" rel="noopener noreferrer" title="Preview" className="rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground">
+                  <Eye className="h-4 w-4" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => toggle(p.slug)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${isEnabled ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}
+                >
+                  {isEnabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  {isEnabled ? "Enabled" : "Disabled"}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 /* ── Main page ── */
 export default function HeaderFooterPage() {
   const [tab, setTab] = useState<TabKey>("header")
@@ -780,6 +825,7 @@ export default function HeaderFooterPage() {
     phone: "+352 266 51 2200",
   })
   const [footerMenu, setFooterMenu] = useState<FooterMenu>(FOOTER_MENU_DEFAULT)
+  const [disabledPages, setDisabledPages] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
@@ -825,6 +871,7 @@ export default function HeaderFooterPage() {
           })
         }
         if (s?.footerMenu?.groups) setFooterMenu(s.footerMenu as FooterMenu)
+        if (Array.isArray(s?.pageVisibility?.disabled)) setDisabledPages(s.pageVisibility.disabled as string[])
       })
       .catch(() => {})
   }, [])
@@ -874,6 +921,11 @@ export default function HeaderFooterPage() {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ section: "footerMenu", data: { menu: footerMenu } }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ section: "pageVisibility", data: { disabled: disabledPages } }),
         }),
       ])
 
@@ -938,6 +990,7 @@ export default function HeaderFooterPage() {
           { key: "header", label: "Header", Icon: ArrowUpToLine },
           { key: "footer", label: "Footer", Icon: ArrowDownToLine },
           { key: "footer-menu", label: "Footer Menu", Icon: ListTree },
+          { key: "pages", label: "Development Pages", Icon: FileText },
         ] as const).map(({ key, label, Icon }) => {
           const count = key === "header" ? headerActive : key === "footer" ? footerActive : 0
           return (
@@ -980,6 +1033,8 @@ export default function HeaderFooterPage() {
           {/* Footer Menu tab — standalone editor, no code-injection blocks */}
           {tab === "footer-menu" ? (
             <FooterMenuEditor value={footerMenu} onChange={setFooterMenu} />
+          ) : tab === "pages" ? (
+            <DevelopmentPagesEditor value={disabledPages} onChange={setDisabledPages} />
           ) : (
             <>
               {/* Injection zone info */}
