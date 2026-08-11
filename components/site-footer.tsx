@@ -4,46 +4,7 @@ import { MapPin, Mail, Phone } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import { CookieSettingsButton } from "@/components/cookie-banner"
 import { dbGetContactInfo } from "@/lib/db/queries"
-
-const LINKS = {
-  "About sightseeing.lu": [
-    { label: "About us", href: "/about" },
-    { label: "Blog", href: "/blog" },
-    { label: "Careers", href: "/careers" },
-    { label: "Contact", href: "#" },
-  ],
-  "Explore": [
-    { label: "All Experiences", href: "/explore" },
-    { label: "Departures", href: "/departures" },
-    { label: "Live Tracking", href: "/live-tracking" },
-    { label: "Search", href: "/search" },
-    { label: "Food & Events", href: "/experiences/food-events" },
-    { label: "Tours", href: "/experiences/tours" },
-    { label: "Sports & Nature", href: "/experiences/sports-nature" },
-    { label: "Culture", href: "/experiences/culture" },
-    { label: "Private Tours", href: "/experiences/private-tours" },
-    { label: "CFL Sightseeing", href: "/cfl-sightseeing" },
-  ],
-  "Plan Your Trip": [
-    { label: "AI Trip Planner", href: "/planner" },
-    { label: "Vacation Agregator", href: "/travel" },
-    { label: "Flights", href: "/flights" },
-    { label: "Trains", href: "/trains" },
-    { label: "Cars", href: "/cars" },
-    { label: "Hotels", href: "/hotels" },
-    { label: "My Trips", href: "/my-trips" },
-  ],
-  "Support": [
-    { label: "Help & FAQ", href: "/help" },
-    { label: "Emergency & 24/7 Support", href: "/emergency" },
-    { label: "Sitemap", href: "/sitemap.xml" },
-    { label: "Terms & Conditions", href: "/uploads/1780480029465-u38d41.pdf", external: true },
-    { label: "Ebike Conditions", href: "/uploads/1781248651946-ac09tq.pdf", external: true },
-    { label: "Privacy Policy", href: "https://www.slg.lu/politique-de-confidentialite/", external: true },
-    { label: "Legal Notice", href: "/impressum" },
-    { label: "Whistleblower", href: "https://whistleblowersoftware.com/secure/SLG", external: true },
-  ],
-}
+import { getViewerFooterMenu } from "@/lib/footer-menu"
 
 export async function SiteFooter() {
   const contact = await dbGetContactInfo().catch(() => ({
@@ -51,6 +12,7 @@ export async function SiteFooter() {
     email: "hello@sightseeing.lu",
     phone: "+352 266 51 2200",
   }))
+  const menu = await getViewerFooterMenu()
 
   return (
     <footer className="border-t border-border bg-card">
@@ -67,16 +29,16 @@ export async function SiteFooter() {
               <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> <EditableText id="footer:contact:phone" defaultValue={contact.phone} /></span>
             </div>
           </div>
-          {Object.entries(LINKS).map(([title, links]) => (
-            <nav key={title} aria-label={title}>
-              <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+          {menu.groups.map((group) => (
+            <nav key={group.id} aria-label={group.title}>
+              <h4 className="text-sm font-semibold text-foreground">{group.title}</h4>
               <ul className="mt-3 flex flex-col gap-2">
-                {links.map((l) => (
-                  <li key={l.label}>
-                    {"external" in l && l.external ? (
-                      <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</a>
+                {group.items.map((item) => (
+                  <li key={item.id}>
+                    {item.external ? (
+                      <a href={item.href} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-primary">{item.label}</a>
                     ) : (
-                      <Link href={l.href} className="text-xs text-muted-foreground transition-colors hover:text-primary">{l.label}</Link>
+                      <Link href={item.href} className="text-xs text-muted-foreground transition-colors hover:text-primary">{item.label}</Link>
                     )}
                   </li>
                 ))}
