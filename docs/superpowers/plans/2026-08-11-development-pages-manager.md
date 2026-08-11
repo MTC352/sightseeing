@@ -255,11 +255,13 @@ git commit -m "feat(pages): add dbGetDisabledPages / dbUpdatePageVisibility (int
 
 **Files:**
 - Modify: `lib/db/queries.ts` — `dbGetSettings()` (~886, return statement at ~1032)
-- Modify: `app/api/admin/settings/route.ts` — GET permission filter + POST section handler
+- Modify: `app/api/admin/settings/route.ts` — GET permission filter + PATCH section handler
 
 **Interfaces:**
 - Consumes: `dbGetDisabledPages`, `dbUpdatePageVisibility` (Task 2).
-- Produces: settings object gains `pageVisibility: { disabled: string[] }`; POST accepts `{ section: "pageVisibility", data: { disabled: string[] } }`.
+- Produces: settings object gains `pageVisibility: { disabled: string[] }`; the write endpoint is **PATCH** (there is no POST export) and accepts `{ section: "pageVisibility", data: { disabled: string[] } }`.
+
+> **Structure note (verified against the live file):** writes go through `export async function PATCH(req)`. Section auth is centralized in a `SECTION_PERMISSION: Record<string, PermissionKey>` map (~line 95) — NOT a per-branch `hasPermission` check. Dispatch is a sequential `if / else if (section === ...)` chain (~lines 145–183). A single shared `logActivity({ actor, action: "settings.update", entityType: "settings", entityId: section })` runs after the chain (~line 185) — do NOT add a per-branch `logActivity` or a per-branch permission check or a custom JSON response. Each branch just performs its DB write and falls through.
 
 - [ ] **Step 1: Add `pageVisibility` to `dbGetSettings()`**
 
@@ -285,33 +287,31 @@ In `app/api/admin/settings/route.ts`, inside the existing `if (perms.includes("h
 
 (Superadmins already receive the whole object, so no change needed there.)
 
-- [ ] **Step 3: Handle the POST section**
+- [ ] **Step 3: Wire the PATCH section handler**
 
-In the same file's POST handler, find where sections are dispatched (the `footerMenu` case, which calls `dbUpdateFooterMenu` / `normalizeFooterMenu`). Add an import at the top:
+Three edits in `app/api/admin/settings/route.ts`, all mirroring `footerMenu`:
+
+1. **Import** — extend the existing `@/lib/db/queries` import list to also pull in `dbUpdatePageVisibility` (do not add a duplicate `import` line).
+
+2. **Permission map** — add `pageVisibility` to `SECTION_PERMISSION` (~line 95), right after the `footerMenu: "header-footer"` entry:
 
 ```ts
-import { dbUpdatePageVisibility } from "@/lib/db/queries"
+  footerMenu: "header-footer",
+  pageVisibility: "header-footer",
 ```
 
-(Extend the existing `@/lib/db/queries` import list rather than adding a duplicate line.)
-
-Then add a branch alongside the other section handlers, gated by the same `header-footer` permission check that `footerMenu` uses:
+3. **Section union + dispatch branch** — add `"pageVisibility"` to the PATCH `section` union type (~line 121, the `"apiKeys" | ... | "footerMenu"` list), then add a branch to the `if / else if` chain right after the `footerMenu` branch (~line 183):
 
 ```ts
-    if (section === "pageVisibility") {
-      if (!hasPermission(session.role, session.permissions, "header-footer")) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-      }
-      const disabled = Array.isArray((data as { disabled?: unknown })?.disabled)
+    } else if (section === "pageVisibility") {
+      const disabled = Array.isArray((data as { disabled?: unknown }).disabled)
         ? ((data as { disabled: unknown[] }).disabled as string[])
         : []
-      const saved = await dbUpdatePageVisibility(disabled)
-      await logActivity(session, "settings.pageVisibility.update", { disabled: saved })
-      return NextResponse.json({ ok: true, pageVisibility: { disabled: saved } })
+      await dbUpdatePageVisibility(disabled)
     }
 ```
 
-> Note: match the exact control-flow style already in this file — if it uses a `switch (section)` rather than sequential `if`s, add a `case "pageVisibility":` mirroring the `footerMenu` case instead. Read the existing `footerMenu` handler first and copy its shape (permission check, `logActivity` call signature, response shape) exactly.
+Do NOT add a per-branch permission check (the `SECTION_PERMISSION` map + the existing centralized check at ~line 140 handle it), and do NOT add a per-branch `logActivity` or custom response — the shared `logActivity({ ... entityId: section })` after the chain (~line 185) already logs it, and the handler returns its existing success response. `dbUpdatePageVisibility` already sanitizes to the 9 governed slugs, so no `normalize`-style call is needed.
 
 - [ ] **Step 4: Typecheck**
 
@@ -324,10 +324,11 @@ Log into `/admin` in the browser, then in the browser devtools console on an adm
 
 ```js
 await (await fetch("/api/admin/settings")).json()  // → object contains pageVisibility: { disabled: [] }
-await fetch("/api/admin/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "pageVisibility", data: { disabled: ["emergency"] } }) }).then(r => r.json())  // → { ok: true, pageVisibility: { disabled: ["emergency"] } }
+await fetch("/api/admin/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "pageVisibility", data: { disabled: ["emergency"] } }) }).then(r => r.ok)  // → true
+await (await fetch("/api/admin/settings")).json()  // → pageVisibility.disabled now ["emergency"]
 ```
 
-Expected: GET shows the field; POST returns the cleaned disabled list. Reset with `data: { disabled: [] }` afterward.
+Expected: GET shows the field; PATCH returns ok; a follow-up GET reflects the persisted disabled list. Reset with a PATCH sending `data: { disabled: [] }` afterward.
 
 - [ ] **Step 6: Commit**
 
@@ -447,17 +448,17 @@ type TabKey = Section | "footer-menu" | "pages"
 
 - [ ] **Step 3: Persist in `save()`**
 
-In `save()` (~`app/admin/header-footer/page.tsx:832`), alongside the other `fetch("/api/admin/settings", { method: "POST", ... })` calls (e.g. the `footerMenu` one), add another POST:
+In `save()` (~`app/admin/header-footer/page.tsx:832`), the section saves are gathered into a single `const responses = await Promise.all([ ... ])` where each element is a `fetch("/api/admin/settings", { method: "PATCH", ... })` (the `footerMenu` one uses `{ section: "footerMenu", data: { menu: footerMenu } }`). Add another array element with the same **PATCH** shape:
 
 ```ts
         fetch("/api/admin/settings", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ section: "pageVisibility", data: { disabled: disabledPages } }),
         }),
 ```
 
-(Match how the surrounding calls are collected — if they are gathered into a `Promise.all([...])`, add this call as another array element with the same shape.)
+Note: the endpoint is PATCH, not POST — match the surrounding calls exactly (they all use `method: "PATCH"` and header `"Content-Type"`).
 
 - [ ] **Step 4: Add the tab button**
 
