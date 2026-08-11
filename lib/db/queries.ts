@@ -23,6 +23,7 @@ import { sanitizeExcludedFields, parseExcludedFields } from "@/lib/palisis-impor
 import type { FooterMenu } from "@/lib/footer-menu-types"
 import { normalizeFooterMenu } from "@/lib/footer-menu-normalize"
 import { FOOTER_MENU_DEFAULT } from "@/lib/footer-menu-default"
+import { sanitizeDisabledSlugs } from "@/lib/development-pages"
 
 // ── Announcement banner ─────────────────────────────────────────────────────
 // Structured banner stored in a single `integrations` row (key='announcement'):
@@ -2034,6 +2035,31 @@ export async function dbUpdateFooterMenu(menu: FooterMenu): Promise<FooterMenu> 
     [JSON.stringify(normalized)],
   )
   return normalized
+}
+
+// Single `integrations` row (key='page_visibility', JSONB in `meta`) — mirrors
+// the footer_menu pattern above. No dedicated table/migration.
+
+/** Disabled development-page slugs (integrations row 'page_visibility',
+ *  JSONB meta.disabled). Empty array when the row is missing → all enabled. */
+export async function dbGetDisabledPages(): Promise<string[]> {
+  const row = await queryOne<{ meta: unknown }>(
+    `SELECT meta FROM integrations WHERE key = 'page_visibility'`,
+  )
+  const disabled = (row?.meta as { disabled?: unknown } | null)?.disabled
+  return sanitizeDisabledSlugs(disabled)
+}
+
+/** Persist the disabled set (governed slugs only). Returns the cleaned list. */
+export async function dbUpdatePageVisibility(disabled: string[]): Promise<string[]> {
+  const clean = sanitizeDisabledSlugs(disabled)
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('page_visibility', 'Page Visibility', '', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
+    [JSON.stringify({ disabled: clean })],
+  )
+  return clean
 }
 
 // ── Cookie consent banner (admin-configurable) ──────────────────────────────
