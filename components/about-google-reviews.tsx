@@ -1,5 +1,9 @@
+"use client"
+
+import React from "react"
 import { Star, ExternalLink } from "lucide-react"
-import type { GlobalReviews } from "@/lib/google-reviews-normalize"
+import type { GlobalReviews, LiveReview } from "@/lib/google-reviews-normalize"
+import { ReviewAvatar } from "@/components/review-avatar"
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -18,6 +22,88 @@ function StarRow({ rating }: { rating: number }) {
       {Array.from({ length: 5 }).map((_, i) => (
         <Star key={i} className={`h-3.5 w-3.5 ${i < Math.round(rating) ? "fill-amber-400 text-amber-400" : "text-border"}`} />
       ))}
+    </div>
+  )
+}
+
+/* One review at a time — auto-advances every 5s and loops. Mirrors the
+ * homepage ReviewSlider (pause on hover, respects prefers-reduced-motion,
+ * dot navigation). */
+function ReviewSlider({ reviews }: { reviews: LiveReview[] }) {
+  const [index, setIndex] = React.useState(0)
+  const [paused, setPaused] = React.useState(false)
+  const count = reviews.length
+
+  React.useEffect(() => {
+    if (index > count - 1) setIndex(0)
+  }, [count, index])
+
+  React.useEffect(() => {
+    if (count <= 1 || paused) return
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
+    const id = setInterval(() => setIndex((i) => (i + 1) % count), 5000)
+    return () => clearInterval(id)
+  }, [count, paused])
+
+  if (count === 0) return null
+  const active = Math.min(index, count - 1)
+
+  return (
+    <div
+      className="mt-6"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      {/* Viewport */}
+      <div className="relative overflow-hidden rounded-2xl">
+        <div
+          className="flex transition-transform duration-500 ease-out"
+          style={{ transform: `translateX(-${active * 100}%)` }}
+        >
+          {reviews.map((review, idx) => (
+            <div key={idx} aria-hidden={idx !== active} className="w-full shrink-0 px-0.5">
+              <div className="flex min-h-[240px] flex-col rounded-2xl border border-border bg-background p-6 shadow-sm">
+                {/* Reviewer header */}
+                <div className="flex items-start gap-3">
+                  <ReviewAvatar src={review.avatar} name={review.author} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-foreground">{review.author}</p>
+                    <p className="text-xs text-muted-foreground">{review.date}</p>
+                  </div>
+                  <GoogleIcon className="h-5 w-5 shrink-0 opacity-70" />
+                </div>
+
+                {/* Stars */}
+                <div className="mt-3">
+                  <StarRow rating={review.rating} />
+                </div>
+
+                {/* Review text */}
+                <p className="mt-3 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-6">
+                  {review.text}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Dots */}
+      {count > 1 && (
+        <div className="mt-4 flex items-center justify-center gap-2">
+          {reviews.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => setIndex(idx)}
+              aria-label={`Go to review ${idx + 1}`}
+              aria-current={idx === active}
+              className={`h-2 rounded-full transition-all ${
+                idx === active ? "w-6 bg-primary" : "w-2 bg-border hover:bg-muted-foreground/40"
+              }`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -74,24 +160,8 @@ export function AboutGoogleReviews({ data, profileUrl }: { data: GlobalReviews |
         </a>
       </div>
 
-      {/* Live review cards — About page grid style */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        {reviews.map((r, idx) => (
-          <div key={idx} className="flex flex-col rounded-xl border border-border bg-background p-5">
-            <div className="flex items-start justify-between">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-foreground">{r.author}</p>
-                <p className="text-[10px] text-muted-foreground">{r.date}</p>
-              </div>
-              <GoogleIcon className="h-4 w-4 shrink-0" />
-            </div>
-            <div className="mt-2">
-              <StarRow rating={r.rating} />
-            </div>
-            <p className="mt-3 text-sm text-muted-foreground leading-relaxed line-clamp-5">{r.text}</p>
-          </div>
-        ))}
-      </div>
+      {/* Live reviews — auto-advancing slider (matches the homepage) */}
+      <ReviewSlider reviews={reviews} />
     </>
   )
 }
