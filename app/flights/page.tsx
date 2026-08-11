@@ -1,9 +1,11 @@
 import Image from "next/image"
 import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
+import { notFound } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { FlightEmbedWidget } from "@/components/flight-embed-widget"
+import { isAffiliatePageHidden } from "@/lib/footer-menu"
 import {
   Plane, Clock, MapPin, Star, Shield, Check,
   BadgeCheck, Headphones, CreditCard, ArrowRight,
@@ -201,7 +203,8 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 
-export default function FlightsPage() {
+export default async function FlightsPage() {
+  if (await isAffiliatePageHidden("flights")) notFound()
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans">
       <Navbar />

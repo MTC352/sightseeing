@@ -20,6 +20,9 @@ import {
 } from "@/lib/ai/seo-prompts"
 import { sanitizeRichText, sanitizeCssColor } from "@/lib/sanitize-html"
 import { sanitizeExcludedFields, parseExcludedFields } from "@/lib/palisis-import-fields"
+import type { FooterMenu } from "@/lib/footer-menu-types"
+import { normalizeFooterMenu } from "@/lib/footer-menu-normalize"
+import { FOOTER_MENU_DEFAULT } from "@/lib/footer-menu-default"
 
 // ── Announcement banner ─────────────────────────────────────────────────────
 // Structured banner stored in a single `integrations` row (key='announcement'):
@@ -1024,7 +1027,9 @@ export async function dbGetSettings() {
   const aiProviderSelected = selectedProvider(apiKeys)
   const aiProvider = effectiveProvider(apiKeys, aiEnv)
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, contactInfo, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) } }
+  const footerMenu = (await dbGetFooterMenu().catch(() => null)) ?? FOOTER_MENU_DEFAULT
+
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, contactInfo, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) }, footerMenu }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
@@ -2004,6 +2009,31 @@ export async function dbUpdateSiteProtection(data: {
     [password, JSON.stringify(meta)],
   )
   return { enabled, password }
+}
+
+// ── Footer menu (admin-configurable) ─────────────────────────────────────────
+// Single `integrations` row (key='footer_menu', JSONB in `meta`) — mirrors the
+// site_protection pattern above. No dedicated table/migration.
+
+/** Footer menu document (integrations row 'footer_menu', JSONB in `meta`).
+ *  Returns null when the row is missing so callers apply the code default. */
+export async function dbGetFooterMenu(): Promise<FooterMenu | null> {
+  const row = await queryOne<{ meta: unknown }>(
+    `SELECT meta FROM integrations WHERE key = 'footer_menu'`,
+  )
+  if (!row || row.meta == null) return null
+  return normalizeFooterMenu(row.meta)
+}
+
+export async function dbUpdateFooterMenu(menu: FooterMenu): Promise<FooterMenu> {
+  const normalized = normalizeFooterMenu(menu)
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('footer_menu', 'Footer Menu', '', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
+    [JSON.stringify(normalized)],
+  )
+  return normalized
 }
 
 // ── Cookie consent banner (admin-configurable) ──────────────────────────────

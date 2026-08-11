@@ -13,6 +13,9 @@ import {
   type AnnouncementSize,
   type AnnouncementAlign,
 } from "@/components/announcement-banner"
+import type { FooterMenu, FooterGroup, FooterItem } from "@/lib/footer-menu-types"
+import { newId } from "@/lib/footer-menu-normalize"
+import { FOOTER_MENU_DEFAULT } from "@/lib/footer-menu-default"
 
 /* ── Types ── */
 type Section = "header" | "footer"
@@ -636,6 +639,106 @@ function ContactInfoEditor({
   )
 }
 
+function move<T>(arr: T[], from: number, to: number): T[] {
+  if (to < 0 || to >= arr.length) return arr
+  const next = arr.slice()
+  const [x] = next.splice(from, 1)
+  next.splice(to, 0, x)
+  return next
+}
+
+function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m: FooterMenu) => void }) {
+  const setGroups = (groups: FooterGroup[]) => onChange({ groups })
+
+  const updateGroup = (gi: number, patch: Partial<FooterGroup>) =>
+    setGroups(value.groups.map((g, i) => (i === gi ? { ...g, ...patch } : g)))
+  const updateItem = (gi: number, ii: number, patch: Partial<FooterItem>) =>
+    updateGroup(gi, { items: value.groups[gi].items.map((it, i) => (i === ii ? { ...it, ...patch } : it)) })
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-foreground">Footer Menu</h3>
+        <button
+          type="button"
+          onClick={() => onChange(FOOTER_MENU_DEFAULT)}
+          className="text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          Reset to default
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Edit footer link groups and items. Hiding an item removes it from the footer; for the
+        travel-booking pages (Flights, Trains, Cars, Hotels, Vacation Aggregator) it also makes the page
+        return 404 to visitors (admins still see it). Save with the button above.
+      </p>
+
+      <div className="mt-4 flex flex-col gap-4">
+        {value.groups.map((group, gi) => (
+          <div key={group.id} className="rounded-lg border border-border/70 bg-background p-3">
+            <div className="flex items-center gap-2">
+              <input
+                value={group.title}
+                onChange={(e) => updateGroup(gi, { title: e.target.value })}
+                placeholder="Group title"
+                className="flex-1 rounded-md border border-border bg-card px-2 py-1 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <button type="button" title="Move up" onClick={() => setGroups(move(value.groups, gi, gi - 1))} className="rounded p-1 text-muted-foreground hover:bg-muted">▲</button>
+              <button type="button" title="Move down" onClick={() => setGroups(move(value.groups, gi, gi + 1))} className="rounded p-1 text-muted-foreground hover:bg-muted">▼</button>
+              <button type="button" title="Delete group" onClick={() => setGroups(value.groups.filter((_, i) => i !== gi))} className="rounded p-1 text-destructive hover:bg-destructive/10">✕</button>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2">
+              {group.items.map((item, ii) => (
+                <div key={item.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-card px-2 py-1.5">
+                  <input
+                    value={item.label}
+                    onChange={(e) => updateItem(gi, ii, { label: e.target.value })}
+                    placeholder="Label"
+                    className="w-40 rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                  <input
+                    value={item.href}
+                    onChange={(e) => updateItem(gi, ii, { href: e.target.value })}
+                    placeholder="https://… or /path"
+                    className="min-w-[220px] flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <input type="checkbox" checked={!!item.external} onChange={(e) => updateItem(gi, ii, { external: e.target.checked })} /> External
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <input type="checkbox" checked={!!item.hidden} onChange={(e) => updateItem(gi, ii, { hidden: e.target.checked })} /> Hidden
+                  </label>
+                  {item.pageKey && (
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600" title="Hiding this item also 404s its page">page</span>
+                  )}
+                  <button type="button" title="Move up" onClick={() => updateGroup(gi, { items: move(group.items, ii, ii - 1) })} className="rounded p-1 text-muted-foreground hover:bg-muted">▲</button>
+                  <button type="button" title="Move down" onClick={() => updateGroup(gi, { items: move(group.items, ii, ii + 1) })} className="rounded p-1 text-muted-foreground hover:bg-muted">▼</button>
+                  <button type="button" title="Delete item" onClick={() => updateGroup(gi, { items: group.items.filter((_, i) => i !== ii) })} className="rounded p-1 text-destructive hover:bg-destructive/10">✕</button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => updateGroup(gi, { items: [...group.items, { id: newId("item"), label: "New link", href: "/", pageKey: null }] })}
+                className="self-start rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                + Add item
+              </button>
+            </div>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => setGroups([...value.groups, { id: newId("group"), title: "New group", items: [{ id: newId("item"), label: "New link", href: "/", pageKey: null }] }])}
+          className="self-start rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          + Add group
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /* ── Main page ── */
 export default function HeaderFooterPage() {
   const [tab, setTab] = useState<Section>("header")
@@ -648,6 +751,7 @@ export default function HeaderFooterPage() {
     email: "hello@sightseeing.lu",
     phone: "+352 266 51 2200",
   })
+  const [footerMenu, setFooterMenu] = useState<FooterMenu>(FOOTER_MENU_DEFAULT)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
@@ -692,6 +796,7 @@ export default function HeaderFooterPage() {
             phone: typeof c.phone === "string" && c.phone ? c.phone : "+352 266 51 2200",
           })
         }
+        if (s?.footerMenu?.groups) setFooterMenu(s.footerMenu as FooterMenu)
       })
       .catch(() => {})
   }, [])
@@ -736,6 +841,11 @@ export default function HeaderFooterPage() {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ section: "contactInfo", data: contactInfo }),
+        }),
+        fetch("/api/admin/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ section: "footerMenu", data: { menu: footerMenu } }),
         }),
       ])
 
@@ -833,6 +943,10 @@ export default function HeaderFooterPage() {
           {/* Contact info (footer tab only) */}
           {tab === "footer" && (
             <ContactInfoEditor value={contactInfo} onChange={setContactInfo} />
+          )}
+
+          {tab === "footer" && (
+            <FooterMenuEditor value={footerMenu} onChange={setFooterMenu} />
           )}
 
           {/* Injection zone info */}
