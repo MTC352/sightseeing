@@ -1,9 +1,11 @@
 import Image from "next/image"
 import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
+import { notFound } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { CarRentalWidget } from "@/components/car-rental-widget"
+import { isAffiliatePageHidden } from "@/lib/footer-menu"
 import {
   Car, Users, Fuel, Settings2, Star, Shield, Check,
   BadgeCheck, Headphones, CreditCard, MapPin, Clock,
@@ -109,7 +111,8 @@ const FAQS = [
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 
-export default function CarsPage() {
+export default async function CarsPage() {
+  if (await isAffiliatePageHidden("cars")) notFound()
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Navbar />
