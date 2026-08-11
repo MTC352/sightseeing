@@ -4,7 +4,7 @@ import { Instrument_Sans } from "next/font/google"
 import Script from "next/script"
 import { notFound } from "next/navigation"
 import { verifySession } from "@/lib/auth"
-import { isDevPageBlocked } from "@/lib/development-pages"
+import { isDevPageBlocked, topLevelSlug, DEVELOPMENT_PAGE_SLUGS } from "@/lib/development-pages"
 import { CartProvider } from "@/lib/cart-context"
 import { PlannerListProvider } from "@/lib/planner-list-context"
 import { WeatherProvider } from "@/lib/weather-context"
@@ -158,7 +158,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // public but still renders for a logged-in admin (preview). Only touches the
   // DB when the path is actually a governed slug.
   if (!isAdminRoute) {
-    const { topLevelSlug, DEVELOPMENT_PAGE_SLUGS } = await import("@/lib/development-pages")
     if (DEVELOPMENT_PAGE_SLUGS.has(topLevelSlug(pathname))) {
       const adminToken = (await cookies()).get("admin_session")?.value
       const isAdmin = adminToken ? Boolean(await verifySession(adminToken)) : false

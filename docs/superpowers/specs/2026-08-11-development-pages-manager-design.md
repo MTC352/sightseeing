@@ -108,7 +108,7 @@ export async function dbUpdatePageVisibility(disabled: string[]): Promise<string
   to the returned object (call `dbGetDisabledPages()`), mirroring how `footerMenu` is folded in.
 - **GET filter:** under the existing `perms.includes("header-footer")` block, expose
   `filtered.pageVisibility = full.pageVisibility` (same gate as `footerMenu`).
-- **POST handler:** add a `case "pageVisibility"` branch that calls
+- **PATCH handler:** add an `else if (section === "pageVisibility")` branch that calls
   `dbUpdatePageVisibility(data.disabled)`, gated by the `header-footer` permission — mirroring
   the existing `footerMenu` section handling.
 
@@ -119,7 +119,7 @@ export async function dbUpdatePageVisibility(disabled: string[]): Promise<string
   (~line 940, beside the `footer-menu` entry). Import `FileText` from `lucide-react`.
 - Add state `const [disabledPages, setDisabledPages] = useState<string[]>([])`, hydrated in the
   existing settings `fetch` (~line 789) from `s.pageVisibility?.disabled`.
-- In `save()` (~line 832), add a `fetch("/api/admin/settings", { method: POST, body:
+- In `save()` (~line 832), add a `fetch("/api/admin/settings", { method: PATCH, body:
   JSON.stringify({ section: "pageVisibility", data: { disabled: disabledPages } }) })` call
   alongside the other section saves.
 - Render `<DevelopmentPagesEditor value={disabledPages} onChange={setDisabledPages} />` when
@@ -151,7 +151,7 @@ Notes:
 ## Data flow
 
 ```
-Admin toggles page off  ──POST /api/admin/settings {section:"pageVisibility"}──▶ dbUpdatePageVisibility
+Admin toggles page off  ──PATCH /api/admin/settings {section:"pageVisibility"}──▶ dbUpdatePageVisibility
                                                                                    └─ integrations row 'page_visibility'.meta.disabled
 
 Public GET /emergency ──▶ proxy sets x-pathname ──▶ app/layout.tsx
