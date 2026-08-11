@@ -12,6 +12,35 @@ test("passes a valid document through unchanged in shape", () => {
   assert.equal(out.groups[2].items.find((i) => i.id === "plan-flights").pageKey, "flights")
 })
 
+test("drops items with dangerous href schemes (stored XSS guard)", () => {
+  const dangerous = ["javascript:alert(1)", "JavaScript:alert(1)", "  javascript:alert(1)", "data:text/html,<script>1</script>", "vbscript:msgbox(1)", "//evil.example.com"]
+  for (const href of dangerous) {
+    const out = normalizeFooterMenu({ groups: [{ id: "g", title: "G", items: [
+      { id: "safe", label: "Safe", href: "/ok" },
+      { id: "bad", label: "Bad", href },
+    ]}]})
+    const ids = out.groups.flatMap((g) => g.items.map((i) => i.id))
+    assert.ok(ids.includes("safe"), `safe kept for ${JSON.stringify(href)}`)
+    assert.ok(!ids.includes("bad"), `dangerous href dropped: ${JSON.stringify(href)}`)
+  }
+})
+
+test("keeps safe href schemes and relative references", () => {
+  const safe = ["/experiences/food-events", "search?tag=food", "#top", "https://slg.lu/x", "http://x.io", "mailto:a@b.com", "tel:+352123", "/uploads/x.pdf"]
+  for (const href of safe) {
+    const out = normalizeFooterMenu({ groups: [{ id: "g", title: "G", items: [
+      { id: "i", label: "L", href },
+    ]}]})
+    assert.equal(out.groups[0]?.items[0]?.href, href, `safe href kept: ${JSON.stringify(href)}`)
+  }
+})
+
+test("default document survives the href guard (no items dropped)", () => {
+  const out = normalizeFooterMenu(FOOTER_MENU_DEFAULT)
+  const total = (m) => m.groups.reduce((n, g) => n + g.items.length, 0)
+  assert.equal(total(out), total(FOOTER_MENU_DEFAULT))
+})
+
 test("returns the default for unusable input", () => {
   for (const bad of [null, undefined, 42, "x", {}, { groups: "nope" }, { groups: [] }]) {
     const out = normalizeFooterMenu(bad)
