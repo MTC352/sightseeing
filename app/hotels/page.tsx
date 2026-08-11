@@ -1,9 +1,11 @@
 import Link from "next/link"
 import Image from "next/image"
 import { EditableHero } from "@/components/editable-hero"
+import { notFound } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { HotelBookingWidget } from "@/components/hotel-booking-widget"
+import { isAffiliatePageHidden } from "@/lib/footer-menu"
 import {
   Building2, Star, MapPin, Wifi, Coffee, Car, Utensils, Check,
   Shield, Award, Clock, HeartHandshake, ChevronDown, ArrowRight, Sparkles,
@@ -148,7 +150,8 @@ function StarRow({ count }: { count: number }) {
   )
 }
 
-export default function HotelsPage() {
+export default async function HotelsPage() {
+  if (await isAffiliatePageHidden("hotels")) notFound()
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans">
       <Navbar />

@@ -1,9 +1,11 @@
 import Image from "next/image"
 import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
+import { notFound } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { TrainSearchWidget } from "@/components/train-search-widget"
+import { isAffiliatePageHidden } from "@/lib/footer-menu"
 import {
   Train, Clock, MapPin, Star, Shield, Check,
   BadgeCheck, Headphones, CreditCard, Ticket,
@@ -131,7 +133,8 @@ const FAQS = [
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 
-export default function TrainsPage() {
+export default async function TrainsPage() {
+  if (await isAffiliatePageHidden("trains")) notFound()
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Navbar />

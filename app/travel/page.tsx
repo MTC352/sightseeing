@@ -1,8 +1,10 @@
 import Image from "next/image"
 import { EditableHero } from "@/components/editable-hero"
 import Link from "next/link"
+import { notFound } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
+import { isAffiliatePageHidden } from "@/lib/footer-menu"
 import {
   Plane, Car, Building2, Star, MapPin, Shield, Clock,
   Check, Users, Fuel, Settings2, Wifi, Coffee, ArrowRight,
@@ -168,7 +170,8 @@ const amenityIcons: Record<string, React.ReactNode> = {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
-export default function TravelPage() {
+export default async function TravelPage() {
+  if (await isAffiliatePageHidden("travel")) notFound()
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Navbar />
