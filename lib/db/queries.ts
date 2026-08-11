@@ -1029,8 +1029,9 @@ export async function dbGetSettings() {
   const aiProvider = effectiveProvider(apiKeys, aiEnv)
 
   const footerMenu = (await dbGetFooterMenu().catch(() => null)) ?? FOOTER_MENU_DEFAULT
+  const disabledPages = await dbGetDisabledPages().catch(() => [] as string[])
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, contactInfo, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) }, footerMenu }
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, contactInfo, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) }, footerMenu, pageVisibility: { disabled: disabledPages } }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
