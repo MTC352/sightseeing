@@ -6,6 +6,7 @@ import Link from "next/link"
 import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
 import { OutdoorTodayTrips } from "./outdoor-today-trips"
 import { tripSummaries as staticTrips, categories, type Trip } from "@/lib/data"
+import { GOOGLE_PROFILE_URL } from "@/lib/google-reviews-normalize"
 import { useGetPublicTripsQuery, useGetGoogleReviewsQuery } from "@/store/site/api"
 import { useWeather } from "@/hooks/use-weather"
 import { useRecentlyViewed } from "@/lib/use-recently-viewed"
@@ -371,8 +372,6 @@ export function DealsSection() {
    via /api/google-reviews (30-min server-side cache + RTK Query 30-min cache).
    Falls back gracefully when the Google Places API key isn't configured.
 ───────────────────────────────────────────────────────────────────────────── */
-
-const GOOGLE_PROFILE_URL = "https://share.google/CMkITZRJksNDlPTRD"
 
 function GoogleBrandIcon({ className }: { className?: string }) {
   return (
