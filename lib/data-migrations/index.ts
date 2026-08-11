@@ -22,6 +22,7 @@ import mediaLibraryFiles from "./data/008-media-library-files.json"
 import tripImages from "./data/009-trip-images.json"
 import { TRIP_ITINERARY_SYSTEM_PROMPT } from "@/lib/ai/trip-itinerary-prompt"
 import { tierOf, providerOf, TIER_MODELS } from "@/lib/ai/models"
+import { FOOTER_MENU_DEFAULT } from "@/lib/footer-menu-default"
 
 export type MigrationResult = {
   inserted: number
@@ -871,6 +872,45 @@ async function applyLiveTrackingPage(): Promise<MigrationResult> {
  * The ordered registry. Add new migrations to the END with the next numeric id.
  * Keep ids stable once shipped — they are the tracking keys.
  */
+/**
+ * Seed the admin-managed footer menu (`integrations` row `footer_menu`, JSONB in
+ * `meta`) with the code default (lib/footer-menu-default.ts). DATA-only (single
+ * INSERT/UPDATE on the existing integrations table; no DDL).
+ *
+ * Overwrite-capable:
+ *   • Default run — inserts the row only if it is missing; an existing
+ *     footer_menu row is left untouched so admin edits are preserved.
+ *   • Overwrite run — resets the existing row's menu back to the current
+ *     default (use after the default menu structure changes and you want live
+ *     to pick it up).
+ */
+async function applyFooterMenu(opts?: ApplyOptions): Promise<MigrationResult> {
+  const overwrite = opts?.overwrite === true
+  const metaJson = JSON.stringify(FOOTER_MENU_DEFAULT)
+  const existing = await queryOne<{ key: string }>(
+    `SELECT key FROM integrations WHERE key = 'footer_menu' LIMIT 1`,
+  )
+
+  if (existing) {
+    if (!overwrite) {
+      return { inserted: 0, skipped: 1, detail: "footer_menu row already present (kept — run with overwrite to reset it to the default menu)" }
+    }
+    await query(
+      `UPDATE integrations SET label = 'Footer Menu', meta = $1::jsonb, updated_at = NOW() WHERE key = 'footer_menu'`,
+      [metaJson],
+    )
+    return { inserted: 0, skipped: 0, updated: 1, detail: "footer_menu reset to the default menu" }
+  }
+
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('footer_menu', 'Footer Menu', '', $1::jsonb)
+     ON CONFLICT (key) DO NOTHING`,
+    [metaJson],
+  )
+  return { inserted: 1, skipped: 0, detail: "footer_menu seeded with the default menu" }
+}
+
 export const DATA_MIGRATIONS: DataMigration[] = [
   {
     id: "001-admin-docs",
@@ -970,6 +1010,14 @@ export const DATA_MIGRATIONS: DataMigration[] = [
     description:
       "Adds the /live-tracking page to the pages table so it shows up under Admin → Pages and its static content is editable with the inline editor. DATA-only (single INSERT; no DDL). Idempotent: skipped when the row already exists.",
     apply: applyLiveTrackingPage,
+  },
+  {
+    id: "015-footer-menu",
+    name: "Footer menu (admin-managed)",
+    description:
+      "Seeds the admin-managed footer menu (integrations row 'footer_menu') with the code default so the Footer Menu editor is populated in live. DATA-only (INSERT/UPDATE on the existing integrations table; no DDL). Idempotent: creates the row if missing and otherwise keeps admin edits — run with overwrite to reset the menu back to the current default.",
+    overwritable: true,
+    apply: applyFooterMenu,
   },
 ]
 
