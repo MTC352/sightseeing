@@ -1,4 +1,4 @@
-import type { FooterMenu } from "@/lib/footer-menu-types"
+import type { FooterMenu } from "./footer-menu-types"
 
 export const FOOTER_MENU_DEFAULT: FooterMenu = {
   groups: [
