@@ -2,10 +2,11 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
-import { reviews } from "@/lib/data"
 import { dbListTrips, dbListHomepageTripTagsWithCounts } from "@/lib/db/queries"
+import { getGlobalGoogleReviews, GOOGLE_PROFILE_URL } from "@/lib/google-reviews-global"
+import { AboutGoogleReviews } from "@/components/about-google-reviews"
 import { iconForSlug } from "@/lib/tag-icons"
-import { MapPin, Users, Star, Award, Globe, Shield, Heart, ArrowRight } from "lucide-react"
+import { MapPin, Users, Award, Globe, Shield, Heart, ArrowRight } from "lucide-react"
 import { AboutHeroText, AboutStoryText, AboutValuesHeading, AboutOfferHeading, AboutReviewsHeading, AboutHeroImage, AboutTeamImage } from "./about-content"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
@@ -47,13 +48,19 @@ export default async function AboutPage() {
   // "Currently trending categories" section uses. Fail-soft to [] on DB error.
   const offerTags = await dbListHomepageTripTagsWithCounts().catch(() => [])
 
+  // Live general-account Google reviews. Fail-soft: null → stats/JSON-LD fall
+  // back to the historical 4.7, and the section shows its graceful fallback.
+  const google = await getGlobalGoogleReviews().catch(() => null)
+  const liveRating = typeof google?.rating === "number" ? google.rating : null
+  const liveReviewCount = typeof google?.totalReviews === "number" ? google.totalReviews : null
+
   const totalReviews = publishedTrips.reduce((sum, t) => sum + Number(t.reviewCount ?? 0), 0)
   const experienceCount = publishedTrips.length
 
   const stats = [
     { label: "Experiences", value: experienceCount > 0 ? `${experienceCount}+` : "—" },
     { label: "Happy Travellers", value: "12,000+" },
-    { label: "Customer Rating", value: "4.7/5" },
+    { label: "Customer Rating", value: liveRating ? `${liveRating.toFixed(1)}/5` : "4.7/5" },
     { label: "Local Guides", value: "25+" },
   ]
 
@@ -77,10 +84,10 @@ export default async function AboutPage() {
       contactType: "customer service",
       availableLanguage: ["English", "French", "German", "Luxembourgish"],
     },
-    aggregateRating: totalReviews > 0 ? {
+    aggregateRating: (liveRating !== null || totalReviews > 0) ? {
       "@type": "AggregateRating",
-      ratingValue: "4.7",
-      reviewCount: totalReviews.toString(),
+      ratingValue: (liveRating ?? 4.7).toFixed(1),
+      reviewCount: (liveReviewCount ?? totalReviews).toString(),
     } : undefined,
     areaServed: {
       "@type": "Country",
@@ -181,29 +188,8 @@ export default async function AboutPage() {
         {/* Reviews */}
         <section className="border-t border-border bg-card py-12">
           <div className="mx-auto max-w-7xl px-4 lg:px-8">
-            <div className="flex items-center gap-3">
-              <AboutReviewsHeading />
-              <div className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1">
-                <Star className="h-3.5 w-3.5 fill-primary text-primary" />
-                <span className="text-xs font-semibold text-primary">4.7 average</span>
-              </div>
-            </div>
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
-              {reviews.map((r) => (
-                <div key={r.id} className="rounded-xl border border-border bg-background p-5">
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <Star key={i} className={`h-3.5 w-3.5 ${i < r.rating ? "fill-amber-400 text-amber-400" : "text-border"}`} />
-                    ))}
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{r.text}</p>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">{r.author}</span>
-                    <span className="text-[10px] text-muted-foreground">{r.tripTitle}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <AboutReviewsHeading />
+            <AboutGoogleReviews data={google} profileUrl={GOOGLE_PROFILE_URL} />
           </div>
         </section>
 
