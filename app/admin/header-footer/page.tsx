@@ -5,7 +5,7 @@ import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
   Megaphone, AlignLeft, AlignCenter, AlignRight, RotateCcw, MapPin, Mail, Phone,
-  ShieldCheck,
+  ShieldCheck, ListTree,
 } from "lucide-react"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 import {
@@ -19,6 +19,9 @@ import { FOOTER_MENU_DEFAULT } from "@/lib/footer-menu-default"
 
 /* ── Types ── */
 type Section = "header" | "footer"
+/** Tabs shown in the editor. `header`/`footer` drive the code-injection blocks
+ *  (keyed by Section); `footer-menu` is a standalone panel for the footer menu. */
+type TabKey = Section | "footer-menu"
 
 interface CodeBlock {
   id: string
@@ -741,7 +744,7 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
 
 /* ── Main page ── */
 export default function HeaderFooterPage() {
-  const [tab, setTab] = useState<Section>("header")
+  const [tab, setTab] = useState<TabKey>("header")
   const [blocks, setBlocks] = useState<Record<Section, CodeBlock[]>>(DEFAULT_BLOCKS)
   const [announcement, setAnnouncement] = useState<AnnouncementValue>({
     enabled: false, content: "", size: "md", align: "center", bgColor: "", textColor: "",
@@ -906,21 +909,25 @@ export default function HeaderFooterPage() {
 
       {/* Tabs */}
       <div className="flex shrink-0 gap-1 border-b border-border bg-background px-6 pt-3">
-        {(["header", "footer"] as const).map((t) => {
-          const count = t === "header" ? headerActive : footerActive
+        {([
+          { key: "header", label: "Header", Icon: ArrowUpToLine },
+          { key: "footer", label: "Footer", Icon: ArrowDownToLine },
+          { key: "footer-menu", label: "Footer Menu", Icon: ListTree },
+        ] as const).map(({ key, label, Icon }) => {
+          const count = key === "header" ? headerActive : key === "footer" ? footerActive : 0
           return (
             <button
-              key={t}
+              key={key}
               type="button"
-              onClick={() => setTab(t)}
-              className={`flex items-center gap-2 rounded-t-lg px-5 py-2.5 text-sm font-medium capitalize transition-colors ${
-                tab === t
+              onClick={() => setTab(key)}
+              className={`flex items-center gap-2 rounded-t-lg px-5 py-2.5 text-sm font-medium transition-colors ${
+                tab === key
                   ? "border border-b-0 border-border bg-card text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {t === "header" ? <ArrowUpToLine className="h-3.5 w-3.5" /> : <ArrowDownToLine className="h-3.5 w-3.5" />}
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+              <Icon className="h-3.5 w-3.5" />
+              {label}
               {count > 0 && (
                 <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
                   {count}
@@ -945,32 +952,35 @@ export default function HeaderFooterPage() {
             <ContactInfoEditor value={contactInfo} onChange={setContactInfo} />
           )}
 
-          {tab === "footer" && (
+          {/* Footer Menu tab — standalone editor, no code-injection blocks */}
+          {tab === "footer-menu" ? (
             <FooterMenuEditor value={footerMenu} onChange={setFooterMenu} />
+          ) : (
+            <>
+              {/* Injection zone info */}
+              <div className="flex items-start gap-3 rounded-xl border border-border bg-secondary/30 px-4 py-3">
+                <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {tab === "header" ? "Custom code injected above the navigation bar" : "Injected below the site footer"}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {tab === "header"
+                      ? "Code in enabled blocks is combined and rendered before <Navbar /> on every public page. Ideal for analytics tags and critical head scripts. For a promo bar, use the Announcement Banner above instead."
+                      : "Code in enabled blocks is combined and rendered after <SiteFooter /> on every public page. Ideal for analytics, chat widgets, cookie consent, and deferred scripts."}
+                  </p>
+                </div>
+              </div>
+
+              {blocks[tab].map((block) => (
+                <BlockCard
+                  key={block.id}
+                  block={block}
+                  onChange={(updated) => updateBlock(tab, updated)}
+                />
+              ))}
+            </>
           )}
-
-          {/* Injection zone info */}
-          <div className="flex items-start gap-3 rounded-xl border border-border bg-secondary/30 px-4 py-3">
-            <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                {tab === "header" ? "Custom code injected above the navigation bar" : "Injected below the site footer"}
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {tab === "header"
-                  ? "Code in enabled blocks is combined and rendered before <Navbar /> on every public page. Ideal for analytics tags and critical head scripts. For a promo bar, use the Announcement Banner above instead."
-                  : "Code in enabled blocks is combined and rendered after <SiteFooter /> on every public page. Ideal for analytics, chat widgets, cookie consent, and deferred scripts."}
-              </p>
-            </div>
-          </div>
-
-          {blocks[tab].map((block) => (
-            <BlockCard
-              key={block.id}
-              block={block}
-              onChange={(updated) => updateBlock(tab, updated)}
-            />
-          ))}
         </div>
 
         {/* Right: summary panel */}

@@ -22,12 +22,30 @@ function clamp(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) : s
 }
 
+// Leading URL scheme, e.g. "javascript" in "javascript:alert(1)". A relative
+// reference (path/query/fragment) has no scheme and does not match.
+const SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/
+const SAFE_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:"])
+
+/** Guard against stored XSS: the footer menu is admin-editable and rendered on
+ *  every public page, so an href like `javascript:` or `data:` must never reach
+ *  an <a>/<Link>. Allow relative references (paths, queries, fragments) and an
+ *  http/https/mailto/tel scheme; reject everything else (incl. protocol-relative
+ *  `//host`, which is scheme-ambiguous). */
+function isSafeHref(h: string): boolean {
+  if (!h) return false
+  if (h.startsWith("//")) return false
+  const m = h.match(SCHEME_RE)
+  if (!m) return true // no scheme → relative reference → safe
+  return SAFE_SCHEMES.has(`${m[1].toLowerCase()}:`)
+}
+
 function normalizeItem(raw: unknown, gi: number, ii: number): FooterItem | null {
   if (!raw || typeof raw !== "object") return null
   const r = raw as Record<string, unknown>
   const label = clamp(str(r.label).trim(), MAX_TEXT)
   const href = clamp(str(r.href).trim(), MAX_HREF)
-  if (!label || !href) return null
+  if (!label || !href || !isSafeHref(href)) return null
   const pageKey = AFFILIATE_PAGE_KEYS.includes(r.pageKey as AffiliatePageKey)
     ? (r.pageKey as AffiliatePageKey)
     : null
