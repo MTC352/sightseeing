@@ -15,23 +15,8 @@ const PUBLIC_AUTH_PATHS = [
 // fires for old/canonical id links — never for real slug URLs.
 const LEGACY_TRIP_ID = /^(?:tcms_\d+|\d+)$/
 
-// Weglot serves translated pages on locale subdirectories (/fr, /de). This app
-// has no such routes, so we strip a leading locale segment and internally serve
-// the underlying English route (see the rewrite at the end). Keep this list in
-// sync with LANGUAGES in components/site-navbar.tsx (minus the default `en`).
-const LOCALE_PREFIX = /^\/(fr|de)(?=\/|$)/
-
 export async function proxy(request: NextRequest) {
-  // Detect + strip the Weglot locale prefix up front so every downstream check
-  // (trip redirects, admin auth, the signed x-pathname the layout's password
-  // gate trusts) runs against the real underlying path. The browser URL keeps
-  // the /fr|/de prefix via NextResponse.rewrite below, so Weglot's client script
-  // still sees the locale and translates the page.
-  const localeMatch = request.nextUrl.pathname.match(LOCALE_PREFIX)
-  const locale = localeMatch?.[1]
-  const pathname = locale
-    ? request.nextUrl.pathname.slice(locale.length + 1) || "/"
-    : request.nextUrl.pathname
+  const { pathname } = request.nextUrl
 
   // ── Canonical trip-slug redirect (SEO 301) ──────────────────────────────
   // Old id / palisis_id trip URLs permanently redirect to `/trip/{slug}`.
@@ -106,17 +91,7 @@ export async function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set(PATHNAME_HEADER, pathname)
   requestHeaders.set(PATHNAME_SIG_HEADER, await signPathname(pathname))
-
-  // For a locale-prefixed request (/fr, /de) serve the stripped route while the
-  // browser URL stays put; otherwise continue as normal.
-  let response: NextResponse
-  if (locale) {
-    const target = request.nextUrl.clone()
-    target.pathname = pathname
-    response = NextResponse.rewrite(target, { request: { headers: requestHeaders } })
-  } else {
-    response = NextResponse.next({ request: { headers: requestHeaders } })
-  }
+  const response = NextResponse.next({ request: { headers: requestHeaders } })
   response.headers.set(
     "X-Robots-Tag",
     "all, max-snippet:-1, max-image-preview:large, max-video-preview:-1"

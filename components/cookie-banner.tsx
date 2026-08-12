@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import Script from "next/script"
 import { X, ChevronDown, ChevronUp, Cookie } from "lucide-react"
 import {
   getConsent,
@@ -304,55 +303,6 @@ function CategoryRow({
         <span className="sr-only">{enabled ? "Enabled" : "Disabled"}</span>
       </button>
     </div>
-  )
-}
-
-/** Weglot initialiser. Rendered unconditionally (translation is treated as
- *  strictly-necessary functionality) directly from app/layout.tsx — NOT gated
- *  by cookie consent. The API key comes from the admin panel
- *  (integrations.weglot) with an env fallback, resolved server-side and passed
- *  down as a prop. When no valid key is configured the loader renders nothing,
- *  so Weglot simply stays off rather than initialising against a dead project. */
-export function WeglotScript({ apiKey }: { apiKey: string }) {
-  // Only inject a well-formed Weglot key (wg_ + alphanumerics). This guards the
-  // inline <script> against any unexpected value stored in the DB.
-  if (!/^wg_[a-zA-Z0-9]+$/.test(apiKey)) return null
-  return (
-    <Script
-      id="weglot-init"
-      strategy="afterInteractive"
-      // Exempt from Cookiebot / Usercentrics auto-blocking. Without this, the
-      // consent manager rewrites this script to type="text/plain" (and blocks
-      // the CDN child below) until the user opts into "Preferences", so
-      // window.Weglot never initialises and the navbar switcher stays disabled.
-      // Translation is treated as strictly-necessary, so it must always load.
-      data-cookieconsent="ignore"
-      dangerouslySetInnerHTML={{
-        __html: `
-          (function() {
-            if (window.__weglotLoaded) return;
-            window.__weglotLoaded = true;
-            var s = document.createElement('script');
-            s.src = 'https://cdn.weglot.com/weglot.min.js';
-            s.setAttribute('data-cookieconsent', 'ignore');
-            s.onload = function() {
-              Weglot.initialize({
-                api_key: ${JSON.stringify(apiKey)},
-                hide_switcher: true
-              });
-              try {
-                var kill = function() {
-                  var nodes = document.querySelectorAll('.weglot-container, .country-selector, aside.country-selector');
-                  for (var i = 0; i < nodes.length; i++) nodes[i].remove();
-                };
-                kill(); setTimeout(kill, 500); setTimeout(kill, 2000);
-              } catch(e) {}
-            };
-            document.head.appendChild(s);
-          })();
-        `,
-      }}
-    />
   )
 }
 

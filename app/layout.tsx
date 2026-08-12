@@ -7,7 +7,7 @@ import { PlannerListProvider } from "@/lib/planner-list-context"
 import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
-import { CookieBanner, ConsentedScripts, WeglotScript } from "@/components/cookie-banner"
+import { CookieBanner, ConsentedScripts } from "@/components/cookie-banner"
 import { CookiebotConsentBridge } from "@/components/cookiebot-consent-bridge"
 import { Translator } from "@/components/i18n/translator"
 import { LANG_COOKIE, isSupportedLang } from "@/lib/i18n/config"
@@ -16,9 +16,8 @@ import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
 import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent, dbGetCookiebotId } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent, dbGetCookiebotId } from "@/lib/db/queries"
 import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
-import { getWeglotHealth } from "@/lib/weglot-health"
 import { withTimeout } from "@/lib/db"
 import { headers, cookies } from "next/headers"
 import {
@@ -114,13 +113,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // renders its own read, so these budgets are additive on the critical path;
   // keeping each tiny guarantees `/` returns 200 well under the healthcheck
   // deadline even when the DB is stone cold. All three values are purely
-  // additive (header/footer injection, Weglot key, announcement) — every
-  // visible homepage element is client-fetched — so an empty fallback during
-  // the brief cold window has no user-facing impact. A warm DB (~50ms) always
-  // resolves them fully.
-  const [injection, weglotApiKey, announcement, protection, cookieSettings, pageContent, cookiebotId] = await Promise.all([
+  // additive (header/footer injection, announcement) — every visible homepage
+  // element is client-fetched — so an empty fallback during the brief cold
+  // window has no user-facing impact. A warm DB (~50ms) always resolves them
+  // fully.
+  const [injection, announcement, protection, cookieSettings, pageContent, cookiebotId] = await Promise.all([
     withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
-    withTimeout(dbGetWeglotApiKey().catch(() => ""), 250, ""),
     withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
     // null = DB read failed/timed out. Treated as "protected, password unknown"
     // below so the staging site fails closed, while already-authenticated
@@ -136,20 +134,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // load unconditionally (Google Consent Mode governs firing). The Cookiebot
   // loader / Consent Mode snippet / GTM are pasted in the admin panel, not here.
   const cookiebotActive = cookiebotId.trim().length > 0
-
-  // Validate the Weglot key against Weglot's API (cached) so we never inject the
-  // loader for a deleted/rotated project — that would spam every visitor's
-  // console with "[Weglot] Cannot load Weglot because the project has been
-  // deleted". Fail-open: only a positive "invalid"/"unconfigured" verdict
-  // suppresses the loader; a slow/unknown check still loads Weglot so a
-  // validator hiccup never breaks translation. The short timeout keeps a cold
-  // cache miss off the render critical path (it populates in the background).
-  const weglotHealth = await withTimeout(
-    getWeglotHealth(weglotApiKey).catch(() => ({ status: "unknown" as const, message: "" })),
-    1500,
-    { status: "unknown" as const, message: "" },
-  )
-  const loadWeglot = weglotHealth.status === "ok" || weglotHealth.status === "unknown"
 
   // ── Frontend password gate (server-side, no content flash) ────────────────
   // The page HTML is never rendered until the visitor is authenticated. Admin
@@ -281,13 +265,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             </PlannerListProvider>
           </CartProvider>
         </SiteStoreProvider>
-
-        {/* ── Weglot (translation) ─────────────────────────────────────────
-            Loaded unconditionally — the language switcher is strictly-necessary
-            functionality, so it is NOT gated by cookie consent. Gated only on a
-            server-side validity check (getWeglotHealth) so a deleted/rotated
-            key never loads the widget (avoids the console error for visitors). */}
-        {loadWeglot && <WeglotScript apiKey={weglotApiKey} />}
 
         {/* ── Cookie consent ───────────────────────────────────────────────
             Cookiebot mode (cookiebotActive): Cookiebot renders its own banner +
