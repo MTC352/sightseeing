@@ -9,6 +9,8 @@ import { EditModeProvider } from "@/components/edit-mode-provider"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
 import { CookieBanner, ConsentedScripts, WeglotScript } from "@/components/cookie-banner"
 import { CookiebotConsentBridge } from "@/components/cookiebot-consent-bridge"
+import { Translator } from "@/components/i18n/translator"
+import { LANG_COOKIE, isSupportedLang } from "@/lib/i18n/config"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
@@ -164,6 +166,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const pathname = pathnameTrusted && rawPathname ? rawPathname : "/"
   const isAdminRoute = pathname.startsWith("/admin")
 
+  const langCookie = (await cookies()).get(LANG_COOKIE)?.value ?? "en"
+  const htmlLang = !isAdminRoute && isSupportedLang(langCookie) ? langCookie : "en"
+
   // Development-page visibility gate (real 404 for disabled pages) lives in
   // app/(gated)/layout.tsx — a nested layout is allowed to call notFound(),
   // whereas the root layout is not (Next.js 16).
@@ -187,7 +192,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   }
 
   return (
-    <html lang="en" className={instrumentSans.variable}>
+    <html lang={htmlLang} className={instrumentSans.variable}>
       <head>
         {/* Preconnect to external services for faster first paint */}
         <link rel="preconnect" href="https://api.openweathermap.org" />
@@ -297,6 +302,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         ) : (
           <CookieBanner settings={cookieSettings} />
         )}
+
+        {!isAdminRoute && <Translator />}
 
         {/* ── Accessibility toolbar ────────────────────────────────────────
             Built-in WCAG 2.1 AA / EAA 2025 accessibility panel.
