@@ -321,6 +321,12 @@ export function WeglotScript({ apiKey }: { apiKey: string }) {
     <Script
       id="weglot-init"
       strategy="afterInteractive"
+      // Exempt from Cookiebot / Usercentrics auto-blocking. Without this, the
+      // consent manager rewrites this script to type="text/plain" (and blocks
+      // the CDN child below) until the user opts into "Preferences", so
+      // window.Weglot never initialises and the navbar switcher stays disabled.
+      // Translation is treated as strictly-necessary, so it must always load.
+      data-cookieconsent="ignore"
       dangerouslySetInnerHTML={{
         __html: `
           (function() {
@@ -328,6 +334,7 @@ export function WeglotScript({ apiKey }: { apiKey: string }) {
             window.__weglotLoaded = true;
             var s = document.createElement('script');
             s.src = 'https://cdn.weglot.com/weglot.min.js';
+            s.setAttribute('data-cookieconsent', 'ignore');
             s.onload = function() {
               Weglot.initialize({
                 api_key: ${JSON.stringify(apiKey)},
