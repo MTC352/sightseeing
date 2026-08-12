@@ -126,15 +126,17 @@ async function fetchMissing(lang: string, texts: string[]): Promise<void> {
 function apply(lang: string, textNodes: Text[], attrTargets: Array<{ el: Element; attr: string }>): void {
   const cache = cacheFor(lang)
   for (const tn of textNodes) {
-    const raw = tn.nodeValue ?? ""
-    // Prefer the recorded original source (if this node was already
-    // translated) over its current — possibly already-translated — value.
-    const key = originalText.get(tn) ?? raw.trim()
+    // Always recompute from the recorded ORIGINAL full nodeValue (not the
+    // node's current — possibly already-translated — value). Replacing
+    // against the current value breaks direct lang->lang switches (e.g.
+    // fr->de), since the current value no longer contains the English key.
+    const orig = originalText.get(tn) ?? (tn.nodeValue ?? "")
+    const key = orig.trim()
     const t = cache.get(key)
     if (t && t !== key) {
-      if (!originalText.has(tn)) originalText.set(tn, key)
-      const next = raw.replace(key, t)
-      if (next !== raw) tn.nodeValue = next
+      if (!originalText.has(tn)) originalText.set(tn, orig)
+      const next = orig.replace(key, t)
+      if (next !== tn.nodeValue) tn.nodeValue = next
     }
   }
   for (const { el, attr } of attrTargets) {
@@ -161,7 +163,7 @@ async function translatePass(root: ParentNode = document.body): Promise<void> {
     // Resolve each target's SOURCE key: its recorded original if already
     // translated, otherwise its current (untranslated) value. This keeps
     // already-translated nodes out of the "new text to fetch" list.
-    ...textNodes.map((n) => originalText.get(n) ?? (n.nodeValue ?? "").trim()),
+    ...textNodes.map((n) => (originalText.get(n) ?? n.nodeValue ?? "").trim()),
     ...attrTargets.map(({ el, attr }) => originalAttrs.get(el)?.[attr] ?? (el.getAttribute(attr) ?? "").trim()),
   ]).filter(isTranslatableText)
   // Apply what we already know immediately (handles React reverts with zero
