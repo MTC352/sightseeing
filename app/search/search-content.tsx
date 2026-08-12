@@ -1018,12 +1018,19 @@ export function SearchContent({
     return [datePart, timePart].filter(Boolean).join(" · ")
   })()
 
-  /* Keyword match */
+  /* Keyword match — normalize both sides so punctuation, accents, and spacing
+     don't matter (e.g. "ebike" matches "e-bike", "mile7" matches "mile 7",
+     "cafe" matches "café"). Fold diacritics, then drop everything that isn't a
+     letter/digit. The query is split into keywords on whitespace first, then
+     each keyword is stripped the same way and matched against the spaceless
+     haystack — so an omitted or extra space never blocks a match. */
   const keywordMatched = useMemo(() => {
     if (!query.trim()) return initialTrips
-    const kws = query.toLowerCase().split(/\s+/).filter(Boolean)
+    const strip = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/[^a-z0-9]/g, "")
+    const kws = query.trim().split(/\s+/).map(strip).filter(Boolean)
     return initialTrips.filter((t) => {
-      const hay = [t.title, t.category, t.city ?? "", t.departureLocation ?? "", t.description ?? "", t.provider ?? "", ...(t.tags ?? [])].join(" ").toLowerCase()
+      const hay = strip([t.title, t.category, t.city ?? "", t.departureLocation ?? "", t.description ?? "", t.provider ?? "", ...(t.tags ?? [])].join(" "))
       return kws.every((kw) => hay.includes(kw))
     })
   }, [query, initialTrips])
