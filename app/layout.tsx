@@ -7,7 +7,7 @@ import { PlannerListProvider } from "@/lib/planner-list-context"
 import { WeatherProvider } from "@/lib/weather-context"
 import { EditModeProvider } from "@/components/edit-mode-provider"
 import { SiteStoreProvider } from "@/components/providers/site-store-provider"
-import { CookieBanner, ConsentedScripts } from "@/components/cookie-banner"
+import { CookieBanner, ConsentedScripts, WeglotScript } from "@/components/cookie-banner"
 import { CookiebotConsentBridge } from "@/components/cookiebot-consent-bridge"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import { CustomHtmlBlock } from "@/components/custom-html-block"
@@ -16,6 +16,7 @@ import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
 import { dbGetInjectionBlocks, dbGetWeglotApiKey, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent, dbGetCookiebotId } from "@/lib/db/queries"
 import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
+import { getWeglotHealth } from "@/lib/weglot-health"
 import { withTimeout } from "@/lib/db"
 import { headers, cookies } from "next/headers"
 import {
@@ -133,6 +134,20 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // load unconditionally (Google Consent Mode governs firing). The Cookiebot
   // loader / Consent Mode snippet / GTM are pasted in the admin panel, not here.
   const cookiebotActive = cookiebotId.trim().length > 0
+
+  // Validate the Weglot key against Weglot's API (cached) so we never inject the
+  // loader for a deleted/rotated project — that would spam every visitor's
+  // console with "[Weglot] Cannot load Weglot because the project has been
+  // deleted". Fail-open: only a positive "invalid"/"unconfigured" verdict
+  // suppresses the loader; a slow/unknown check still loads Weglot so a
+  // validator hiccup never breaks translation. The short timeout keeps a cold
+  // cache miss off the render critical path (it populates in the background).
+  const weglotHealth = await withTimeout(
+    getWeglotHealth(weglotApiKey).catch(() => ({ status: "unknown" as const, message: "" })),
+    1500,
+    { status: "unknown" as const, message: "" },
+  )
+  const loadWeglot = weglotHealth.status === "ok" || weglotHealth.status === "unknown"
 
   // ── Frontend password gate (server-side, no content flash) ────────────────
   // The page HTML is never rendered until the visitor is authenticated. Admin
@@ -262,18 +277,25 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           </CartProvider>
         </SiteStoreProvider>
 
+        {/* ── Weglot (translation) ─────────────────────────────────────────
+            Loaded unconditionally — the language switcher is strictly-necessary
+            functionality, so it is NOT gated by cookie consent. Gated only on a
+            server-side validity check (getWeglotHealth) so a deleted/rotated
+            key never loads the widget (avoids the console error for visitors). */}
+        {loadWeglot && <WeglotScript apiKey={weglotApiKey} />}
+
         {/* ── Cookie consent ───────────────────────────────────────────────
             Cookiebot mode (cookiebotActive): Cookiebot renders its own banner +
             Consent Mode from <head>; the bridge mirrors its consent into the
-            app's signal, and ConsentedScripts loads Weglot / enables Travelpayouts
+            app's signal, and ConsentedScripts enables Travelpayouts (marketing)
             accordingly. Otherwise the built-in banner handles everything. */}
         {cookiebotActive ? (
           <>
             <CookiebotConsentBridge />
-            <ConsentedScripts weglotApiKey={weglotApiKey} />
+            <ConsentedScripts />
           </>
         ) : (
-          <CookieBanner weglotApiKey={weglotApiKey} settings={cookieSettings} />
+          <CookieBanner settings={cookieSettings} />
         )}
 
         {/* ── Accessibility toolbar ────────────────────────────────────────

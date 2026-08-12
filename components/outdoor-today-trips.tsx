@@ -203,10 +203,10 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
       {isLoading ? (
         displayCount <= 3 ? (
           /* Match the few-trips grid so skeleton width === real card width */
-          <div className={`mt-4 grid gap-4 ${
-            displayCount === 1 ? "grid-cols-1" :
-            displayCount === 2 ? "grid-cols-2" :
-            "grid-cols-3"
+          <div className={`mt-4 grid gap-4 grid-cols-1 ${
+            displayCount === 1 ? "" :
+            displayCount === 2 ? "sm:grid-cols-2" :
+            "sm:grid-cols-3"
           }`}>
             {Array.from({ length: displayCount }).map((_, i) => <SkeletonCard key={i} fill />)}
           </div>
@@ -230,10 +230,10 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
         </div>
       ) : trips.length <= 3 ? (
         /* Few trips — distribute evenly, no empty gap */
-        <div className={`mt-4 grid gap-4 ${
-          trips.length === 1 ? "grid-cols-1" :
-          trips.length === 2 ? "grid-cols-2" :
-          "grid-cols-3"
+        <div className={`mt-4 grid gap-4 grid-cols-1 ${
+          trips.length === 1 ? "" :
+          trips.length === 2 ? "sm:grid-cols-2" :
+          "sm:grid-cols-3"
         }`}>
           {trips.map((t) => <TripCard key={t.id} trip={t} fill />)}
         </div>

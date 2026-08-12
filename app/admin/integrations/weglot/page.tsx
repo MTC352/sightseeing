@@ -57,6 +57,12 @@ export default function WeglotSettingsPage() {
   const [newUrl, setNewUrl] = useState("")
   const [newBlock, setNewBlock] = useState("")
   const [isSuperadmin, setIsSuperadmin] = useState(false)
+  const [health, setHealth] = useState<{
+    status: "ok" | "invalid" | "unconfigured" | "unknown"
+    message: string
+    projectSlug?: string | null
+    canonicalKey?: string | null
+  } | null>(null)
 
   useEffect(() => {
     fetch("/api/admin/settings")
@@ -66,6 +72,11 @@ export default function WeglotSettingsPage() {
     fetch("/api/admin/auth/me")
       .then((r) => (r.ok ? r.json() : null))
       .then((me) => setIsSuperadmin(me?.role === FULL_ACCESS_ROLE))
+      .catch(() => {})
+    // Live validity of the currently-saved key (Connected / Invalid / …).
+    fetch("/api/admin/integrations/weglot/health")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h) => { if (h?.status) setHealth(h) })
       .catch(() => {})
   }, [])
 
@@ -152,6 +163,39 @@ export default function WeglotSettingsPage() {
           </button>
         )}
       </div>
+
+      {/* Live connection status of the currently-saved key. */}
+      {health && health.status !== "unknown" && (
+        <div
+          className={`mb-6 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${
+            health.status === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-200"
+              : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-200"
+          }`}
+        >
+          {health.status === "ok" ? (
+            <Check className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <div>
+            <span className="font-semibold">
+              {health.status === "ok" ? "Connected" : health.status === "unconfigured" ? "No key configured" : "Invalid key"}
+            </span>{" "}
+            {health.message}
+            {health.status !== "ok" && (
+              <span className="mt-0.5 block text-xs opacity-90">
+                The language switcher will not load on the public site until a valid key is saved.
+              </span>
+            )}
+            {health.canonicalKey && (
+              <span className="mt-1 block text-xs">
+                Current project key: <code className="rounded bg-black/10 px-1 py-0.5 dark:bg-white/10">{health.canonicalKey}</code>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {!isSuperadmin && (
         <div className="mb-6 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">

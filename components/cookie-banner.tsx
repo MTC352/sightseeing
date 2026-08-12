@@ -60,10 +60,8 @@ const FALLBACK_SETTINGS: CookieBannerSettings = {
 }
 
 export function CookieBanner({
-  weglotApiKey = "",
   settings,
 }: {
-  weglotApiKey?: string
   settings?: CookieBannerSettings
 }) {
   const cfg = settings ?? FALLBACK_SETTINGS
@@ -133,13 +131,9 @@ export function CookieBanner({
   if (consent === "loading") return null
 
   // Admin disabled the consent system — load scripts, never show a banner.
+  // (Weglot loads unconditionally from app/layout.tsx regardless of this.)
   if (!cfg.enabled) {
-    return (
-      <>
-        <WeglotScript apiKey={weglotApiKey} />
-        <TravelpayoutsAllowed />
-      </>
-    )
+    return <TravelpayoutsAllowed />
   }
 
   const hasConsent = consent !== null
@@ -148,7 +142,6 @@ export function CookieBanner({
   // stops its scripts even for users who previously opted in.
   const scripts = hasConsent ? (
     <>
-      {functionalOffered && consent.functional && <WeglotScript apiKey={weglotApiKey} />}
       {marketingOffered && consent.marketing && <TravelpayoutsAllowed />}
     </>
   ) : null
@@ -314,12 +307,13 @@ function CategoryRow({
   )
 }
 
-/** Conditionally rendered Weglot initialiser — only after functional consent.
- *  The API key comes from the admin panel (integrations.weglot) with an env
- *  fallback, resolved server-side in app/layout.tsx and passed down as a prop.
- *  When no valid key is configured the loader renders nothing, so Weglot simply
- *  stays off rather than initialising against a dead/placeholder project. */
-function WeglotScript({ apiKey }: { apiKey: string }) {
+/** Weglot initialiser. Rendered unconditionally (translation is treated as
+ *  strictly-necessary functionality) directly from app/layout.tsx — NOT gated
+ *  by cookie consent. The API key comes from the admin panel
+ *  (integrations.weglot) with an env fallback, resolved server-side and passed
+ *  down as a prop. When no valid key is configured the loader renders nothing,
+ *  so Weglot simply stays off rather than initialising against a dead project. */
+export function WeglotScript({ apiKey }: { apiKey: string }) {
   // Only inject a well-formed Weglot key (wg_ + alphanumerics). This guards the
   // inline <script> against any unexpected value stored in the DB.
   if (!/^wg_[a-zA-Z0-9]+$/.test(apiKey)) return null
@@ -363,14 +357,11 @@ function WeglotScript({ apiKey }: { apiKey: string }) {
  * the shared consent signal (fed by <CookiebotConsentBridge>) to decide whether
  * to load Weglot (functional) and enable the Travelpayouts widgets (marketing).
  */
-export function ConsentedScripts({ weglotApiKey = "" }: { weglotApiKey?: string }) {
+export function ConsentedScripts() {
   const consent = useConsent()
-  return (
-    <>
-      {consent?.functional && <WeglotScript apiKey={weglotApiKey} />}
-      {consent?.marketing && <TravelpayoutsAllowed />}
-    </>
-  )
+  // Weglot is loaded unconditionally in app/layout.tsx (strictly-necessary
+  // translation). Only the marketing scripts remain consent-gated here.
+  return <>{consent?.marketing && <TravelpayoutsAllowed />}</>
 }
 
 /** Marker component — Travelpayouts scripts are embedded per-page; this signals consent is OK */

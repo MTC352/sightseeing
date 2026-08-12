@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { pingTourCMS } from "@/lib/tourcms"
 import { requireAnyPermission } from "@/lib/auth-server"
+import { checkWeglotKey } from "@/lib/weglot-health"
 import { logError } from "@/lib/error-log"
 
 export const dynamic = "force-dynamic"
@@ -162,16 +163,16 @@ async function runTest(
     }
 
     case "weglot": {
-      const url = `https://api.weglot.com/projects/settings?api_key=${encodeURIComponent(key)}`
-      const r = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT) })
-      const ok = r.status !== 401 && r.status !== 403 && r.status < 500
+      // A rotated/deleted key still returns HTTP 200 from the settings API, so
+      // status alone is not enough — checkWeglotKey inspects the body
+      // (deleted_at + whether the returned api_key matches) to catch a stale key
+      // whose project the CDN loader reports as deleted.
+      const h = await checkWeglotKey(key)
       return {
-        ok,
+        ok: h.status === "ok",
         service,
-        status: r.status,
-        message: ok
-          ? "Valid — Weglot accepted the key."
-          : `Rejected by Weglot (${r.status}): invalid API key.`,
+        status: h.status,
+        message: h.status === "ok" ? `Valid — ${h.message}` : h.message,
       }
     }
 
