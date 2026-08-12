@@ -902,6 +902,13 @@ export async function dbGetSettings() {
     const key = row.key as string
     if (key === 'weglot' && row.meta && typeof row.meta === 'object' && Object.keys(row.meta as object).length > 0) {
       weglot = { ...(row.meta as Record<string, unknown>), apiKey: row.value ?? '' }
+      // Also mirror the key into `apiKeys` so the API Keys tab (which reads
+      // apiKeys.weglot) shows the SAME value as the dedicated Weglot settings
+      // page (which reads weglot.apiKey). Both resolve to the single source of
+      // truth — integrations.weglot.value — so editing it in either place stays
+      // in sync. Without this, the weglot row is diverted into the `weglot`
+      // object whenever config meta exists, leaving the API Keys field blank.
+      apiKeys['weglot'] = (row.value as string) ?? ''
     } else if (key === 'announcement') {
       // Structured announcement banner — kept out of `apiKeys` (it is not a
       // credential) and surfaced as its own settings section.
