@@ -4,8 +4,14 @@ import { isTranslatableText, dedupe, chunk } from "@/lib/i18n/collect"
 import { splitCacheMisses, assembleTranslations } from "@/lib/i18n/assemble"
 import { getCachedTranslations, putTranslations } from "@/lib/i18n/cache"
 import { translateWithWeglot } from "@/lib/i18n/weglot-translate"
+import { sharedRateLimit, getClientIp } from "@/lib/shared-rate-limit"
 
 export const runtime = "nodejs"
+
+// Oversized strings are not real UI copy (they're usually accidental — e.g. a
+// stringified blob) and would blow up Weglot's per-request payload; drop them
+// rather than erroring so the client just leaves that one string in English.
+const MAX_TEXT_LEN = 2000
 
 export async function POST(request: Request) {
   let body: unknown
@@ -22,10 +28,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "texts must be an array" }, { status: 400 })
   }
 
+  const ip = getClientIp(request)
+  const rl = await sharedRateLimit(`i18n:${ip}`, { limit: 120, windowMs: 60_000 })
+  if (!rl.allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
   // Only real strings, deduped and filtered; hard-cap the working set so one
   // request can never blow past the batch ceiling by too much.
   const wanted = dedupe(
-    texts.filter((t): t is string => typeof t === "string").filter(isTranslatableText),
+    texts
+      .filter((t): t is string => typeof t === "string")
+      .filter(isTranslatableText)
+      .filter((t) => t.length <= MAX_TEXT_LEN),
   ).slice(0, MAX_BATCH * 10)
 
   if (wanted.length === 0) return NextResponse.json({ translations: {} })

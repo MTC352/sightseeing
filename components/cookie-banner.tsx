@@ -130,7 +130,9 @@ export function CookieBanner({
   if (consent === "loading") return null
 
   // Admin disabled the consent system — load scripts, never show a banner.
-  // (Weglot loads unconditionally from app/layout.tsx regardless of this.)
+  // (Translation is handled in-place by components/i18n/translator.tsx, which
+  // calls the server-side Weglot translate API via /api/i18n/translate and is
+  // not gated by cookie consent, regardless of this setting.)
   if (!cfg.enabled) {
     return <TravelpayoutsAllowed />
   }
@@ -316,8 +318,10 @@ function CategoryRow({
  */
 export function ConsentedScripts() {
   const consent = useConsent()
-  // Weglot is loaded unconditionally in app/layout.tsx (strictly-necessary
-  // translation). Only the marketing scripts remain consent-gated here.
+  // Translation is handled by the in-place components/i18n/translator.tsx
+  // engine (server-side Weglot translate API via /api/i18n/translate), which
+  // runs regardless of consent state. Only the marketing scripts remain
+  // consent-gated here.
   return <>{consent?.marketing && <TravelpayoutsAllowed />}</>
 }
 

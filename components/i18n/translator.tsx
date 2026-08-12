@@ -117,7 +117,11 @@ async function fetchMissing(lang: string, texts: string[]): Promise<void> {
       })
       if (!res.ok) continue
       const data = (await res.json()) as { translations?: Record<string, string> }
-      for (const [k, v] of Object.entries(data.translations ?? {})) cache.set(k, v)
+      // Skip source-equal fallbacks (e.g. a one-off Weglot failure) — caching
+      // them here would stick as English forever in this browser, whereas the
+      // server (which doesn't persist source==translation either) will retry
+      // them on a later request.
+      for (const [k, v] of Object.entries(data.translations ?? {})) if (v !== k) cache.set(k, v)
     } catch {}
   }
   persistCache(lang)
@@ -135,7 +139,10 @@ function apply(lang: string, textNodes: Text[], attrTargets: Array<{ el: Element
     const t = cache.get(key)
     if (t && t !== key) {
       if (!originalText.has(tn)) originalText.set(tn, orig)
-      const next = orig.replace(key, t)
+      // Function replacer so `t` is inserted literally — a plain string
+      // replacer would interpret `$&`, `$1`, `$$`, etc. inside a translation
+      // as special replacement patterns and corrupt the output.
+      const next = orig.replace(key, () => t)
       if (next !== tn.nodeValue) tn.nodeValue = next
     }
   }
@@ -173,16 +180,41 @@ async function translatePass(root: ParentNode = document.body): Promise<void> {
   apply(currentLang, textNodes, attrTargets)
 }
 
+// Roots affected by mutations seen since the last debounced pass ran. Accumulated
+// across possibly-multiple observer callback invocations that land inside the
+// same debounce window (the `pending` guard skips scheduling a new timer, but
+// must NOT skip recording the roots — otherwise a mutation that arrives while
+// a pass is already pending would never get scanned).
+const pendingRoots = new Set<Element>()
+
+function collectRoots(records: MutationRecord[]): void {
+  for (const r of records) {
+    const target = r.target
+    const el = target.nodeType === Node.TEXT_NODE ? (target as Text).parentElement : (target as Element)
+    if (el) pendingRoots.add(el)
+  }
+}
+
 function startObserver(): void {
   if (observer) return
-  observer = new MutationObserver(() => {
+  observer = new MutationObserver((records) => {
+    collectRoots(records)
     if (pending) return
     pending = true
     // Debounce bursts of React mutations into a single pass.
     debounceTimer = setTimeout(() => {
       pending = false
       debounceTimer = null
-      void translatePass(document.body)
+      const roots = [...pendingRoots]
+      pendingRoots.clear()
+      // Fall back to a full-body scan if nothing was recorded, or if the
+      // recorded set already includes body/documentElement (a scoped pass
+      // per root would be redundant work at that point).
+      const scoped =
+        roots.length > 0 && !roots.some((el) => el === document.body || el === document.documentElement)
+          ? roots
+          : [document.body]
+      for (const root of scoped) void translatePass(root)
     }, 150)
   })
   observer.observe(document.body, { childList: true, subtree: true, characterData: true })
