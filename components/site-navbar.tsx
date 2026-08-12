@@ -6,6 +6,7 @@ import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
 import { Menu, X, ShoppingBag, Search, Globe } from "lucide-react"
 import { CartContext } from "@/lib/cart-context"
+import { useSiteLang } from "@/components/i18n/translator"
 
 function IconHome({ className }: { className?: string }) {
   return (
@@ -54,8 +55,7 @@ const LANGUAGES = [
 
 export function Navbar() {
   const [open, setOpen] = useState(false)
-  const [currentLang, setCurrentLang] = useState("en")
-  const [weglotReady, setWeglotReady] = useState(false)
+  const { lang: currentLang, ready: weglotReady, setLang: switchLanguage } = useSiteLang()
   // When the admin hides the planner from the public, drop its nav link for
   // non-logged-in visitors. The endpoint already factors in admin sessions.
   const [plannerHidden, setPlannerHidden] = useState(false)
@@ -75,25 +75,6 @@ export function Navbar() {
   const navLinks = plannerHidden
     ? NAV_LINKS.filter((l) => l.href !== "/planner")
     : NAV_LINKS
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (typeof window !== "undefined" && typeof (window as any).Weglot !== "undefined") {
-        setWeglotReady(true)
-        const lang = (window as any).Weglot.getCurrentLang?.() ?? "en"
-        setCurrentLang(lang)
-        clearInterval(interval)
-      }
-    }, 500)
-    return () => clearInterval(interval)
-  }, [])
-
-  function switchLanguage(code: string) {
-    setCurrentLang(code)
-    if (typeof window !== "undefined" && typeof (window as any).Weglot !== "undefined") {
-      ;(window as any).Weglot.switchTo(code)
-    }
-  }
 
   return (
     <nav aria-label="Main navigation" className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
