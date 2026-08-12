@@ -25,8 +25,8 @@ export async function SiteFooter() {
             </p>
             <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /> <EditableText id="footer:contact:address" defaultValue={contact.address} /></span>
-              <span className="flex items-center gap-1.5"><Mail className="h-3 w-3" /> <EditableText id="footer:contact:email" defaultValue={contact.email} /></span>
-              <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> <EditableText id="footer:contact:phone" defaultValue={contact.phone} /></span>
+              <span className="flex items-center gap-1.5"><Mail className="h-3 w-3" /> <a href={`mailto:${contact.email}`} className="transition-colors hover:text-primary"><EditableText id="footer:contact:email" defaultValue={contact.email} /></a></span>
+              <span className="flex items-center gap-1.5"><Phone className="h-3 w-3" /> <a href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`} className="transition-colors hover:text-primary"><EditableText id="footer:contact:phone" defaultValue={contact.phone} /></a></span>
             </div>
           </div>
           {menu.groups.map((group) => (
