@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server"
 import { dbListTrips } from "@/lib/db/queries"
-import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
+import {
+  getTourCMSConfig,
+  showTourDatesAndDeals,
+  checkAvailability,
+  type AvailabilityComponent,
+} from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { getSearchAvailabilityConfig } from "@/lib/search-availability-source"
 
 export const dynamic = "force-dynamic"
 
@@ -107,11 +113,11 @@ async function dbPersistAvailability(
  * The conditional UPDATE only fires when the stored timestamp has expired,
  * so concurrent callers racing on a fresh lock all lose except one.
  */
-async function tryAcquireNodateLock(): Promise<boolean> {
+async function tryAcquireNodateLock(ttlMs: number = NODATE_LOCK_TTL_MS): Promise<boolean> {
   try {
     const { query } = await import("@/lib/db")
     const now = Date.now()
-    const expiry = now + NODATE_LOCK_TTL_MS
+    const expiry = now + ttlMs
     const rows = await query<{ key: string }>(
       `INSERT INTO integrations (key, label, value, updated_at)
        VALUES ($1, 'Availability sweep lock (internal)', $2, NOW())
@@ -204,6 +210,144 @@ function deduplicateByTime(slots: AvTimeslot[]): AvTimeslot[] {
   return Array.from(best.values()).sort((a, b) => a.time.localeCompare(b.time))
 }
 
+// ── Real-time checkavail path ──────────────────────────────────────────────
+//
+// Opt-in alternative to the datesndeals sweep (toggled from the Dev-mode
+// db-migrations tab).  Fans out one checkAvailability call PER TRIP PER DATE and
+// blocks the request on the result — accurate to the current minute and
+// party-size aware, but far heavier on the TourCMS API.  A short (admin-
+// configurable) process-local cache (keyed by party size + date range) plus
+// bounded concurrency keeps the fan-out from hammering the TourCMS hourly limit.
+
+const _rtCache = new Map<string, { data: AvailabilityMap; expiresAt: number }>()
+const RT_CONCURRENCY = 6
+
+function pruneRtCache() {
+  const now = Date.now()
+  for (const [k, e] of _rtCache) {
+    if (now >= e.expiresAt) _rtCache.delete(k)
+  }
+}
+
+/** Bounded-concurrency map — caps simultaneous checkavail calls so a large
+ *  catalog can't burst past the TourCMS rate limit in one request. */
+async function mapPool<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let i = 0
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++
+      await fn(items[idx])
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  )
+}
+
+/** Convert real-time checkavail components into card timeslots — same spot-count
+ *  synthesis as the datesndeals path so both sources render identically. */
+function componentsToSlots(components: AvailabilityComponent[]): AvTimeslot[] {
+  const slots: AvTimeslot[] = []
+  for (const c of components) {
+    if (!c.start_time) continue
+    const raw        = c.spaces_remaining
+    const unlimited  = raw === "UNLIMITED"
+    const spotsLeft  = unlimited ? 99 : Math.max(0, parseInt(raw ?? "0", 10))
+    const spotsTotal = unlimited ? 100 : Math.max(spotsLeft + 8, 15)
+    slots.push({
+      time:     c.start_time.slice(0, 5),
+      spotsLeft,
+      spotsTotal,
+      rateName: c.note?.trim() || undefined,
+    })
+  }
+  return slots
+}
+
+async function runCheckavailRealtime(opts: {
+  dateMode: boolean
+  dateParam: string
+  todayStr: string
+  tomorrowStr: string
+  horizonStr: string
+  persons: number
+  datesndealsCacheMs: number
+}): Promise<AvailabilityMap> {
+  const { dateMode, dateParam, todayStr, tomorrowStr, horizonStr, persons, datesndealsCacheMs } = opts
+
+  const [config, rows] = await Promise.all([
+    getTourCMSConfig(),
+    dbListTrips({ publicOnly: true }).catch(() => [] as unknown[]),
+  ])
+  const tcmsTrips = (rows as { id: string }[]).filter(r => r.id.startsWith("tcms_"))
+  if (!config || tcmsTrips.length === 0) return {}
+
+  // nextAvailableDate (30-day lookahead) is the one field checkavail can't
+  // supply cheaply — reuse the cached datesndeals sweep, scheduling one when
+  // absent so it's warm for the next request. No-date mode only.
+  let sweep: AvailabilityMap | null = null
+  if (!dateMode) {
+    const sweepKey = `${todayStr}|${horizonStr}`
+    const mem = _cache.get(sweepKey)
+    if (mem) {
+      sweep = mem.data
+    } else {
+      const db = await dbGetAvailability(sweepKey, { allowStale: true })
+      if (db) { _cache.set(sweepKey, db); sweep = db.data }
+    }
+    if (!sweep) scheduleNodateSweep(sweepKey, todayStr, tomorrowStr, horizonStr, datesndealsCacheMs)
+  }
+
+  const datesToQuery = dateMode ? [dateParam] : [todayStr, tomorrowStr]
+
+  const result: AvailabilityMap = {}
+  await mapPool(tcmsTrips, RT_CONCURRENCY, async (row) => {
+    const tourId = row.id.replace("tcms_", "")
+    const perDate: Record<string, AvTimeslot[]> = {}
+    for (const date of datesToQuery) {
+      try {
+        const { ok, components } = await checkAvailability(config, tourId, {
+          date,
+          show_pickups: "0",
+          r1: persons,
+        })
+        perDate[date] = ok ? componentsToSlots(components) : []
+      } catch {
+        // One failing trip must never break the whole page — card falls back to
+        // its dummy/empty state.
+        perDate[date] = []
+      }
+    }
+
+    if (dateMode) {
+      const raw = perDate[dateParam] ?? []
+      result[row.id] = {
+        today:             deduplicateByTime(raw),
+        tomorrow:          [],
+        todayGroups:       buildGroups(raw),
+        tomorrowGroups:    [],
+        nextAvailableDate: null,
+      }
+    } else {
+      const todayRaw    = perDate[todayStr]    ?? []
+      const tomorrowRaw = perDate[tomorrowStr] ?? []
+      result[row.id] = {
+        today:             deduplicateByTime(todayRaw),
+        tomorrow:          deduplicateByTime(tomorrowRaw),
+        todayGroups:       buildGroups(todayRaw),
+        tomorrowGroups:    buildGroups(tomorrowRaw),
+        nextAvailableDate: sweep?.[row.id]?.nextAvailableDate ?? null,
+      }
+    }
+  })
+
+  return result
+}
+
 // ── No-date sweep ──────────────────────────────────────────────────────────
 //
 // This is the ONLY code path that fans out to all TourCMS trips.
@@ -221,8 +365,9 @@ async function runNodateSweep(
   todayStr: string,
   tomorrowStr: string,
   horizonStr: string,
+  ttlMs: number = NODATE_LOCK_TTL_MS,
 ): Promise<void> {
-  const NO_DATE_TTL = NODATE_LOCK_TTL_MS  // 5 min
+  const NO_DATE_TTL = ttlMs   // configurable datesndeals cache TTL (0 = uncached)
   const DATE_TTL    = NO_DATE_TTL         // pre-warmed per-date entries share the same TTL
 
   try {
@@ -344,11 +489,12 @@ function scheduleNodateSweep(
   todayStr: string,
   tomorrowStr: string,
   horizonStr: string,
+  ttlMs: number = NODATE_LOCK_TTL_MS,
 ): void {
   if (_noDateSweepInProgress) return
 
   void (async () => {
-    const acquired = await tryAcquireNodateLock()
+    const acquired = await tryAcquireNodateLock(ttlMs)
     if (!acquired) return
     if (_noDateSweepInProgress) {
       // Another async path in this process raced us — don't double-sweep.
@@ -357,7 +503,7 @@ function scheduleNodateSweep(
     }
     _noDateSweepInProgress = true
     // Not awaited — truly fire-and-forget.
-    void runNodateSweep(cacheKey, todayStr, tomorrowStr, horizonStr)
+    void runNodateSweep(cacheKey, todayStr, tomorrowStr, horizonStr, ttlMs)
   })()
 }
 
@@ -369,6 +515,10 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const rawDate = (searchParams.get("date") ?? "").trim()
+  // Party size for real-time checkavail (r1=N). Clamped to a sane range so an
+  // attacker-controlled value can't request an absurd quantity. Ignored by the
+  // datesndeals path (which takes no rate quantity).
+  const persons = Math.min(50, Math.max(1, parseInt(searchParams.get("persons") ?? "1", 10) || 1))
 
   const now         = new Date()
   const todayStr    = toYMD(now)
@@ -406,6 +556,24 @@ export async function GET(req: Request) {
   const applyFilter = (map: AvailabilityMap): AvailabilityMap =>
     !dateMode || dateParam === todayStr ? hidePastTodaySlots(map, cutoff) : map
 
+  // ── Availability source + cache durations (Dev-mode configurable) ─────────
+  // When source is "checkavail", timeslots come from live checkavail (party-size
+  // aware) with a short cache. Both cache TTLs are admin-configurable.
+  const { source, datesndealsCacheMs, checkavailCacheMs } = await getSearchAvailabilityConfig()
+  if (source === "checkavail") {
+    pruneRtCache()
+    const rtKey = `checkavail|${persons}|${cacheKey}`
+    const cached = _rtCache.get(rtKey)
+    if (cached && Date.now() < cached.expiresAt) {
+      return NextResponse.json(applyFilter(cached.data))
+    }
+    const data = await runCheckavailRealtime({
+      dateMode, dateParam, todayStr, tomorrowStr, horizonStr, persons, datesndealsCacheMs,
+    })
+    _rtCache.set(rtKey, { data, expiresAt: Date.now() + checkavailCacheMs })
+    return NextResponse.json(applyFilter(data))
+  }
+
   // ── 1. Process-local cache (fresh) ────────────────────────────────────────
   const inMem = _cache.get(cacheKey)
   if (inMem && Date.now() < inMem.expiresAt) {
@@ -430,7 +598,7 @@ export async function GET(req: Request) {
   // across all horizontally-scaled instances, enforced by the DB lock held for
   // the full TTL period even after the sweep completes.
   if (!dataIsFresh && !dateMode) {
-    scheduleNodateSweep(cacheKey, todayStr, tomorrowStr, horizonStr)
+    scheduleNodateSweep(cacheKey, todayStr, tomorrowStr, horizonStr, datesndealsCacheMs)
   }
 
   // ── 4. Return immediately — stale data if available, empty map otherwise ──

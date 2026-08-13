@@ -11,6 +11,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
+  Zap,
 } from "lucide-react"
 import AiConfigDiff from "@/components/admin/ai-config-diff"
 
@@ -54,6 +55,76 @@ export default function DbMigrationsPage() {
   const [results, setResults] = useState<RunResult[] | null>(null)
   // Default to "pending" so admins immediately see what still needs running.
   const [filter, setFilter] = useState<MigrationFilter>("pending")
+
+  // ── Search availability settings (Dev, single Save for all) ───────────────
+  // Global config: which TourCMS API powers the /search page's timeslots + the
+  // cache TTL for each source. The source toggle and both inputs edit local
+  // form state; nothing persists until Save is clicked.
+  type AvailSource = "datesndeals" | "checkavail"
+  type AvailConfig = { source: AvailSource; datesndealsCacheMs: number; checkavailCacheMs: number }
+  const [availSaved, setAvailSaved] = useState<AvailConfig | null>(null) // last persisted values
+  const [formSource, setFormSource] = useState<AvailSource>("datesndeals")
+  const [formDndMin, setFormDndMin] = useState("5")  // datesndeals cache, minutes
+  const [formCaSec, setFormCaSec] = useState("30")   // checkavail cache, seconds
+  const [availSaving, setAvailSaving] = useState(false)
+  const [availError, setAvailError] = useState<string | null>(null)
+  const [availSavedFlash, setAvailSavedFlash] = useState(false)
+
+  const applyAvailConfig = useCallback((c: AvailConfig) => {
+    setAvailSaved(c)
+    setFormSource(c.source)
+    setFormDndMin(String(c.datesndealsCacheMs / 60000))
+    setFormCaSec(String(c.checkavailCacheMs / 1000))
+  }, [])
+
+  const loadAvailConfig = useCallback(async () => {
+    setAvailError(null)
+    try {
+      const res = await fetch("/api/admin/search-availability-source", { cache: "no-store" })
+      if (!res.ok) throw new Error(`Failed to load (${res.status})`)
+      applyAvailConfig((await res.json()) as AvailConfig)
+    } catch (e) {
+      setAvailError((e as Error).message)
+    }
+  }, [applyAvailConfig])
+
+  useEffect(() => {
+    loadAvailConfig()
+  }, [loadAvailConfig])
+
+  const formDndMs = Math.round((parseFloat(formDndMin) || 0) * 60000)
+  const formCaMs = Math.round((parseFloat(formCaSec) || 0) * 1000)
+  const availDirty =
+    availSaved !== null &&
+    (formSource !== availSaved.source ||
+      formDndMs !== availSaved.datesndealsCacheMs ||
+      formCaMs !== availSaved.checkavailCacheMs)
+
+  async function saveAvailConfig() {
+    if (!availDirty || availSaving) return
+    setAvailSaving(true)
+    setAvailError(null)
+    setAvailSavedFlash(false)
+    try {
+      const res = await fetch("/api/admin/search-availability-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: formSource,
+          datesndealsCacheMs: formDndMs,
+          checkavailCacheMs: formCaMs,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error ?? `Save failed (${res.status})`)
+      applyAvailConfig(body as AvailConfig)  // reflect clamped values back into the form
+      setAvailSavedFlash(true)
+    } catch (e) {
+      setAvailError((e as Error).message)
+    } finally {
+      setAvailSaving(false)
+    }
+  }
 
   // Switching filters clears any selection so admins can never accidentally
   // "Run selected" on a migration that's hidden under the current tab.
@@ -154,6 +225,145 @@ export default function DbMigrationsPage() {
           <RefreshCw className="h-4 w-4" />
           Refresh
         </button>
+      </div>
+
+      {/* ── Search availability settings (Dev only) ── */}
+      <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-indigo-600" />
+          <h2 className="text-sm font-semibold text-gray-900">Search page availability</h2>
+          <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+            Dev
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          Which TourCMS API powers the timeslots on the public{" "}
+          <code className="rounded bg-gray-100 px-1">/search</code> page, and how long each source
+          is cached. <strong>Global</strong> — applies to all visitors once saved.
+        </p>
+
+        {availError && (
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {availError}
+          </div>
+        )}
+
+        {availSaved === null && !availError ? (
+          <div className="mt-3 flex items-center gap-2 py-1 text-xs text-gray-400">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading current settings…
+          </div>
+        ) : (
+          <>
+            {/* Source selection (local state — persists on Save) */}
+            <div className="mt-3 space-y-2">
+              {([
+                {
+                  key: "datesndeals" as const,
+                  title: "Dates & Deals (default)",
+                  desc: "Cached catalog view. One call per trip covers a 30-day range — light on the TourCMS API; spot counts can lag live bookings by the cache duration.",
+                },
+                {
+                  key: "checkavail" as const,
+                  title: "Real-time checkavail",
+                  desc: "Live per-trip availability, party-size aware. Most accurate but heavier — one call per trip per date; high traffic can hit TourCMS rate limits.",
+                },
+              ]).map((opt) => {
+                const active = formSource === opt.key
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => { setFormSource(opt.key); setAvailSavedFlash(false) }}
+                    className={`flex w-full items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors ${
+                      active
+                        ? "border-indigo-400 bg-indigo-50"
+                        : "border-gray-200 hover:border-indigo-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    <span className="mt-0.5">
+                      {active ? (
+                        <CheckCircle2 className="h-4 w-4 text-indigo-600" />
+                      ) : (
+                        <Circle className="h-4 w-4 text-gray-300" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                        {opt.title}
+                        {availSaved?.source === opt.key && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            Live
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-gray-500">{opt.desc}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Cache durations */}
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-medium text-gray-700">Dates &amp; Deals cache (minutes)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  step={0.5}
+                  value={formDndMin}
+                  onChange={(e) => { setFormDndMin(e.target.value); setAvailSavedFlash(false) }}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+                />
+                <span className="mt-1 block text-[11px] text-gray-400">Range 0–30 min. Default 5.</span>
+                {formDndMs === 0 && (
+                  <span className="mt-1 flex items-start gap-1 text-[11px] text-orange-600">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                    0 = uncached: re-sweeps (~1 call per trip) on every request. Heavy on the TourCMS
+                    rate limit under traffic.
+                  </span>
+                )}
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-700">checkavail cache (seconds)</span>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  step={5}
+                  value={formCaSec}
+                  onChange={(e) => { setFormCaSec(e.target.value); setAvailSavedFlash(false) }}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+                />
+                <span className="mt-1 block text-[11px] text-gray-400">Range 5–300 s. Default 30.</span>
+              </label>
+            </div>
+
+            {/* Save */}
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={saveAvailConfig}
+                disabled={!availDirty || availSaving}
+                className="flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {availSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Save
+              </button>
+              {availSavedFlash && !availDirty && (
+                <span className="flex items-center gap-1 text-xs font-medium text-green-700">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              )}
+              {availDirty && (
+                <span className="text-xs text-gray-400">Unsaved changes</span>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {error && (

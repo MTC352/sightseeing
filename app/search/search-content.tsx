@@ -937,13 +937,18 @@ export function SearchContent({
     router.replace(`/search?${params.toString()}`, { scroll: false })
   }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons, activeFilters.tags, activeFilters.departures]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Fetch availability — only re-fires when the DATE changes.
-     Time + person filtering is fully client-side so those changes never
-     trigger a network request and can't cause race conditions.
+  /* Fetch availability — re-fires when the DATE or PERSONS count changes
+     (persons drives real-time checkavail slots server-side; it's ignored by the
+     datesndeals source). Time filtering stays fully client-side so it never
+     triggers a network request.
      AbortController cancels any stale in-flight request. */
-  const fetchAvailability = useCallback((dateFrom: string, signal: AbortSignal) => {
+  const fetchAvailability = useCallback((dateFrom: string, persons: number, signal: AbortSignal) => {
     const params = new URLSearchParams()
     if (dateFrom) params.set("date", dateFrom)
+    // Party size drives real-time checkavail slots (r1=N). Harmless to the
+    // datesndeals source, which ignores it. Only send when > 1 to keep the
+    // default request/cache key clean.
+    if (persons > 1) params.set("persons", String(persons))
     // Wipe stale data + show skeleton immediately so no old slots flash during transitions.
     setAvailability({})
     setAvailLoading(true)
@@ -969,9 +974,9 @@ export function SearchContent({
   // that would prematurely flip availLoading back to false.
   useEffect(() => {
     const ctrl = new AbortController()
-    fetchAvailability(activeFilters.dateFrom, ctrl.signal)
+    fetchAvailability(activeFilters.dateFrom, activeFilters.persons, ctrl.signal)
     return () => ctrl.abort()
-  }, [activeFilters.dateFrom, fetchAvailability]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeFilters.dateFrom, activeFilters.persons, fetchAvailability]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Category pills */
   const categories = useMemo(() => {
