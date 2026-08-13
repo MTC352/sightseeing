@@ -69,6 +69,15 @@ type TripAvailability = AvTripAvailability
 
 const MAX_SLOTS_SHOWN = 4
 
+/* Current wall-clock time in Luxembourg as "HH:MM" (00–23). Matches the server's
+   cutoff in app/api/availability/route.ts so past "today" slots are hidden
+   consistently on both sides. */
+function luxNowHM(): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Luxembourg", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).format(new Date())
+}
+
 /* Deterministic fallback for when the API hasn't loaded yet */
 function getDummyDepartures(tripId: string): TripAvailability {
   const hash  = tripId.split("").reduce((a, c) => a + c.charCodeAt(0), 0)
@@ -83,7 +92,10 @@ function getDummyDepartures(tripId: string): TripAvailability {
     }
     return slots.sort((a, b) => a.time.localeCompare(b.time))
   }
-  const today    = pickSlots(hash, 1 + (hash % 4))
+  // Drop today's already-passed slots so the placeholder never flashes a past
+  // time before the (already-filtered) API response arrives.
+  const cutoff   = luxNowHM()
+  const today    = pickSlots(hash, 1 + (hash % 4)).filter((s) => s.time >= cutoff)
   const tomorrow = pickSlots(hash + 7, 1 + ((hash + 2) % 5))
   return {
     today,
@@ -91,6 +103,49 @@ function getDummyDepartures(tripId: string): TripAvailability {
     todayGroups:    today.length    ? [{ name: "", slots: today    }] : [],
     tomorrowGroups: tomorrow.length ? [{ name: "", slots: tomorrow }] : [],
   }
+}
+
+/* Dev/admin-only live Luxembourg clock, shown next to the Filters button so an
+   admin (with dev mode enabled) can confirm the "hide past timeslots" cutoff
+   against the real Europe/Luxembourg time. Renders nothing for normal visitors:
+   it requires BOTH the admin_dev_mode flag AND a valid admin session. */
+function DevClock() {
+  const [show, setShow] = useState(false)
+  const [now, setNow] = useState("")
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (localStorage.getItem("admin_dev_mode") !== "1") return
+    let active = true
+    fetch("/api/admin/auth/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (active && d?.role) setShow(true) })
+      .catch(() => {})
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!show) return
+    const fmt = () =>
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Luxembourg",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+      }).format(new Date())
+    setNow(fmt())
+    const id = setInterval(() => setNow(fmt()), 1000)
+    return () => clearInterval(id)
+  }, [show])
+
+  if (!show) return null
+  return (
+    <span
+      title="Current Europe/Luxembourg time (dev mode). Timeslots earlier than this are hidden."
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-amber-400 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700"
+    >
+      <Clock className="h-3.5 w-3.5" />
+      LUX {now || "--:--:--"}
+    </span>
+  )
 }
 
 function formatDate(iso: string) {
@@ -1227,6 +1282,9 @@ export function SearchContent({
                 <span className="flex h-4 w-4 items-center justify-center rounded-full bg-background text-[10px] font-bold text-foreground">{activeFilterCount}</span>
               )}
             </button>
+
+            {/* Dev/admin-only live Luxembourg clock for verifying the past-slot cutoff */}
+            <DevClock />
 
             {/* Dates & Times pill */}
             <button type="button" onClick={() => setDateOpen(true)}

@@ -141,8 +141,44 @@ function pruneAvailabilityCache() {
   }
 }
 
+// All "today/tomorrow" and past-slot decisions are made in the app's operating
+// timezone (Luxembourg), NOT UTC/server-local — otherwise the day boundary and
+// the "now" cutoff drift by 1–2h and mislabel dates around midnight.
+const APP_TZ = "Europe/Luxembourg"
+
+// Calendar date (YYYY-MM-DD) of `d` in Luxembourg time. en-CA yields ISO order.
 function toYMD(d: Date) {
-  return d.toISOString().split("T")[0]
+  return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(d)
+}
+
+// Current wall-clock time of `d` in Luxembourg as zero-padded "HH:MM" (00–23).
+// Slot times are also "HH:MM", so a lexicographic compare is a valid time compare.
+function toHM(d: Date) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: APP_TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).format(d)
+}
+
+/**
+ * Drop slots that already started today. Applied at RESPONSE time (not when the
+ * cache is built) so the cutoff always reflects the real current minute even as
+ * cached data ages. Only removes slots strictly before `cutoff` — a slot at the
+ * current minute is kept, and every upcoming slot is preserved, so no still-
+ * bookable timeslot is ever hidden. Empty variant groups are pruned.
+ */
+function hidePastTodaySlots(map: AvailabilityMap, cutoff: string): AvailabilityMap {
+  const keep = (s: AvTimeslot) => s.time >= cutoff
+  const out: AvailabilityMap = {}
+  for (const [tripId, av] of Object.entries(map)) {
+    out[tripId] = {
+      ...av,
+      today: av.today.filter(keep),
+      todayGroups: (av.todayGroups ?? [])
+        .map((g) => ({ ...g, slots: g.slots.filter(keep) }))
+        .filter((g) => g.slots.length > 0),
+    }
+  }
+  return out
 }
 
 /** Group a raw slot array by rateName, preserving insertion order. */
@@ -363,10 +399,17 @@ export async function GET(req: Request) {
   const dateMode = dateParam !== ""
   const cacheKey = dateMode ? `${dateParam}|${dateParam}` : `${todayStr}|${horizonStr}`
 
+  // Hide already-started slots whenever the response's `today` field represents
+  // the actual current day: no-date mode always, date-mode only when the picked
+  // date IS today. Future dates keep every slot (their morning is not "past").
+  const cutoff = toHM(now)
+  const applyFilter = (map: AvailabilityMap): AvailabilityMap =>
+    !dateMode || dateParam === todayStr ? hidePastTodaySlots(map, cutoff) : map
+
   // ── 1. Process-local cache (fresh) ────────────────────────────────────────
   const inMem = _cache.get(cacheKey)
   if (inMem && Date.now() < inMem.expiresAt) {
-    return NextResponse.json(inMem.data)
+    return NextResponse.json(applyFilter(inMem.data))
   }
 
   // ── 2. DB cache (fresh or stale — served either way for SWR) ──────────────
@@ -392,5 +435,5 @@ export async function GET(req: Request) {
 
   // ── 4. Return immediately — stale data if available, empty map otherwise ──
   const payload = inMem?.data ?? dbEntry?.data ?? {}
-  return NextResponse.json(payload)
+  return NextResponse.json(applyFilter(payload))
 }
