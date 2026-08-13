@@ -16,7 +16,7 @@ import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
 import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"
 import { stripHtml } from "@/lib/seo/score"
-import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets } from "lucide-react"
+import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets, Loader2 } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 
 const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
@@ -84,15 +84,26 @@ function formatSelectedDate(iso: string): string {
 }
 
 const BookingIframe = memo(function BookingIframe({ src, title }: { src: string; title: string }) {
+  // Show a loader until the booking widget's iframe finishes loading, so the
+  // (tall) widget area never sits visually blank while the external widget boots.
+  const [loaded, setLoaded] = useState(false)
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="booking-iframe-wrap">
+      <div className="booking-iframe-wrap relative">
+        {!loaded && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card">
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
+            <span className="text-sm text-muted-foreground">Loading booking options…</span>
+          </div>
+        )}
         <iframe
           src={src}
           title={title}
           className="booking-iframe"
           allow="payment"
           loading="lazy"
+          onLoad={() => setLoaded(true)}
+          style={{ opacity: loaded ? 1 : 0, transition: "opacity 200ms ease" }}
         />
       </div>
     </div>
