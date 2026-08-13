@@ -28,6 +28,39 @@
 
 import { getTourCMSClient } from "@/lib/tourcms"
 import { dbGetSettings } from "@/lib/db/queries"
+import { logError } from "@/lib/error-log"
+
+// ── Refresh-ahead margin ─────────────────────────────────────────────────────
+// Refresh the discovery snapshot this long BEFORE it expires, so the persisted
+// DB snapshot is always renewed ahead of time and a cold-start hydration never
+// finds an expired snapshot (which would surface as a 503). With the 1-minute
+// cron this means the snapshot is refreshed ~1 day before the window elapses.
+const DISCOVERY_REFRESH_AHEAD_MS = 24 * 60 * 60 * 1000  // 1 day
+
+// ── Failure logging (throttled) ──────────────────────────────────────────────
+// The discovery cron runs every minute, so a persistent failure (e.g. exhausted
+// rate limit) would otherwise flood error_logs. Log a given failure reason at
+// most once per throttle window; the reason changing logs immediately.
+const FAILURE_LOG_THROTTLE_MS = 10 * 60_000  // 10 min
+let lastFailureLog: { reason: string; at: number } | null = null
+
+function logDiscoveryFailure(
+  reason: string,
+  level: "error" | "warn",
+  message: string,
+  context?: Record<string, unknown>,
+): void {
+  const now = Date.now()
+  if (
+    lastFailureLog &&
+    lastFailureLog.reason === reason &&
+    now - lastFailureLog.at < FAILURE_LOG_THROTTLE_MS
+  ) {
+    return
+  }
+  lastFailureLog = { reason, at: now }
+  void logError({ source: "departing-soon", level, message, context: context ?? null })
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -424,8 +457,11 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     return { ok: false, error: "WIDGET_DISABLED" }
   }
 
-  // Window-based gate: skip when cache still inside its window unless forced.
-  if (!force && discoveryCache && !isDiscoveryExpired()) {
+  // Window-based gate: skip only while the cache is comfortably inside its
+  // window — i.e. more than the refresh-ahead margin from expiry. This makes the
+  // cron refresh the snapshot ~1 day EARLY so it never actually expires, so a
+  // cold-start hydration always finds a valid snapshot (no 503 at the boundary).
+  if (!force && discoveryCache && Date.now() < discoveryCache.expiresAt - DISCOVERY_REFRESH_AHEAD_MS) {
     return {
       ok: true,
       slotsFound: discoveryCache.allSlots.length,
@@ -468,6 +504,11 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 
   const tourcms = await getTourCMSClient()
   if (!tourcms) {
+    logDiscoveryFailure(
+      "no-config",
+      "error",
+      "Departing Soon discovery skipped — TourCMS is not configured; the widget cannot populate.",
+    )
     return { ok: false, error: "TOURCMS_NOT_CONFIGURED" }
   }
 
@@ -488,6 +529,12 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   const rl = getLastKnownRateLimit()
   if (rl !== null && rl.remaining < 200) {
     console.warn(`[departing-soon] Skipping discovery — rate-limit remaining=${rl.remaining} < 200`)
+    logDiscoveryFailure(
+      "rate-limit",
+      "warn",
+      `Departing Soon discovery skipped — TourCMS rate-limit remaining=${rl.remaining} (< 200). Widget serves last-known data until quota recovers.`,
+      { remaining: rl.remaining },
+    )
     return {
       ok: true,
       slotsFound: discoveryCache?.allSlots.length ?? 0,
@@ -584,6 +631,24 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     tripsChecked: synced.length,
   }
 
+  // Surface a genuinely broken sweep to the admin Error Logs (throttled). A
+  // healthy sweep with slots clears the throttle so the next failure logs
+  // immediately. Per-trip datesndeals failures are already logged by the
+  // TourCMS client (source 'tourcms'); here we only flag the aggregate outcome.
+  if (synced.length > 0 && collected.length === 0) {
+    const allFailed = failedTripCount === synced.length
+    logDiscoveryFailure(
+      allFailed ? "all-failed" : "empty-result",
+      allFailed ? "error" : "warn",
+      allFailed
+        ? `Departing Soon discovery: all ${synced.length} synced trips failed (datesndeals) — widget cache is empty.`
+        : `Departing Soon discovery produced 0 upcoming slots from ${synced.length} trips (${failedTripCount} failed).`,
+      { syncedTrips: synced.length, failedTripCount },
+    )
+  } else if (collected.length > 0) {
+    lastFailureLog = null  // healthy sweep — reset throttle
+  }
+
   // Persist the full cache snapshot to DB so other process instances (cold
   // starts, horizontally-scaled peers) can hydrate from it without sweeping.
   void dbPersistDiscoveryCache(discoveryCache)
@@ -617,7 +682,14 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 export function triggerDiscoveryBootstrap(): void {
   if (discoveryBootstrapInFlight) return
   discoveryBootstrapInFlight = refreshDiscovery(false)
-    .catch((e) => console.warn("[departing-soon] bootstrap failed:", e))
+    .catch((e) => {
+      console.warn("[departing-soon] bootstrap failed:", e)
+      logDiscoveryFailure(
+        "bootstrap-exception",
+        "error",
+        `Departing Soon discovery bootstrap threw: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    })
     .finally(() => { discoveryBootstrapInFlight = null })
 }
 
@@ -636,6 +708,25 @@ export function tryHydrateFromDb(): void {
     })
     .catch((e) => console.warn("[departing-soon] DB hydration failed:", e))
     .finally(() => { dbHydrateInFlight = null })
+}
+
+/**
+ * Awaitable DB hydration for the public route's cold-cache path.
+ *
+ * Loads the persisted snapshot (when a fresh one exists) into the in-process
+ * cache and resolves to `true` when the cache is populated afterward. Never
+ * calls TourCMS. Unlike tryHydrateFromDb(), the caller can await this so a valid
+ * snapshot is served as 200 on the SAME request instead of a warm-up 503.
+ */
+export async function hydrateFromDbAwait(): Promise<boolean> {
+  if (discoveryCache) return true
+  try {
+    const snap = await dbGetDiscoveryCache()
+    if (snap && !discoveryCache) discoveryCache = snap
+  } catch (e) {
+    console.warn("[departing-soon] DB hydration failed:", e)
+  }
+  return discoveryCache !== null
 }
 
 // ── Rate-limit tracking ────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ import {
   getShowAvailability,
   getAvailabilityThreshold,
   getSlotCount,
-  tryHydrateFromDb,
+  hydrateFromDbAwait,
 } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
@@ -83,24 +83,28 @@ export async function GET(req: Request) {
     }
 
     // 2. Discovery cache check.
-    //    - null  → attempt a DB-only hydration (no TourCMS), then return 503.
-    //              The instrumentation bootstrap (45s after server start) or an
-    //              admin/cron route will populate the DB snapshot; subsequent
-    //              public requests will hydrate from it without any TourCMS call.
+    //    - null  → AWAIT a DB-only hydration (no TourCMS). When a valid snapshot
+    //              exists (the common case — the instrumentation bootstrap or an
+    //              admin/cron route persists one), we serve it as 200 on THIS
+    //              request instead of a warm-up 503. Only when there is genuinely
+    //              no snapshot do we return 503; the bootstrap/cron will populate
+    //              it and the next request succeeds.
     //    - expired → serve stale data; admin/cron routes handle refresh.
     if (!discoveryCache) {
-      tryHydrateFromDb()
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "DISCOVERY_NOT_INITIALIZED",
-          departures: [],
-          widgetEnabled: true,
-          tourcmsConfigured: true,
-          hint: "Discovery cache is warming — retry in a few seconds.",
-        },
-        { status: 503 },
-      )
+      const hydrated = await hydrateFromDbAwait()
+      if (!hydrated) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "DISCOVERY_NOT_INITIALIZED",
+            departures: [],
+            widgetEnabled: true,
+            tourcmsConfigured: true,
+            hint: "Discovery cache is warming — retry in a few seconds.",
+          },
+          { status: 503 },
+        )
+      }
     }
 
     const showAvailability = await getShowAvailability()

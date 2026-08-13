@@ -116,6 +116,7 @@ const LOG_RETENTION_DAYS = 30
 const CAPPED_SOURCES: Record<string, number> = {
   itinerary: 5000,
   tourcms: 3000,
+  "departing-soon": 500,
 }
 
 async function pruneOldLogs(): Promise<void> {
