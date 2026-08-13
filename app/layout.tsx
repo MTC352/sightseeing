@@ -117,13 +117,19 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // element is client-fetched — so an empty fallback during the brief cold
   // window has no user-facing impact. A warm DB (~50ms) always resolves them
   // fully.
+  // The 250ms cap above is sized for the PROD autoscale healthcheck deadline.
+  // Development has no such deadline, and a slow cold render hitting that cap
+  // makes the protection read time out → null → fail-closed → the password gate
+  // wrongly appears even when protection is disabled. So dev gets a generous
+  // timeout (and never fails closed — see protectionEnabled below).
+  const isDev = process.env.NODE_ENV !== "production"
   const [injection, announcement, protection, cookieSettings, pageContent, cookiebotId] = await Promise.all([
     withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
     withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
     // null = DB read failed/timed out. Treated as "protected, password unknown"
-    // below so the staging site fails closed, while already-authenticated
-    // visitors (valid cookie) still get through.
-    withTimeout(dbGetSiteProtection().catch(() => null), 250, null),
+    // below so the staging site fails closed (prod only), while already-
+    // authenticated visitors (valid cookie) still get through.
+    withTimeout(dbGetSiteProtection().catch(() => null), isDev ? 5000 : 250, null),
     withTimeout(dbGetCookieSettings().catch(() => DEFAULT_COOKIE_SETTINGS), 250, DEFAULT_COOKIE_SETTINGS),
     withTimeout(dbGetPageContent(INLINE_CONTENT_SLUG).catch(() => ({})), 500, {}),
     withTimeout(dbGetCookiebotId().catch(() => ""), 250, ""),
@@ -157,7 +163,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // app/(gated)/layout.tsx — a nested layout is allowed to call notFound(),
   // whereas the root layout is not (Next.js 16).
 
-  const protectionEnabled = protection === null ? true : protection.enabled
+  // Unknown protection state (timed-out read → null): fail CLOSED in production
+  // so staging is never accidentally exposed, but fail OPEN in development so a
+  // slow local render never gates localhost when protection is actually off.
+  const protectionEnabled = protection === null ? !isDev : protection.enabled
   let locked = false
   if (!isAdminRoute && protectionEnabled) {
     const token = (await cookies()).get(SITE_ACCESS_COOKIE)?.value

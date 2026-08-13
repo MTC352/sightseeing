@@ -64,8 +64,8 @@ export default function DbMigrationsPage() {
   type AvailConfig = { source: AvailSource; datesndealsCacheMs: number; checkavailCacheMs: number }
   const [availSaved, setAvailSaved] = useState<AvailConfig | null>(null) // last persisted values
   const [formSource, setFormSource] = useState<AvailSource>("datesndeals")
-  const [formDndMin, setFormDndMin] = useState("5")  // datesndeals cache, minutes
-  const [formCaSec, setFormCaSec] = useState("30")   // checkavail cache, seconds
+  const [formDndSec, setFormDndSec] = useState("300") // datesndeals cache, seconds
+  const [formCaSec, setFormCaSec] = useState("30")    // checkavail cache, seconds
   const [availSaving, setAvailSaving] = useState(false)
   const [availError, setAvailError] = useState<string | null>(null)
   const [availSavedFlash, setAvailSavedFlash] = useState(false)
@@ -73,7 +73,7 @@ export default function DbMigrationsPage() {
   const applyAvailConfig = useCallback((c: AvailConfig) => {
     setAvailSaved(c)
     setFormSource(c.source)
-    setFormDndMin(String(c.datesndealsCacheMs / 60000))
+    setFormDndSec(String(c.datesndealsCacheMs / 1000))
     setFormCaSec(String(c.checkavailCacheMs / 1000))
   }, [])
 
@@ -92,7 +92,7 @@ export default function DbMigrationsPage() {
     loadAvailConfig()
   }, [loadAvailConfig])
 
-  const formDndMs = Math.round((parseFloat(formDndMin) || 0) * 60000)
+  const formDndMs = Math.round((parseFloat(formDndSec) || 0) * 1000)
   const formCaMs = Math.round((parseFloat(formCaSec) || 0) * 1000)
   const availDirty =
     availSaved !== null &&
@@ -308,17 +308,17 @@ export default function DbMigrationsPage() {
             {/* Cache durations */}
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="text-xs font-medium text-gray-700">Dates &amp; Deals cache (minutes)</span>
+                <span className="text-xs font-medium text-gray-700">Dates &amp; Deals cache (seconds)</span>
                 <input
                   type="number"
                   min={0}
-                  max={30}
-                  step={0.5}
-                  value={formDndMin}
-                  onChange={(e) => { setFormDndMin(e.target.value); setAvailSavedFlash(false) }}
+                  max={1800}
+                  step={5}
+                  value={formDndSec}
+                  onChange={(e) => { setFormDndSec(e.target.value); setAvailSavedFlash(false) }}
                   className="mt-1 w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
                 />
-                <span className="mt-1 block text-[11px] text-gray-400">Range 0–30 min. Default 5.</span>
+                <span className="mt-1 block text-[11px] text-gray-400">Range 0–1800 s. Default 300.</span>
                 {formDndMs === 0 && (
                   <span className="mt-1 flex items-start gap-1 text-[11px] text-orange-600">
                     <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
