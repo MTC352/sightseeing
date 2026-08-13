@@ -21,7 +21,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 // would expose archived/draft trips that have been removed from the DB.
 // The planner starts empty and is populated by /api/planner/trips (publicOnly).
 const staticTripsFallback: Trip[] = []
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import Link from "next/link"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
@@ -873,7 +873,7 @@ function TripCard({
     >
       {/* Thumbnail — full-width on top for mobile (stacked), side column on tablet/desktop */}
       <div className="relative h-44 w-full shrink-0 overflow-hidden md:h-auto md:w-44">
-        <Image src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(min-width: 768px) 180px, 100vw" />
+        <AppImage src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(min-width: 768px) 180px, 100vw" />
         {trip.badge && (
           <span className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow-sm">{trip.badge}</span>
         )}

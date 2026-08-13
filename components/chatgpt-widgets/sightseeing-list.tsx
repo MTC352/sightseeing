@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Star, Clock, Heart, ExternalLink, MapPin, ShoppingBag, Check } from "lucide-react"
 import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"
@@ -43,7 +43,7 @@ export function SightseeingList({ trips, onSelect }: SightseeingListProps) {
           className="group flex cursor-pointer gap-3 rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm"
         >
           <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg">
-            <Image src={trip.image} alt={trip.title} fill className="object-cover" sizes="80px" />
+            <AppImage src={trip.image} alt={trip.title} fill className="object-cover" sizes="80px" />
             <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/80 text-[10px] font-bold text-background">
               {i + 1}
             </span>

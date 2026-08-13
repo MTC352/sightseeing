@@ -1,5 +1,5 @@
 import Link from "next/link"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { Clock, User, ArrowRight } from "lucide-react"
@@ -76,7 +76,7 @@ export default async function BlogPage() {
         {/* Featured post */}
         <Link data-no-edit href={`/blog/${featured.slug}`} className="group mb-10 flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md lg:flex-row">
           <div className="relative h-56 shrink-0 lg:h-auto lg:w-[480px]">
-            <Image src={featured.image} alt={featured.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="(max-width: 1024px) 100vw, 480px" priority />
+            <AppImage src={featured.image} alt={featured.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="(max-width: 1024px) 100vw, 480px" priority />
           </div>
           <div className="flex flex-col justify-center p-6 lg:p-8">
             <span className="inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{featured.category}</span>
@@ -99,7 +99,7 @@ export default async function BlogPage() {
             {rest.map((post) => (
               <Link data-no-edit key={post.slug} href={`/blog/${post.slug}`} className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
                 <div className="relative aspect-video overflow-hidden">
-                  <Image src={post.image} alt={post.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" loading="lazy" />
+                  <AppImage src={post.image} alt={post.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" loading="lazy" />
                   <span className="absolute left-3 top-3 rounded-full bg-background/90 px-2.5 py-1 text-[11px] font-medium text-foreground backdrop-blur-sm">
                     {post.category}
                   </span>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState, useCallback, useEffect } from "react"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Star, Clock, ChevronLeft, ChevronRight, MapPin } from "lucide-react"
 import type { Trip } from "@/lib/data"
 
@@ -74,7 +74,7 @@ export function SightseeingCarousel({ trips, onSelect }: SightseeingCarouselProp
             className="group w-[240px] shrink-0 snap-start overflow-hidden rounded-xl border border-border bg-card text-left transition-all hover:border-primary/30 hover:shadow-sm"
           >
             <div className="relative h-[140px] w-full overflow-hidden">
-              <Image src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="240px" />
+              <AppImage src={trip.image} alt={trip.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="240px" />
               {trip.badge && (
                 <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">{trip.badge}</span>
               )}

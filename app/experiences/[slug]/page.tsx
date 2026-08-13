@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
@@ -231,7 +231,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg">
-                          <Image src={t.image} alt={t.title} fill className="object-cover" sizes="40px" />
+                          <AppImage src={t.image} alt={t.title} fill className="object-cover" sizes="40px" />
                         </div>
                         <div>
                           <Link href={`/trip/${t.slug ?? t.id}`} className="font-medium text-foreground hover:text-primary">{t.title}</Link>

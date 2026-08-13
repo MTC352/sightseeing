@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import Link from "next/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
@@ -209,7 +209,7 @@ export default async function BlogPostPage({ params }: Props) {
 
       <section className="relative">
         <div className="absolute inset-0 h-72 lg:h-96">
-          <Image
+          <AppImage
             src={post.image || "/images/hero-luxembourg.jpg"}
             alt={`${post.title} — ${post.category} article on sightseeing.lu`}
             fill
