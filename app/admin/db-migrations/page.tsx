@@ -267,7 +267,7 @@ export default function DbMigrationsPage() {
                 {
                   key: "checkavail" as const,
                   title: "Real-time checkavail",
-                  desc: "Live per-trip availability, party-size aware. Most accurate but heavier — one call per trip per date; high traffic can hit TourCMS rate limits.",
+                  desc: "Live, party-size-aware availability applied when a visitor picks a specific date. The default Today/Tomorrow browse view still uses the cheap Dates & Deals sweep, so enabling this can't overload the site. Auto-skips the live call when TourCMS quota is low.",
                 },
               ]).map((opt) => {
                 const active = formSource === opt.key

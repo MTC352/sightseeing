@@ -8,8 +8,15 @@ import {
 } from "@/lib/tourcms"
 import { rateLimit, schedulePrune } from "@/lib/rate-limit"
 import { getSearchAvailabilityConfig } from "@/lib/search-availability-source"
+import { getLastKnownRateLimit } from "@/lib/departing-soon-cache"
 
 export const dynamic = "force-dynamic"
+
+// Minimum TourCMS hourly quota (remaining GET hits) required before the search
+// page is allowed to fan out real-time checkavail calls. Mirrors the guard the
+// Departing Soon / Last Minute Deals refreshers use so search can never drain
+// the shared quota out from under the homepage widgets. Same threshold (200).
+const CHECKAVAIL_MIN_QUOTA = 200
 
 export interface AvTimeslot {
   time: string
@@ -557,21 +564,41 @@ export async function GET(req: Request) {
     !dateMode || dateParam === todayStr ? hidePastTodaySlots(map, cutoff) : map
 
   // ── Availability source + cache durations (Dev-mode configurable) ─────────
-  // When source is "checkavail", timeslots come from live checkavail (party-size
-  // aware) with a short cache. Both cache TTLs are admin-configurable.
+  // Both cache TTLs are admin-configurable. See the note below on when the
+  // "checkavail" source actually engages (date mode + sufficient quota only).
   const { source, datesndealsCacheMs, checkavailCacheMs } = await getSearchAvailabilityConfig()
-  if (source === "checkavail") {
-    pruneRtCache()
-    const rtKey = `checkavail|${persons}|${cacheKey}`
-    const cached = _rtCache.get(rtKey)
-    if (cached && Date.now() < cached.expiresAt) {
-      return NextResponse.json(applyFilter(cached.data))
+
+  // Real-time checkavail is opt-in AND deliberately scoped to DATE MODE only.
+  //
+  // The no-date "browse" view (Today/Tomorrow across the WHOLE catalog) loads on
+  // every search visit. Running a blocking per-trip checkavail fan-out there on
+  // each request — with only a 30s cache — exhausts the shared TourCMS hourly
+  // quota and saturates the single autoscale instance. That starves the homepage
+  // widgets (Departing Soon / Last Minute Deals, which skip when quota < 200) and
+  // degrades the instance enough that the CSS bundle fails to load — leaving
+  // unstyled full-screen SVG icons on the homepage and failing the platform
+  // healthcheck. So no-date ALWAYS uses the cheap datesndeals sweep.
+  //
+  // checkavail runs only when a visitor commits to a specific date — far rarer —
+  // and even then yields to the same rate-limit guard the homepage widgets use,
+  // falling through to the (pre-warmed) datesndeals per-date cache when the quota
+  // is low rather than piling onto an exhausted limit.
+  if (source === "checkavail" && dateMode) {
+    const rl = getLastKnownRateLimit()
+    if (rl === null || rl.remaining >= CHECKAVAIL_MIN_QUOTA) {
+      pruneRtCache()
+      const rtKey = `checkavail|${persons}|${cacheKey}`
+      const cached = _rtCache.get(rtKey)
+      if (cached && Date.now() < cached.expiresAt) {
+        return NextResponse.json(applyFilter(cached.data))
+      }
+      const data = await runCheckavailRealtime({
+        dateMode, dateParam, todayStr, tomorrowStr, horizonStr, persons, datesndealsCacheMs,
+      })
+      _rtCache.set(rtKey, { data, expiresAt: Date.now() + checkavailCacheMs })
+      return NextResponse.json(applyFilter(data))
     }
-    const data = await runCheckavailRealtime({
-      dateMode, dateParam, todayStr, tomorrowStr, horizonStr, persons, datesndealsCacheMs,
-    })
-    _rtCache.set(rtKey, { data, expiresAt: Date.now() + checkavailCacheMs })
-    return NextResponse.json(applyFilter(data))
+    // Quota low — fall through to the cached datesndeals path below.
   }
 
   // ── 1. Process-local cache (fresh) ────────────────────────────────────────
