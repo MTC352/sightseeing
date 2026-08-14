@@ -19,7 +19,7 @@ export function HeroSection() {
   const [query, setQuery] = useState("")
   const [dateTime, setDateTime] = useState<DateTimeValue>({ date: "", timeFrom: "", timeTo: "" })
   const [dateModalOpen, setDateModalOpen] = useState(false)
-  const [persons, setPersons] = useState(2)
+  const [persons, setPersons] = useState(1)
   const [showPersons, setShowPersons] = useState(false)
   const router = useRouter()
   const { weather, isLoading } = useWeather()

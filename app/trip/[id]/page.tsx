@@ -322,7 +322,7 @@ export default async function TripPage({
 
   const resolved = await resolveTrip(id)
   const { dbRow } = resolved
-  let trip = resolved.trip
+  const trip = resolved.trip
 
   // Canonical-URL fallback: legacy id / palisis_id visits are normally caught by
   // proxy.ts and 308-redirected to `/trip/{slug}` BEFORE rendering. This block is
@@ -383,27 +383,12 @@ export default async function TripPage({
     )
   }
 
-  /* ─── Augment gallery when the upstream feed only gives us 1 image ────
-   * Palisis/TourCMS often returns a single `images.image[]` entry per tour,
-   * which leaves the trip-detail slider with just the cover photo and no
-   * navigation. To restore the multi-image gallery UX, fall back to images
-   * from related DB trips (same category preferred). Original static seed
-   * did the same in lib/data.ts (see getTripDetail fallback).
-   * We only augment when the trip itself doesn't already provide a true
-   * multi-image gallery, and we keep the trip's own image first.            */
-  if ((trip.gallery ?? []).length <= 1) {
-    const base = trip.image ? [trip.image] : []
-    const extras: string[] = []
-    for (const r of relatedTrips) {
-      if (r.image && r.image !== trip.image && !extras.includes(r.image)) {
-        extras.push(r.image)
-      }
-      if (extras.length >= 3) break
-    }
-    if (extras.length > 0) {
-      trip = { ...trip, gallery: [...base, ...extras] }
-    }
-  }
+  /* ─── Gallery shows ONLY the trip's own images ───────────────────────
+   * We intentionally do NOT borrow images from related trips to pad a
+   * single-image gallery. Doing so injected unrelated photos into every
+   * offer (e.g. Mini Golf showing a military "Bastogne" tank, and the same
+   * two "related" photos appearing as slide 2/3 across all products).
+   * A trip with one real image now simply displays that one image.         */
 
   const imageUrl = trip.image.startsWith("/") ? `${BASE}${trip.image}` : trip.image
 
