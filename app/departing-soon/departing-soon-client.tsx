@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Calendar, Clock, MapPin, ArrowRight, RefreshCw, Loader2 } from "lucide-react"
+import { EditableText } from "@/components/editable-text"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
 
 /** Availability pill — mirrors the homepage widget's thresholds. */
@@ -166,22 +167,36 @@ export function DepartingSoonPageClient() {
         <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-14">
           <div className="flex items-center gap-2 text-sm font-medium text-primary">
             <Calendar className="h-4 w-4" />
-            Departing Soon
+            <EditableText id="departing-soon:hero:eyebrow" defaultValue="Departing Soon" />
           </div>
           <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-foreground lg:text-4xl">Departing today</h1>
+              <h1 className="text-3xl font-bold text-foreground lg:text-4xl">
+                <EditableText id="departing-soon:hero:title" defaultValue="Departing today" />
+              </h1>
               <p className="mt-3 max-w-xl text-muted-foreground">
-                The next available departure for every experience leaving{" "}
-                {today ? (
-                  <span className="font-medium text-foreground">today, {formatToday(today)}</span>
-                ) : (
-                  "today"
-                )}
-                . Guaranteed slots — book before they fill up.
+                <EditableText
+                  id="departing-soon:hero:subheading-lead"
+                  defaultValue="The next available departure for every experience leaving"
+                />{" "}
+                {/* Dynamic date — never editable, even in admin edit mode. */}
+                <span data-no-edit>
+                  {today ? (
+                    <span className="font-medium text-foreground">today, {formatToday(today)}</span>
+                  ) : (
+                    "today"
+                  )}
+                </span>
+                .{" "}
+                <EditableText
+                  id="departing-soon:hero:subheading-tail"
+                  defaultValue="Guaranteed slots — book before they fill up."
+                />
               </p>
             </div>
+            {/* Live control — not content. */}
             <button
+              data-no-edit
               type="button"
               onClick={manualRefresh}
               disabled={refreshing}
@@ -197,24 +212,36 @@ export function DepartingSoonPageClient() {
       {/* Grid */}
       <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+          // Transient live status — never editable.
+          <div data-no-edit className="flex flex-col items-center justify-center py-24 text-muted-foreground">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/40" />
             <p className="mt-3 text-sm">Loading today&apos;s departures…</p>
           </div>
         ) : unavailable ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20 text-center">
             <Calendar className="mb-3 h-10 w-10 text-muted-foreground/40" />
-            <p className="font-medium text-foreground">Departures are currently unavailable</p>
-            <p className="mt-1 text-sm text-muted-foreground">Please check back shortly.</p>
+            <p className="font-medium text-foreground">
+              <EditableText id="departing-soon:unavailable:title" defaultValue="Departures are currently unavailable" />
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              <EditableText id="departing-soon:unavailable:body" defaultValue="Please check back shortly." />
+            </p>
           </div>
         ) : departures.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20 text-center">
             <Calendar className="mb-3 h-10 w-10 text-muted-foreground/40" />
-            <p className="font-medium text-foreground">No more departures today</p>
+            <p className="font-medium text-foreground">
+              <EditableText id="departing-soon:empty:title" defaultValue="No more departures today" />
+            </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              All of today&apos;s experiences have departed. Explore what&apos;s coming up next.
+              <EditableText
+                id="departing-soon:empty:body"
+                defaultValue="All of today's experiences have departed. Explore what's coming up next."
+                multiline
+              />
             </p>
             <Link
+              data-no-edit
               href="/explore"
               className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
             >
@@ -224,10 +251,12 @@ export function DepartingSoonPageClient() {
           </div>
         ) : (
           <>
-            <p className="mb-5 text-sm text-muted-foreground">
+            {/* Dynamic count — never editable. */}
+            <p data-no-edit className="mb-5 text-sm text-muted-foreground">
               {departures.length} {departures.length === 1 ? "experience" : "experiences"} departing today
             </p>
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {/* Live trip cards — never editable. */}
+            <div data-no-edit className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {departures.map((dep) => {
                 const slotHref = `/trip/${dep.tripSlug ?? dep.tripId}?date=${encodeURIComponent(dep.date)}&time=${encodeURIComponent(dep.time)}&from=departing#booking`
                 return (

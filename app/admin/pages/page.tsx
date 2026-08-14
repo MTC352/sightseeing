@@ -20,6 +20,8 @@ const MANAGED_PAGES: ManagedPage[] = [
   { slug: "search",     label: "Search Results",  url: "/search",      description: "Search and filter trips" },
   { slug: "planner",    label: "AI Trip Planner", url: "/planner",     description: "The AI-powered trip planner chat" },
   { slug: "departures", label: "Departures",      url: "/departures",  description: "Upcoming departure listings" },
+  { slug: "departing-soon", label: "Departing Soon",  url: "/departing-soon",  description: "Today's departures (from snapshot). Only the hero copy is editable; trip cards are live data." },
+  { slug: "filling-up-fast", label: "Filling Up Fast", url: "/filling-up-fast", description: "Today's experiences ranked by seats left. Only the hero copy is editable; trip cards are live data." },
   { slug: "blog",       label: "Blog",            url: "/blog",        description: "Blog index page" },
   { slug: "careers",    label: "Careers",         url: "/careers",     description: "Job listings and apply CTAs" },
   { slug: "help",       label: "Help & FAQ",      url: "/help",        description: "FAQ accordion and help AI chat" },
