@@ -15,6 +15,43 @@ export function buildPalisisBookingUrl(palisisProductId: string): string {
   return `https://sightseeingluxembourg.palisis.com/?book-direct=${encodeURIComponent(palisisProductId)}`
 }
 
+/** Minimal trip shape needed to resolve a booking iframe URL. */
+export interface BookingUrlSource {
+  /** Full custom iframe URL — used verbatim when set (external Palisis accounts). */
+  customIframeUrl?: string | null
+  /** Palisis Product ID → sightseeingluxembourg.palisis.com direct widget. */
+  palisisProductId?: string | null
+  /** TourCMS reserve permalink (last-resort iframe). */
+  permalink?: string | null
+}
+
+/**
+ * Resolve the booking iframe `src` for a trip, in priority order:
+ *   1. `customIframeUrl` — used exactly as entered (external Palisis accounts).
+ *   2. `palisisProductId` — the default sightseeingluxembourg direct widget.
+ *   3. `permalink` — the TourCMS iframe (with the `month_year` calendar hint).
+ * Returns null when none is configured (no booking widget).
+ *
+ * Note: only the TourCMS permalink consumes date/time (its calendar opens on the
+ * right month); the Palisis direct widgets are used as-is.
+ */
+export function resolveBookingUrl(
+  trip: BookingUrlSource,
+  date?: string,
+  time?: string,
+): string | null {
+  const custom = trip.customIframeUrl?.trim()
+  if (custom) return custom
+
+  const productId = trip.palisisProductId?.trim()
+  if (productId) return buildPalisisBookingUrl(productId)
+
+  const permalink = trip.permalink?.trim()
+  if (permalink) return substitutePlaceholders(permalink, date, time)
+
+  return null
+}
+
 export function substitutePlaceholders(url: string, date?: string, _time?: string): string {
   if (!url) return url
   let month: string

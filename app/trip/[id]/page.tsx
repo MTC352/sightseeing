@@ -26,6 +26,7 @@ function mapDbTrip(r: Record<string, unknown>): Trip {
     description: r.description != null ? String(r.description) : undefined,
     permalink: r.permalink != null ? String(r.permalink) : undefined,
     palisisProductId: typeof r.palisisProductId === "string" && r.palisisProductId ? r.palisisProductId : undefined,
+    customIframeUrl: typeof r.customIframeUrl === "string" && r.customIframeUrl ? r.customIframeUrl : undefined,
     provider: r.provider != null ? String(r.provider) : undefined,
     highlights: Array.isArray(r.highlights) ? (r.highlights as string[]) : [],
     googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
@@ -107,6 +108,7 @@ function mapDbDetail(r: Record<string, unknown>): TripDbDetail {
     maxBookingSize: r.maxBookingSize != null ? Number(r.maxBookingSize) : undefined,
     nonRefundable: r.nonRefundable === true,
     palisisProductId: typeof r.palisisProductId === "string" && r.palisisProductId ? r.palisisProductId : undefined,
+    customIframeUrl: typeof r.customIframeUrl === "string" && r.customIframeUrl ? r.customIframeUrl : undefined,
   }
 }
 

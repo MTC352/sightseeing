@@ -313,8 +313,8 @@ export function LastMinuteDealsSection() {
                 <EditableText id="home:deals:subheading" defaultValue="Grab these discounted experiences before they sell out!" />
               </p>
             </div>
-            <Link href="/departures" className="hidden items-center gap-1 text-sm font-medium text-destructive hover:underline sm:flex">
-              All departures <ArrowRight className="h-4 w-4" />
+            <Link href="/filling-up-fast" className="hidden items-center gap-1 text-sm font-medium text-destructive hover:underline sm:flex">
+              All filling up fast <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
           <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -343,8 +343,8 @@ export function LastMinuteDealsSection() {
               <EditableText id="home:deals:subheading" defaultValue="Grab these discounted experiences before they sell out!" />
             </p>
           </div>
-          <Link href="/departures" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">
-            All departures <ArrowRight className="h-4 w-4" />
+          <Link href="/filling-up-fast" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">
+            All filling up fast <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
         {/* gap-6 identical to original DealsSection grid */}

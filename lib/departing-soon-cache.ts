@@ -166,6 +166,40 @@ export async function getAutoUpdateIntervalSeconds(): Promise<number> {
 export async function getSlotCount(): Promise<number> {
   return getNumericSetting("departing_soon_slot_count", 5, 3, 10)
 }
+/**
+ * Distance (in pixels) the homepage widget's carousel scrolls per arrow click.
+ * Default 320 (≈ one card width + gap). Used when the admin setting is unset.
+ */
+export async function getSliderScrollPx(): Promise<number> {
+  return getNumericSetting("departing_soon_slider_scroll_px", 320, 100, 2000)
+}
+/**
+ * Availability horizon: only fetch live seat counts (checkavail) for slots
+ * departing within this many hours (default 24). Slots beyond the horizon keep
+ * their discovery-snapshot seat count, so the checkavail fan-out is limited to
+ * imminent departures instead of every trip's first slot. Range 1–168h (7 days
+ * = the max discovery window, which reproduces the old "check everything").
+ */
+export async function getAvailabilityHorizonHours(): Promise<number> {
+  return getNumericSetting("departing_soon_availability_horizon_hours", 24, 1, 168)
+}
+
+/** Today's date (YYYY-MM-DD) in Luxembourg local time — dynamic, not hard-coded. */
+export function luxembourgTodayDate(): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Luxembourg",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date())
+    // en-CA yields YYYY-MM-DD directly.
+    return parts
+  } catch {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+  }
+}
 async function getBoolSetting(key: string, fallback: boolean): Promise<boolean> {
   try {
     const s = await dbGetSettings()
@@ -299,9 +333,22 @@ export async function refreshAvailability(): Promise<void> {
       const ttl = await getAvailabilityTtlSeconds()
       if (availabilityCache && (Date.now() - availabilityCache.refreshedAt) / 1000 < ttl) return
 
-      // Use ALL trips' first slots (not just the N displayed by Departing Soon)
-      // so the availability cache is complete for the Last Minute Deals widget.
-      const allFirst = computeAllFirstSlots()
+      // Only fetch live seat counts for IMMINENT departures. Each trip's first
+      // upcoming slot is included only when it departs within the availability
+      // horizon; slots further out keep their discovery-snapshot seat count
+      // (the read routes fall back to `initialSpacesRemaining`). This cuts the
+      // checkavail fan-out from "every trip" down to just the soon-departing
+      // ones. The horizon is stretched to cover the Last Minute Deals window so
+      // LMD's in-window candidates always get live availability.
+      const horizonHours = await getAvailabilityHorizonHours()
+      const lmdHours = (await getLmdWidgetEnabled()) ? await getLmdMaxHours() : 0
+      const effectiveHorizonHours = Math.max(horizonHours, lmdHours)
+      const horizonUtc = Math.floor(Date.now() / 1000) + effectiveHorizonHours * 3600
+
+      // Use ALL trips' first slots, then keep only those within the horizon.
+      const allFirst = computeAllFirstSlots().filter(
+        (s) => s.startTimeUtcSeconds <= horizonUtc,
+      )
       if (allFirst.length === 0) return
 
       const tourcms = await getTourCMSClient()

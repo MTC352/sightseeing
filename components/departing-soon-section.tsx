@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { Calendar, ChevronRight, Clock, MapPin, ArrowRight, RefreshCw } from "lucide-react"
+import { Calendar, ChevronLeft, ChevronRight, Clock, MapPin, ArrowRight, RefreshCw } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
 
@@ -64,6 +64,16 @@ function UrgencyBadge({
   )
 }
 
+/** Loading skeleton shown in the seat-pill slot while availability is fetched. */
+function SeatPillSkeleton() {
+  return (
+    <div
+      className="absolute right-3 top-3 h-[18px] w-12 animate-pulse rounded-full bg-white/75 shadow"
+      aria-label="Checking availability"
+    />
+  )
+}
+
 /** Day label: Today / Tomorrow / weekday name. */
 function dayLabel(dateIso: string): string {
   try {
@@ -89,12 +99,58 @@ export function DeparturesSoonSection() {
   const [refreshing, setRefreshing] = useState(false)
   const [hidden, setHidden] = useState(false)
   const [threshold, setThreshold] = useState(15)
+  const [scrollPx, setScrollPx] = useState(320)
+  // Seat-availability loading state: while snapshot cards are visible but the
+  // availability overlay hasn't resolved, the seat pill shows a loading skeleton.
+  const [availEnabled, setAvailEnabled] = useState(false)
+  const [availLoaded, setAvailLoaded] = useState(false)
   const retryCount = React.useRef(0)
   const retryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchDepartures = useCallback(async (isRetry = false) => {
+  // Horizontal-scroll carousel controls (desktop arrows).
+  const scrollRef = React.useRef<HTMLDivElement | null>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    // 1px slack absorbs sub-pixel rounding at the track ends.
+    setCanScrollLeft(el.scrollLeft > 1)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
+
+  const scrollByArrow = useCallback((dir: -1 | 1) => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollBy({ left: dir * scrollPx, behavior: "smooth" })
+  }, [scrollPx])
+
+  // Phase 2: overlay live seat availability (from cache — never triggers
+  // upstream) onto the already-painted snapshot cards. Replaces the list with
+  // the authoritative availability-filtered set: adds seat pills, drops sold-out
+  // slots. Card keys are stable, so unchanged cards don't re-mount.
+  const overlayAvailability = useCallback(async () => {
     try {
       const res = await fetch("/api/departing-soon", { cache: "no-store" })
+      const data = await res.json()
+      if (!data.ok || !Array.isArray(data.departures)) return
+      setDepartures(data.departures)
+      if (typeof data.availabilityThreshold === "number") setThreshold(data.availabilityThreshold)
+    } catch {
+      /* Keep the snapshot cards as-is if the availability pass fails. */
+    } finally {
+      // Resolve the pill skeleton either way — on failure we fall back to the
+      // snapshot (no pill) rather than spinning forever.
+      setAvailLoaded(true)
+    }
+  }, [])
+
+  // Phase 1: fast paint straight from the discovery snapshot (availability=0),
+  // then overlay live seat availability for the now-visible trips.
+  const fetchDepartures = useCallback(async (isRetry = false) => {
+    try {
+      const res = await fetch("/api/departing-soon?availability=0", { cache: "no-store" })
       const data = await res.json()
 
       // Administratively unavailable → hide widget (master toggle OFF or no TourCMS creds)
@@ -120,20 +176,25 @@ export function DeparturesSoonSection() {
         return
       }
 
-      // Success
+      // Snapshot success — paint cards immediately.
       retryCount.current = 0
       setLoading(false)
       if (data.ok && Array.isArray(data.departures)) {
         setDepartures(data.departures)
-        if (typeof data.availabilityThreshold === "number") {
-          setThreshold(data.availabilityThreshold)
+        if (typeof data.sliderScrollPx === "number") {
+          setScrollPx(data.sliderScrollPx)
         }
+        // Seat pills enter loading state (skeleton) until the overlay resolves.
+        setAvailEnabled(data.availabilityEnabled === true)
+        setAvailLoaded(false)
+        // Cards are on screen — now enhance them with live seat availability.
+        void overlayAvailability()
       }
     } catch {
       /* Network error — don't change anything; keep whatever state we had */
       if (!isRetry) setLoading(false)
     }
-  }, [])
+  }, [overlayAvailability])
 
   useEffect(() => {
     fetchDepartures()
@@ -141,6 +202,14 @@ export function DeparturesSoonSection() {
       if (retryTimer.current) clearTimeout(retryTimer.current)
     }
   }, [fetchDepartures])
+
+  // Recompute arrow enabled/disabled state whenever the card set changes or the
+  // viewport resizes (a wider viewport may remove the need to scroll entirely).
+  useEffect(() => {
+    updateScrollState()
+    window.addEventListener("resize", updateScrollState)
+    return () => window.removeEventListener("resize", updateScrollState)
+  }, [updateScrollState, departures, loading])
 
   async function manualRefresh() {
     setRefreshing(true)
@@ -182,15 +251,41 @@ export function DeparturesSoonSection() {
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
           </button>
           <Link
-            href="/departures"
+            href="/departing-soon"
             className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex"
           >
-            All departures <ChevronRight className="h-4 w-4" />
+            All Departing soon <ChevronRight className="h-4 w-4" />
           </Link>
         </div>
       </div>
 
-      <div className="mt-6 flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="relative mt-6">
+        {/* Desktop-only slider arrows. Hidden on touch/mobile where native
+            horizontal scroll (and the visible drag) is the expected interaction. */}
+        <button
+          type="button"
+          onClick={() => scrollByArrow(-1)}
+          disabled={!canScrollLeft}
+          aria-label="Scroll to previous departures"
+          className="absolute -left-3 top-1/2 z-20 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-md transition-all hover:bg-secondary disabled:pointer-events-none disabled:opacity-0 md:flex"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => scrollByArrow(1)}
+          disabled={!canScrollRight}
+          aria-label="Scroll to more departures"
+          className="absolute -right-3 top-1/2 z-20 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-md transition-all hover:bg-secondary disabled:pointer-events-none disabled:opacity-0 md:flex"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+
+        <div
+          ref={scrollRef}
+          onScroll={updateScrollState}
+          className="flex gap-4 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
         {loading
           ? Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)
           : departures.map((dep) => {
@@ -228,8 +323,13 @@ export function DeparturesSoonSection() {
                       {label} {dep.time}
                     </div>
 
-                    {/* Urgency badge — top right (only 1-9 spaces) */}
-                    <UrgencyBadge spaces={dep.spacesRemaining} threshold={threshold} />
+                    {/* Seat pill — loading skeleton until availability resolves,
+                        then the real urgency badge (or nothing when plentiful). */}
+                    {availEnabled && !availLoaded ? (
+                      <SeatPillSkeleton />
+                    ) : (
+                      <UrgencyBadge spaces={dep.spacesRemaining} threshold={threshold} />
+                    )}
                   </div>
 
                   {/* Content */}
@@ -261,16 +361,17 @@ export function DeparturesSoonSection() {
         {/* See all card */}
         {!loading && (
           <Link
-            href="/departures"
+            href="/departing-soon"
             className="flex w-48 shrink-0 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-background p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
               <ArrowRight className="h-5 w-5 text-primary" />
             </div>
             <p className="text-sm font-semibold text-foreground">All departure locations</p>
-            <p className="text-xs text-muted-foreground">View by city</p>
+            <p className="text-xs text-muted-foreground">See all departing soon</p>
           </Link>
         )}
+        </div>
       </div>
     </section>
   )

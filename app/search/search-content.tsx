@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react"
+import { createPortal } from "react-dom"
 import Image from "next/image"
 import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
@@ -413,24 +414,57 @@ function PersonsPopover({
   persons,
   onChange,
   onClose,
+  anchorRef,
 }: {
   persons: number
   onChange: (n: number) => void
   onClose: () => void
+  /** The trigger button — the popover is anchored to it and portaled to <body>
+   *  so it escapes the filter bar's horizontal-scroll (overflow) clipping. */
+  anchorRef: React.RefObject<HTMLElement | null>
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  // Position the fixed popover just below the trigger, clamped to the viewport.
+  useEffect(() => {
+    const POPOVER_WIDTH = 200
+    const reposition = () => {
+      const rect = anchorRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - 8))
+      setPos({ top: rect.bottom + 6, left })
+    }
+    reposition()
+    window.addEventListener("resize", reposition)
+    // Capture-phase scroll catches the filter bar's own horizontal scroll too.
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [anchorRef])
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+      const target = e.target as Node
+      // Ignore clicks on the popover itself and on the trigger (the trigger
+      // toggles open/closed on its own).
+      if (ref.current?.contains(target)) return
+      if (anchorRef.current?.contains(target)) return
+      onClose()
     }
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
-  }, [onClose])
+  }, [onClose, anchorRef])
 
-  return (
+  if (pos === null) return null
+
+  return createPortal(
     <div
       ref={ref}
-      className="absolute left-0 top-full z-50 mt-1.5 flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 shadow-xl"
+      style={{ position: "fixed", top: pos.top, left: pos.left }}
+      className="z-50 flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2 shadow-xl"
     >
       <button
         type="button"
@@ -450,7 +484,8 @@ function PersonsPopover({
         <Plus className="h-3.5 w-3.5" />
       </button>
       <span className="ml-1 text-xs text-muted-foreground">guest{persons !== 1 ? "s" : ""}</span>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -883,6 +918,7 @@ export function SearchContent({
   const [filtersOpen, setFiltersOpen]       = useState(false)
   const [dateOpen, setDateOpen]             = useState(false)
   const [personsOpen, setPersonsOpen]       = useState(false)
+  const personsAnchorRef                    = useRef<HTMLButtonElement>(null)
   const [viewMode, setViewMode]             = useState<"grid" | "list">("list")
   const [availability, setAvailability]     = useState<AvailabilityMap>({})
 
@@ -1152,8 +1188,17 @@ export function SearchContent({
           // Date selected → must have a matching slot on that date
           return avail.today.some(slotOk)
         } else if (persons > 1 || hasTimeFilter) {
-          // Person or time filter active → must have a matching slot today or tomorrow
-          return avail.today.some(slotOk) || avail.tomorrow.some(slotOk)
+          // Person / time filter active. We only have per-slot data for today &
+          // tomorrow (checkavail); the trip's `nextAvailableDate` carries no
+          // capacity or time info. So:
+          //   • near-term slots exist → keep only if one fits the party & time.
+          //   • NO near-term slots (trip next runs on a future date) → capacity
+          //     is unknown, so DON'T hide it — the card shows "Next available
+          //     on {date}". Hiding these made increasing guests to 2 wrongly
+          //     wipe out trips that simply don't depart today/tomorrow.
+          const nearTerm = [...avail.today, ...avail.tomorrow]
+          if (nearTerm.length === 0) return true
+          return nearTerm.some(slotOk)
         }
         // No availability-based filter → show all
         return true
@@ -1311,6 +1356,7 @@ export function SearchContent({
             {/* Guests pill with inline popover */}
             <div className="relative shrink-0">
               <button
+                ref={personsAnchorRef}
                 type="button"
                 onClick={() => setPersonsOpen((o) => !o)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
@@ -1335,6 +1381,7 @@ export function SearchContent({
                   persons={persons}
                   onChange={(n) => setActiveFilters((p) => ({ ...p, persons: n }))}
                   onClose={() => setPersonsOpen(false)}
+                  anchorRef={personsAnchorRef}
                 />
               )}
             </div>

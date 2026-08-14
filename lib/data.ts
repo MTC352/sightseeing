@@ -41,6 +41,8 @@ export interface Trip {
   highlights?: string[]
   googleBusinessUrl?: string
   palisisProductId?: string | null
+  /** Full custom booking iframe URL — used verbatim when set (external Palisis accounts). */
+  customIframeUrl?: string | null
   /** Friendly name of the departure/start point (e.g. "Place de Paris"). */
   departureLocation?: string | null
   /** "lat,lng" string of the departure point. */

@@ -14,7 +14,7 @@ import { GoogleReviews } from "@/components/google-reviews"
 import { TripItinerary } from "@/components/trip-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
-import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"
+import { resolveBookingUrl } from "@/lib/booking-url"
 import { stripHtml } from "@/lib/seo/score"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets, Loader2 } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
@@ -48,6 +48,7 @@ export type TripDbDetail = {
   pdfUrl?: string
   videoUrl?: string
   palisisProductId?: string | null
+  customIframeUrl?: string | null
   minBookingSize?: number
   maxBookingSize?: number
   nonRefundable?: boolean
@@ -548,38 +549,41 @@ export default function TripDetailClient({
                 </button>
               </div>
 
-              {/* Booking widget — Palisis Product ID takes priority over TourCMS permalink */}
-              {(trip.palisisProductId?.trim() || trip.permalink) ? (
-                <div id="booking" className="space-y-3">
-                  {/* Date/time pre-selection banner — only relevant for TourCMS calendar widget */}
-                  {selectedDate && selectedTime && !trip.palisisProductId?.trim() && (
-                    <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
-                      <p
-                        className="text-[11px] font-semibold uppercase tracking-wider text-primary"
-                        data-testid="selected-slot-eyebrow"
-                      >
-                        {slotEyebrow}
-                      </p>
-                      <p className="mt-1 text-base font-bold text-foreground">
-                        {formatSelectedDate(selectedDate)} · {selectedTime}
-                      </p>
-                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                        The calendar below is opened on the right month — just
-                        click your date and pick the
-                        <span className="font-semibold text-foreground"> {selectedTime} </span>
-                        time slot.
-                      </p>
-                    </div>
-                  )}
-                  <BookingIframe
-                    src={trip.palisisProductId?.trim()
-                      ? buildPalisisBookingUrl(trip.palisisProductId.trim())
-                      : substitutePlaceholders(trip.permalink!, selectedDate, selectedTime)
-                    }
-                    title={`Book ${trip.title}`}
-                  />
-                </div>
-              ) : null}
+              {/* Booking widget — resolution priority:
+                  custom iframe URL → Palisis Product ID → TourCMS permalink. */}
+              {(() => {
+                const bookingUrl = resolveBookingUrl(trip, selectedDate, selectedTime)
+                if (!bookingUrl) return null
+                // The pre-selection banner is only meaningful for the TourCMS
+                // calendar widget (permalink) — the Palisis direct widgets
+                // (custom URL / product id) open straight on the booking form.
+                const isTourcmsCalendar =
+                  !trip.customIframeUrl?.trim() && !trip.palisisProductId?.trim()
+                return (
+                  <div id="booking" className="space-y-3">
+                    {selectedDate && selectedTime && isTourcmsCalendar && (
+                      <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
+                        <p
+                          className="text-[11px] font-semibold uppercase tracking-wider text-primary"
+                          data-testid="selected-slot-eyebrow"
+                        >
+                          {slotEyebrow}
+                        </p>
+                        <p className="mt-1 text-base font-bold text-foreground">
+                          {formatSelectedDate(selectedDate)} · {selectedTime}
+                        </p>
+                        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                          The calendar below is opened on the right month — just
+                          click your date and pick the
+                          <span className="font-semibold text-foreground"> {selectedTime} </span>
+                          time slot.
+                        </p>
+                      </div>
+                    )}
+                    <BookingIframe src={bookingUrl} title={`Book ${trip.title}`} />
+                  </div>
+                )
+              })()}
 
               {/* Live weather */}
               {(weatherLoading || weather) && (

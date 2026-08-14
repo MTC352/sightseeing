@@ -24,6 +24,8 @@ import {
   getShowAvailability,
   getAvailabilityThreshold,
   getSlotCount,
+  getSliderScrollPx,
+  luxembourgTodayDate,
   hydrateFromDbAwait,
 } from "@/lib/departing-soon-cache"
 
@@ -107,11 +109,31 @@ export async function GET(req: Request) {
       }
     }
 
-    const showAvailability = await getShowAvailability()
+    // `scope=today` powers the standalone "Departing Soon" page: it returns the
+    // next/soonest upcoming slot for EVERY trip departing today (Luxembourg local
+    // date), with NO slot-count cap. The default scope keeps the homepage widget
+    // behaviour (earliest slots across the window, capped at slotCount).
+    const params = new URL(req.url).searchParams
+    const scope = params.get("scope")
+    const todayOnly = scope === "today"
+    const luxToday = luxembourgTodayDate()
+
+    // Phase-1 fast paint: `availability=0` returns cards straight from the
+    // discovery snapshot with NO seat-count overlay or sold-out filtering, so
+    // the page can render instantly. The client then re-fetches WITH
+    // availability (default) to overlay live seat pills for the visible trips.
+    const withAvailability = params.get("availability") !== "0"
+    // `availabilityEnabled` = the real admin toggle (reported to the client so
+    // it knows whether to render a loading skeleton on the seat pill during the
+    // snapshot phase). `showAvailability` = whether THIS response applied it.
+    const availabilityEnabled = await getShowAvailability()
+    const showAvailability = withAvailability && availabilityEnabled
     const slotCount = await getSlotCount()
     // All trips' earliest upcoming slots — NO count cap yet.
     // The availability filter runs below; we slice to slotCount AFTER it.
-    const displayed = computeDisplayedSlots()
+    const displayed = computeDisplayedSlots().filter(
+      (slot) => !todayOnly || slot.date === luxToday,
+    )
 
     // Re-validate publication status against the live DB so that trips
     // archived AFTER the discovery cache was built drop out immediately
@@ -170,20 +192,26 @@ export async function GET(req: Request) {
     }
 
     // Slice AFTER filtering — so we always show up to slotCount bookable trips.
-    const departures = allPassing.slice(0, slotCount)
+    // The standalone page (scope=today) is uncapped: it shows every today trip.
+    const departures = todayOnly ? allPassing : allPassing.slice(0, slotCount)
 
     const autoUpdate = await getAutoUpdateEnabled()
     const intervalSecs = await getAutoUpdateIntervalSeconds()
     const availabilityThreshold = await getAvailabilityThreshold()
+    const sliderScrollPx = await getSliderScrollPx()
 
     return NextResponse.json({
       ok: true,
       departures,
+      scope: todayOnly ? "today" : "default",
+      today: luxToday,
       widgetEnabled: true,
       showAvailability,
+      availabilityEnabled,
       autoUpdate,
       intervalSecs,
       availabilityThreshold,
+      sliderScrollPx,
       tourcmsConfigured: true,
       partial: departures.length < displayed.length,
       tripsChecked: discoveryCache?.tripsChecked ?? 0,

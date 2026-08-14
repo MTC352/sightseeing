@@ -303,6 +303,8 @@ export default function IntegrationsPage() {
         departing_soon_availability_ttl_seconds: String(dsAvailTtlSec),
         departing_soon_auto_update_interval_seconds: String(dsAvailSec),
         departing_soon_availability_threshold: String(dsAvailThreshold),
+        departing_soon_slider_scroll_px: String(dsSliderScrollPx),
+        departing_soon_availability_horizon_hours: String(dsAvailHorizon),
       }
       await fetch("/api/admin/settings", {
         method: "PATCH",
@@ -470,6 +472,8 @@ export default function IntegrationsPage() {
   const dsAvailTtlSec    = parseInt(keys.departing_soon_availability_ttl_seconds ?? "20", 10) || 20
   const dsSlotCount      = parseInt(keys.departing_soon_slot_count ?? "5", 10) || 5
   const dsAvailThreshold = parseInt(keys.departing_soon_availability_threshold ?? "15", 10) || 15
+  const dsSliderScrollPx = parseInt(keys.departing_soon_slider_scroll_px ?? "320", 10) || 320
+  const dsAvailHorizon   = parseInt(keys.departing_soon_availability_horizon_hours ?? "24", 10) || 24
   // Defaults: widget ON, show-availability ON, auto-update OFF
   const dsWidgetEnabled  = (keys.departing_soon_widget_enabled ?? "true") === "true"
   const dsShowAvail      = (keys.departing_soon_show_availability ?? "true") === "true"
@@ -934,6 +938,33 @@ export default function IntegrationsPage() {
                     </div>
                   </div>
 
+                  {/* ROW 2b — Slider scroll distance per arrow click */}
+                  <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-[260px_1fr] md:items-end">
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Slider Scroll Distance</label>
+                        <InfoTip text="How far the homepage widget's carousel scrolls each time a desktop arrow is clicked (100–2000px). ~320px advances roughly one card. Default: 320." />
+                      </div>
+                      <div className="relative flex items-center">
+                        <input
+                          type="number"
+                          min={100} max={2000} step={10}
+                          value={dsSliderScrollPx}
+                          onChange={(e) => {
+                            const n = Math.max(100, Math.min(2000, parseInt(e.target.value, 10) || 320))
+                            setKeys((k) => ({ ...k, departing_soon_slider_scroll_px: String(n) }))
+                            setDsDirty(true)
+                          }}
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                        />
+                        <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">px</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground md:self-center">
+                      Controls the left/right arrow scroll step on the homepage Departing Soon slider.
+                    </p>
+                  </div>
+
                   {/* ROW 3 — Show Availability toggle paired with TTL + Refresh */}
                   <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-[260px_1fr] md:items-end">
                     <label className="flex items-center gap-2 md:self-center">
@@ -991,6 +1022,26 @@ export default function IntegrationsPage() {
                               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
                             />
                             <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">sec</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                          <div className="flex items-center gap-1.5">
+                            <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Availability Horizon</label>
+                            <InfoTip text="Only fetch live seat counts (checkavail) for departures within this many hours (default 24). Slots further out show their snapshot seat count instead. Lower = far fewer Palisis calls. Automatically stretched to cover the Last Minute Deals window." />
+                          </div>
+                          <div className="relative flex items-center">
+                            <input
+                              type="number"
+                              min={1} max={168} step={1}
+                              value={dsAvailHorizon}
+                              onChange={(e) => {
+                                const n = Math.max(1, Math.min(168, parseInt(e.target.value, 10) || 24))
+                                setKeys((k) => ({ ...k, departing_soon_availability_horizon_hours: String(n) }))
+                                setDsDirty(true)
+                              }}
+                              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 pr-10"
+                            />
+                            <span className="absolute right-3 text-[10px] text-muted-foreground/50 pointer-events-none">hrs</span>
                           </div>
                         </div>
                         <button

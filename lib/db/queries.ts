@@ -94,6 +94,7 @@ const TRIP_SELECT = `
   seo_optimized_by as "seoOptimizedBy", seo_source_hashes as "seoSourceHashes",
   itinerary_steps as "itinerarySteps",
   palisis_product_id as "palisisProductId",
+  custom_iframe_url as "customIframeUrl",
   slug,
   created_at, updated_at
 `
@@ -170,7 +171,7 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
       min_booking_size, max_booking_size, non_refundable,
       next_bookable_date, last_bookable_date,
       palisis_raw, sync_source, last_synced_at,
-      palisis_product_id,
+      palisis_product_id, custom_iframe_url,
       slug
     )
     VALUES (
@@ -188,7 +189,8 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
       $51,$52,$53,
       $54,$55,
       $56,$57,$58,
-      $59,$60
+      $59,$60,
+      $61
     )
     RETURNING *
   `, [
@@ -219,6 +221,7 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
     data.palisisRaw ?? null, data.syncSource ?? null,
     data.lastSyncedAt ? new Date(data.lastSyncedAt as string) : null,
     data.palisisProductId ?? null,
+    data.customIframeUrl ?? null,
     slug,
   ])
   return rows[0]
@@ -274,8 +277,9 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     seoOptimizedBy: 'seo_optimized_by', seoSourceHashes: 'seo_source_hashes',
     // ── Itinerary steps (import-safe; admin/AI-authored, never written by Palisis) ──
     itinerarySteps: 'itinerary_steps',
-    // ── Admin-only booking override (never written by Palisis importer) ────────
+    // ── Admin-only booking overrides (never written by Palisis importer) ───────
     palisisProductId: 'palisis_product_id',
+    customIframeUrl: 'custom_iframe_url',
   }
   // jsonb columns must be serialized to a JSON string before binding (node-pg
   // would otherwise coerce a JS array of objects into a Postgres array literal).

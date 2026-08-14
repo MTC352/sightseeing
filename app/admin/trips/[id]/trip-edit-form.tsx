@@ -565,6 +565,19 @@ export function TripEditForm({
                 When set, shows the Palisis direct booking widget instead of the TourCMS iframe on the trip page and planner. Never overwritten by Palisis sync.
               </p>
             </div>
+            <div>
+              <label className={labelClass}>Custom Booking Iframe URL</label>
+              <input
+                type="url"
+                className={inputClass}
+                placeholder="e.g. https://cafeminigolfluxembourg.palisis.com/?book-direct=r-8967"
+                value={form.customIframeUrl ?? ""}
+                onChange={(e) => set("customIframeUrl", e.target.value || null)}
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                For products on an external Palisis account. When set, this exact URL is embedded as the booking widget — it takes priority over the Palisis Product ID and TourCMS iframe. Never overwritten by Palisis sync.
+              </p>
+            </div>
             <div className={cn(roHidden("duration") && "hidden")}>
               <label className={labelClass}>Duration {!can("duration") && <ReadOnlyBadge />}</label>
               <input type="text" readOnly={!can("duration")} className={inputClass} placeholder="e.g. 2 hours" value={form.duration ?? ""} onChange={(e) => set("duration", e.target.value)} />
