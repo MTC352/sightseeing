@@ -18,6 +18,7 @@ import {
   Dialog, DialogContent, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import { uploadFile } from "@/lib/upload-client"
 
 type MediaFile = {
   id: string
@@ -128,12 +129,13 @@ export default function FilesPage() {
     setUploadError("")
     try {
       for (const file of arr) {
-        const fd = new FormData()
-        fd.append("file", file)
-        const res = await fetch("/api/admin/media", { method: "POST", body: fd })
-        if (!res.ok) {
-          const msg = (await res.json().catch(() => ({}))).error || `Failed to upload ${file.name}`
-          throw new Error(msg)
+        try {
+          await uploadFile(file, "/api/admin/media")
+        } catch (e) {
+          // Prefix the file name so the user knows which upload failed; the
+          // helper already produced a clean, actionable message (security
+          // block, size, or format).
+          throw new Error(`${file.name} — ${e instanceof Error ? e.message : "upload failed"}`)
         }
       }
       await load()
@@ -279,9 +281,9 @@ export default function FilesPage() {
       </div>
 
       {uploadError && (
-        <p className="mb-4 flex items-center justify-between gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {uploadError}
-          <button type="button" onClick={() => setUploadError("")}><X className="h-4 w-4" /></button>
+        <p className="mb-4 flex items-start justify-between gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <span>{uploadError}</span>
+          <button type="button" onClick={() => setUploadError("")} className="mt-0.5 shrink-0"><X className="h-4 w-4" /></button>
         </p>
       )}
 
