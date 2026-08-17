@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
-import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { isFullAdmin } from "@/lib/admin-permissions"
 import { dbListActivity, dbListActivityActors, dbListActivityActions } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -18,8 +18,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 
-  // Recent Activity is a superadmin-only audit trail.
-  if (session.role !== FULL_ACCESS_ROLE) {
+  // Recent Activity audit trail — superadmin or full-access employee.
+  if (!isFullAdmin(session.role, session.permissions)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAdminSession } from "@/lib/auth-server"
-import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { FULL_ACCESS_ROLE, FULL_ACCESS_PERMISSION, isFullAdmin, hasFullAccess } from "@/lib/admin-permissions"
 import { dbListAdminUsers, dbCreateEmployee } from "@/lib/db/queries"
 import { logActivity } from "@/lib/activity-log"
 
@@ -18,7 +18,7 @@ function isUniqueViolation(err: unknown): boolean {
 export async function GET() {
   try {
     const session = await requireAdminSession()
-    if (session.role !== FULL_ACCESS_ROLE) {
+    if (!isFullAdmin(session.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
     const users = await dbListAdminUsers()
@@ -33,7 +33,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const session = await requireAdminSession()
-    if (session.role !== FULL_ACCESS_ROLE) {
+    if (!isFullAdmin(session.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -48,11 +48,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
     }
 
+    // Only a superadmin may grant the full-access wildcard — a full-access
+    // employee managing users cannot escalate others to full access.
+    const permissions = hasFullAccess(body.permissions) && session.role !== FULL_ACCESS_ROLE
+      ? (body.permissions as unknown[]).filter((p) => p !== FULL_ACCESS_PERMISSION)
+      : body.permissions
+
     const user = await dbCreateEmployee({
       username,
       name,
       password,
-      permissions: body.permissions,
+      permissions,
       email: typeof body.email === "string" ? body.email : null,
     })
 

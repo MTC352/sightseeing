@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { dbGetSiteProtection, dbUpdateSiteProtection } from "@/lib/db/queries"
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
-import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { isFullAdmin } from "@/lib/admin-permissions"
 
 export const dynamic = "force-dynamic"
 
@@ -14,7 +14,7 @@ function statusFor(err: unknown): number {
 export async function GET() {
   try {
     const session = await requireAdminSession()
-    if (session.role !== FULL_ACCESS_ROLE) {
+    if (!isFullAdmin(session.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
     const p = await dbGetSiteProtection()
@@ -28,7 +28,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     const session = await requireAdminSession()
-    if (session.role !== FULL_ACCESS_ROLE) {
+    if (!isFullAdmin(session.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

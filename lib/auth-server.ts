@@ -20,7 +20,7 @@
  */
 import { getSession, type AdminSessionPayload } from "@/lib/auth"
 import { queryOne } from "@/lib/db"
-import { sanitizePermissions, FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
+import { sanitizePermissions, FULL_ACCESS_ROLE, hasFullAccess, type PermissionKey } from "@/lib/admin-permissions"
 
 class UnauthorizedError extends Error {
   status = 401
@@ -72,8 +72,23 @@ export async function requirePermission(permission: PermissionKey): Promise<Admi
   const session = await requireAdminSession()
   if (
     session.role !== FULL_ACCESS_ROLE &&
+    !hasFullAccess(session.permissions) &&
     !(session.permissions as PermissionKey[]).includes(permission)
   ) {
+    throw new ForbiddenError()
+  }
+  return session
+}
+
+/**
+ * Like requireAdminSession() but enforces the caller is a superadmin OR a
+ * full-access employee ("*"). Use for the sensitive superadmin sections that a
+ * full-access employee is allowed to reach (users, security, activity, etc.) —
+ * but NOT for Dev-mode-only areas, which must keep requireSuperAdmin().
+ */
+export async function requireFullAccess(): Promise<AdminSessionPayload> {
+  const session = await requireAdminSession()
+  if (session.role !== FULL_ACCESS_ROLE && !hasFullAccess(session.permissions)) {
     throw new ForbiddenError()
   }
   return session
@@ -100,7 +115,7 @@ export async function requireSuperAdmin(): Promise<AdminSessionPayload> {
  */
 export async function requireAnyPermission(permissions: PermissionKey[]): Promise<AdminSessionPayload> {
   const session = await requireAdminSession()
-  if (session.role === FULL_ACCESS_ROLE) return session
+  if (session.role === FULL_ACCESS_ROLE || hasFullAccess(session.permissions)) return session
   const held = session.permissions as PermissionKey[]
   if (!permissions.some((p) => held.includes(p))) {
     throw new ForbiddenError()

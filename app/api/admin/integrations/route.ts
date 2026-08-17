@@ -2,9 +2,9 @@ import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
 import { dbListIntegrations, dbUpsertIntegration, dbGetIntegration } from "@/lib/db/queries"
 import { clearTourCMSConfigCache } from "@/lib/tourcms"
-import { requirePermission, requireSuperAdmin } from "@/lib/auth-server"
+import { requirePermission, requireFullAccess } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
-import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { isFullAdmin } from "@/lib/admin-permissions"
 
 export const dynamic = "force-dynamic"
 
@@ -21,8 +21,8 @@ export async function GET() {
     const session = await requirePermission("integrations")
     const rows = await dbListIntegrations()
 
-    if (session.role !== FULL_ACCESS_ROLE) {
-      // Non-superadmin employees may see which integrations are configured but
+    if (!isFullAdmin(session.role, session.permissions)) {
+      // Section-limited employees may see which integrations are configured but
       // must not receive the actual credential values.
       const masked = rows.map((r: Record<string, unknown>) => ({
         ...r,
@@ -49,10 +49,10 @@ const PROTECTED_INTEGRATION_KEYS = new Set(["announcement"])
 
 export async function PATCH(req: Request) {
   try {
-    // Writing integration rows (API credentials, feature flags) is a superadmin-
-    // only action. A grantable "integrations" employee permission is intentionally
-    // limited to read-only status visibility (masked values).
-    const session = await requireSuperAdmin()
+    // Writing integration rows (API credentials, feature flags) requires full
+    // admin access (superadmin or a full-access employee). A grantable
+    // "integrations" permission is limited to read-only status visibility.
+    const session = await requireFullAccess()
     const body = await req.json() as { key: string; label?: string; value: string } | Array<{ key: string; label?: string; value: string }>
 
     const items = Array.isArray(body) ? body : [body]

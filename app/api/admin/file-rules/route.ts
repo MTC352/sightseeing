@@ -13,7 +13,7 @@ import {
   DEFAULT_RULES,
   HARD_MAX_MB,
 } from "@/lib/file-rules"
-import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { FULL_ACCESS_ROLE, isFullAdmin } from "@/lib/admin-permissions"
 import { logActivity } from "@/lib/activity-log"
 
 export const dynamic = "force-dynamic"
@@ -33,7 +33,7 @@ function isUnauthorized(err: unknown): boolean {
 export async function GET() {
   try {
     const session = await requireAdminSession()
-    if (session.role !== FULL_ACCESS_ROLE) {
+    if (!isFullAdmin(session.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
@@ -64,7 +64,7 @@ export async function GET() {
 export async function PATCH(req: Request) {
   try {
     const session = await requireAdminSession()
-    if (session.role !== FULL_ACCESS_ROLE) {
+    if (!isFullAdmin(session.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 

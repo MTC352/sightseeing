@@ -47,7 +47,7 @@ const NAV: NavItem[] = [
   { href: "/admin/pages", label: "Pages", icon: Layout, perm: "pages" },
   { href: "/admin/files", label: "Files", icon: FolderOpen, perm: "files" },
   { href: "/admin/header-footer", label: "Header / Footer", icon: Code2, superadminOnly: true },
-  { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, badge: "Experimental", perm: "ai-systems" },
+  { href: "/admin/ai-systems", label: "AI Systems", icon: Bot, perm: "ai-systems", devOnly: true },
   { href: "/admin/integrations", label: "Admin Settings", icon: Plug, perm: "integrations" },
   { href: "/admin/users", label: "User Management", icon: Users, superadminOnly: true },
   { href: "/admin/activity", label: "Recent Activity", icon: Activity, superadminOnly: true },
@@ -126,10 +126,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const effectiveCollapsed = isDesktop && collapsed
 
   const isSuperadmin = role === FULL_ACCESS_ROLE
+  // Full-access employees ("*") are superadmin-equivalent for every section
+  // EXCEPT Dev mode, which stays superadmin-only.
+  const isFullAccess = isSuperadmin || permissions.includes("*")
+  const effectiveDevMode = devMode && isSuperadmin
   const visibleNav = NAV.filter((item) => {
-    // Hidden dev-only entries (e.g. Data Migrations) require Developer Mode on.
-    if (item.devOnly && !devMode) return false
+    // Dev-only entries require Developer Mode, which is superadmin-only.
+    if (item.devOnly && !effectiveDevMode) return false
     if (isSuperadmin) return true
+    if (isFullAccess) return true // full-access employee: every non-dev section
     if (item.superadminOnly) return false
     if (!item.perm) return true // e.g. Dashboard — always visible
     return permissions.includes(item.perm)
@@ -182,7 +187,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 {isSuperadmin ? "Admin" : "Employee"}
               </span>
-              {devMode && (
+              {effectiveDevMode && (
                 <span className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-blue-600 dark:text-blue-400">
                   Dev
                 </span>
@@ -238,14 +243,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <Icon className="h-4 w-4 shrink-0" />
                   {!effectiveCollapsed && (
                     <>
-                      <span className="flex-1">{label}</span>
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
                       {devOnly && (
-                        <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                        <span className="shrink-0 rounded-full bg-blue-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
                           Dev
                         </span>
                       )}
                       {badge && (
-                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                        <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                           {badge}
                         </span>
                       )}

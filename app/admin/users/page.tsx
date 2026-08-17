@@ -34,6 +34,18 @@ export default function UsersPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editing, setEditing] = useState<AdminUser | null>(null)
 
+  // The "Full access" grant is a Dev-mode, superadmin-only control.
+  const [isSuperadmin, setIsSuperadmin] = useState(false)
+  const [devMode, setDevMode] = useState(false)
+  useEffect(() => {
+    try { setDevMode(localStorage.getItem("admin_dev_mode") === "1") } catch { /* ignore */ }
+    fetch("/api/admin/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => setIsSuperadmin(me?.role === "superadmin"))
+      .catch(() => {})
+  }, [])
+  const canGrantFullAccess = isSuperadmin && devMode
+
   const load = useCallback(async () => {
     setLoading(true)
     setError("")
@@ -131,11 +143,16 @@ export default function UsersPage() {
                         {u.name} <span className="font-normal text-muted-foreground">@{u.username}</span>
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {u.permissions.length === 0
-                          ? "No sections granted"
-                          : `${u.permissions.length} section${u.permissions.length === 1 ? "" : "s"}: ${u.permissions.join(", ")}`}
+                        {u.permissions.includes("*")
+                          ? "Full access — everything except Dev mode"
+                          : u.permissions.length === 0
+                            ? "No sections granted"
+                            : `${u.permissions.length} section${u.permissions.length === 1 ? "" : "s"}: ${u.permissions.join(", ")}`}
                       </p>
                     </div>
+                    {u.permissions.includes("*") && (
+                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Full access</span>
+                    )}
                     {!u.is_active && (
                       <span className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Disabled</span>
                     )}
@@ -151,6 +168,7 @@ export default function UsersPage() {
       {showCreate && (
         <EmployeeDialog
           mode="create"
+          canGrantFullAccess={canGrantFullAccess}
           onClose={() => setShowCreate(false)}
           onSaved={() => { setShowCreate(false); load() }}
         />
@@ -159,6 +177,7 @@ export default function UsersPage() {
         <EmployeeDialog
           mode="edit"
           user={editing}
+          canGrantFullAccess={canGrantFullAccess}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load() }}
         />
@@ -168,13 +187,15 @@ export default function UsersPage() {
 }
 
 function EmployeeDialog({
-  mode, user, onClose, onSaved,
+  mode, user, canGrantFullAccess, onClose, onSaved,
 }: {
   mode: "create" | "edit"
   user?: AdminUser
+  canGrantFullAccess: boolean
   onClose: () => void
   onSaved: () => void
 }) {
+  const [fullAccess, setFullAccess] = useState(() => !!user?.permissions.includes("*"))
   const [form, setForm] = useState(() =>
     mode === "edit" && user
       ? {
@@ -211,7 +232,8 @@ function EmployeeDialog({
         username: form.username,
         name: form.name,
         email: form.email,
-        permissions: form.permissions,
+        // Full access is stored as the wildcard "*"; it supersedes the section list.
+        permissions: fullAccess ? ["*"] : form.permissions,
       }
       if (mode === "edit") payload.is_active = isActive
       if (form.password.trim()) payload.password = form.password
@@ -309,8 +331,27 @@ function EmployeeDialog({
             />
           </div>
 
-          <div>
-            <label className="mb-2 block text-xs font-medium text-muted-foreground">Admin sections this employee can access</label>
+          {canGrantFullAccess && (
+            <label className="flex items-start gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3">
+              <input
+                type="checkbox"
+                checked={fullAccess}
+                onChange={(e) => setFullAccess(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-emerald-600"
+              />
+              <span>
+                <span className="block text-sm font-medium text-foreground">Full access</span>
+                <span className="block text-xs text-muted-foreground">
+                  Everything a superadmin can do, except Dev mode. Overrides the section list below.
+                </span>
+              </span>
+            </label>
+          )}
+
+          <div className={fullAccess ? "pointer-events-none opacity-50" : undefined}>
+            <label className="mb-2 block text-xs font-medium text-muted-foreground">
+              {fullAccess ? "Sections (ignored while Full access is on)" : "Admin sections this employee can access"}
+            </label>
             <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {ADMIN_SECTIONS.map((s) => {
                 const checked = form.permissions.includes(s.key)

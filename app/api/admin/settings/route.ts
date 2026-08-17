@@ -15,7 +15,7 @@ import {
 import { requireAdminSession } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 import { clearTourCMSConfigCache } from "@/lib/tourcms"
-import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
+import { isFullAdmin, type PermissionKey } from "@/lib/admin-permissions"
 import { normalizeFooterMenu } from "@/lib/footer-menu-normalize"
 
 export const dynamic = "force-dynamic"
@@ -29,7 +29,7 @@ function hasPermission(
   permissions: string[] | undefined,
   required: PermissionKey,
 ): boolean {
-  if (role === FULL_ACCESS_ROLE) return true
+  if (isFullAdmin(role, permissions)) return true
   return Array.isArray(permissions) && permissions.includes(required)
 }
 
@@ -38,7 +38,7 @@ export async function GET() {
     const session = await requireAdminSession()
     const full = await dbGetSettings()
 
-    if (session.role === FULL_ACCESS_ROLE) {
+    if (isFullAdmin(session.role, session.permissions)) {
       return NextResponse.json(full)
     }
 
@@ -129,10 +129,11 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Unknown section" }, { status: 400 })
     }
 
-    // header / footer / announcement require superadmin regardless of any
-    // permission grants, because they can inject arbitrary script site-wide.
+    // header / footer / announcement require full admin access (superadmin or a
+    // full-access employee) regardless of section grants, because they can
+    // inject arbitrary script site-wide.
     if (SUPERADMIN_ONLY_SECTIONS.has(section)) {
-      if (session.role !== FULL_ACCESS_ROLE) {
+      if (!isFullAdmin(session.role, session.permissions)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 })
       }
     } else {

@@ -4,15 +4,26 @@
  * layout nav, and the user-management UI.
  *
  * Roles:
- *  - "superadmin"  → full access to every admin section (the bootstrap admin).
- *  - "employee"    → access limited to the permission keys stored on the account.
+ *  - "superadmin"  → full access to every admin section, including Dev-mode areas
+ *                    (the bootstrap admin).
+ *  - "employee"    → access limited to the permission keys stored on the account,
+ *                    UNLESS granted the FULL_ACCESS_PERMISSION wildcard ("*"), which
+ *                    makes the employee superadmin-equivalent EXCEPT for Dev-mode-only
+ *                    areas (see DEV_ONLY_PREFIXES).
  *
  * Dashboard (/admin) and the auth endpoints are always available to any signed-in
- * admin user. The Users management section is superadmin-only and can never be
- * granted to an employee.
+ * admin user.
  */
 
 export const FULL_ACCESS_ROLE = "superadmin"
+
+/**
+ * Wildcard permission granting an EMPLOYEE superadmin-equivalent access to every
+ * admin section EXCEPT the Dev-mode-only areas (DEV_ONLY_PREFIXES). Stored as the
+ * sole entry in an employee's `permissions` array. Only a superadmin may grant it
+ * (via the Dev-mode "Full access" toggle in User Management).
+ */
+export const FULL_ACCESS_PERMISSION = "*"
 
 export type PermissionKey =
   | "trips"
@@ -47,14 +58,30 @@ export const ADMIN_SECTIONS: { key: PermissionKey; label: string; description: s
 
 const VALID_KEYS = new Set<string>(ADMIN_SECTIONS.map((s) => s.key))
 
-/** Filter arbitrary input down to known, valid permission keys. */
-export function sanitizePermissions(input: unknown): PermissionKey[] {
+export type GrantedPermission = PermissionKey | typeof FULL_ACCESS_PERMISSION
+
+/**
+ * Filter arbitrary input down to known, valid permission keys — preserving the
+ * full-access wildcard "*", which supersedes any individual section keys.
+ */
+export function sanitizePermissions(input: unknown): GrantedPermission[] {
   if (!Array.isArray(input)) return []
+  if (input.includes(FULL_ACCESS_PERMISSION)) return [FULL_ACCESS_PERMISSION]
   const seen = new Set<PermissionKey>()
   for (const v of input) {
     if (typeof v === "string" && VALID_KEYS.has(v)) seen.add(v as PermissionKey)
   }
   return Array.from(seen)
+}
+
+/** True if the given permissions array grants full (wildcard) access. */
+export function hasFullAccess(permissions: unknown): boolean {
+  return Array.isArray(permissions) && permissions.includes(FULL_ACCESS_PERMISSION)
+}
+
+/** True for a superadmin OR a full-access employee (superadmin-equivalent). */
+export function isFullAdmin(role: string, permissions: unknown): boolean {
+  return role === FULL_ACCESS_ROLE || hasFullAccess(permissions)
 }
 
 /**
@@ -146,6 +173,26 @@ function matchPath(pathname: string, prefix: string): boolean {
 }
 
 /**
+ * Dev-mode-only areas. Reachable by superadmins only — a full-access employee
+ * ("*") gets everything EXCEPT these. Keep in sync with the `devOnly` items in
+ * the admin sidebar (app/admin/layout.tsx).
+ */
+const DEV_ONLY_PREFIXES = [
+  "/admin/db-migrations", "/api/admin/db-migrations",
+  "/admin/logs", "/api/admin/logs",
+  "/admin/ai-systems",
+  "/api/admin/planner-behavior", "/api/admin/itinerary-config",
+  "/api/admin/chat-planner-config", "/api/admin/seo-config",
+  "/api/admin/prompt-revisions",
+  "/api/admin/search-availability-source",
+]
+
+/** True when the path is a Dev-mode-only area (superadmin-only). */
+export function isDevOnlyPath(pathname: string): boolean {
+  return DEV_ONLY_PREFIXES.some((p) => matchPath(pathname, p))
+}
+
+/**
  * Authoritative access check used by the proxy. Returns true if the given role +
  * permissions may access the pathname.
  */
@@ -160,6 +207,12 @@ export function canAccessPath(
   if (pathname === "/admin" || pathname === "/admin/") return true
   if (pathname.startsWith("/api/admin/auth")) return true
   if (matchPath(pathname, "/api/admin/dashboard")) return true
+
+  // Full-access employees ("*") are superadmin-equivalent for every section
+  // EXCEPT the Dev-mode-only areas, which remain superadmin-only.
+  if (hasFullAccess(permissions)) {
+    return !isDevOnlyPath(pathname)
+  }
 
   // User management is superadmin-only and never grantable to employees.
   if (matchPath(pathname, "/admin/users") || matchPath(pathname, "/api/admin/users")) {
