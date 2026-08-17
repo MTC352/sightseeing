@@ -12,6 +12,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 import { markdownToHtml, looksLikeHtml } from "@/lib/markdown"
+import { uploadImageFile } from "@/lib/upload-client"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -447,16 +448,13 @@ export function PostEditForm({ post }: { post: AdminPost | null }) {
     if (!file) return
     setUploading(true)
     try {
-      const fd = new FormData()
-      fd.append("file", file)
-      const res = await fetch("/api/upload", { method: "POST", body: fd })
-      if (!res.ok) throw new Error((await res.json()).error ?? "Upload failed")
-      const { url } = await res.json()
+      const url = await uploadImageFile(file, "/api/upload")
       set("image", url)
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to upload image")
     } finally {
       setUploading(false)
+      e.target.value = "" // allow re-selecting the same file after an error
     }
   }
 

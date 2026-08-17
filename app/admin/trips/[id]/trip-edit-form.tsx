@@ -12,6 +12,7 @@ import { TripSyncButton } from "../trip-sync-button"
 import { SEOOptimizer } from "@/components/admin/seo-optimizer"
 import { ItineraryEditor } from "@/components/admin/itinerary-editor"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
+import { uploadImageFile } from "@/lib/upload-client"
 
 // ── Palisis / TourCMS friendly-label vocabularies ──────────────────────────────
 // Tour-type labels — must match the Palisis "Tour type" radio list verbatim.
@@ -188,37 +189,47 @@ export function TripEditForm({
   const [languageInput, setLanguageInput] = useState("")
   const [uploadingFeatured, setUploadingFeatured] = useState(false)
   const [uploadingGallery, setUploadingGallery] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const featuredInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
 
-  async function uploadFile(file: File): Promise<string | null> {
-    const fd = new FormData()
-    fd.append("file", file)
-    const res = await fetch("/api/admin/trips/upload", { method: "POST", body: fd })
-    if (!res.ok) return null
-    const { url } = await res.json()
-    return url as string
-  }
+  const UPLOAD_ENDPOINT = "/api/admin/trips/upload"
 
   async function handleFeaturedUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setUploadError(null)
     setUploadingFeatured(true)
-    const url = await uploadFile(file)
-    if (url) set("image", url)
-    setUploadingFeatured(false)
-    e.target.value = ""
+    try {
+      const url = await uploadImageFile(file, UPLOAD_ENDPOINT)
+      set("image", url)
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Failed to upload image")
+    } finally {
+      setUploadingFeatured(false)
+      e.target.value = ""
+    }
   }
 
   async function handleGalleryUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     if (!files.length) return
+    setUploadError(null)
     setUploadingGallery(true)
-    const urls = await Promise.all(files.map(uploadFile))
-    const valid = urls.filter((u): u is string => !!u)
-    set("gallery", [...(form.gallery ?? []), ...valid])
-    setUploadingGallery(false)
-    e.target.value = ""
+    try {
+      const results = await Promise.allSettled(files.map((f) => uploadImageFile(f, UPLOAD_ENDPOINT)))
+      const urls: string[] = []
+      const errors: string[] = []
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled") urls.push(r.value)
+        else errors.push(`${files[i].name}: ${r.reason instanceof Error ? r.reason.message : "upload failed"}`)
+      })
+      if (urls.length) set("gallery", [...(form.gallery ?? []), ...urls])
+      if (errors.length) setUploadError(errors.join("\n"))
+    } finally {
+      setUploadingGallery(false)
+      e.target.value = ""
+    }
   }
 
   function removeGalleryImage(url: string) {
@@ -616,6 +627,13 @@ export function TripEditForm({
             Media
             {!can("image") && !can("gallery") && <ReadOnlyBadge />}
           </h2>
+
+          {uploadError && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="whitespace-pre-line">{uploadError}</span>
+            </div>
+          )}
 
           {/* Featured Image */}
           <fieldset disabled={!can("image")} className={cn("mb-6", roHidden("image") && "hidden")}>

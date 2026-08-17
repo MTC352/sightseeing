@@ -58,7 +58,22 @@ export function SavedContentApplier() {
         const img = el as HTMLImageElement
         if (img.src !== val) img.src = val
       } else if (el.textContent !== val) {
-        el.textContent = val
+        // Preserve React's DOM node identity. Replacing children via
+        // `el.textContent = val` DETACHES the text node React is tracking and
+        // inserts a foreign one; on the next click → re-render React then fails
+        // to update/remove the node it expected, dropping the interaction — the
+        // classic "button only works on the second click" bug. Mutating the
+        // existing text node's value in place (like the i18n Translator does)
+        // keeps node identity intact, so React stays in sync.
+        const firstChild = el.childNodes.length === 1 ? el.firstChild : null
+        if (firstChild && firstChild.nodeType === Node.TEXT_NODE) {
+          if (firstChild.nodeValue !== val) firstChild.nodeValue = val
+        } else if (el.children.length === 0) {
+          // Leaf with no element children (empty or multiple text nodes) — safe
+          // to set textContent; there is no React-owned subtree to destroy.
+          el.textContent = val
+        }
+        // Otherwise the element contains child ELEMENTS — never nuke them.
       }
     }
   }, [pathname, savedChanges])

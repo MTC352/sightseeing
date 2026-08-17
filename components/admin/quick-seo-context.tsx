@@ -34,6 +34,7 @@ import {
   computeSeoSections, summarizeScore, scoreInputFromFields, stripHtml,
   type SeoFields,
 } from "@/lib/seo/score"
+import { sanitizeRichText } from "@/lib/sanitize-html"
 
 export type QuickSeoStatus = "running" | "ready" | "saving" | "accepted" | "error"
 
@@ -344,18 +345,27 @@ function QuickSeoReviewModal({
           )}
           {REVIEW_ROWS.map((row) => {
             const v = fields[row.key]
+            const rawHtml = row.html ? (typeof v === "string" ? v : "") : ""
             let text = ""
             if (row.array) text = Array.isArray(v) ? (v as string[]).join("\n") : ""
-            else if (row.html) text = stripHtml(typeof v === "string" ? v : "")
+            else if (row.html) text = stripHtml(rawHtml)
             else text = typeof v === "string" ? v : ""
             return (
               <div key={row.key} className="rounded-xl border border-border">
                 <div className="border-b border-border bg-secondary/30 px-3 py-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">{row.label}</span>
                 </div>
-                <div className={cn("whitespace-pre-wrap break-words px-3 py-2 text-[12px] leading-relaxed text-foreground", row.html && "max-h-40 overflow-y-auto")}>
-                  {text || <span className="italic opacity-60">— empty —</span>}
-                </div>
+                {row.html ? (
+                  <div className="max-h-40 overflow-y-auto px-3 py-2">
+                    {text.trim()
+                      ? <div className="rte-content text-[12px] leading-relaxed text-foreground" dangerouslySetInnerHTML={{ __html: sanitizeRichText(rawHtml) }} />
+                      : <span className="text-[12px] italic text-foreground opacity-60">— empty —</span>}
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap break-words px-3 py-2 text-[12px] leading-relaxed text-foreground">
+                    {text || <span className="italic opacity-60">— empty —</span>}
+                  </div>
+                )}
               </div>
             )
           })}

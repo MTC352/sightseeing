@@ -20,6 +20,7 @@ import {
   stripHtml, wordCount, countOccurrences, type SeoFields, type SeoSection,
 } from "@/lib/seo/score"
 import { SeoAiModal, type SeoAiModalCache } from "@/components/admin/seo-ai-modal"
+import { RichTextEditor } from "@/components/admin/rich-text-editor"
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -474,13 +475,12 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
 
             {/* Body */}
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Body Content (HTML)</label>
-              <textarea
-                rows={6}
+              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Body Content</label>
+              <RichTextEditor
                 value={liveFields.seoBody}
-                onChange={(e) => { setBodyOverlay(e.target.value); markDirty("seoBody") }}
+                onChange={(html) => { setBodyOverlay(html); markDirty("seoBody") }}
                 placeholder="Body content…"
-                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                minHeight={160}
               />
               <FieldChecks field="body" />
             </div>

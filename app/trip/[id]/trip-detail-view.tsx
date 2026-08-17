@@ -15,7 +15,7 @@ import { TripItinerary } from "@/components/trip-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
 import { resolveBookingUrl } from "@/lib/booking-url"
-import { stripHtml } from "@/lib/seo/score"
+import { sanitizeRichText } from "@/lib/sanitize-html"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets, Loader2 } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 
@@ -194,14 +194,21 @@ export default function TripDetailClient({
   ).filter(Boolean)
 
   /* ─── Merge DB + static for displayed fields ────────────────────────── */
-  // Description: admin-optimised SEO body → DB long → DB short → static → trip
-  const mergedDescription =
-    (dbDetail?.seoBody ? stripHtml(dbDetail.seoBody) : undefined) ??
-    dbDetail?.longDescription ??
-    dbDetail?.shortDescription ??
-    detail?.description ??
-    trip.description ??
-    ""
+  // Admin-optimised SEO body is authored in a rich-text editor and rendered as
+  // its own formatted block below the answer-first sentence (see JSX). When it's
+  // present it owns the description, so we don't also flatten it into the intro.
+  const seoBodyHtml = dbDetail?.seoBody ? sanitizeRichText(dbDetail.seoBody) : ""
+  const hasSeoBody = seoBodyHtml.trim().length > 0
+
+  // Answer-first sentence tail — only used when there is no formatted SEO body.
+  // Description fallback: DB long → DB short → static → trip.
+  const mergedDescription = hasSeoBody
+    ? ""
+    : (dbDetail?.longDescription ??
+       dbDetail?.shortDescription ??
+       detail?.description ??
+       trip.description ??
+       "")
 
   // Highlights: admin-optimised SEO highlights → DB experience_highlights (text) → trip.highlights[]
   const highlightsList: string[] =
@@ -375,6 +382,13 @@ export default function TripDetailClient({
               <p className="text-sm text-muted-foreground leading-relaxed trip-answer-first" data-testid="trip-description">
                 {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}.{mergedDescription ? ` ${mergedDescription}` : ""}
               </p>
+              {hasSeoBody && (
+                <div
+                  className="rte-content mt-4 text-sm text-muted-foreground"
+                  data-testid="trip-seo-body"
+                  dangerouslySetInnerHTML={{ __html: seoBodyHtml }}
+                />
+              )}
             </div>
 
             {/* Guides (static-only field — preserved for legacy seed trips) */}

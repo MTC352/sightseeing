@@ -19,6 +19,8 @@ import {
   scoreInputFromFields,
   type SeoFields,
 } from "@/lib/seo/score"
+import { RichTextEditor } from "@/components/admin/rich-text-editor"
+import { sanitizeRichText } from "@/lib/sanitize-html"
 
 type Choice = "current" | "ai" | "manual"
 
@@ -35,7 +37,7 @@ const FIELD_DEFS: FieldDef[] = [
   { key: "seoMetaDescription", label: "Meta Description", multiline: true },
   { key: "seoSlug", label: "URL Slug" },
   { key: "seoHighlights", label: "Highlights (one per line)", multiline: true, array: true },
-  { key: "seoBody", label: "Body Content (HTML)", multiline: true },
+  { key: "seoBody", label: "Body Content", multiline: true },
 ]
 
 /**
@@ -340,9 +342,17 @@ export function SeoAiModal({ tripId, image, current, cache, onCache, onClose, on
                           <input type="radio" checked={choice === "current"} onChange={() => setChoices((p) => ({ ...p, [def.key]: "current" }))} />
                           <span className="text-[11px] font-semibold text-muted-foreground">Current</span>
                         </div>
-                        <div className={cn("whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted-foreground", def.key === "seoBody" && "max-h-40 overflow-y-auto")}>
-                          {currentText || <span className="italic opacity-60">— empty —</span>}
-                        </div>
+                        {def.key === "seoBody" ? (
+                          <div className="max-h-40 overflow-y-auto">
+                            {currentText.trim()
+                              ? <div className="rte-content text-[12px] leading-relaxed text-muted-foreground" dangerouslySetInnerHTML={{ __html: sanitizeRichText(currentText) }} />
+                              : <span className="text-[12px] italic text-muted-foreground opacity-60">— empty —</span>}
+                          </div>
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted-foreground">
+                            {currentText || <span className="italic opacity-60">— empty —</span>}
+                          </div>
+                        )}
                       </label>
 
                       {/* AI suggested */}
@@ -362,11 +372,18 @@ export function SeoAiModal({ tripId, image, current, cache, onCache, onClose, on
                           <input type="radio" checked={choice === "manual"} onChange={() => setChoices((p) => ({ ...p, [def.key]: "manual" }))} />
                           <span className="text-[11px] font-semibold text-foreground">Manual</span>
                         </div>
-                        {def.multiline ? (
+                        {def.key === "seoBody" ? (
+                          <RichTextEditor
+                            value={manual[def.key] ?? ""}
+                            onChange={(html) => { setManual((p) => ({ ...p, [def.key]: html })); setChoices((p) => ({ ...p, [def.key]: "manual" })) }}
+                            placeholder="Body content…"
+                            minHeight={140}
+                          />
+                        ) : def.multiline ? (
                           <textarea
                             value={manual[def.key] ?? ""}
                             onChange={(e) => { setManual((p) => ({ ...p, [def.key]: e.target.value })); setChoices((p) => ({ ...p, [def.key]: "manual" })) }}
-                            rows={def.key === "seoBody" ? 6 : 3}
+                            rows={3}
                             className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-[12px] text-foreground focus:border-primary/50 focus:outline-none"
                           />
                         ) : (
