@@ -26,6 +26,8 @@ export async function GET(req: Request) {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {/* Logo mark drawn with divs (no glyph) so Satori never needs to
+              dynamically download a font — that fetch fails in this runtime. */}
           <div
             style={{
               width: 36,
@@ -35,10 +37,20 @@ export async function GET(req: Request) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 22,
             }}
           >
-            ◐
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 10,
+                background: "white",
+                display: "flex",
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ width: 10, height: 20, background: "#0f766e", display: "flex" }} />
+            </div>
           </div>
           <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: -0.5 }}>sightseeing.lu</div>
         </div>
