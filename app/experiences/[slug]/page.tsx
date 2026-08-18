@@ -7,6 +7,9 @@ import { TripCard } from "@/components/trip-card"
 import { categories, type Trip } from "@/lib/data"
 import { dbListTrips } from "@/lib/db/queries"
 import { safeJsonLd } from "@/lib/json-ld"
+import { getRequestLocale } from "@/lib/i18n/server-locale"
+import { translateMeta } from "@/lib/i18n/metadata"
+import { buildAlternates, addLocale, LOCALE_OG } from "@/lib/i18n/routing"
 import { Star, Clock, MapPin, ArrowRight } from "lucide-react"
 import { notFound } from "next/navigation"
 
@@ -103,14 +106,19 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const catTrips = allTrips.filter((t) => t.category === cat.name)
   const description = `${cat.name} in Luxembourg: ${catTrips.length} experiences from ${Math.min(...catTrips.map((t) => t.price).filter((p) => p > 0)).toFixed(0)} EUR. ${CATEGORY_INTROS[cat.name]?.split(".")[0] ?? ""}.`
 
+  const locale = await getRequestLocale()
+  const routePath = `/experiences/${slug}`
+  const title = `${cat.name} Experiences in Luxembourg`
+  const tr = await translateMeta(locale, { title, description })
   return {
-    title: `${cat.name} Experiences in Luxembourg`,
-    description,
-    alternates: { canonical: `${BASE}/experiences/${slug}` },
+    title: tr.title ?? title,
+    description: tr.description ?? description,
+    alternates: buildAlternates(routePath, locale, BASE),
     openGraph: {
-      title: `${cat.name} - Luxembourg Experiences | sightseeing.lu`,
-      description,
-      url: `${BASE}/experiences/${slug}`,
+      title: tr.title ?? `${cat.name} - Luxembourg Experiences | sightseeing.lu`,
+      description: tr.description ?? description,
+      url: `${BASE}${addLocale(routePath, locale)}`,
+      locale: LOCALE_OG[locale],
       images: catTrips[0] ? [{ url: catTrips[0].image.startsWith("/") ? `${BASE}${catTrips[0].image}` : catTrips[0].image, width: 1200, height: 630, alt: cat.name }] : [],
     },
   }

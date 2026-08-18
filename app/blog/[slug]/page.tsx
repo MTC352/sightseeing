@@ -10,6 +10,9 @@ import { sanitizeRichText } from "@/lib/sanitize-html"
 import { markdownToHtml, looksLikeHtml } from "@/lib/markdown"
 import { buildTripSlugMap, rewriteTripLinksToSlugs, type TripSlugRef } from "@/lib/blog-trip-links"
 import type { Metadata } from "next"
+import { getRequestLocale } from "@/lib/i18n/server-locale"
+import { translateMeta } from "@/lib/i18n/metadata"
+import { buildAlternates, addLocale, LOCALE_OG } from "@/lib/i18n/routing"
 
 export const dynamic = "force-dynamic"
 
@@ -78,17 +81,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = post.seoTitle || `${post.title} | sightseeing.lu`
   const description = post.seoDescription || post.excerpt
   const ogImage = ogImageFor(post)
-  const canonical = `${BASE}/blog/${post.slug}`
+
+  const locale = await getRequestLocale()
+  const routePath = `/blog/${post.slug}`
+  const tr = await translateMeta(locale, { title, description })
 
   return {
-    title,
-    description,
-    alternates: { canonical },
+    title: tr.title ?? title,
+    description: tr.description ?? description,
+    alternates: buildAlternates(routePath, locale, BASE),
     openGraph: {
       type: "article",
-      title: post.title,
-      description,
-      url: canonical,
+      title: tr.title ?? post.title,
+      description: tr.description ?? description,
+      url: `${BASE}${addLocale(routePath, locale)}`,
+      locale: LOCALE_OG[locale],
       images: [{ url: ogImage, width: 1200, height: 630, alt: post.title }],
       publishedTime: post.publishedAt ?? undefined,
       modifiedTime: post.updated_at ? new Date(post.updated_at).toISOString() : undefined,
@@ -97,8 +104,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     },
     twitter: {
       card: "summary_large_image",
-      title: post.title,
-      description,
+      title: tr.title ?? post.title,
+      description: tr.description ?? description,
       images: [ogImage],
     },
   }

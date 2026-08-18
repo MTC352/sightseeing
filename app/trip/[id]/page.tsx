@@ -6,6 +6,9 @@ import TripDetailClient, { type TripDbDetail, type TripFaq, type RelatedTrip } f
 import { SiteFooter } from "@/components/site-footer"
 import { ViewItemTracker } from "@/components/analytics/view-item-tracker"
 import { dbGetTrip, dbListTrips, dbTripStatus } from "@/lib/db/queries"
+import { getRequestLocale } from "@/lib/i18n/server-locale"
+import { translateMeta } from "@/lib/i18n/metadata"
+import { buildAlternates, addLocale, LOCALE_OG } from "@/lib/i18n/routing"
 
 function mapDbTrip(r: Record<string, unknown>): Trip {
   return {
@@ -274,21 +277,26 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     ? `${seoKeyword} — ${trip.title}`
     : `${trip.title} — ${trip.category} experience in ${trip.city ?? "Luxembourg"}`
 
+  const locale = await getRequestLocale()
+  const routePath = `/trip/${trip.slug ?? trip.id}`
+  const tr = await translateMeta(locale, { title: seoTitle, description })
+  const mTitle = tr.title ?? seoTitle
+  const mDesc = tr.description ?? description
+
   return {
-    title: seoTitle,
-    description,
+    title: mTitle,
+    description: mDesc,
     keywords: [
       ...(seoKeyword ? [seoKeyword] : []),
       trip.category, trip.city ?? "Luxembourg", ...trip.tags, "Luxembourg tours", "sightseeing",
     ],
-    alternates: {
-      canonical: `${BASE}/trip/${trip.slug ?? trip.id}`,
-    },
+    alternates: buildAlternates(routePath, locale, BASE),
     openGraph: {
       type: "article",
-      title: seoTitle,
-      description,
-      url: `${BASE}/trip/${trip.slug ?? trip.id}`,
+      title: mTitle,
+      description: mDesc,
+      url: `${BASE}${addLocale(routePath, locale)}`,
+      locale: LOCALE_OG[locale],
       images: [
         { url: ogImage, width: 1200, height: 630, alt: altText },
         { url: imageUrl, width: 1200, height: 630, alt: altText },
@@ -296,8 +304,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     },
     twitter: {
       card: "summary_large_image",
-      title: seoTitle,
-      description,
+      title: mTitle,
+      description: mDesc,
       images: [ogImage],
     },
   }
