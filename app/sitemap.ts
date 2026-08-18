@@ -9,13 +9,16 @@ function slugify(name: string) {
   return name.toLowerCase().replace(/ & /g, "-").replace(/ /g, "-")
 }
 
-const langAlternates = (path: string) => ({
-  languages: {
-    en: `${BASE}${path}`,
-    de: `${BASE}${addLocale(path, "de")}`,
-    fr: `${BASE}${addLocale(path, "fr")}`,
-  },
-})
+const langAlternates = (path: string) => {
+  const seg = path === "/" ? "" : path
+  return {
+    languages: {
+      en: `${BASE}${seg}`,
+      de: `${BASE}${addLocale(path, "de")}`,
+      fr: `${BASE}${addLocale(path, "fr")}`,
+    },
+  }
+}
 
 // Must be dynamic — sitemap reflects only currently-published trips and posts.
 // Archiving in admin removes the row from the next crawler hit.
