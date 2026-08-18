@@ -12,19 +12,19 @@ const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT", "
 // only for genuinely opting-out ancestors/containers.
 const ATTR_SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"])
 
-function readCookie(name: string): string {
-  if (typeof document === "undefined") return ""
-  const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"))
-  return m ? decodeURIComponent(m[1]) : ""
-}
-
 export function getSiteLang(): string {
+  // Language is derived from the URL prefix ONLY (/fr, /de). English is the
+  // unprefixed source and is never client-translated: the server always renders
+  // the English source body on unprefixed routes, so translating the DOM there
+  // (as the old cookie fallback did) made the client disagree with the server and
+  // React reported a hydration mismatch. The language switcher navigates to the
+  // prefixed URL, so the prefix is the single source of truth — the site_lang
+  // cookie is no longer consulted for rendering.
   if (typeof location !== "undefined") {
     const { locale } = stripLocale(location.pathname)
     if (locale !== "en") return locale
   }
-  const c = readCookie(LANG_COOKIE)
-  return isSupportedLang(c) ? c : SOURCE_LANG
+  return SOURCE_LANG
 }
 
 // Per-language source->translation map, kept in memory and mirrored to
