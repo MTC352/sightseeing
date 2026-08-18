@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { Menu, X, ShoppingBag, Search, Globe } from "lucide-react"
 import { CartContext } from "@/lib/cart-context"
 import { useSiteLang } from "@/components/i18n/translator"
+import { stripLocale, addLocale } from "@/lib/i18n/routing"
 
 function IconHome({ className }: { className?: string }) {
   return (
@@ -55,13 +56,21 @@ const LANGUAGES = [
 
 export function Navbar() {
   const [open, setOpen] = useState(false)
-  const { lang: currentLang, ready: weglotReady, setLang: switchLanguage } = useSiteLang()
+  const { setLang } = useSiteLang()
+  const router = useRouter()
   // When the admin hides the planner from the public, drop its nav link for
   // non-logged-in visitors. The endpoint already factors in admin sessions.
   const [plannerHidden, setPlannerHidden] = useState(false)
   const pathname = usePathname()
+  const { locale: currentLang, path: barePath } = stripLocale(pathname || "/")
   const cartCtx = useContext(CartContext)
   const totalItems = cartCtx?.totalItems ?? 0
+
+  const switchLanguage = (code: string) => {
+    setLang(code) // cookie + in-place DOM translate
+    if (code === "en") return // setSiteLang('en') reloads to the bare path
+    router.push(addLocale(barePath, code as "fr" | "de"))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -105,28 +114,22 @@ export function Navbar() {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
-          {weglotReady ? (
-            <div className="hidden items-center gap-0.5 rounded-lg border border-border p-0.5 md:flex" role="group" aria-label="Language switcher">
-              {LANGUAGES.map((lang) => (
-                <button
-                  key={lang.code}
-                  type="button"
-                  onClick={() => switchLanguage(lang.code)}
-                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                    currentLang === lang.code ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  aria-pressed={currentLang === lang.code}
-                  aria-label={`Switch to ${lang.label}`}
-                >
-                  {lang.label}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground/50">
-              <Globe className="h-3.5 w-3.5" />
-            </div>
-          )}
+          <div className="hidden items-center gap-0.5 rounded-lg border border-border p-0.5 md:flex" role="group" aria-label="Language switcher">
+            {LANGUAGES.map((lang) => (
+              <button
+                key={lang.code}
+                type="button"
+                onClick={() => switchLanguage(lang.code)}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                  currentLang === lang.code ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+                aria-pressed={currentLang === lang.code}
+                aria-label={`Switch to ${lang.label}`}
+              >
+                {lang.label}
+              </button>
+            ))}
+          </div>
 
           <SearchPopover />
 
@@ -174,25 +177,23 @@ export function Navbar() {
               </Link>
             )
           })}
-          {weglotReady && (
-            <div className="mt-2 flex items-center gap-1 border-t border-border pt-3">
-              <Globe className="h-4 w-4 text-muted-foreground" />
-              <div className="flex gap-0.5">
-                {LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    type="button"
-                    onClick={() => { switchLanguage(lang.code); setOpen(false) }}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                      currentLang === lang.code ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {lang.label}
-                  </button>
-                ))}
-              </div>
+          <div className="mt-2 flex items-center gap-1 border-t border-border pt-3">
+            <Globe className="h-4 w-4 text-muted-foreground" />
+            <div className="flex gap-0.5">
+              {LANGUAGES.map((lang) => (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => { switchLanguage(lang.code); setOpen(false) }}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    currentLang === lang.code ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {lang.label}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
         </div>
       )}
     </nav>
