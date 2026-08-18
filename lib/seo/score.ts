@@ -448,28 +448,61 @@ export function ensureBody(rawBody: string, keyword: string, opts: EnsureBodyOpt
 
   // 1) Content length ≥ 600 words FIRST, topped up with on-topic, KEYWORD-FREE
   //    sentences (so the final density top-up can land squarely in 0.5–2.5%).
+  //    Each sentence is used AT MOST ONCE — never cycle the same lines, or the
+  //    padding reads as duplicated blocks at the end of the body.
   const fillers = [
     `From the moment you arrive, the day blends memorable sights, local stories and practical comfort so every traveller leaves with something special to remember about ${city}.`,
     `Knowledgeable local guides share the history and hidden corners that most visitors miss, turning a simple outing into a richer, more personal discovery of ${city}.`,
     `Whether you are visiting for the first time or returning to see more, the relaxed pace leaves room to take photos, ask questions and soak in the atmosphere of ${city}.`,
     `Comfortable arrangements, clear timing and friendly hosts mean you can focus on enjoying yourself rather than worrying about the logistics of your day in ${city}.`,
+    `Every detail is thought through in advance, from the meeting point to the finishing touches, so your time in ${city} feels smooth and unhurried from start to finish.`,
+    `Families, couples and solo explorers all find something to enjoy, with a welcoming atmosphere that makes it easy to settle in and take ${city} at your own pace.`,
+    `Along the way you will hear the kind of local insight that rarely appears in guidebooks, giving you a genuine sense of what makes ${city} special.`,
+    `There is plenty of time to pause for a coffee, browse a market stall or simply watch the world go by in the heart of ${city}.`,
+    `The route balances well-known landmarks with quieter corners, so you experience both the highlights and the everyday charm of ${city}.`,
+    `Each season brings its own character, and every visit reveals a slightly different side of ${city}, from bright summer afternoons to crisp, golden autumn light.`,
+    `Good planning means fewer queues and more moments that matter, letting you spend your energy on the experiences that make a trip to ${city} worthwhile.`,
+    `Our team is on hand before, during and after your visit, ready to answer questions and keep everything about your time in ${city} running smoothly.`,
+    `You will come away with photographs, stories and a clearer picture of the culture, food and traditions that shape daily life in ${city}.`,
+    `The pace is gentle enough for all ages yet full enough to feel like a proper adventure, striking a happy balance for your day in ${city}.`,
+    `Small thoughtful touches, from clear directions to helpful recommendations, add up to an experience that feels personal rather than rushed or crowded in ${city}.`,
+    `By the end you will understand why so many visitors describe ${city} as one of the most rewarding and surprising places to explore in the region.`,
+    `It is an easy way to see more in less time, weaving together sights, flavours and stories that give real depth to your visit to ${city}.`,
+    `Whatever the weather, there are memorable moments to be found, and a flexible approach helps you make the most of every hour you spend in ${city}.`,
+    `Expect warm hospitality, honest local tips and a genuine welcome that reflects the friendly, laid-back spirit you notice throughout ${city}.`,
+    `From lively squares to peaceful riverside paths, the changing scenes keep things interesting and show off the variety that defines ${city}.`,
+    `Booking ahead secures your place and gives you one less thing to think about, so you can look forward to your day in ${city} with confidence.`,
+    `The experience suits careful planners and spontaneous travellers alike, offering structure where you want it and freedom where you need it across ${city}.`,
+    `Little discoveries along the way — a hidden courtyard, a favourite viewpoint, a local speciality — are often the details people remember most about ${city}.`,
+    `It all adds up to a relaxed, well-rounded outing that leaves you feeling you have truly seen and enjoyed the best of ${city}.`,
   ]
   let lenGuard = 0
-  while (wordCount(stripHtml(html)) < 600 && lenGuard < 60) {
-    html += `\n<p>${fillers[lenGuard % fillers.length]}</p>`
+  while (wordCount(stripHtml(html)) < 600 && lenGuard < fillers.length) {
+    html += `\n<p>${fillers[lenGuard]}</p>`
     lenGuard++
   }
 
   // 2) Keyword density floor (aim ~1%, stay under the 2.5% ceiling). Done last,
-  //    after length, since the keyword-free fillers above dilute density.
+  //    after length, since the keyword-free fillers above dilute density. Pull
+  //    from a varied pool so repeated top-ups never duplicate the same sentence.
   if (kw) {
+    const densityFillers = [
+      `Our ${kw} is designed to make the most of your time in ${city}.`,
+      `Choosing this ${kw} means expert guidance and a smooth, well-paced day in ${city}.`,
+      `This ${kw} brings together the sights, stories and comfort that make ${city} memorable.`,
+      `Booking the ${kw} is the easy way to see the best of ${city} without the stress.`,
+      `Every ${kw} we offer is built around genuine local knowledge of ${city}.`,
+      `A well-planned ${kw} turns a busy schedule into a relaxed exploration of ${city}.`,
+      `Travellers rate this ${kw} for its friendly guides and thoughtful pacing around ${city}.`,
+      `From start to finish, the ${kw} is about helping you enjoy ${city} at its best.`,
+    ]
     let guard = 0
-    while (guard < 12) {
+    while (guard < densityFillers.length) {
       const plain = stripHtml(html)
       const words = wordCount(plain)
       const density = words > 0 ? (countOccurrences(plain, kw) / words) * 100 : 0
       if (density >= 0.8) break
-      html += `\n<p>Our ${kw} is designed to make the most of your time in ${city}.</p>`
+      html += `\n<p>${densityFillers[guard]}</p>`
       guard++
     }
   }
