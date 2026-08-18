@@ -87,7 +87,7 @@ export function DepartingSoonPageClient() {
   // keys are stable (tripId-date-time), so unchanged cards don't re-mount.
   const overlayAvailability = useCallback(async () => {
     try {
-      const res = await fetch("/api/departing-soon?scope=today", { cache: "no-store" })
+      const res = await fetch("/api/departing-soon?scope=today&dsFilter=1", { cache: "no-store" })
       const data = await res.json()
       if (!data.ok || !Array.isArray(data.departures)) return
       if (typeof data.availabilityThreshold === "number") setThreshold(data.availabilityThreshold)
@@ -105,7 +105,7 @@ export function DepartingSoonPageClient() {
   // then trigger the availability overlay for the now-visible trips.
   const fetchSnapshot = useCallback(async () => {
     try {
-      const res = await fetch("/api/departing-soon?scope=today&availability=0", { cache: "no-store" })
+      const res = await fetch("/api/departing-soon?scope=today&dsFilter=1&availability=0", { cache: "no-store" })
       const data = await res.json()
 
       if (data.widgetEnabled === false || data.tourcmsConfigured === false) {

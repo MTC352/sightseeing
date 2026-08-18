@@ -109,13 +109,19 @@ export async function GET(req: Request) {
       }
     }
 
-    // `scope=today` powers the standalone "Departing Soon" page: it returns the
-    // next/soonest upcoming slot for EVERY trip departing today (Luxembourg local
-    // date), with NO slot-count cap. The default scope keeps the homepage widget
-    // behaviour (earliest slots across the window, capped at slotCount).
+    // "Departing Soon" means departing TODAY (Luxembourg local date) on EVERY
+    // surface — homepage widget and standalone page alike. `scope=today` only
+    // controls capping: it powers the standalone page with NO slot-count cap,
+    // returning the soonest upcoming slot for every trip departing today. The
+    // default scope (homepage widget) is likewise today-only but capped at
+    // slotCount. Neither scope surfaces departures for future days.
     const params = new URL(req.url).searchParams
     const scope = params.get("scope")
-    const todayOnly = scope === "today"
+    const uncapped = scope === "today"
+    // `dsFilter=1` applies the per-trip "Show in Departing Soon" toggle. ONLY the
+    // Departing Soon widget + standalone page send it; the Filling Up Fast page
+    // (which shares this endpoint) omits it so the toggle never affects it.
+    const applyDsToggle = params.get("dsFilter") === "1"
     const luxToday = luxembourgTodayDate()
 
     // Phase-1 fast paint: `availability=0` returns cards straight from the
@@ -129,20 +135,26 @@ export async function GET(req: Request) {
     const availabilityEnabled = await getShowAvailability()
     const showAvailability = withAvailability && availabilityEnabled
     const slotCount = await getSlotCount()
-    // All trips' earliest upcoming slots — NO count cap yet.
-    // The availability filter runs below; we slice to slotCount AFTER it.
+    // All trips' earliest upcoming slot, restricted to TODAY's departures — NO
+    // count cap yet. The availability filter runs below; we slice to slotCount
+    // AFTER it (default scope only).
     const displayed = computeDisplayedSlots().filter(
-      (slot) => !todayOnly || slot.date === luxToday,
+      (slot) => slot.date === luxToday,
     )
 
-    // Re-validate publication status against the live DB so that trips
-    // archived AFTER the discovery cache was built drop out immediately
-    // (otherwise they'd leak until the next discovery refresh window).
+    // Re-validate eligibility against the live DB so that trips archived — or
+    // (when dsFilter is on) toggled OFF for Departing Soon — AFTER the discovery
+    // cache was built drop out immediately (otherwise they'd leak until the next
+    // discovery refresh window). The `departing_soon_enabled` gate is applied
+    // ONLY for the Departing Soon surfaces (dsFilter=1); it defaults to true, so
+    // only trips the admin has explicitly disabled are excluded.
     let publishedIds: Set<string> | null = null
     try {
       const { query } = await import("@/lib/db")
       const rows = (await query(
-        `SELECT id FROM trips WHERE status = 'published'`,
+        applyDsToggle
+          ? `SELECT id FROM trips WHERE status = 'published' AND departing_soon_enabled = true`
+          : `SELECT id FROM trips WHERE status = 'published'`,
       )) as Array<{ id: string }>
       publishedIds = new Set(rows.map((r) => String(r.id)))
     } catch {
@@ -193,7 +205,7 @@ export async function GET(req: Request) {
 
     // Slice AFTER filtering — so we always show up to slotCount bookable trips.
     // The standalone page (scope=today) is uncapped: it shows every today trip.
-    const departures = todayOnly ? allPassing : allPassing.slice(0, slotCount)
+    const departures = uncapped ? allPassing : allPassing.slice(0, slotCount)
 
     const autoUpdate = await getAutoUpdateEnabled()
     const intervalSecs = await getAutoUpdateIntervalSeconds()
@@ -203,7 +215,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       departures,
-      scope: todayOnly ? "today" : "default",
+      scope: uncapped ? "today" : "default",
       today: luxToday,
       widgetEnabled: true,
       showAvailability,

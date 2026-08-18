@@ -49,6 +49,8 @@ export interface AdminTrip {
   customIframeUrl?: string | null
   featured: boolean
   featuredDeparture?: boolean
+  /** Eligible for the Departing Soon widget + page. Default true (allow). */
+  departingSoonEnabled?: boolean
   status?: "published" | "draft" | "deactivated"
 
   // ── Rich Palisis fields (imported from showTour, editable in admin) ────────

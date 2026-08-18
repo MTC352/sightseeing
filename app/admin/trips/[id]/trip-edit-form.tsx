@@ -62,6 +62,7 @@ const NEW_TRIP_DEFAULTS: Partial<AdminTrip> = {
   googleBusinessUrl: "",
   featured: false,
   featuredDeparture: false,
+  departingSoonEnabled: true,
   status: "draft",
   tripTags: [],
   languages: [],
@@ -1171,7 +1172,7 @@ export function TripEditForm({
         </section>
 
         {/* Options */}
-        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("badge", "status", "featured") && "hidden")}>
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("badge", "status", "featured", "departingSoonEnabled") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Options</h2>
           <div className="flex flex-col gap-4">
             <div className={cn(roHidden("badge") && "hidden")}>
@@ -1202,6 +1203,21 @@ export function TripEditForm({
                   aria-checked={form.featured}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.featured ? "translate-x-6" : "translate-x-1"}`} />
+                </button>
+              </div>
+              {/* Departing Soon eligibility — default ON. When off, the trip is
+                  excluded from the homepage widget and the /departing-soon page. */}
+              <div className={cn(roHidden("departingSoonEnabled") && "hidden")}>
+                <label className={labelClass}>Show in Departing Soon {!can("departingSoonEnabled") && <ReadOnlyBadge />}</label>
+                <button
+                  type="button"
+                  disabled={!can("departingSoonEnabled")}
+                  onClick={() => can("departingSoonEnabled") && set("departingSoonEnabled", form.departingSoonEnabled === false)}
+                  className={`mt-1 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${form.departingSoonEnabled !== false ? "bg-primary" : "bg-border"}`}
+                  role="switch"
+                  aria-checked={form.departingSoonEnabled !== false}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.departingSoonEnabled !== false ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
               </div>
             </div>

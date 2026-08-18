@@ -608,6 +608,11 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     category?: string
     city?: string
   }>
+  // The discovery cache is the shared source for Departing Soon, Last Minute
+  // Deals and Filling Up Fast, so it deliberately holds ALL synced trips. The
+  // per-trip "Show in Departing Soon" toggle is applied downstream — only on the
+  // Departing Soon widget + page (see /api/departing-soon `dsFilter`) — so it
+  // never removes a trip from Last Minute Deals or Filling Up Fast.
   const synced = allTrips.filter((t) => t.palisis_id)
 
   const today = new Date()

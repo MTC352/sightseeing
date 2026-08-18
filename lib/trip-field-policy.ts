@@ -52,6 +52,7 @@ export const TRIP_FIELDS: TripFieldDef[] = [
   { key: "googleBusinessUrl", label: "Google Business URL", group: "Basics", source: "local", defaultMode: "editable" },
   { key: "featured",          label: "Featured",         group: "Basics",  source: "local",   defaultMode: "editable" },
   { key: "featuredDeparture", label: "Featured Departure", group: "Basics", source: "local",  defaultMode: "editable" },
+  { key: "departingSoonEnabled", label: "Show in Departing Soon", group: "Basics", source: "local", defaultMode: "editable" },
   { key: "status",            label: "Status",           group: "Basics",  source: "local",   defaultMode: "editable" },
 
   // ── Trip Tags (Palisis — default read-only as per user request) ───────────

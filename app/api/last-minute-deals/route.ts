@@ -32,6 +32,7 @@ import {
   getLmdMaxCards,
   getShowAvailability,
   computeAllFirstSlots,
+  luxembourgTodayDate,
   tryHydrateFromDb,
 } from "@/lib/departing-soon-cache"
 import { dbGetTrip } from "@/lib/db/queries"
@@ -151,8 +152,11 @@ export async function GET(req: Request) {
     const nowUtc     = Math.floor(Date.now() / 1000)
     const horizonUtc = nowUtc + maxHours * 3600
 
-    // ── Get each trip's earliest upcoming slot ────────────────────────────
-    const allFirst = computeAllFirstSlots()
+    // ── Get each trip's earliest upcoming slot, restricted to TODAY ───────
+    // Last Minute Deals / Filling Up Fast only surface departures leaving today
+    // (Luxembourg local date), matching the Departing Soon surfaces.
+    const luxToday = luxembourgTodayDate()
+    const allFirst = computeAllFirstSlots().filter((s) => s.date === luxToday)
 
     // ── Live deals: filter by spaces ≤ maxSpaces, sort fewest first ───────
     const dealCandidates: Array<{ slot: typeof allFirst[0]; spaces: number; hrs: number }> = []

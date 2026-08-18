@@ -67,7 +67,8 @@ const TRIP_SELECT = `
   price::float, original_price::float as "originalPrice", duration, category, tags, city,
   provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
   permalink, google_business_url as "googleBusinessUrl",
-  featured, featured_departure as "featuredDeparture", status,
+  featured, featured_departure as "featuredDeparture",
+  departing_soon_enabled as "departingSoonEnabled", status,
   tour_type as "tourType", tour_type_code as "tourTypeCode",
   tour_leader as "tourLeader", grade, accommodation_rating as "accommodationRating",
   trip_tags as "tripTags", languages,
@@ -172,7 +173,8 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
       next_bookable_date, last_bookable_date,
       palisis_raw, sync_source, last_synced_at,
       palisis_product_id, custom_iframe_url,
-      slug
+      slug,
+      departing_soon_enabled
     )
     VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
@@ -190,7 +192,8 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
       $54,$55,
       $56,$57,$58,
       $59,$60,
-      $61
+      $61,
+      $62
     )
     RETURNING *
   `, [
@@ -223,6 +226,7 @@ export async function dbCreateTrip(data: Record<string, unknown>) {
     data.palisisProductId ?? null,
     data.customIframeUrl ?? null,
     slug,
+    data.departingSoonEnabled ?? true,
   ])
   return rows[0]
 }
@@ -246,7 +250,8 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     provider: 'provider', image: 'image', gallery: 'gallery', highlights: 'highlights',
     badge: 'badge', rating: 'rating', reviewCount: 'review_count', permalink: 'permalink',
     googleBusinessUrl: 'google_business_url', featured: 'featured',
-    featuredDeparture: 'featured_departure', status: 'status',
+    featuredDeparture: 'featured_departure',
+    departingSoonEnabled: 'departing_soon_enabled', status: 'status',
     // ── Palisis-rich fields ────────────────────────────────────────────────
     tourType: 'tour_type', tourTypeCode: 'tour_type_code',
     tourLeader: 'tour_leader', grade: 'grade', accommodationRating: 'accommodation_rating',

@@ -212,6 +212,7 @@ export interface MappedTrip {
   reviewCount: number
   featured: boolean
   featuredDeparture: boolean
+  departingSoonEnabled: boolean
   status: "published" | "draft"
   permalink: string | null
   originalPrice: number | null
@@ -351,6 +352,7 @@ export function mapTourDetailToTrip(t: TourDetail | TourSummary): MappedTrip {
     reviewCount: 0,
     featured: false,
     featuredDeparture: false,
+    departingSoonEnabled: true,
     status: "published",
     permalink,
     originalPrice: null,
