@@ -175,7 +175,7 @@ function slotFitsTime(slot: Timeslot, timeFrom: string, timeTo: string): boolean
  * Widget visibility is controlled per-section by `config` (admin panel).
  * Apply/Reset commit changes upstream; live editing stays local until then. */
 function FilterModal({
-  open, onClose, filters, onChange, config, tagOptions, typeOptions, departureOptions,
+  open, onClose, filters, onChange, config, tagOptions, typeOptions,
 }: {
   open: boolean
   onClose: () => void
@@ -184,7 +184,6 @@ function FilterModal({
   config: SearchFiltersConfig
   tagOptions: string[]
   typeOptions: string[]
-  departureOptions: string[]
 }) {
   const [local, setLocal] = useState<Filters>(filters)
   useEffect(() => { if (open) setLocal(filters) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -205,10 +204,10 @@ function FilterModal({
         : "border-border bg-background text-foreground hover:bg-secondary"
     }`
 
-  // At least one widget enabled? (Departure point is always available.)
+  // At least one widget enabled?
   const anyEnabled =
     config.location || config.price || config.rating || config.duration ||
-    config.tags || config.type || departureOptions.length > 0
+    config.tags || config.type
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -313,28 +312,6 @@ function FilterModal({
                     onClick={() => set("durationMax", h)}
                     className={pill(local.durationMax === h)}>
                     {h >= 24 ? "Any" : `Up to ${h}h`}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Departure point */}
-          {departureOptions.length > 0 && (
-            <div>
-              <label className="mb-1.5 block text-sm font-semibold text-foreground">
-                Departure point {local.departures.length > 0 && (
-                  <span className="ml-1 text-[11px] font-normal text-muted-foreground">
-                    ({local.departures.length} selected)
-                  </span>
-                )}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {departureOptions.map((d) => (
-                  <button key={d} type="button"
-                    onClick={() => toggleArr("departures", d)}
-                    className={`${pill(local.departures.includes(d))} max-w-full text-left`}>
-                    <span className="line-clamp-1">{d}</span>
                   </button>
                 ))}
               </div>
@@ -572,7 +549,7 @@ function SearchCard({ trip, priority = false, hasTodaySlots = false }: { trip: T
           </span>
         )}
         <button type="button" onClick={(e) => { e.preventDefault(); addItem(trip) }} disabled={inCart}
-          className={`absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
+          className={`absolute bottom-2 right-2 z-10 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
             inCart ? "bg-primary text-primary-foreground" : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 hover:bg-background"
           }`}>
           {inCart ? <><Check className="h-3 w-3" />Added</> : <><Plus className="h-3 w-3" />Add to Triplist</>}
@@ -643,7 +620,7 @@ function SlotRow({
           <button
             type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onShowAll() }}
-            className="flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+            className="relative z-10 flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
           >
             +{overflow} more <ArrowRight className="h-3 w-3" />
           </button>
@@ -807,7 +784,7 @@ function SearchListCard({
   )
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md sm:flex-row">
+    <div className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md sm:flex-row">
       <div className="relative aspect-[16/10] sm:aspect-auto sm:w-56 lg:w-64 shrink-0">
         <Link href={`/trip/${trip.slug ?? trip.id}`} className="absolute inset-0">
           <Image src={trip.image || "/placeholder.svg"} alt={trip.title} fill priority={priority}
@@ -824,7 +801,7 @@ function SearchListCard({
           </span>
         )}
         <button type="button" onClick={(e) => { e.preventDefault(); addItem(trip) }} disabled={inCart}
-          className={`absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
+          className={`absolute bottom-2 right-2 z-10 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
             inCart ? "bg-primary text-primary-foreground" : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 hover:bg-background"
           }`}>
           {inCart ? <><Check className="h-3 w-3" />Added</> : <><Plus className="h-3 w-3" />Add to Triplist</>}
@@ -835,7 +812,7 @@ function SearchListCard({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{trip.category}</p>
-            <Link href={`/trip/${trip.slug ?? trip.id}`}>
+            <Link href={`/trip/${trip.slug ?? trip.id}`} className="after:absolute after:inset-0 after:content-['']">
               <h3 className="mt-0.5 text-base font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">{trip.title}</h3>
             </Link>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -1023,11 +1000,14 @@ export function SearchContent({
       .sort()
   }, [initialTrips])
 
-  /* Tag options (filtered: hide internal Palisis flags). */
+  /* Tag options — combine Palisis `tripTags` with user-created local `tags`
+     (the legacy local-only field, never overwritten by Palisis sync) so
+     admin-added custom tags surface in the filter too. Internal Palisis flags
+     are hidden. */
   const tagOptions = useMemo(() => {
     const seen = new Set<string>()
     for (const t of initialTrips) {
-      for (const tg of t.tripTags ?? []) {
+      for (const tg of [...(t.tripTags ?? []), ...(t.tags ?? [])]) {
         if (isVisibleTripTag(tg)) seen.add(tg)
       }
     }
@@ -1040,14 +1020,6 @@ export function SearchContent({
     for (const t of initialTrips) {
       if (t.tourType && t.tourType.trim()) seen.add(t.tourType.trim())
     }
-    return Array.from(seen).sort()
-  }, [initialTrips])
-
-  /* Departure-point options — unique departure locations across all trips
-     (same grouping keys the /departures page uses). */
-  const departureOptions = useMemo(() => {
-    const seen = new Set<string>()
-    for (const t of initialTrips) seen.add(departureKey(t))
     return Array.from(seen).sort()
   }, [initialTrips])
 
@@ -1158,7 +1130,7 @@ export function SearchContent({
         if (haversineKm(userCoord.lat, userCoord.lng, coord.lat, coord.lng) > activeFilters.locationRadius) return false
       }
       if (filtersConfig.tags && activeFilters.tags.length > 0) {
-        const have = new Set((t.tripTags ?? []).filter(isVisibleTripTag))
+        const have = new Set([...(t.tripTags ?? []), ...(t.tags ?? [])].filter(isVisibleTripTag))
         if (!activeFilters.tags.some((tg) => have.has(tg))) return false
       }
       if (filtersConfig.type && activeFilters.types.length > 0) {
@@ -1308,7 +1280,6 @@ export function SearchContent({
         config={filtersConfig}
         tagOptions={tagOptions}
         typeOptions={typeOptions}
-        departureOptions={departureOptions}
       />
       <DateTimeModal
         open={dateOpen}
