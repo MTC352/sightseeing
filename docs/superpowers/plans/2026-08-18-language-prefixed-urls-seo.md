@@ -395,11 +395,10 @@ git commit -m "i18n: server locale accessor + locale-driven <html lang>"
 
 ### Task 4: SEO metadata helpers (`lib/i18n/metadata.ts`)
 
-Server-side cached translation of title/description + a reusable localized-metadata builder.
+Server-side cached translation of title/description + a reusable localized-metadata builder. This module imports server-only deps (`next/headers`, DB), so it is NOT unit-tested here — its pure, SEO-critical dependency (`buildAlternates`) is already unit-tested in Task 1, and its translate behavior is verified by manual E2E in Tasks 5/6/12. Do NOT create a redundant "pure" stub module just to have a unit test; a stub whose fr/de branch returns untranslated fields is misleading and a review defect.
 
 **Files:**
 - Create: `lib/i18n/metadata.ts`
-- Test: `test/i18n/metadata.test.mjs` (only the pure `en`-passthrough branch; the fr/de path hits the DB/Weglot and is covered by manual E2E)
 
 **Interfaces:**
 - Consumes: `getCachedTranslations`, `putTranslations` (`lib/i18n/cache.ts`), `translateWithWeglot` (`lib/i18n/weglot-translate.ts`), `chunk`, `isTranslatableText` (`lib/i18n/collect.ts`), `MAX_BATCH`, `isSupportedLang` (`lib/i18n/config.ts`), `getRequestLocale` (Task 3), `buildAlternates`, `addLocale`, `LOCALE_OG` (`lib/i18n/routing.ts`).
@@ -407,52 +406,7 @@ Server-side cached translation of title/description + a reusable localized-metad
   - `translateMeta(locale: Locale, fields: { title?: string; description?: string }): Promise<{ title?: string; description?: string }>`
   - `localizedMetadata(input: { path: string; title: string; description?: string }): Promise<Metadata>`
 
-- [ ] **Step 1: Write the failing test (en passthrough)**
-
-The DB-backed branch isn't unit-testable here; test the `en` short-circuit, which is pure. To keep the import DB-free, put `translateMeta`'s pure guard logic in a tiny exported helper that the test can reach without importing the whole server module. Simplest: test via a thin pure re-export.
-
-Create `test/i18n/metadata.test.mjs`:
-
-```js
-import test from "node:test"
-import assert from "node:assert/strict"
-
-// metadata.ts imports server-only deps (headers, db); we only unit-test the
-// pure passthrough rule, which is duplicated as `translateMetaEn` for testing.
-const { translateMetaEn } = await import("../../.test-build/i18n/metadata-pure.js")
-
-test("en locale returns fields unchanged", () => {
-  assert.deepEqual(translateMetaEn("en", { title: "Book now", description: "Hi" }),
-    { title: "Book now", description: "Hi" })
-})
-
-test("unsupported locale returns fields unchanged", () => {
-  assert.deepEqual(translateMetaEn("xx", { title: "Book now" }), { title: "Book now" })
-})
-```
-
-- [ ] **Step 2: Run to verify it fails**
-
-Run: `npm run pretest && node --test test/i18n/metadata.test.mjs`
-Expected: FAIL — `.test-build/i18n/metadata-pure.js` missing.
-
-- [ ] **Step 3: Implement**
-
-Create `lib/i18n/metadata-pure.ts` (pure; added to the `pretest` compile list alongside `routing.ts`):
-
-```ts
-import { isSupportedLang } from "./config"
-
-/** Pure guard: en / unsupported locales pass fields through untouched. Returns
- *  null when a real (fr/de) translation is required. */
-export function translateMetaEn<T extends Record<string, string | undefined>>(
-  locale: string,
-  fields: T,
-): T {
-  if (locale === "en" || !isSupportedLang(locale)) return fields
-  return fields // callers replace this with real translation; en-branch is the tested contract
-}
-```
+- [ ] **Step 1: Implement**
 
 Create `lib/i18n/metadata.ts`:
 
@@ -518,17 +472,15 @@ export async function localizedMetadata(input: {
 }
 ```
 
-Add `lib/i18n/metadata-pure.ts` to the `pretest` tsc file list.
+- [ ] **Step 2: Typecheck**
 
-- [ ] **Step 4: Run to verify it passes**
+Run: `npx tsc --noEmit -p tsconfig.json 2>&1 | grep 'i18n/metadata' || echo clean`
+Expected: `clean`.
 
-Run: `npm run pretest && node --test test/i18n/metadata.test.mjs`
-Expected: PASS. Also `npx tsc --noEmit -p tsconfig.json 2>&1 | grep metadata || echo clean` → `clean`.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add lib/i18n/metadata.ts lib/i18n/metadata-pure.ts test/i18n/metadata.test.mjs package.json
+git add lib/i18n/metadata.ts
 git commit -m "i18n: server-side cached metadata translation + localizedMetadata builder"
 ```
 
