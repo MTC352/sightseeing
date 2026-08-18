@@ -16,7 +16,7 @@ import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
 import { resolveBookingUrl } from "@/lib/booking-url"
 import { sanitizeRichText } from "@/lib/sanitize-html"
-import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets, Loader2 } from "lucide-react"
+import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets, Loader2, X } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
 
 const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
@@ -84,13 +84,15 @@ function formatSelectedDate(iso: string): string {
   }
 }
 
-const BookingIframe = memo(function BookingIframe({ src, title }: { src: string; title: string }) {
+const BookingIframe = memo(function BookingIframe({ src, title, fill = false }: { src: string; title: string; fill?: boolean }) {
   // Show a loader until the booking widget's iframe finishes loading, so the
   // (tall) widget area never sits visually blank while the external widget boots.
+  // `fill` mode is used inside the mobile fullscreen modal, where the iframe
+  // should occupy all available height instead of the fixed clamp used inline.
   const [loaded, setLoaded] = useState(false)
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="booking-iframe-wrap relative">
+    <div className={fill ? "flex h-full flex-col overflow-hidden bg-card" : "overflow-hidden rounded-2xl border border-border bg-card shadow-sm"}>
+      <div className={fill ? "relative flex-1" : "booking-iframe-wrap relative"}>
         {!loaded && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card">
             <Loader2 className="h-7 w-7 animate-spin text-primary" />
@@ -100,7 +102,7 @@ const BookingIframe = memo(function BookingIframe({ src, title }: { src: string;
         <iframe
           src={src}
           title={title}
-          className="booking-iframe"
+          className={fill ? "block h-full w-full border-0" : "booking-iframe"}
           allow="payment"
           loading="lazy"
           onLoad={() => setLoaded(true)}
@@ -157,10 +159,23 @@ export default function TripDetailClient({
   const { weather, isLoading: weatherLoading } = useWeather()
   const router = useRouter()
   const [canGoBack, setCanGoBack] = useState(false)
+  // Mobile-only: the booking iframe opens as a fullscreen in-page modal on tap,
+  // avoiding the scroll-trapping that happens with a tall iframe embedded inline.
+  const [bookingModalOpen, setBookingModalOpen] = useState(false)
 
   useEffect(() => {
     setCanGoBack(window.history.length > 2)
   }, [])
+
+  // Lock body scroll while the fullscreen booking modal is open.
+  useEffect(() => {
+    if (!bookingModalOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [bookingModalOpen])
 
   // Record this trip as "recently viewed" so the home-page rail can surface it
   // on the visitor's next visit. Skipped if the trip didn't resolve.
@@ -183,6 +198,15 @@ export default function TripDetailClient({
   }
 
   const inCart = isInCart(trip.id)
+
+  // Booking widget URL — resolution priority: custom iframe URL → Palisis
+  // Product ID → TourCMS permalink. Hoisted here so the inline widget, the
+  // mobile sticky bar, and the fullscreen modal all share one source of truth.
+  const bookingUrl = resolveBookingUrl(trip, selectedDate, selectedTime)
+  // The pre-selection banner is only meaningful for the TourCMS calendar widget
+  // (permalink); the Palisis direct widgets open straight on the booking form.
+  const isTourcmsCalendar = !trip.customIframeUrl?.trim() && !trip.palisisProductId?.trim()
+  const showSlotBanner = Boolean(selectedDate && selectedTime && isTourcmsCalendar)
 
   // Gallery priority: DB → legacy static detail gallery → featured image only
   const gallery: string[] = (
@@ -563,41 +587,46 @@ export default function TripDetailClient({
                 </button>
               </div>
 
-              {/* Booking widget — resolution priority:
-                  custom iframe URL → Palisis Product ID → TourCMS permalink. */}
-              {(() => {
-                const bookingUrl = resolveBookingUrl(trip, selectedDate, selectedTime)
-                if (!bookingUrl) return null
-                // The pre-selection banner is only meaningful for the TourCMS
-                // calendar widget (permalink) — the Palisis direct widgets
-                // (custom URL / product id) open straight on the booking form.
-                const isTourcmsCalendar =
-                  !trip.customIframeUrl?.trim() && !trip.palisisProductId?.trim()
-                return (
-                  <div id="booking" className="space-y-3">
-                    {selectedDate && selectedTime && isTourcmsCalendar && (
-                      <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
-                        <p
-                          className="text-[11px] font-semibold uppercase tracking-wider text-primary"
-                          data-testid="selected-slot-eyebrow"
-                        >
-                          {slotEyebrow}
-                        </p>
-                        <p className="mt-1 text-base font-bold text-foreground">
-                          {formatSelectedDate(selectedDate)} · {selectedTime}
-                        </p>
-                        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                          The calendar below is opened on the right month — just
-                          click your date and pick the
-                          <span className="font-semibold text-foreground"> {selectedTime} </span>
-                          time slot.
-                        </p>
-                      </div>
-                    )}
+              {/* Booking widget (inline). On desktop it is fully interactive.
+                  On mobile a transparent tap layer overlays it so touch scrolling
+                  passes through to the page instead of being trapped by the tall
+                  iframe; tapping opens the fullscreen booking modal. */}
+              {bookingUrl && (
+                <div id="booking" className="space-y-3">
+                  {showSlotBanner && (
+                    <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
+                      <p
+                        className="text-[11px] font-semibold uppercase tracking-wider text-primary"
+                        data-testid="selected-slot-eyebrow"
+                      >
+                        {slotEyebrow}
+                      </p>
+                      <p className="mt-1 text-base font-bold text-foreground">
+                        {formatSelectedDate(selectedDate!)} · {selectedTime}
+                      </p>
+                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                        The calendar below is opened on the right month — just
+                        click your date and pick the
+                        <span className="font-semibold text-foreground"> {selectedTime} </span>
+                        time slot.
+                      </p>
+                    </div>
+                  )}
+                  <div className="relative">
                     <BookingIframe src={bookingUrl} title={`Book ${trip.title}`} />
+                    <button
+                      type="button"
+                      onClick={() => setBookingModalOpen(true)}
+                      aria-label={`Open booking for ${trip.title}`}
+                      className="absolute inset-0 z-20 flex items-end justify-center bg-transparent lg:hidden"
+                    >
+                      <span className="mb-4 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg">
+                        Tap to check availability
+                      </span>
+                    </button>
                   </div>
-                )
-              })()}
+                </div>
+              )}
 
               {/* Live weather */}
               {(weatherLoading || weather) && (
@@ -660,7 +689,72 @@ export default function TripDetailClient({
         )}
       </div>
 
+      {/* Spacer so the fixed mobile booking bar never permanently covers the
+          footer at max scroll. Desktop has no bar, so no spacer. */}
+      {bookingUrl && <div aria-hidden className="h-20 lg:hidden" />}
+
       {footer}
+
+      {/* Mobile sticky booking bar — persistent access to the booking flow
+          regardless of scroll position. Opens the fullscreen modal. */}
+      {bookingUrl && !bookingModalOpen && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+            <div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-bold text-foreground">{trip.price.toFixed(2)} &euro;</span>
+                {trip.originalPrice && <span className="text-xs text-muted-foreground line-through">{trip.originalPrice.toFixed(2)} &euro;</span>}
+              </div>
+              <span className="text-[11px] text-muted-foreground">per person</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBookingModalOpen(true)}
+              className="flex-1 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-md max-w-[220px]"
+            >
+              Check Availability
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen in-page booking modal (mobile only). Mounts a fresh iframe
+          only while open, so page load stays at a single inline iframe. */}
+      {bookingModalOpen && bookingUrl && (
+        <div
+          className="fixed inset-0 z-[100] flex flex-col bg-background lg:hidden"
+          style={{ height: "100dvh" }}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Book ${trip.title}`}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">{trip.title}</p>
+              <p className="text-xs text-muted-foreground">{trip.price.toFixed(2)} &euro; / person</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBookingModalOpen(false)}
+              aria-label="Close booking"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          {showSlotBanner && (
+            <div data-no-edit className="border-b border-border bg-primary/10 px-4 py-2.5 text-sm">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">{slotEyebrow}</p>
+              <p className="mt-0.5 text-sm font-bold text-foreground">
+                {formatSelectedDate(selectedDate!)} · {selectedTime}
+              </p>
+            </div>
+          )}
+          <div className="min-h-0 flex-1">
+            <BookingIframe src={bookingUrl} title={`Book ${trip.title}`} fill />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
