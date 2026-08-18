@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server"
 import { verifySession } from "@/lib/auth"
 import { canAccessPath } from "@/lib/admin-permissions"
 import { PATHNAME_HEADER, PATHNAME_SIG_HEADER, signPathname } from "@/lib/site-protection"
+import { classifyLocaleRequest, addLocale, type Locale } from "@/lib/i18n/routing"
+import { LANG_COOKIE } from "@/lib/i18n/config"
 
 const PUBLIC_AUTH_PATHS = [
   "/admin/login",
@@ -16,7 +18,20 @@ const PUBLIC_AUTH_PATHS = [
 const LEGACY_TRIP_ID = /^(?:tcms_\d+|\d+)$/
 
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  const { pathname: rawPathname } = request.nextUrl
+
+  // ── Language subdirectory (/de, /fr) ────────────────────────────────────
+  // Old Weglot URLs live at /de/… /fr/…. Rewrite (not redirect) to the bare
+  // route so it renders in place; expose the locale to server components via
+  // x-locale + the site_lang cookie. Uppercase prefixes 301 to lowercase.
+  const localeDecision = classifyLocaleRequest(rawPathname)
+  if (localeDecision.kind === "redirect") {
+    const target = request.nextUrl.clone()
+    target.pathname = localeDecision.to
+    return NextResponse.redirect(target, 301)
+  }
+  const locale: Locale = localeDecision.kind === "rewrite" ? localeDecision.locale : "en"
+  const pathname = localeDecision.kind === "rewrite" ? localeDecision.path : rawPathname
 
   // ── Canonical trip-slug redirect (SEO 301) ──────────────────────────────
   // Old id / palisis_id trip URLs permanently redirect to `/trip/{slug}`.
@@ -36,7 +51,7 @@ export async function proxy(request: NextRequest) {
           const { slug } = (await res.json()) as { slug: string | null }
           if (slug && slug !== seg) {
             const target = request.nextUrl.clone()
-            target.pathname = `/trip/${slug}`
+            target.pathname = addLocale(`/trip/${slug}`, locale)
             return NextResponse.redirect(target, 308)
           }
         }
@@ -91,7 +106,21 @@ export async function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set(PATHNAME_HEADER, pathname)
   requestHeaders.set(PATHNAME_SIG_HEADER, await signPathname(pathname))
-  const response = NextResponse.next({ request: { headers: requestHeaders } })
+  requestHeaders.set("x-locale", locale)
+
+  let response: NextResponse
+  if (localeDecision.kind === "rewrite") {
+    const rewriteUrl = request.nextUrl.clone()
+    rewriteUrl.pathname = pathname // bare route
+    response = NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } })
+    response.cookies.set(LANG_COOKIE, locale, {
+      path: "/",
+      maxAge: 31536000,
+      sameSite: "lax",
+    })
+  } else {
+    response = NextResponse.next({ request: { headers: requestHeaders } })
+  }
   response.headers.set(
     "X-Robots-Tag",
     "all, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
