@@ -2,7 +2,7 @@
 
 import React, { useState } from "react"
 
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
 import { OutdoorTodayTrips } from "./outdoor-today-trips"
 import { tripSummaries as staticTrips, categories, type Trip } from "@/lib/data"

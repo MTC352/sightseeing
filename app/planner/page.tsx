@@ -22,7 +22,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 // The planner starts empty and is populated by /api/planner/trips (publicOnly).
 const staticTripsFallback: Trip[] = []
 import { AppImage } from "@/components/app-image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,

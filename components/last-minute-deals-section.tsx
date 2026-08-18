@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Star, Clock, Zap, ArrowRight } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DealItem } from "@/app/api/last-minute-deals/route"

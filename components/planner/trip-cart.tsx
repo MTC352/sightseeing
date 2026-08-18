@@ -2,7 +2,7 @@
 
 import { usePlannerList } from "@/lib/planner-list-context"
 import Image from "next/image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { ShoppingBag, X, Trash2, Clock, Users, CalendarX } from "lucide-react"
 
 interface TripCartProps {

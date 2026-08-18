@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import Image from "next/image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import type { ReactNode } from "react"
 import { categories } from "@/lib/data"

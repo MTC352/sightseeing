@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Star, Clock, ShoppingBag, Check, Plus, Sun } from "lucide-react"
 import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePlannerList } from "@/lib/planner-list-context"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import Image from "next/image"
 import {
   Route, Sparkles, Clock, Bike, Car, Building2, ArrowRight, Check,

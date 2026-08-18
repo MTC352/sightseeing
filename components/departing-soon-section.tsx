@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Calendar, ChevronLeft, ChevronRight, Clock, MapPin, ArrowRight, RefreshCw } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"

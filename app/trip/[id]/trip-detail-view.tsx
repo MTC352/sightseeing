@@ -3,7 +3,7 @@
 import { useState, useEffect, memo } from "react"
 import { trackTripView } from "@/lib/use-recently-viewed"
 import Image from "next/image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { useRouter } from "next/navigation"
 
 import { Navbar } from "@/components/site-navbar"

@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react"
 import { useCart } from "@/lib/cart-context"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import Image from "next/image"
 import { Route, Sparkles, Clock, MapPin, Lightbulb, ChevronDown, ChevronUp, Bus, Car, Building2, ArrowRight, Star } from "lucide-react"
 import { ItineraryTimeslots } from "@/components/timeslot-chips"

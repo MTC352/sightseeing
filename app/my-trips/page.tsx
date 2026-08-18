@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Image from "next/image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import { useCart, type CartItem } from "@/lib/cart-context"
 import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"

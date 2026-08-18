@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Calendar, Clock, MapPin, ArrowRight, RefreshCw, Loader2 } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"

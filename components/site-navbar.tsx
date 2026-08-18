@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useContext, useRef } from "react"
-import Link from "next/link"
+import { Link, useLocalizedRouter } from "@/components/i18n/link"
 import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
 import { Menu, X, ShoppingBag, Search, Globe } from "lucide-react"
@@ -96,7 +96,7 @@ export function Navbar() {
         {/* Desktop nav */}
         <div className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => {
-            const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href.split("?")[0])
+            const active = link.href === "/" ? barePath === "/" : barePath.startsWith(link.href.split("?")[0])
             return (
               <Link
                 key={link.href}
@@ -162,7 +162,7 @@ export function Navbar() {
       {open && (
         <div className="border-t border-border bg-background px-4 pb-4 pt-2 md:hidden">
           {navLinks.map((link) => {
-            const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href.split("?")[0])
+            const active = link.href === "/" ? barePath === "/" : barePath.startsWith(link.href.split("?")[0])
             return (
               <Link
                 key={link.href}
@@ -218,7 +218,7 @@ export function Navbar() {
 function SearchPopover() {
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState("")
-  const router = useRouter()
+  const router = useLocalizedRouter()
   const inputRef = useRef<HTMLInputElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
 

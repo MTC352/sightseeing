@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect } from "react"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import type { Trip } from "@/lib/data"
 import {
   MapPin, Clock, Calendar, ArrowRight, Users, ChevronRight,

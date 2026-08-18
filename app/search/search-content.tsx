@@ -3,8 +3,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
 import Image from "next/image"
-import Link from "next/link"
-import { useSearchParams, useRouter } from "next/navigation"
+import { Link, useLocalizedRouter } from "@/components/i18n/link"
+import { useSearchParams } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import type { ReactNode } from "react"
 import type { Trip } from "@/lib/data"
@@ -888,7 +888,7 @@ export function SearchContent({
   footer?: ReactNode
 }) {
   const searchParams = useSearchParams()
-  const router       = useRouter()
+  const router       = useLocalizedRouter()
   const query        = searchParams.get("q") || ""
 
   const [activeCategory, setActiveCategory] = useState<string | null>(null)

@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useState, useCallback } from "react"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Clock, MapPin, CloudSun, Sun, CloudRain, Sparkles, ArrowRight, ChevronRight } from "lucide-react"
 import type { OutdoorTodayResponse, OutdoorTodayTrip } from "@/app/api/outdoor-today/route"
 

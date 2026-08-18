@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Car, Building2, Star, ArrowRight } from "lucide-react"
 
 const carRentals = [
