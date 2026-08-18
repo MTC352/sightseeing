@@ -10,7 +10,7 @@ import { SiteStoreProvider } from "@/components/providers/site-store-provider"
 import { CookieBanner, ConsentedScripts } from "@/components/cookie-banner"
 import { CookiebotConsentBridge } from "@/components/cookiebot-consent-bridge"
 import { Translator } from "@/components/i18n/translator"
-import { LANG_COOKIE, isSupportedLang } from "@/lib/i18n/config"
+import { getRequestLocale } from "@/lib/i18n/server-locale"
 import { AccessibilityToolbar } from "@/components/accessibility-toolbar"
 import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
@@ -156,8 +156,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const pathname = pathnameTrusted && rawPathname ? rawPathname : "/"
   const isAdminRoute = pathname.startsWith("/admin")
 
-  const langCookie = (await cookies()).get(LANG_COOKIE)?.value ?? "en"
-  const htmlLang = !isAdminRoute && isSupportedLang(langCookie) ? langCookie : "en"
+  const requestLocale = await getRequestLocale()
+  const htmlLang = isAdminRoute ? "en" : requestLocale
 
   // Development-page visibility gate (real 404 for disabled pages) lives in
   // app/(gated)/layout.tsx — a nested layout is allowed to call notFound(),
