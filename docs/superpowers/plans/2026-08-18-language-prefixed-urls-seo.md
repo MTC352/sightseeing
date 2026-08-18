@@ -620,45 +620,66 @@ git commit -m "i18n: localized metadata + hreflang on trip/experiences/blog deta
 
 ### Task 6: Localize indexable static-page metadata
 
+**Scope ruling (controller):** The home page (`app/page.tsx`) uses `export const revalidate = 300` (ISR / statically prerendered) and is the deploy startup-probe target — converting it to `generateMetadata` (which calls `headers()`) would force it dynamic and risk the publish-probe failure `proxy.ts`'s matcher comment warns about. So the home page gets **static** hreflang alternates only (no `headers()`, ISR preserved). `app/planner/page.tsx` has **no** metadata export and is a large client page — it cannot host `generateMetadata` and is **excluded**. The remaining 7 pages are already `export const dynamic = "force-dynamic"`, so converting them adds no new dynamic cost.
+
 **Files:**
-- Modify (convert static `metadata` → `generateMetadata` via `localizedMetadata`, preserving existing titles/descriptions): `app/page.tsx`, `app/explore/page.tsx`, `app/planner/page.tsx`, `app/departures/page.tsx`, `app/blog/page.tsx`, `app/about/page.tsx`, `app/careers/page.tsx`, `app/help/page.tsx`, `app/search/page.tsx`.
+- Modify (convert static `metadata` → `async generateMetadata` via `localizedMetadata`, preserving each file's existing title/description + any extra fields): `app/explore/page.tsx`, `app/departures/page.tsx`, `app/blog/page.tsx`, `app/about/page.tsx`, `app/careers/page.tsx`, `app/help/page.tsx`, `app/search/page.tsx`.
+- Modify (STATIC alternates only — keep `export const metadata` and `revalidate`; do NOT convert to `generateMetadata`): `app/page.tsx`.
+- Do NOT touch: `app/planner/page.tsx`.
 
 **Interfaces:**
-- Consumes: `localizedMetadata` (Task 4).
-- Produces: per-locale title/description/canonical/hreflang on the main static routes.
+- Consumes: `localizedMetadata` (Task 4); `addLocale` (Task 1) for the home page's static block.
+- Produces: per-locale title/description/canonical/hreflang on the 7 dynamic routes + a static hreflang cluster on home.
 
-- [ ] **Step 1: Convert each page**
+- [ ] **Step 1: Convert the 7 force-dynamic pages**
 
-For each file, if it has `export const metadata = { title, description, … }`, replace with a `generateMetadata`. Example for `app/about/page.tsx` (repeat per file using that file's own existing title/description and route path):
+For EACH of the 7 files, delete its `export const metadata: Metadata = { … }` block and add a `generateMetadata`. Read each file first and copy its EXISTING `title` and `description` (the top-level ones, not the openGraph variants) verbatim as the English source. Keep `export const dynamic = "force-dynamic"` and every other export. If the removed `metadata` had extra fields you want to keep (e.g. a distinct `openGraph.title`), spread them after `...base` — but the top-level `title`/`description` and `alternates`/`openGraph.url`/`openGraph.locale` must come from `localizedMetadata`.
+
+Pattern (using `app/about/page.tsx`'s real strings as the worked example — apply the same shape to the others with THEIR strings):
 
 ```ts
 import type { Metadata } from "next"
 import { localizedMetadata } from "@/lib/i18n/metadata"
 
 export async function generateMetadata(): Promise<Metadata> {
-  const base = await localizedMetadata({
+  return localizedMetadata({
     path: "/about",
-    title: "About sightseeing.lu",              // ← copy this file's existing title
-    description: "…existing description…",        // ← copy this file's existing description
+    title: "About Us",
+    description: "sightseeing.lu is Luxembourg's leading tourism platform. We connect travellers with handpicked tours, activities, and local guides across the Grand Duchy since 2020.",
   })
-  return { ...base /*, keep any page-specific fields e.g. keywords */ }
 }
 ```
 
-Route paths per file: `/` (home — `path: "/"`), `/explore`, `/planner`, `/departures`, `/blog`, `/about`, `/careers`, `/help`, `/search`. Preserve each page's existing `title`/`description` verbatim as the English source; merge any extra existing metadata fields (e.g. `keywords`, `openGraph.images`) by spreading them after `...base`.
+Route paths per file: `/explore`, `/departures`, `/blog`, `/about`, `/careers`, `/help`, `/search`. If a file already imports `Metadata` from `next`, don't duplicate the import.
 
-Note: `app/search/page.tsx` already exports `metadata` (title "Search Experiences"). Convert it the same way; keep `export const dynamic = "force-dynamic"`.
+- [ ] **Step 2: Static hreflang on the home page**
 
-- [ ] **Step 2: Verify**
+In `app/page.tsx`, keep `export const revalidate = 300` and the existing `export const metadata`. Add an `alternates` block to that metadata object (static — no locale detection; home English source is canonical, with de/fr alternates). Add the import `import { addLocale } from "@/lib/i18n/routing"` and, inside the metadata object, add:
 
-Run: `npm run dev`, then `curl -s http://localhost:5000/de/about | grep -Ei 'canonical|hreflang' | head`
-Expected: canonical `…/de/about` + hreflang cluster. Repeat-spot-check `/fr/explore`.
+```ts
+  alternates: {
+    canonical: BASE,
+    languages: {
+      en: BASE,
+      de: `${BASE}${addLocale("/", "de")}`,
+      fr: `${BASE}${addLocale("/", "fr")}`,
+      "x-default": BASE,
+    },
+  },
+```
 
-- [ ] **Step 3: Commit**
+`BASE` already exists in `app/page.tsx` (line ~24, `process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"`). If it is not in module scope, add it. `addLocale("/", "de")` returns `/de`, so `de` → `${BASE}/de`.
+
+- [ ] **Step 3: Typecheck + verify**
+
+Run: `npx tsc --noEmit -p tsconfig.json 2>&1 | grep 'error TS' | grep -vE 'sightseeing-map.tsx' | head` → expect no output.
+A dev server runs on port 3000: `curl -s http://localhost:3000/de/about | grep -Ei 'canonical|hreflang' | head` → canonical `…/de/about` + hreflang cluster; spot-check `/fr/explore`. `curl -s http://localhost:3000/ | grep -i hreflang | head` → home shows the static de/fr alternates. If server unreachable, statically trace and say so.
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add app/page.tsx app/explore/page.tsx app/planner/page.tsx app/departures/page.tsx app/blog/page.tsx app/about/page.tsx app/careers/page.tsx app/help/page.tsx app/search/page.tsx
-git commit -m "i18n: localized metadata + hreflang on indexable static pages"
+git add app/explore/page.tsx app/departures/page.tsx app/blog/page.tsx app/about/page.tsx app/careers/page.tsx app/help/page.tsx app/search/page.tsx app/page.tsx
+git commit -m "i18n: localized metadata + hreflang on static pages (home static alternates, planner excluded)"
 ```
 
 ---
