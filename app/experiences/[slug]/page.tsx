@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import { AppImage } from "@/components/app-image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { TripCard } from "@/components/trip-card"

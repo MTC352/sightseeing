@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { AppImage } from "@/components/app-image"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import { AppImage } from "@/components/app-image"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { Clock, User, ArrowLeft, Calendar, Eye } from "lucide-react"

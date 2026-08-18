@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import Image from "next/image"
 import { EditableHero } from "@/components/editable-hero"
 import { notFound } from "next/navigation"

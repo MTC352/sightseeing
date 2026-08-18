@@ -1,6 +1,6 @@
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import {
   Phone, Mail, Clock, MessageCircle, AlertTriangle,
   ChevronRight, Shield, HeadphonesIcon, MapPin,

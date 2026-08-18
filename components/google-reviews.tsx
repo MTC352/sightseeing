@@ -2,7 +2,7 @@
 
 import useSWR from 'swr'
 import { Star, ExternalLink, AlertCircle } from 'lucide-react'
-import Link from 'next/link'
+import { Link } from '@/components/i18n/link'
 
 interface GoogleReviewsProps {
   googleBusinessUrl?: string

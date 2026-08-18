@@ -1,6 +1,6 @@
 import Image from "next/image"
 import { EditableHero } from "@/components/editable-hero"
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import { notFound } from "next/navigation"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"

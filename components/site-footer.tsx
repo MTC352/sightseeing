@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { Link } from "@/components/i18n/link"
 import Image from "next/image"
 import { MapPin, Mail, Phone } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
