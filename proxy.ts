@@ -17,6 +17,43 @@ const PUBLIC_AUTH_PATHS = [
 // fires for old/canonical id links — never for real slug URLs.
 const LEGACY_TRIP_ID = /^(?:tcms_\d+|\d+)$/
 
+// ── Blog migration redirect map (cached) ──────────────────────────────────
+// Old blog posts were indexed at root URLs (`/BLOG-title`); the new site serves
+// them under `/blog/BLOG-title`. The compiled map (manual redirects + auto
+// bare-slug entries) is fetched from the internal loopback and cached in-memory
+// with a short TTL, so redirects cost O(1) per request instead of a DB round-trip.
+type CompiledRedirect = { source: string; to: string; status: number }
+let redirectCache: { map: Map<string, CompiledRedirect>; expires: number } | null = null
+const REDIRECT_TTL_MS = 60_000
+const REDIRECT_RETRY_MS = 10_000
+
+async function getRedirectMap(): Promise<Map<string, CompiledRedirect>> {
+  const now = Date.now()
+  if (redirectCache && redirectCache.expires > now) return redirectCache.map
+  try {
+    const port = process.env.PORT || "5000"
+    const res = await fetch(`http://127.0.0.1:${port}/api/redirects/map`, {
+      headers: { accept: "application/json" },
+    })
+    if (res.ok) {
+      const data = (await res.json()) as { entries?: CompiledRedirect[] }
+      const map = new Map<string, CompiledRedirect>()
+      for (const e of data.entries ?? []) map.set(e.source, e)
+      redirectCache = { map, expires: now + REDIRECT_TTL_MS }
+      return map
+    }
+  } catch {
+    // Lookup failed — keep serving the last-known map (below) rather than
+    // dropping every redirect during a transient blip.
+  }
+  if (redirectCache) {
+    redirectCache.expires = now + REDIRECT_RETRY_MS // retry sooner, keep stale map
+    return redirectCache.map
+  }
+  redirectCache = { map: new Map(), expires: now + REDIRECT_RETRY_MS }
+  return redirectCache.map
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname: rawPathname } = request.nextUrl
 
@@ -32,6 +69,27 @@ export async function proxy(request: NextRequest) {
   }
   const locale: Locale = localeDecision.kind === "rewrite" ? localeDecision.locale : "en"
   const pathname = localeDecision.kind === "rewrite" ? localeDecision.path : rawPathname
+
+  // ── Blog migration redirect (SEO 301) ───────────────────────────────────
+  // Serve a true edge 301 for old blog URLs BEFORE the request 404s, so Google
+  // ranking transfers. Only GET/HEAD navigations to non-admin/api/trip content
+  // paths are candidates; the reserved-route guard lives in the compiled map.
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    !pathname.startsWith("/admin") &&
+    !pathname.startsWith("/api") &&
+    !pathname.startsWith("/trip/") &&
+    !pathname.startsWith("/blog/") &&
+    !/\.[a-z0-9]+$/i.test(pathname)
+  ) {
+    const norm = pathname.length > 1 ? pathname.replace(/\/+$/, "").toLowerCase() : pathname
+    const hit = (await getRedirectMap()).get(norm)
+    if (hit) {
+      const target = request.nextUrl.clone()
+      target.pathname = addLocale(hit.to, locale)
+      return NextResponse.redirect(target, hit.status || 301)
+    }
+  }
 
   // ── Canonical trip-slug redirect (SEO 301) ──────────────────────────────
   // Old id / palisis_id trip URLs permanently redirect to `/trip/{slug}`.

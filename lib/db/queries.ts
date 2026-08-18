@@ -467,6 +467,195 @@ export async function dbDeletePost(id: string) {
   await query(`DELETE FROM blog_posts WHERE id = $1`, [id])
 }
 
+// ── Blog redirects (migration 404 fixer) ────────────────────────────────────
+
+/**
+ * Top-level URL segments the site already owns (real routes, route-group pages,
+ * and well-known files). An auto bare-slug redirect (`/{slug}` → `/blog/{slug}`)
+ * is NEVER generated for a blog post whose slug collides with one of these, so a
+ * post titled e.g. "About" can never shadow the real /about page. Derived from
+ * the top-level `app/` segments — keep in sync when adding a new top-level route.
+ */
+const RESERVED_TOP_LEVEL = new Set<string>([
+  "about", "admin", "api", "blog", "careers", "cars", "cfl-sightseeing",
+  "departing-soon", "departures", "emergency", "experiences", "explore",
+  "filling-up-fast", "flights", "help", "hotels", "impressum", "live-tracking",
+  "my-trips", "planner", "privacy", "public-objects", "search", "trains",
+  "travel", "trip", "widgets",
+  "llms.txt", "llms-full.txt", "sitemap.xml", "robots.txt", "favicon.ico",
+])
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
+/** Normalize an old/source path: strip any origin, lowercase, drop query/hash,
+ *  ensure a single leading slash, and remove a trailing slash (except root). */
+export function normalizeRedirectPath(input: string): string {
+  let p = String(input ?? "").trim()
+  if (!p) return ""
+  if (/^https?:\/\//i.test(p)) {
+    try { p = new URL(p).pathname } catch { /* keep raw */ }
+  }
+  p = p.split(/[?#]/)[0]
+  if (!p.startsWith("/")) p = "/" + p
+  p = p.toLowerCase().replace(/\/{2,}/g, "/")
+  if (p.length > 1) p = p.replace(/\/+$/, "")
+  return p
+}
+
+const REDIRECT_SELECT = `
+  SELECT r.id, r.source_path AS "sourcePath", r.post_id AS "postId",
+         r.status_code AS "statusCode", r.enabled, r.hits,
+         r.created_at AS "createdAt", r.updated_at AS "updatedAt",
+         p.title AS "postTitle", p.slug AS "postSlug", p.status AS "postStatus"
+  FROM blog_redirects r
+  JOIN blog_posts p ON p.id = r.post_id`
+
+export async function dbListRedirects() {
+  return query(`${REDIRECT_SELECT} ORDER BY r.created_at DESC`)
+}
+
+export async function dbGetRedirect(id: string) {
+  return queryOne(`${REDIRECT_SELECT} WHERE r.id = $1`, [id])
+}
+
+export async function dbCreateRedirect(data: {
+  sourcePath: string; postId: string; statusCode?: number; enabled?: boolean; userId?: string
+}) {
+  const source = normalizeRedirectPath(data.sourcePath)
+  if (!source || source === "/") throw new Error("INVALID_SOURCE")
+  const uid = isUuid(data.userId) ? data.userId : null
+  const rows = await query(`
+    INSERT INTO blog_redirects (source_path, post_id, status_code, enabled, created_by, updated_by)
+    VALUES ($1, $2, $3, $4, $5, $5) RETURNING id
+  `, [source, data.postId, data.statusCode ?? 301, data.enabled ?? true, uid])
+  return dbGetRedirect((rows[0] as { id: string }).id)
+}
+
+export async function dbUpdateRedirect(id: string, data: Record<string, unknown>) {
+  const sets: string[] = []
+  const vals: unknown[] = []
+  let i = 1
+  if ("sourcePath" in data) {
+    const source = normalizeRedirectPath(String(data.sourcePath))
+    if (!source || source === "/") throw new Error("INVALID_SOURCE")
+    sets.push(`source_path = $${i++}`); vals.push(source)
+  }
+  const fieldMap: Record<string, string> = {
+    postId: "post_id", statusCode: "status_code", enabled: "enabled",
+  }
+  for (const [key, col] of Object.entries(fieldMap)) {
+    if (key in data) { sets.push(`${col} = $${i++}`); vals.push(data[key]) }
+  }
+  if ("userId" in data) {
+    sets.push(`updated_by = $${i++}`); vals.push(isUuid(data.userId) ? data.userId : null)
+  }
+  if (sets.length === 0) return dbGetRedirect(id)
+  sets.push(`updated_at = NOW()`)
+  vals.push(id)
+  const rows = await query(`UPDATE blog_redirects SET ${sets.join(", ")} WHERE id = $${i} RETURNING id`, vals)
+  return rows[0] ? dbGetRedirect((rows[0] as { id: string }).id) : null
+}
+
+export async function dbDeleteRedirect(id: string) {
+  await query(`DELETE FROM blog_redirects WHERE id = $1`, [id])
+}
+
+export type CompiledRedirect = { source: string; to: string; status: number }
+
+/**
+ * The compiled redirect table the proxy consumes on every candidate request:
+ *   1. enabled manual redirects, resolved to the post's CURRENT slug; then
+ *   2. auto bare-slug redirects for every published post (`/{slug}` → `/blog/{slug}`),
+ *      excluding reserved top-level segments and any source a manual entry already
+ *      owns (manual always wins).
+ */
+export async function dbGetRedirectMap(): Promise<CompiledRedirect[]> {
+  const entries: CompiledRedirect[] = []
+  const seen = new Set<string>()
+
+  const manual = await query<{ source: string; slug: string; status: number }>(`
+    SELECT r.source_path AS source, p.slug AS slug, r.status_code AS status
+    FROM blog_redirects r
+    JOIN blog_posts p ON p.id = r.post_id
+    WHERE r.enabled = true
+  `)
+  for (const m of manual) {
+    if (!m.source || !m.slug || seen.has(m.source)) continue
+    seen.add(m.source)
+    entries.push({ source: m.source, to: `/blog/${m.slug}`, status: m.status || 301 })
+  }
+
+  const published = await query<{ slug: string }>(
+    `SELECT slug FROM blog_posts WHERE ${POST_PUBLIC_GATE}`
+  )
+  for (const p of published) {
+    const slug = (p.slug ?? "").toLowerCase()
+    if (!slug || RESERVED_TOP_LEVEL.has(slug)) continue
+    const source = `/${slug}`
+    if (seen.has(source)) continue
+    seen.add(source)
+    entries.push({ source, to: `/blog/${p.slug}`, status: 301 })
+  }
+
+  return entries
+}
+
+// ── 404 log (migration discovery feed) ──────────────────────────────────────
+
+/** Record an incoming 404. Deduped by normalized path with a hit counter. Skips
+ *  the root and obvious asset requests. Fail-soft — never throws to the caller. */
+export async function dbLog404(path: string): Promise<void> {
+  try {
+    const p = normalizeRedirectPath(path)
+    if (!p || p === "/" || /\.[a-z0-9]{1,8}$/i.test(p)) return
+    await query(`
+      INSERT INTO blog_404_log (path, hits, status)
+      VALUES ($1, 1, 'open')
+      ON CONFLICT (path) DO UPDATE
+        SET hits = blog_404_log.hits + 1, last_seen = NOW()
+    `, [p])
+  } catch (err) {
+    console.error("[blog-404-log] failed to record 404:", err)
+  }
+}
+
+export async function dbList404s(status?: string) {
+  if (status) {
+    return query(`
+      SELECT id, path, hits, status,
+             first_seen AS "firstSeen", last_seen AS "lastSeen"
+      FROM blog_404_log WHERE status = $1
+      ORDER BY hits DESC, last_seen DESC LIMIT 500
+    `, [status])
+  }
+  return query(`
+    SELECT id, path, hits, status,
+           first_seen AS "firstSeen", last_seen AS "lastSeen"
+    FROM blog_404_log
+    ORDER BY hits DESC, last_seen DESC LIMIT 500
+  `)
+}
+
+export async function dbUpdate404Status(id: string, status: string) {
+  if (!["open", "ignored", "resolved"].includes(status)) throw new Error("INVALID_STATUS")
+  const rows = await query(
+    `UPDATE blog_404_log SET status = $1 WHERE id = $2 RETURNING id, path, hits, status`,
+    [status, id]
+  )
+  return rows[0] ?? null
+}
+
+/** Mark any logged 404 for `path` as resolved — called when a redirect that
+ *  covers that path is created, so it drops out of the "open" discovery list. */
+export async function dbResolve404ByPath(path: string): Promise<void> {
+  const p = normalizeRedirectPath(path)
+  if (!p) return
+  await query(`UPDATE blog_404_log SET status = 'resolved' WHERE path = $1`, [p])
+}
+
 // ── Jobs ───────────────────────────────────────────────────────────────────
 
 export async function dbListJobs() {

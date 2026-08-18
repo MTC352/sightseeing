@@ -101,6 +101,9 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   // Blog
   { prefix: "/admin/blog", keys: ["blog"] },
   { prefix: "/api/admin/posts", keys: ["blog"] },
+  // Blog redirects (migration 404 fixer) — same permission as Blog.
+  { prefix: "/admin/blog-redirects", keys: ["blog"] },
+  { prefix: "/api/admin/blog-redirects", keys: ["blog"] },
   // Jobs
   { prefix: "/admin/jobs", keys: ["jobs"] },
   { prefix: "/api/admin/jobs", keys: ["jobs"] },

@@ -7,7 +7,7 @@ import { AdminStoreProvider } from "@/components/providers/admin-store-provider"
 import { QuickSeoProvider } from "@/components/admin/quick-seo-context"
 import {
   LayoutDashboard, Map, FileText, Briefcase, Bot,
-  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity, Menu, X, Database, ScrollText,
+  Plug, Code2, LogOut, ChevronLeft, ChevronRight, RefreshCw, Layout, HelpCircle, Ticket, Archive, Settings, Tag, ExternalLink, BookOpen, Users, FolderOpen, Activity, Menu, X, Database, ScrollText, Signpost,
 } from "lucide-react"
 import { FULL_ACCESS_ROLE, type PermissionKey } from "@/lib/admin-permissions"
 import { cn } from "@/lib/utils"
@@ -41,7 +41,15 @@ const NAV: NavItem[] = [
       { href: "/admin/trip-tags", label: "Trip Tags", icon: Tag },
     ],
   },
-  { href: "/admin/blog", label: "Blog", icon: FileText, perm: "blog" },
+  {
+    href: "/admin/blog",
+    label: "Blog",
+    icon: FileText,
+    perm: "blog",
+    children: [
+      { href: "/admin/blog-redirects", label: "Redirects", icon: Signpost },
+    ],
+  },
   { href: "/admin/jobs", label: "Jobs", icon: Briefcase, perm: "jobs" },
   { href: "/admin/help", label: "Help & FAQ", icon: HelpCircle, perm: "help" },
   { href: "/admin/pages", label: "Pages", icon: Layout, perm: "pages" },
