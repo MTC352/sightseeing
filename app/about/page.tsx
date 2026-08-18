@@ -8,6 +8,7 @@ import { AboutGoogleReviews } from "@/components/about-google-reviews"
 import { iconForSlug } from "@/lib/tag-icons"
 import { MapPin, Users, Award, Globe, Shield, Heart, ArrowRight } from "lucide-react"
 import { AboutHeroText, AboutStoryText, AboutValuesHeading, AboutOfferHeading, AboutReviewsHeading, AboutHeroImage, AboutTeamImage } from "./about-content"
+import { localizedMetadata } from "@/lib/i18n/metadata"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -15,15 +16,12 @@ const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 // trips so archived/draft trips never contribute to public stats or JSON-LD.
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = {
-  title: "About Us",
-  description: "sightseeing.lu is Luxembourg's leading tourism platform. We connect travellers with handpicked tours, activities, and local guides across the Grand Duchy since 2020.",
-  alternates: { canonical: `${BASE}/about` },
-  openGraph: {
-    title: "About sightseeing.lu",
-    description: "Luxembourg's leading tourism platform. Handpicked tours, activities, and local guides across the Grand Duchy.",
-    url: `${BASE}/about`,
-  },
+export async function generateMetadata(): Promise<Metadata> {
+  return localizedMetadata({
+    path: "/about",
+    title: "About Us",
+    description: "sightseeing.lu is Luxembourg's leading tourism platform. We connect travellers with handpicked tours, activities, and local guides across the Grand Duchy since 2020.",
+  })
 }
 
 const values = [

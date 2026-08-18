@@ -5,12 +5,16 @@ import { SiteFooter } from "@/components/site-footer"
 import { Clock, User, ArrowRight } from "lucide-react"
 import type { Metadata } from "next"
 import { dbListPublicPosts } from "@/lib/db/queries"
+import { localizedMetadata } from "@/lib/i18n/metadata"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = {
-  title: "Blog | sightseeing.lu",
-  description: "Travel tips, local stories, and insider guides for exploring Luxembourg and beyond.",
+export async function generateMetadata(): Promise<Metadata> {
+  return localizedMetadata({
+    path: "/blog",
+    title: "Blog | sightseeing.lu",
+    description: "Travel tips, local stories, and insider guides for exploring Luxembourg and beyond.",
+  })
 }
 
 interface BlogPost {

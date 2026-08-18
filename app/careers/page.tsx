@@ -4,18 +4,16 @@ import { CareersClient } from "./careers-client"
 import type { JobListing } from "./careers-client"
 import { dbListJobs } from "@/lib/db/queries"
 import type { Metadata } from "next"
+import { localizedMetadata } from "@/lib/i18n/metadata"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
-export const metadata: Metadata = {
-  title: "Careers | sightseeing.lu",
-  description: "Join the sightseeing.lu team. Browse open positions in Luxembourg across operations, technology, marketing, and more.",
-  alternates: { canonical: `${BASE}/careers` },
-  openGraph: {
-    title: "Careers at sightseeing.lu",
-    description: "Open positions across operations, technology, marketing, and more — based in Luxembourg.",
-    url: `${BASE}/careers`,
-  },
+export async function generateMetadata(): Promise<Metadata> {
+  return localizedMetadata({
+    path: "/careers",
+    title: "Careers | sightseeing.lu",
+    description: "Join the sightseeing.lu team. Browse open positions in Luxembourg across operations, technology, marketing, and more.",
+  })
 }
 
 export const dynamic = "force-dynamic"

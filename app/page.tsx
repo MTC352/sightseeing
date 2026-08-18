@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { Navbar } from "@/components/site-navbar"
 import { HeroSection } from "@/components/hero-section"
 import { TrendingSection, WeatherSection, CategoriesSection, ReviewsSection, RecentlyViewed, StatsBar, DeparturesSoonSection } from "@/components/home-sections"
@@ -6,8 +7,27 @@ import { SiteFooter } from "@/components/site-footer"
 import { dbListTrips } from "@/lib/db/queries"
 import { withTimeout } from "@/lib/db"
 import { safeJsonLd } from "@/lib/json-ld"
+import { addLocale } from "@/lib/i18n/routing"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
+
+// Static hreflang only — NOT generateMetadata. Converting home to
+// generateMetadata would call headers()/cookies() and force this route
+// dynamic, defeating the ISR (`revalidate` below) the deploy startup probe
+// depends on. English is canonical; de/fr alternates are static since home
+// has no page-specific metadata of its own (title/description/openGraph are
+// inherited from the root layout).
+export const metadata: Metadata = {
+  alternates: {
+    canonical: BASE,
+    languages: {
+      en: BASE,
+      de: `${BASE}${addLocale("/", "de")}`,
+      fr: `${BASE}${addLocale("/", "fr")}`,
+      "x-default": BASE,
+    },
+  },
+}
 
 // ISR (NOT force-dynamic). The deploy startup probe hits `GET /` ~0.3s after
 // boot; full per-request SSR of this large component tree on a cold autoscale

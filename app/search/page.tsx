@@ -8,20 +8,16 @@ import {
   DEFAULT_SEARCH_FILTERS_CONFIG,
   type SearchFiltersConfig,
 } from "@/lib/search-filters-config"
-
-const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
+import { localizedMetadata } from "@/lib/i18n/metadata"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = {
-  title: "Search Experiences",
-  description: "Search and filter tours, activities, and experiences in Luxembourg. Find your perfect sightseeing adventure.",
-  alternates: { canonical: `${BASE}/search` },
-  openGraph: {
-    title: "Search Experiences | sightseeing.lu",
-    description: "Search and filter tours, activities, and experiences in Luxembourg.",
-    url: `${BASE}/search`,
-  },
+export async function generateMetadata(): Promise<Metadata> {
+  return localizedMetadata({
+    path: "/search",
+    title: "Search Experiences",
+    description: "Search and filter tours, activities, and experiences in Luxembourg. Find your perfect sightseeing adventure.",
+  })
 }
 
 function mapDbRow(r: Record<string, unknown>): SearchTrip {

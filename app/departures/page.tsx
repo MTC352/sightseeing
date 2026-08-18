@@ -4,12 +4,16 @@ import { DeparturesClient } from "./departures-client"
 import { dbListTrips } from "@/lib/db/queries"
 import type { Trip } from "@/lib/data"
 import type { Metadata } from "next"
+import { localizedMetadata } from "@/lib/i18n/metadata"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = {
-  title: "Departure Locations | sightseeing.lu",
-  description: "Find experiences by departure location across Luxembourg. Filter by product to find your exact departure point.",
+export async function generateMetadata(): Promise<Metadata> {
+  return localizedMetadata({
+    path: "/departures",
+    title: "Departure Locations | sightseeing.lu",
+    description: "Find experiences by departure location across Luxembourg. Filter by product to find your exact departure point.",
+  })
 }
 
 export default async function DeparturesPage() {

@@ -4,23 +4,22 @@ import ExploreClient from "./explore-client"
 import { dbListTrips } from "@/lib/db/queries"
 import { safeJsonLd } from "@/lib/json-ld"
 import { SiteFooter } from "@/components/site-footer"
+import { localizedMetadata } from "@/lib/i18n/metadata"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
 export const dynamic = "force-dynamic"
 
-export const metadata: Metadata = {
-  title: "Explore All Experiences in Luxembourg",
-  description: "Browse 45+ tours, activities, and experiences across Luxembourg. Filter by category, city, duration, and price. Wine tastings, castle tours, e-bike adventures, dinner hopping and more.",
-  keywords: ["Luxembourg experiences", "Luxembourg activities", "things to do Luxembourg", "explore Luxembourg", "Luxembourg tours catalog"],
-  alternates: {
-    canonical: `${BASE}/explore`,
-  },
-  openGraph: {
+export async function generateMetadata(): Promise<Metadata> {
+  const base = await localizedMetadata({
+    path: "/explore",
     title: "Explore All Experiences in Luxembourg",
-    description: "Browse 45+ tours, activities, and experiences across Luxembourg.",
-    url: `${BASE}/explore`,
-  },
+    description: "Browse 45+ tours, activities, and experiences across Luxembourg. Filter by category, city, duration, and price. Wine tastings, castle tours, e-bike adventures, dinner hopping and more.",
+  })
+  return {
+    ...base,
+    keywords: ["Luxembourg experiences", "Luxembourg activities", "things to do Luxembourg", "explore Luxembourg", "Luxembourg tours catalog"],
+  }
 }
 
 export default async function ExplorePage() {

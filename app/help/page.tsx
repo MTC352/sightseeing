@@ -3,22 +3,19 @@ import { SiteFooter } from "@/components/site-footer"
 import { HelpClient, type HelpArticle } from "./help-client"
 import { dbListHelpArticles } from "@/lib/db/queries"
 import type { Metadata } from "next"
+import { localizedMetadata } from "@/lib/i18n/metadata"
 
 export const dynamic = "force-dynamic"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
-export const metadata: Metadata = {
-  title: "Help Center & Knowledge Base | sightseeing.lu",
-  description:
-    "Find answers to common questions about booking, payments, cancellations, the sightseeing.lu app, City Tours, and more. Browse articles or search our knowledge base.",
-  alternates: { canonical: `${BASE}/help` },
-  openGraph: {
-    title: "Help Center | sightseeing.lu",
+export async function generateMetadata(): Promise<Metadata> {
+  return localizedMetadata({
+    path: "/help",
+    title: "Help Center & Knowledge Base | sightseeing.lu",
     description:
-      "Your complete guide to booking experiences in Luxembourg. FAQs, app help, tour information and customer support.",
-    url: `${BASE}/help`,
-  },
+      "Find answers to common questions about booking, payments, cancellations, the sightseeing.lu app, City Tours, and more. Browse articles or search our knowledge base.",
+  })
 }
 
 // Strip light HTML/markdown formatting so the FAQPage `text` answer is plain
