@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { SOURCE_LANG, LANG_COOKIE, MAX_BATCH, isSupportedLang } from "@/lib/i18n/config"
 import { isTranslatableText, dedupe, chunk } from "@/lib/i18n/collect"
+import { stripLocale } from "@/lib/i18n/routing"
 
 const ATTRS = ["placeholder", "alt", "title", "aria-label"]
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT", "CODE", "PRE"])
@@ -18,6 +19,10 @@ function readCookie(name: string): string {
 }
 
 export function getSiteLang(): string {
+  if (typeof location !== "undefined") {
+    const { locale } = stripLocale(location.pathname)
+    if (locale !== "en") return locale
+  }
   const c = readCookie(LANG_COOKIE)
   return isSupportedLang(c) ? c : SOURCE_LANG
 }
@@ -223,10 +228,12 @@ function startObserver(): void {
 export function setSiteLang(lang: string): void {
   document.cookie = LANG_COOKIE + "=" + encodeURIComponent(lang) + "; path=/; max-age=31536000; samesite=lax"
   if (!isSupportedLang(lang)) {
-    // Back to English: reload to restore original source text cleanly.
+    // Back to English: reload at the de-localized path to strip the prefix
+    // and restore original source text cleanly.
     currentLang = SOURCE_LANG
     document.documentElement.lang = SOURCE_LANG
-    location.reload()
+    const { path } = stripLocale(location.pathname)
+    location.assign(path)
     return
   }
   currentLang = lang
