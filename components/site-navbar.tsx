@@ -114,7 +114,7 @@ export function Navbar() {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
-          <div className="hidden items-center gap-0.5 rounded-lg border border-border p-0.5 md:flex" role="group" aria-label="Language switcher">
+          <div translate="no" className="hidden items-center gap-0.5 rounded-lg border border-border p-0.5 md:flex" role="group" aria-label="Language switcher">
             {LANGUAGES.map((lang) => (
               <button
                 key={lang.code}
@@ -179,7 +179,7 @@ export function Navbar() {
           })}
           <div className="mt-2 flex items-center gap-1 border-t border-border pt-3">
             <Globe className="h-4 w-4 text-muted-foreground" />
-            <div className="flex gap-0.5">
+            <div translate="no" className="flex gap-0.5">
               {LANGUAGES.map((lang) => (
                 <button
                   key={lang.code}
