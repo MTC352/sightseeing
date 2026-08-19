@@ -346,14 +346,6 @@ export default function TripDetailClient({
           {/* Main content */}
           <div className="flex-1">
 
-            {/* Booking widget — mobile only, surfaced above the gallery so
-                visitors can check availability without scrolling past the whole
-                trip description. On desktop this copy is hidden and the widget
-                renders in the sticky sidebar instead. */}
-            <div className="mb-6 lg:hidden">
-              {bookingWidget(false)}
-            </div>
-
             {/*
               Gallery — all images are mounted simultaneously in absolute layers
               so switching is INSTANT (no re-fetch on next/prev). Only the active
@@ -639,6 +631,19 @@ export default function TripDetailClient({
                 >
                   {inCart ? <><Check className="h-4 w-4" /> Added to Trip</> : <><ShoppingBag className="h-4 w-4" /> Add to Trip</>}
                 </button>
+                {/* Mobile-only booking entry point. On mobile the inline booking
+                    iframe is not rendered, so this button opens the fullscreen
+                    booking modal instead. Hidden on desktop, where the sticky
+                    sidebar already shows the interactive widget below. */}
+                {bookingUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setBookingModalOpen(true)}
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground shadow-md transition-colors hover:bg-primary/90 lg:hidden"
+                  >
+                    Check Availability
+                  </button>
+                )}
               </div>
 
               {/* Booking widget (desktop, in the sticky sidebar). On mobile this
@@ -710,16 +715,20 @@ export default function TripDetailClient({
         )}
       </div>
 
-      {/* Spacer so the fixed mobile booking bar never permanently covers the
-          footer at max scroll. Desktop has no bar, so no spacer. */}
-      {bookingUrl && <div aria-hidden className="h-20 lg:hidden" />}
-
       {footer}
 
+      {/* Spacer BELOW the footer so the fixed mobile booking bar never covers
+          the footer's last rows at max scroll — the page can scroll far enough
+          for the footer to clear the bar. Desktop has no bar, so no spacer. */}
+      {bookingUrl && <div aria-hidden className="h-20 lg:hidden" />}
+
       {/* Mobile sticky booking bar — persistent access to the booking flow
-          regardless of scroll position. Opens the fullscreen modal. */}
+          regardless of scroll position. Opens the fullscreen modal. The
+          near-max z-index keeps the bar (and its price) above Cookiebot's
+          floating consent widget, which injects itself at z-index 2147483645
+          and would otherwise overlap the price in the bottom-left corner. */}
       {bookingUrl && !bookingModalOpen && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
+        <div className="fixed inset-x-0 bottom-0 z-[2147483646] border-t border-border bg-background/95 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div>
               <div className="flex items-baseline gap-1.5">
