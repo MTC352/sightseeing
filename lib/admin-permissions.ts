@@ -132,6 +132,7 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   { prefix: "/api/admin/integrations", keys: ["integrations"] },
   { prefix: "/api/admin/refresh-availability", keys: ["integrations"] },
   { prefix: "/api/admin/refresh-discovery", keys: ["integrations"] },
+  { prefix: "/api/admin/purge-cache", keys: ["integrations"] },
   // Header / footer — superadmin-only (see explicit check in canAccessPath below)
   // Palisis
   { prefix: "/admin/palisis", keys: ["palisis"] },

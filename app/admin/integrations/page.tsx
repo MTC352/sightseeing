@@ -212,6 +212,8 @@ export default function IntegrationsPage() {
   const [dsSaving, setDsSaving] = useState<"discovery" | "availability" | null>(null)
   const [dsSavedKey, setDsSavedKey] = useState<string | null>(null)
   const [dsRefreshing, setDsRefreshing] = useState<"discovery" | "availability" | null>(null)
+  const [purging, setPurging] = useState(false)
+  const [purgeMsg, setPurgeMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [dsCollapsed, setDsCollapsed] = useState(false)
   const [dsDirty, setDsDirty] = useState(false)
   const [dsSavedAll, setDsSavedAll] = useState(false)
@@ -277,6 +279,25 @@ export default function IntegrationsPage() {
       await refreshDsStatus()
     } catch { /* ignore */ }
     finally { setDsRefreshing(null) }
+  }
+
+  async function purgeCache() {
+    setPurging(true)
+    setPurgeMsg(null)
+    try {
+      const res = await fetch("/api/admin/purge-cache", { method: "POST" })
+      if (res.ok) {
+        setPurgeMsg({ ok: true, text: "Page cache cleared — content updates are now live." })
+      } else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string }
+        setPurgeMsg({ ok: false, text: body.error || `Failed (${res.status}).` })
+      }
+    } catch {
+      setPurgeMsg({ ok: false, text: "Request failed — check your connection and try again." })
+    } finally {
+      setPurging(false)
+      setTimeout(() => setPurgeMsg(null), 6000)
+    }
   }
 
   async function saveDsKey(key: string, value: string, kind: "discovery" | "availability") {
@@ -816,6 +837,37 @@ export default function IntegrationsPage() {
       {/* ── SETTINGS TAB ─────────────────────────────────────────── */}
       {tab === "settings" && (
         <div className="space-y-5">
+
+          {/* Site cache — clear Next.js page cache on demand */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+              <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+              <div className="min-w-[220px] flex-1">
+                <h2 className="text-sm font-semibold text-foreground">Site Page Cache</h2>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  Clear the server-side page cache so content edits (trips, blog, pages)
+                  appear immediately on prerendered pages. Does not clear the CDN/browser
+                  cache.
+                </p>
+              </div>
+              {purgeMsg && (
+                <span
+                  className={`text-[11px] font-medium ${purgeMsg.ok ? "text-emerald-600" : "text-destructive"}`}
+                >
+                  {purgeMsg.text}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={purgeCache}
+                disabled={purging}
+                className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                {purging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                {purging ? "Clearing…" : "Clear page cache"}
+              </button>
+            </div>
+          </div>
 
           {/* Departing Soon Widget — collapsible */}
           <div className="rounded-xl border border-border bg-card overflow-hidden">

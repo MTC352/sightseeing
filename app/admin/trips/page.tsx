@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { dbListTrips } from "@/lib/db/queries"
+import { dbListTripsForAdmin } from "@/lib/db/queries"
 import { computeStaleness } from "@/lib/seo/score"
 import { TripRowClient } from "./trip-row-client"
 import { requirePermission } from "@/lib/auth-server"
@@ -14,10 +14,10 @@ export default async function AdminTripsPage() {
     redirect("/admin/login")
   }
 
-  const trips = await dbListTrips() as ({
+  const trips = await dbListTripsForAdmin() as ({
     id: string; palisis_id: string | null; title: string; city: string; category: string; price: number;
     originalPrice: number | null; image: string; featured: boolean;
-    featuredDeparture: boolean; status: string; syncSource?: string | null;
+    status: string; syncSource?: string | null;
     seoScore?: number | null; seoOptimizedAt?: string | null;
   } & Record<string, unknown>)[]
 
@@ -83,11 +83,27 @@ export default async function AdminTripsPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {trips.map((trip) => {
+                // Staleness needs the heavy SEO source fields, but they stay
+                // server-side — only these display fields go to the client row.
                 const st = computeStaleness(trip)
+                const row = {
+                  id: trip.id,
+                  palisis_id: trip.palisis_id,
+                  title: trip.title,
+                  city: trip.city,
+                  category: trip.category,
+                  price: trip.price,
+                  originalPrice: trip.originalPrice,
+                  image: trip.image,
+                  featured: trip.featured,
+                  status: trip.status,
+                  slug: (trip.slug as string | null | undefined) ?? null,
+                  seoScore: trip.seoScore ?? null,
+                }
                 return (
                   <TripRowClient
                     key={trip.id}
-                    trip={trip}
+                    trip={row}
                     isPalisis={isPalisis(trip)}
                     seoOptimized={st.optimized}
                     seoStale={st.stale}

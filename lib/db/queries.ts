@@ -105,6 +105,32 @@ export async function dbListTrips(opts: { publicOnly?: boolean } = {}) {
   return query(`SELECT ${TRIP_SELECT} FROM trips WHERE ${where} ORDER BY created_at DESC`)
 }
 
+// Slim projection for the admin Trips list. Selecting the full TRIP_SELECT for
+// every non-archived trip on each (force-dynamic, uncached) navigation ships a
+// huge RSC payload and makes the list feel frozen. This keeps only what the list
+// actually needs: the row's display fields, the isPalisis check, and the SEO
+// source/target fields computeStaleness() hashes. The heavy content fields it
+// still selects (description, itinerary, …) are needed to detect a stale SEO
+// badge but stay server-side — page.tsx passes only display fields to the client.
+const ADMIN_TRIP_LIST_SELECT = `
+  id, palisis_id, title, city, category,
+  price::float, original_price::float as "originalPrice",
+  image, featured, status, slug,
+  description, short_description as "shortDescription",
+  long_description as "longDescription",
+  highlights, included, excluded, itinerary,
+  sync_source as "syncSource",
+  seo_keyword as "seoKeyword", seo_title as "seoTitle",
+  seo_meta_description as "seoMetaDescription", seo_body as "seoBody",
+  seo_highlights as "seoHighlights", seo_slug as "seoSlug",
+  seo_score as "seoScore", seo_optimized_at as "seoOptimizedAt",
+  seo_source_hashes as "seoSourceHashes"
+`
+
+export async function dbListTripsForAdmin() {
+  return query(`SELECT ${ADMIN_TRIP_LIST_SELECT} FROM trips WHERE status != 'archived' ORDER BY created_at DESC`)
+}
+
 export async function dbListArchivedTrips() {
   return query(`SELECT ${TRIP_SELECT} FROM trips WHERE status = 'archived' ORDER BY created_at DESC`)
 }

@@ -22,7 +22,6 @@ interface TripRowProps {
     originalPrice: number | null
     image: string
     featured: boolean
-    featuredDeparture: boolean
     status: string
     slug?: string | null
     seoScore?: number | null
