@@ -96,5 +96,35 @@ export async function register() {
         }
       })()
     }, DISCOVERY_BOOTSTRAP_DELAY_MS).unref?.()
+
+    // ── Recurring in-process refresh (replaces the external per-minute cron) ──
+    // The external scheduler (Replit Scheduled Deployment / cron-job.org) that
+    // hit /api/cron/refresh-discovery + /api/cron/auto-update-availability every
+    // minute was lost in the Docker migration. Without it nothing rebuilt the
+    // discovery window as "today" advanced, so after ~7 days today rolled past
+    // the fetched window and the "Departing Soon" / "Filling Up Fast" widgets
+    // went empty until a manual admin refresh. This interval restores that
+    // cadence in-process — no separate container or CRON_SECRET needed.
+    //
+    // Both refreshers are internally gated, so the 60s tick is cheap and mirrors
+    // the two original crons: refreshDiscovery(false) short-circuits unless the
+    // snapshot has entered its refresh-ahead margin or no longer covers today
+    // (only then does it sweep TourCMS); refreshAvailability honors its TTL, the
+    // show-availability toggle, and the rate-limit guard. Starts after the same
+    // startup deferral so the first heavy work clears the deploy probe window.
+    const RECURRING_REFRESH_INTERVAL_MS = 60_000
+    setTimeout(() => {
+      setInterval(() => {
+        void (async () => {
+          try {
+            const mod = await import("./lib/departing-soon-cache")
+            mod.triggerDiscoveryBootstrap()
+            await mod.refreshAvailability().catch(() => {})
+          } catch (e) {
+            console.warn("[instrumentation] recurring refresh tick failed:", e)
+          }
+        })()
+      }, RECURRING_REFRESH_INTERVAL_MS).unref?.()
+    }, DISCOVERY_BOOTSTRAP_DELAY_MS).unref?.()
   }
 }

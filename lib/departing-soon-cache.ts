@@ -95,6 +95,15 @@ export interface DiscoveryCache {
   daysFetched: number
   failedTripCount: number
   tripsChecked: number
+  /**
+   * Last Luxembourg date (YYYY-MM-DD) this window has departures for — the
+   * `startdate_end` horizon of the sweep that built it. The widgets only ever
+   * show TODAY, so a snapshot is useless the moment `luxembourgTodayDate()`
+   * advances past this date, even though `expiresAt` (a wall-clock TTL) may
+   * still be in the future. Optional so pre-existing DB snapshots without it
+   * fall back to the max slot date (see `snapshotWindowEnd`).
+   */
+  windowEndDate?: string
 }
 
 export interface AvailabilityCache {
@@ -153,9 +162,15 @@ async function getNumericSetting(key: string, fallback: number, min: number, max
   }
 }
 
-/** Discovery window: how many days of `datesndeals` to fetch per trip. Default 7. */
+/**
+ * Discovery window: how many days of `datesndeals` to fetch per trip. Default 7.
+ * Minimum 2 (not 1): the snapshot auto-refreshes DISCOVERY_REFRESH_AHEAD_MS (24h)
+ * before expiry, so a 2-day window refreshes daily while always keeping today
+ * (plus a 1-day buffer) covered. A 1-day window would want to refresh the instant
+ * it's built, so 2 is the safe floor.
+ */
 export async function getDiscoveryWindowDays(): Promise<number> {
-  return getNumericSetting("departing_soon_discovery_window_days", 7, 3, 30)
+  return getNumericSetting("departing_soon_discovery_window_days", 7, 2, 30)
 }
 export async function getAvailabilityTtlSeconds(): Promise<number> {
   return getNumericSetting("departing_soon_availability_ttl_seconds", 20, 10, 120)
@@ -200,6 +215,49 @@ export function luxembourgTodayDate(): string {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
   }
 }
+/** Add `days` to a YYYY-MM-DD date string, returning YYYY-MM-DD (calendar math, TZ-agnostic). */
+function addDaysToDateString(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number)
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, (d ?? 1) + days))
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`
+}
+
+/**
+ * Last Lux date a snapshot has data for. Prefers the stored `windowEndDate`;
+ * for legacy snapshots without it, falls back to the max slot date (empty
+ * string when there are no slots, which reads as "covers nothing" → refresh).
+ */
+function snapshotWindowEnd(cache: DiscoveryCache): string {
+  if (cache.windowEndDate) return cache.windowEndDate
+  let max = ""
+  for (const s of cache.allSlots) if (s.date > max) max = s.date
+  return max
+}
+
+/**
+ * True while the snapshot still covers TODAY's Luxembourg departures
+ * (today ≤ window end). Once today rolls past the window end the snapshot can
+ * only ever yield 0 "today" slots, so it must be treated as stale — regardless
+ * of the wall-clock `expiresAt` TTL. YYYY-MM-DD strings compare lexicographically.
+ */
+export function snapshotCoversToday(cache: DiscoveryCache): boolean {
+  return luxembourgTodayDate() <= snapshotWindowEnd(cache)
+}
+
+/**
+ * A snapshot is "comfortably fresh" — safe to serve AND to skip a refresh —
+ * only when it still covers today AND is more than the refresh-ahead margin
+ * from its wall-clock expiry. Both the in-memory window gate and the DB
+ * cross-instance guard use this single predicate so the refresh-ahead margin
+ * actually triggers a sweep: once a snapshot enters the last 24h of its window
+ * (or today rolls past its end) it is NOT comfortably fresh, so the non-forced
+ * refresh path falls through to a live sweep and renews the DB snapshot ahead
+ * of expiry — instead of re-hydrating the stale one until it hard-expires.
+ */
+function comfortablyFresh(cache: DiscoveryCache): boolean {
+  return snapshotCoversToday(cache) && Date.now() < cache.expiresAt - DISCOVERY_REFRESH_AHEAD_MS
+}
+
 async function getBoolSetting(key: string, fallback: boolean): Promise<boolean> {
   try {
     const s = await dbGetSettings()
@@ -244,9 +302,10 @@ export async function getLmdMaxCards(): Promise<number> {
   return getNumericSetting("lmd_max_cards", 3, 1, 12)
 }
 
-/** True when the discovery window is empty or has elapsed. */
+/** True when the discovery window is empty, has elapsed, or no longer covers today. */
 export function isDiscoveryExpired(): boolean {
   if (!discoveryCache) return true
+  if (!snapshotCoversToday(discoveryCache)) return true
   return Date.now() >= discoveryCache.expiresAt
 }
 
@@ -436,7 +495,14 @@ async function dbGetDiscoveryCache(): Promise<DiscoveryCache | null> {
     // Deserialize and validate shape minimally before trusting it.
     const parsed = row.meta as Partial<DiscoveryCache>
     if (!Array.isArray(parsed.allSlots)) return null
-    return parsed as DiscoveryCache
+    const snap = parsed as DiscoveryCache
+    // Reject a snapshot whose window no longer includes today's Lux date: it can
+    // only yield 0 "today" departures, so treat it as absent so the caller
+    // (public hydration → 503; refresh guard → live sweep) refreshes instead of
+    // hydrating stale data. This closes the dead zone where the wall-clock TTL
+    // is still in the future but today has rolled past the fetched horizon.
+    if (!snapshotCoversToday(snap)) return null
+    return snap
   } catch {
     return null
   }
@@ -504,11 +570,13 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     return { ok: false, error: "WIDGET_DISABLED" }
   }
 
-  // Window-based gate: skip only while the cache is comfortably inside its
-  // window — i.e. more than the refresh-ahead margin from expiry. This makes the
+  // Window-based gate: skip only while the cache is comfortably fresh — covers
+  // today AND more than the refresh-ahead margin from expiry. This makes the
   // cron refresh the snapshot ~1 day EARLY so it never actually expires, so a
   // cold-start hydration always finds a valid snapshot (no 503 at the boundary).
-  if (!force && discoveryCache && Date.now() < discoveryCache.expiresAt - DISCOVERY_REFRESH_AHEAD_MS) {
+  // The `comfortablyFresh` coverage check also forces a sweep the moment today
+  // rolls past the fetched window, even if the wall-clock TTL hasn't elapsed.
+  if (!force && discoveryCache && comfortablyFresh(discoveryCache)) {
     return {
       ok: true,
       slotsFound: discoveryCache.allSlots.length,
@@ -527,13 +595,15 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   // instance completed a sweep very recently.  Check the DB for a full cached
   // DiscoveryCache snapshot before running a new TourCMS fan-out.
   //
-  // When a fresh DB snapshot exists we hydrate the local in-memory cache from
-  // it directly — the instance immediately has usable data without any upstream
-  // call.  When the snapshot is missing or expired we fall through to the live
-  // TourCMS fetch below.
+  // When a COMFORTABLY FRESH DB snapshot exists we hydrate the local in-memory
+  // cache from it directly — the instance immediately has usable data without
+  // any upstream call.  When the snapshot is missing, no longer covers today, or
+  // has entered its refresh-ahead margin we fall through to the live TourCMS
+  // fetch below so the DB snapshot is actually renewed ahead of expiry (rather
+  // than re-hydrating the stale one until it hard-expires).
   if (!force) {
     const dbSnapshot = await dbGetDiscoveryCache()
-    if (dbSnapshot !== null) {
+    if (dbSnapshot !== null && comfortablyFresh(dbSnapshot)) {
       // Hydrate the local in-memory cache and return — no TourCMS sweep needed.
       discoveryCache = dbSnapshot
       return {
@@ -615,10 +685,12 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   // never removes a trip from Last Minute Deals or Filling Up Fast.
   const synced = allTrips.filter((t) => t.palisis_id)
 
-  const today = new Date()
-  const ts = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
-  const endDate = new Date(Date.now() + (windowDays - 1) * 86_400_000)
-  const horizon = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`
+  // Anchor the fetch window to LUXEMBOURG today (not server-local), so the
+  // fetched date range and `windowEndDate` line up exactly with the Lux-based
+  // "today" filter the widgets apply. On a UTC-clocked host this avoids an
+  // off-by-one near Lux midnight.
+  const ts = luxembourgTodayDate()
+  const horizon = addDaysToDateString(ts, windowDays - 1)
   const nowUtcSeconds = Math.floor(Date.now() / 1000)
 
   let failedTripCount = 0
@@ -681,6 +753,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     daysFetched: windowDays,
     failedTripCount,
     tripsChecked: synced.length,
+    windowEndDate: horizon,
   }
 
   // Surface a genuinely broken sweep to the admin Error Logs (throttled). A

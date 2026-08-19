@@ -422,6 +422,16 @@ export default function IntegrationsPage() {
     return hours > 0 ? `in ${days}d ${hours}h` : `in ${days}d`
   }
 
+  // Mirrors DISCOVERY_REFRESH_AHEAD_MS in lib/departing-soon-cache.ts: the
+  // snapshot auto-refreshes this long BEFORE its wall-clock expiry, so the
+  // "Next auto-refresh" time is the expiry shifted back by the refresh-ahead
+  // margin (not the expiry itself).
+  const DISCOVERY_REFRESH_AHEAD_MS = 24 * 60 * 60 * 1000
+  function refreshAheadIso(expiryIso: string | null): string | null {
+    if (!expiryIso) return null
+    return new Date(new Date(expiryIso).getTime() - DISCOVERY_REFRESH_AHEAD_MS).toISOString()
+  }
+
   /** CSS-only tooltip that actually appears on hover (title= attribute is unreliable on tiny SVG icons). */
   function InfoTip({ text }: { text: string }) {
     return (
@@ -844,7 +854,10 @@ export default function IntegrationsPage() {
                 <span className="text-muted-foreground/60">{dsStatus.tripsChecked - (dsStatus.failedTripCount ?? 0)}/{dsStatus.tripsChecked} tours</span>
               )}
               {dsStatus.discoveryExpiresAt && (
-                <span><span className="text-muted-foreground/60">Next auto-refresh:</span> <strong className="text-foreground">{fmtTs(dsStatus.discoveryExpiresAt ?? null)}</strong></span>
+                <span><span className="text-muted-foreground/60">Next auto-refresh:</span> <strong className="text-foreground">{fmtTs(refreshAheadIso(dsStatus.discoveryExpiresAt))}</strong></span>
+              )}
+              {dsStatus.discoveryExpiresAt && (
+                <span><span className="text-muted-foreground/60">Cache expiry:</span> <strong className="text-foreground">{fmtTs(dsStatus.discoveryExpiresAt ?? null)}</strong></span>
               )}
               {typeof dsStatus.totalSlotsCached === "number" && (
                 <span><span className="text-muted-foreground/60">Stored departures:</span> <strong className="text-foreground">{dsStatus.totalSlotsCached}</strong></span>
@@ -908,15 +921,15 @@ export default function IntegrationsPage() {
                       <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
                         <div className="flex items-center gap-1.5">
                           <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Dates and Deals Store Interval</label>
-                          <InfoTip text="How many days of upcoming departures to pre-fetch from Palisis. One datesndeals call per trip covers the whole window. The cache stays valid until the window expires — no periodic job. Use Refresh Discovery to rebuild on demand." />
+                          <InfoTip text="How many days of upcoming departures to pre-fetch from Palisis. One datesndeals call per trip covers the whole window. The cache auto-refreshes ~24h before the window expires; use Refresh Discovery to rebuild on demand. Minimum 2 days (set 2 for a daily refresh)." />
                         </div>
                         <div className="relative flex items-center">
                           <input
                             type="number"
-                            min={3} max={30} step={1}
+                            min={2} max={30} step={1}
                             value={dsWindowDays}
                             onChange={(e) => {
-                              const n = Math.max(3, Math.min(30, parseInt(e.target.value, 10) || 7))
+                              const n = Math.max(2, Math.min(30, parseInt(e.target.value, 10) || 7))
                               setKeys((k) => ({ ...k, departing_soon_discovery_window_days: String(n) }))
                               setDsDirty(true)
                             }}
