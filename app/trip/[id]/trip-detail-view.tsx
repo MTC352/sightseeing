@@ -267,6 +267,52 @@ export default function TripDetailClient({
     (st) => st.name?.trim() && st.description?.trim(),
   )
 
+  // Booking widget — one logical block rendered in TWO positions: at the top on
+  // mobile (after the breadcrumb, before the gallery) and in the sticky sidebar
+  // on desktop. Only one copy is ever visible per viewport (`lg:hidden` vs
+  // `hidden lg:block`); the hidden copy's `loading="lazy"` iframe never enters
+  // the viewport, so it is never fetched — no double load. `withAnchor` places
+  // the shared `#booking` deep-link target on the desktop copy so native
+  // hash-scroll keeps working there; on mobile the widget already sits at the
+  // top, so a `#booking` deep link lands the visitor right on it.
+  const bookingWidget = (withAnchor: boolean) =>
+    bookingUrl ? (
+      <div {...(withAnchor ? { id: "booking" } : {})} className="space-y-3">
+        {showSlotBanner && (
+          <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
+            <p
+              className="text-[11px] font-semibold uppercase tracking-wider text-primary"
+              data-testid="selected-slot-eyebrow"
+            >
+              {slotEyebrow}
+            </p>
+            <p className="mt-1 text-base font-bold text-foreground">
+              {formatSelectedDate(selectedDate!)} · {selectedTime}
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+              The calendar below is opened on the right month — just
+              click your date and pick the
+              <span className="font-semibold text-foreground"> {selectedTime} </span>
+              time slot.
+            </p>
+          </div>
+        )}
+        <div className="relative">
+          <BookingIframe src={bookingUrl} title={`Book ${trip.title}`} />
+          <button
+            type="button"
+            onClick={() => setBookingModalOpen(true)}
+            aria-label={`Open booking for ${trip.title}`}
+            className="absolute inset-0 z-20 flex items-end justify-center bg-transparent lg:hidden"
+          >
+            <span className="mb-4 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg">
+              Tap to check availability
+            </span>
+          </button>
+        </div>
+      </div>
+    ) : null
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -299,6 +345,14 @@ export default function TripDetailClient({
 
           {/* Main content */}
           <div className="flex-1">
+
+            {/* Booking widget — mobile only, surfaced above the gallery so
+                visitors can check availability without scrolling past the whole
+                trip description. On desktop this copy is hidden and the widget
+                renders in the sticky sidebar instead. */}
+            <div className="mb-6 lg:hidden">
+              {bookingWidget(false)}
+            </div>
 
             {/*
               Gallery — all images are mounted simultaneously in absolute layers
@@ -587,46 +641,13 @@ export default function TripDetailClient({
                 </button>
               </div>
 
-              {/* Booking widget (inline). On desktop it is fully interactive.
-                  On mobile a transparent tap layer overlays it so touch scrolling
-                  passes through to the page instead of being trapped by the tall
-                  iframe; tapping opens the fullscreen booking modal. */}
-              {bookingUrl && (
-                <div id="booking" className="space-y-3">
-                  {showSlotBanner && (
-                    <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
-                      <p
-                        className="text-[11px] font-semibold uppercase tracking-wider text-primary"
-                        data-testid="selected-slot-eyebrow"
-                      >
-                        {slotEyebrow}
-                      </p>
-                      <p className="mt-1 text-base font-bold text-foreground">
-                        {formatSelectedDate(selectedDate!)} · {selectedTime}
-                      </p>
-                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                        The calendar below is opened on the right month — just
-                        click your date and pick the
-                        <span className="font-semibold text-foreground"> {selectedTime} </span>
-                        time slot.
-                      </p>
-                    </div>
-                  )}
-                  <div className="relative">
-                    <BookingIframe src={bookingUrl} title={`Book ${trip.title}`} />
-                    <button
-                      type="button"
-                      onClick={() => setBookingModalOpen(true)}
-                      aria-label={`Open booking for ${trip.title}`}
-                      className="absolute inset-0 z-20 flex items-end justify-center bg-transparent lg:hidden"
-                    >
-                      <span className="mb-4 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg">
-                        Tap to check availability
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Booking widget (desktop, in the sticky sidebar). On mobile this
+                  copy is hidden — the widget is surfaced above the gallery
+                  instead (see the lg:hidden copy in the main content column), so
+                  the sidebar keeps only the price card and weather on mobile. */}
+              <div className="hidden lg:block">
+                {bookingWidget(true)}
+              </div>
 
               {/* Live weather */}
               {(weatherLoading || weather) && (
