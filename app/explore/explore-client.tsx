@@ -319,7 +319,7 @@ function ExploreCard({ trip, priority = false }: { trip: Trip; priority?: boolea
           className={`absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
             inCart
               ? "bg-primary text-primary-foreground opacity-100"
-              : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 hover:bg-background"
+              : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-background"
           }`}
         >
           {inCart
@@ -417,7 +417,7 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
           className={`absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
             inCart
               ? "bg-primary text-primary-foreground opacity-100"
-              : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 hover:bg-background"
+              : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-background"
           }`}
         >
           {inCart

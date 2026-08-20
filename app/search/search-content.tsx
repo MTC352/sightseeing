@@ -550,7 +550,7 @@ function SearchCard({ trip, priority = false, hasTodaySlots = false }: { trip: T
         )}
         <button type="button" onClick={(e) => { e.preventDefault(); addItem(trip) }} disabled={inCart}
           className={`absolute bottom-2 right-2 z-10 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
-            inCart ? "bg-primary text-primary-foreground" : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 hover:bg-background"
+            inCart ? "bg-primary text-primary-foreground" : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-background"
           }`}>
           {inCart ? <><Check className="h-3 w-3" />Added</> : <><Plus className="h-3 w-3" />Add to Triplist</>}
         </button>
@@ -802,7 +802,7 @@ function SearchListCard({
         )}
         <button type="button" onClick={(e) => { e.preventDefault(); addItem(trip) }} disabled={inCart}
           className={`absolute bottom-2 right-2 z-10 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold shadow-md backdrop-blur-sm transition-all duration-200 ${
-            inCart ? "bg-primary text-primary-foreground" : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 hover:bg-background"
+            inCart ? "bg-primary text-primary-foreground" : "bg-background/90 text-foreground opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 hover:bg-background"
           }`}>
           {inCart ? <><Check className="h-3 w-3" />Added</> : <><Plus className="h-3 w-3" />Add to Triplist</>}
         </button>

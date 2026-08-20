@@ -15,6 +15,7 @@ import { TripItinerary } from "@/components/trip-itinerary"
 import { useCart } from "@/lib/cart-context"
 import { getTripDetail, type Trip } from "@/lib/data"
 import { resolveBookingUrl } from "@/lib/booking-url"
+import { useSiteLang } from "@/components/i18n/translator"
 import { sanitizeRichText } from "@/lib/sanitize-html"
 import { Star, Clock, MapPin, Users, Check, ChevronLeft, ChevronRight, ShoppingBag, Shield, Globe, CloudSun, CloudRain, Sun, Wind, Droplets, Loader2, X } from "lucide-react"
 import { useWeather } from "@/hooks/use-weather"
@@ -155,6 +156,9 @@ export default function TripDetailClient({
   const detail = getTripDetail(id)
 
   const { addItem, isInCart } = useCart()
+  // Visitor's active site language (en/fr/de) — passed to the booking widget so
+  // the Palisis iframe renders in the same language as the rest of the page.
+  const { lang } = useSiteLang()
   const [galleryIdx, setGalleryIdx] = useState(0)
   const { weather, isLoading: weatherLoading } = useWeather()
   const router = useRouter()
@@ -202,7 +206,7 @@ export default function TripDetailClient({
   // Booking widget URL — resolution priority: custom iframe URL → Palisis
   // Product ID → TourCMS permalink. Hoisted here so the inline widget, the
   // mobile sticky bar, and the fullscreen modal all share one source of truth.
-  const bookingUrl = resolveBookingUrl(trip, selectedDate, selectedTime)
+  const bookingUrl = resolveBookingUrl(trip, selectedDate, selectedTime, lang)
   // The pre-selection banner is only meaningful for the TourCMS calendar widget
   // (permalink); the Palisis direct widgets open straight on the booking form.
   const isTourcmsCalendar = !trip.customIframeUrl?.trim() && !trip.palisisProductId?.trim()
@@ -449,9 +453,21 @@ export default function TripDetailClient({
 
             {/* Description */}
             <div data-no-edit className="mt-6">
-              <p className="text-sm text-muted-foreground leading-relaxed trip-answer-first" data-testid="trip-description">
-                {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}.{mergedDescription ? ` ${mergedDescription}` : ""}
-              </p>
+              {mergedDescription && (
+                <p className="text-sm text-muted-foreground leading-relaxed trip-answer-first" data-testid="trip-description">
+                  {/*
+                    Auto-generated "answer-first" intro sentence — commented out
+                    at client request (Aug 2026). It printed the stored trip.price,
+                    which can drift out of sync with the live price shown in the
+                    Palisis/TourCMS booking widget. Kept here so it can be
+                    restored later: to bring it back, uncomment the expression
+                    below (it prepends to {"{mergedDescription}"}).
+
+                    {trip.title} is a {trip.duration.toLowerCase()} {trip.category.toLowerCase()} experience in {trip.city ?? "Luxembourg"}{trip.price > 0 ? `, starting at ${trip.price.toFixed(2)} EUR per person` : ", free of charge"}.{" "}
+                  */}
+                  {mergedDescription}
+                </p>
+              )}
               {hasSeoBody && (
                 <div
                   className="rte-content mt-4 text-sm text-muted-foreground"

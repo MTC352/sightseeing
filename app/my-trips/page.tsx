@@ -6,6 +6,7 @@ import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import { useCart, type CartItem } from "@/lib/cart-context"
 import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"
+import { useSiteLang } from "@/components/i18n/translator"
 import { ShoppingBag, X, Trash2, Clock, Star, MapPin, Loader2 } from "lucide-react"
 import {
   AlertDialog,
@@ -177,6 +178,8 @@ export default function SavedTripsPage() {
 /* ── Booking Modal ──────────────────────────────── */
 function BookingModal({ item, persons, onClose }: { item: CartItem; persons: number; onClose: () => void }) {
   const [loaded, setLoaded] = useState(false)
+  // Visitor's site language (en/fr/de) → Palisis widget renders in that language.
+  const { lang } = useSiteLang()
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center sm:p-4">
       {/* Backdrop */}
@@ -272,7 +275,7 @@ function BookingModal({ item, persons, onClose }: { item: CartItem; persons: num
                 )}
                 <iframe
                   src={item.trip.palisisProductId?.trim()
-                    ? buildPalisisBookingUrl(item.trip.palisisProductId.trim())
+                    ? buildPalisisBookingUrl(item.trip.palisisProductId.trim(), lang)
                     : substitutePlaceholders(item.trip.permalink!.trim())
                   }
                   title={`Book ${item.trip.title}`}

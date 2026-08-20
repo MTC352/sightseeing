@@ -13,6 +13,7 @@ import { useCart } from "@/lib/cart-context"
 import { usePlannerList } from "@/lib/planner-list-context"
 import { weatherData, type Trip } from "@/lib/data"
 import { resolveBookingUrl } from "@/lib/booking-url"
+import { useSiteLang } from "@/components/i18n/translator"
 import { parseDurationHoursMin } from "@/lib/duration-parser"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -1231,6 +1232,9 @@ function EditablePrefsBar({
 /* ────────────────────────────────────── */
 export default function PlannerPage() {
   const wx = useMemo(deriveWx, [])
+  // Visitor's active site language (en/fr/de) — forwarded to the booking widget
+  // so the Palisis iframe renders in the same language as the page.
+  const { lang } = useSiteLang()
   const { temp, humidity, wind, condition } = weatherData.current
   // Working "My Trip" list (planner-local, persists across refreshes) — the
   // itinerary builds from THIS. Separate from the site-wide Saved Trips library.
@@ -5819,7 +5823,7 @@ export default function PlannerPage() {
               <div className="border-t border-border px-4 py-5">
                 <h3 className="mb-3 text-sm font-semibold text-foreground">Book this experience</h3>
                 {(() => {
-                  const bookingUrl = resolveBookingUrl(selectedTrip, prefs?.startDate)
+                  const bookingUrl = resolveBookingUrl(selectedTrip, prefs?.startDate, undefined, lang)
                   return bookingUrl ? (
                   <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
                     <div className="booking-iframe-wrap">
