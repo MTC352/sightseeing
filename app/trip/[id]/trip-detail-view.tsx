@@ -212,14 +212,21 @@ export default function TripDetailClient({
   const isTourcmsCalendar = !trip.customIframeUrl?.trim() && !trip.palisisProductId?.trim()
   const showSlotBanner = Boolean(selectedDate && selectedTime && isTourcmsCalendar)
 
-  // Gallery priority: DB → legacy static detail gallery → featured image only
-  const gallery: string[] = (
-    (trip.gallery ?? []).length > 0
-      ? trip.gallery!
-      : (detail?.gallery ?? []).length > 0
-        ? detail!.gallery
-        : [trip.image]
-  ).filter(Boolean)
+  // Featured image leads, then the gallery (DB → legacy static detail).
+  // The featured image (trip.image) is a separate admin field, so it must be
+  // prepended explicitly — otherwise admin-uploaded featured images (which
+  // aren't in trip.gallery) never appear. Palisis trips set image === gallery[0],
+  // so we de-dupe by value to avoid showing the same photo twice.
+  const gallery: string[] = Array.from(
+    new Set(
+      [
+        trip.image,
+        ...((trip.gallery ?? []).length > 0
+          ? trip.gallery!
+          : (detail?.gallery ?? [])),
+      ].filter(Boolean),
+    ),
+  )
 
   /* ─── Merge DB + static for displayed fields ────────────────────────── */
   // Admin-optimised SEO body is authored in a rich-text editor and rendered as
