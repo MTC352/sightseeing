@@ -207,10 +207,10 @@ export default function TripDetailClient({
   // Product ID → TourCMS permalink. Hoisted here so the inline widget, the
   // mobile sticky bar, and the fullscreen modal all share one source of truth.
   const bookingUrl = resolveBookingUrl(trip, selectedDate, selectedTime, lang)
-  // The pre-selection banner is only meaningful for the TourCMS calendar widget
-  // (permalink); the Palisis direct widgets open straight on the booking form.
-  const isTourcmsCalendar = !trip.customIframeUrl?.trim() && !trip.palisisProductId?.trim()
-  const showSlotBanner = Boolean(selectedDate && selectedTime && isTourcmsCalendar)
+  // Show the pre-selection banner whenever the visitor arrived with a specific
+  // date + time (e.g. from the deals / departing / planner rails), regardless of
+  // which booking widget the trip uses.
+  const showSlotBanner = Boolean(selectedDate && selectedTime)
 
   // Featured image leads, then the gallery (DB → legacy static detail).
   // The featured image (trip.image) is a separate admin field, so it must be
@@ -286,43 +286,93 @@ export default function TripDetailClient({
   // the shared `#booking` deep-link target on the desktop copy so native
   // hash-scroll keeps working there; on mobile the widget already sits at the
   // top, so a `#booking` deep link lands the visitor right on it.
-  const bookingWidget = (withAnchor: boolean) =>
-    bookingUrl ? (
-      <div {...(withAnchor ? { id: "booking" } : {})} className="space-y-3">
-        {showSlotBanner && (
-          <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
-            <p
-              className="text-[11px] font-semibold uppercase tracking-wider text-primary"
-              data-testid="selected-slot-eyebrow"
-            >
-              {slotEyebrow}
-            </p>
-            <p className="mt-1 text-base font-bold text-foreground">
-              {formatSelectedDate(selectedDate!)} · {selectedTime}
-            </p>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              The calendar below is opened on the right month — just
-              click your date and pick the
-              <span className="font-semibold text-foreground"> {selectedTime} </span>
-              time slot.
-            </p>
-          </div>
-        )}
-        <div className="relative">
-          <BookingIframe src={bookingUrl} title={`Book ${trip.title}`} />
-          <button
-            type="button"
-            onClick={() => setBookingModalOpen(true)}
-            aria-label={`Open booking for ${trip.title}`}
-            className="absolute inset-0 z-20 flex items-end justify-center bg-transparent lg:hidden"
-          >
-            <span className="mb-4 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg">
-              Tap to check availability
-            </span>
-          </button>
-        </div>
+  // Selected-slot banner — rendered as its own block so the desktop sidebar can
+  // let it scroll away while only the iframe below stays sticky (otherwise the
+  // banner would occupy sticky space above the pinned calendar).
+  const slotBanner = showSlotBanner ? (
+    <div data-no-edit className="rounded-xl border-2 border-primary bg-primary/10 px-4 py-3 text-sm">
+      <p
+        className="text-[11px] font-semibold uppercase tracking-wider text-primary"
+        data-testid="selected-slot-eyebrow"
+      >
+        {slotEyebrow}
+      </p>
+      <p className="mt-1 text-base font-bold text-foreground">
+        {formatSelectedDate(selectedDate!)} · {selectedTime}
+      </p>
+      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+        The calendar below is opened on the right month — just
+        click your date and pick the
+        <span className="font-semibold text-foreground"> {selectedTime} </span>
+        time slot.
+      </p>
+    </div>
+  ) : null
+
+  const bookingIframeBlock = bookingUrl ? (
+    <div className="relative">
+      <BookingIframe src={bookingUrl} title={`Book ${trip.title}`} />
+      <button
+        type="button"
+        onClick={() => setBookingModalOpen(true)}
+        aria-label={`Open booking for ${trip.title}`}
+        className="absolute inset-0 z-20 flex items-end justify-center bg-transparent lg:hidden"
+      >
+        <span className="mb-4 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg">
+          Tap to check availability
+        </span>
+      </button>
+    </div>
+  ) : null
+
+  // Live weather card — extracted so it can be rendered twice: in normal flow
+  // on mobile, and glued directly beneath the sticky booking iframe on desktop
+  // (so it rides along with the pinned calendar instead of scrolling behind it).
+  const weatherCard = (weatherLoading || weather) ? (
+    <div data-no-edit className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-foreground">Right now in Luxembourg</span>
       </div>
-    ) : null
+      {weatherLoading ? (
+        <div className="mt-3 flex items-center gap-3">
+          <div className="h-9 w-9 animate-pulse rounded-full bg-muted" />
+          <div className="space-y-1.5">
+            <div className="h-6 w-16 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+      ) : weather && (() => {
+        const WIcon = WEATHER_ICONS[weather.current.icon] || CloudSun
+        return (
+          <div className="mt-3">
+            <div className="flex items-center gap-3">
+              <WIcon className="h-9 w-9 text-primary" />
+              <div>
+                <span className="text-2xl font-bold text-foreground">{weather.current.temp}&deg;C</span>
+                <p className="text-xs text-muted-foreground">{weather.current.condition}</p>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-3 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1"><Droplets className="h-3 w-3" />{weather.current.humidity}%</span>
+              <span className="flex items-center gap-1"><Wind className="h-3 w-3" />{weather.current.wind} km/h</span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {weather.forecast.map((d) => {
+                const DI = WEATHER_ICONS[d.icon] || Sun
+                return (
+                  <div key={d.day} className="flex flex-col items-center justify-center gap-1 rounded-xl bg-secondary/50 py-4 text-xs">
+                    <span className="text-muted-foreground">{d.day}</span>
+                    <DI className="h-5 w-5 text-primary" />
+                    <span className="font-semibold text-foreground">{d.high}&deg;</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
+    </div>
+  ) : null
 
   return (
     <div className="min-h-screen bg-background">
@@ -639,7 +689,14 @@ export default function TripDetailClient({
 
           {/* Booking sidebar */}
           <div id="calendar" className="shrink-0 lg:w-[400px]">
-            <div className="sticky top-20 flex flex-col gap-3">
+            {/* The price card + slot banner scroll away with the page; the
+                booking iframe + weather stick together on desktop (see below).
+                lg:h-full stretches this wrapper to the full column height (the
+                #calendar column already stretches to the main content's height
+                via the flex row), so the sticky block has the whole page to stay
+                pinned over — without it the wrapper is only as tall as its own
+                content and the block would un-stick after a few hundred px. */}
+            <div className="flex flex-col gap-3 lg:h-full">
               <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
                 <div data-no-edit className="flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-foreground">{trip.price.toFixed(2)} &euro;</span>
@@ -669,60 +726,25 @@ export default function TripDetailClient({
                 )}
               </div>
 
-              {/* Booking widget (desktop, in the sticky sidebar). On mobile this
-                  copy is hidden — the widget is surfaced above the gallery
-                  instead (see the lg:hidden copy in the main content column), so
-                  the sidebar keeps only the price card and weather on mobile. */}
-              <div className="hidden lg:block">
-                {bookingWidget(true)}
-              </div>
+              {/* Selected-slot banner (desktop) — scrolls away with the price
+                  card; not part of the sticky iframe below. */}
+              {slotBanner && <div className="hidden lg:block">{slotBanner}</div>}
 
-              {/* Live weather */}
-              {(weatherLoading || weather) && (
-                <div data-no-edit className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">Right now in Luxembourg</span>
-                  </div>
-                  {weatherLoading ? (
-                    <div className="mt-3 flex items-center gap-3">
-                      <div className="h-9 w-9 animate-pulse rounded-full bg-muted" />
-                      <div className="space-y-1.5">
-                        <div className="h-6 w-16 animate-pulse rounded bg-muted" />
-                        <div className="h-3 w-24 animate-pulse rounded bg-muted" />
-                      </div>
-                    </div>
-                  ) : weather && (() => {
-                    const WIcon = WEATHER_ICONS[weather.current.icon] || CloudSun
-                    return (
-                      <div className="mt-3">
-                        <div className="flex items-center gap-3">
-                          <WIcon className="h-9 w-9 text-primary" />
-                          <div>
-                            <span className="text-2xl font-bold text-foreground">{weather.current.temp}&deg;C</span>
-                            <p className="text-xs text-muted-foreground">{weather.current.condition}</p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Droplets className="h-3 w-3" />{weather.current.humidity}%</span>
-                          <span className="flex items-center gap-1"><Wind className="h-3 w-3" />{weather.current.wind} km/h</span>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          {weather.forecast.map((d) => {
-                            const DI = WEATHER_ICONS[d.icon] || Sun
-                            return (
-                              <div key={d.day} className="flex flex-col items-center justify-center gap-1 rounded-xl bg-secondary/50 py-4 text-xs">
-                                <span className="text-muted-foreground">{d.day}</span>
-                                <DI className="h-5 w-5 text-primary" />
-                                <span className="font-semibold text-foreground">{d.high}&deg;</span>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
+              {/* Live weather (mobile) — normal flow below the price card. The
+                  desktop copy lives inside the sticky booking block below. */}
+              {weatherCard && <div className="lg:hidden">{weatherCard}</div>}
+
+              {/* Booking widget (desktop). Sticky as one unit — top-20 pins the
+                  calendar just below the navbar while the price card and slot
+                  banner above it scroll away. The weather card is nested here,
+                  directly beneath the iframe, so it rides along glued to the
+                  calendar's bottom instead of scrolling behind it. On mobile
+                  this whole block is hidden — the widget is surfaced via the
+                  fullscreen modal and the weather shows in flow above. */}
+              <div id="booking" className="hidden space-y-3 lg:sticky lg:top-20 lg:block">
+                {bookingIframeBlock}
+                {weatherCard}
+              </div>
             </div>
           </div>
         </div>
