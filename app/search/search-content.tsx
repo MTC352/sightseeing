@@ -1357,21 +1357,24 @@ export function SearchContent({
               )}
             </div>
 
-            <div className="h-5 w-px shrink-0 bg-border" />
-
-            {/* Category pills */}
-            {categories.map((cat) => {
-              const isActive = activeCategory === cat
-              return (
-                <button type="button" key={cat}
-                  onClick={() => setActiveCategory(isActive ? null : cat)}
-                  className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                    isActive ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
-                  }`}>
-                  {cat}
-                </button>
-              )
-            })}
+            {/* Category pills — only shown when trips span more than one category */}
+            {categories.length > 1 && (
+              <>
+                <div className="h-5 w-px shrink-0 bg-border" />
+                {categories.map((cat) => {
+                  const isActive = activeCategory === cat
+                  return (
+                    <button type="button" key={cat}
+                      onClick={() => setActiveCategory(isActive ? null : cat)}
+                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                        isActive ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-secondary/80"
+                      }`}>
+                      {cat}
+                    </button>
+                  )
+                })}
+              </>
+            )}
           </div>
         </div>
       </div>

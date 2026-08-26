@@ -123,6 +123,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
   const [highlightsOverlay, setHighlightsOverlay] = useState<string[] | null>(tripData.seoHighlights ?? null)
   const [slugOverlay,       setSlugOverlay]       = useState<string | null>(tripData.seoSlug ?? null)
   const [optimizedOverlay,  setOptimizedOverlay]  = useState<string | null>(tripData.seoOptimizedAt ?? null)
+  const [scoreOverlay,      setScoreOverlay]      = useState<number | null>(tripData.seoScore ?? null)
 
   // Keep seoTitle synced with the form title ONLY when there's no persisted SEO
   // title yet (don't clobber an optimised title with the raw catalog one).
@@ -245,6 +246,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
       setHighlightsOverlay(saved.seoHighlights ?? [])
       setSlugOverlay(saved.seoSlug ?? "")
       setOptimizedOverlay(data.seoOptimizedAt ?? new Date().toISOString())
+      if (typeof data.score === "number") setScoreOverlay(data.score)
       setDirty(new Set())
       setSnippetSaved(true)
       window.setTimeout(() => setSnippetSaved(false), 2500)
@@ -318,7 +320,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
         {staleness.optimized && tripData.seoOptimizedAt && !staleness.stale && (
           <p className="mt-2 text-center text-[10px] text-muted-foreground">
             Last optimized {new Date(optimizedOverlay ?? tripData.seoOptimizedAt).toLocaleString()}
-            {typeof tripData.seoScore === "number" && <> · saved score {tripData.seoScore}</>}
+            {typeof (scoreOverlay ?? tripData.seoScore) === "number" && <> · saved score {scoreOverlay ?? tripData.seoScore}</>}
           </p>
         )}
       </div>
@@ -598,6 +600,7 @@ export function SEOOptimizer({ tripData, onApplyOptimization }: Props) {
             setHighlightsOverlay(result.fields.seoHighlights ?? [])
             setSlugOverlay(result.fields.seoSlug ?? "")
             setOptimizedOverlay(result.seoOptimizedAt)
+            if (typeof result.score === "number") setScoreOverlay(result.score)
             setEditSnippet(true) // lock auto-sync so persisted SEO isn't overwritten by form fields
             setShowAiModal(false)
           }}
