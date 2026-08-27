@@ -11,12 +11,12 @@ columns for the brute-force lockout feature:
 If a DB is missing either column, EVERY login attempt 500s with Postgres
 42703 `column "locked_until" does not exist` (the login SELECT and the
 lockout UPDATE both reference them). There is no canonical schema.sql —
-the DB is the source of truth and schema reaches prod via the Publish flow.
+the DB is the source of truth and schema DDL is applied manually per-DB.
 
 **Why:** these columns were added in code but never applied to a DB, so a
 freshly-provisioned / overwritten DB can lack them.
 
-**How to apply:** fix dev with idempotent DDL
-(`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS ...`), then re-Publish so
-the schema sync propagates the columns to production (a normal publish, not
-the destructive "overwrite all data" option).
+**How to apply:** deploy is git + Docker → manual VPS (not Replit Publish). Run
+the idempotent DDL (`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS ...`)
+against the LIVE database BEFORE deploying the dependent code, then deploy. Apply
+the same to dev.

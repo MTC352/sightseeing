@@ -67,6 +67,7 @@ const TRIP_SELECT = `
   price::float, original_price::float as "originalPrice", duration, category, tags, city,
   provider, image, gallery, highlights, badge, rating::float, review_count as "reviewCount",
   permalink, google_business_url as "googleBusinessUrl",
+  google_place_id as "googlePlaceId",
   featured, featured_departure as "featuredDeparture",
   departing_soon_enabled as "departingSoonEnabled", status,
   tour_type as "tourType", tour_type_code as "tourTypeCode",
@@ -100,9 +101,35 @@ const TRIP_SELECT = `
   created_at, updated_at
 `
 
+// `google_place_id` is a resolver cache added later (docs/db/2026-08-27-trip-
+// google-place-id.sql). Until that ALTER has run on a given DB the column is
+// absent — probe once (cached per process) and degrade to NULL so reads never
+// 500 on a behind-schema database. Once the column exists it is selected live.
+let _hasGooglePlaceIdCol: boolean | null = null
+async function hasGooglePlaceIdColumn(): Promise<boolean> {
+  if (_hasGooglePlaceIdCol !== null) return _hasGooglePlaceIdCol
+  try {
+    const row = await queryOne<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'trips' AND column_name = 'google_place_id'
+       ) AS present`,
+    )
+    _hasGooglePlaceIdCol = row?.present === true
+  } catch {
+    _hasGooglePlaceIdCol = false
+  }
+  return _hasGooglePlaceIdCol
+}
+async function tripSelect(): Promise<string> {
+  return (await hasGooglePlaceIdColumn())
+    ? TRIP_SELECT
+    : TRIP_SELECT.replace('google_place_id as "googlePlaceId"', 'NULL as "googlePlaceId"')
+}
+
 export async function dbListTrips(opts: { publicOnly?: boolean } = {}) {
   const where = opts.publicOnly ? "status = 'published'" : "status != 'archived'"
-  return query(`SELECT ${TRIP_SELECT} FROM trips WHERE ${where} ORDER BY created_at DESC`)
+  return query(`SELECT ${await tripSelect()} FROM trips WHERE ${where} ORDER BY created_at DESC`)
 }
 
 // Slim projection for the admin Trips list. Selecting the full TRIP_SELECT for
@@ -132,7 +159,7 @@ export async function dbListTripsForAdmin() {
 }
 
 export async function dbListArchivedTrips() {
-  return query(`SELECT ${TRIP_SELECT} FROM trips WHERE status = 'archived' ORDER BY created_at DESC`)
+  return query(`SELECT ${await tripSelect()} FROM trips WHERE status = 'archived' ORDER BY created_at DESC`)
 }
 
 /**
@@ -145,7 +172,7 @@ export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {})
   // referenced publicly by their raw palisis_id (e.g. `/trip/31898`). Match
   // on either column so archived/draft status cannot be bypassed by alias.
   return queryOne(
-    `SELECT ${TRIP_SELECT} FROM trips
+    `SELECT ${await tripSelect()} FROM trips
        WHERE (id = $1 OR palisis_id = $1 OR slug = $1)
        ${extra}
        LIMIT 1`,
@@ -275,7 +302,8 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     duration: 'duration', category: 'category', tags: 'tags', city: 'city',
     provider: 'provider', image: 'image', gallery: 'gallery', highlights: 'highlights',
     badge: 'badge', rating: 'rating', reviewCount: 'review_count', permalink: 'permalink',
-    googleBusinessUrl: 'google_business_url', featured: 'featured',
+    googleBusinessUrl: 'google_business_url', googlePlaceId: 'google_place_id',
+    featured: 'featured',
     featuredDeparture: 'featured_departure',
     departingSoonEnabled: 'departing_soon_enabled', status: 'status',
     // ── Palisis-rich fields ────────────────────────────────────────────────
@@ -311,6 +339,12 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     // ── Admin-only booking overrides (never written by Palisis importer) ───────
     palisisProductId: 'palisis_product_id',
     customIframeUrl: 'custom_iframe_url',
+  }
+  // Drop the google_place_id write on a behind-schema DB (column not yet added)
+  // so a resolver back-write can never 500 the update — it silently no-ops until
+  // docs/db/2026-08-27-trip-google-place-id.sql has been run on that DB.
+  if ('googlePlaceId' in data && !(await hasGooglePlaceIdColumn())) {
+    delete fieldMap.googlePlaceId
   }
   // jsonb columns must be serialized to a JSON string before binding (node-pg
   // would otherwise coerce a JS array of objects into a Postgres array literal).

@@ -15,12 +15,21 @@ export { GOOGLE_PROFILE_URL } from "@/lib/google-reviews-normalize"
 
 export interface PlaceDetails extends RawPlaceDetails {}
 
-/** Google Text Search → Place ID by business name. */
-export async function findPlaceIdByName(name: string, apiKey: string): Promise<string | null> {
+/** Google Text Search → Place ID by business name. An optional `locationBias`
+ *  (the pin coordinates from the pasted Maps URL) disambiguates generic names
+ *  like "City Tour Hop on Hop off" to the correct nearby business. */
+export async function findPlaceIdByName(
+  name: string,
+  apiKey: string,
+  locationBias?: { lat: number; lng: number } | null,
+): Promise<string | null> {
   try {
+    const bias = locationBias
+      ? `&locationbias=point:${locationBias.lat},${locationBias.lng}`
+      : ""
     const searchUrl =
       `https://maps.googleapis.com/maps/api/place/findplacefromtext/json` +
-      `?input=${encodeURIComponent(name)}&inputtype=textquery&fields=place_id&key=${apiKey}`
+      `?input=${encodeURIComponent(name)}&inputtype=textquery&fields=place_id${bias}&key=${apiKey}`
     const res = await fetch(searchUrl)
     const json = await res.json()
     if (json.status === "OK" && json.candidates?.length > 0) {
