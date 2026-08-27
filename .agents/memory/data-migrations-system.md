@@ -1,6 +1,6 @@
 ---
 name: Data Migrations system (dev → live content sync)
-description: The DATA-only vs schema-via-Publish boundary and why a custom schema-migration runner was deliberately NOT built.
+description: The DATA-only (content) vs manual-DDL schema boundary; deploy is git + Docker → VPS (not Replit Publish).
 ---
 
 # Data Migrations — the boundary that matters
@@ -8,19 +8,25 @@ description: The DATA-only vs schema-via-Publish boundary and why a custom schem
 Mechanics live in `replit.md` ("Data Migrations"). This file records the
 non-obvious decision behind it.
 
-**Rule: migrations move row CONTENT only, never DDL.** No CREATE/ALTER/DROP, no
-deploy-build hooks, no startup/runtime DDL to "self-heal" prod.
+**Deploy model (current): git + Docker → manual VPS. NOT Replit Publish.** Replit
+Publish (named below as history) is deprecated; there is no automatic dev→prod
+schema sync anymore.
 
-**Why:** production schema is owned exclusively by Replit's Publish flow (diffs
-dev→prod at publish time). The database skill explicitly forbids a custom
-schema-migration runner — it's unsafe on every deploy. A request to also "create
-tables" from the admin migration page was intentionally declined for this reason;
-schema changes go out via Publish, content goes out via this system.
+**Rule: this content-migration system moves row CONTENT only, never DDL.** No
+CREATE/ALTER/DROP, no startup/runtime DDL to "self-heal" prod.
 
-**How to apply:** the `data_migrations` tracking table reaches prod via Publish
-(created in dev, never via runtime DDL). If absent on a behind-prod DB, the runner
-still applies data idempotently and reports `recorded:false` (pg error 42P01 caught
-by `isUndefinedTable`). So when prod is behind: **Publish first** (creates tables),
+**Why + how schema changes ship:** schema DDL is applied **manually against the
+live DB before deploying the dependent code** — each change is a dated
+`docs/db/YYYY-MM-DD-*.sql`. Run it on live, confirm, then git push → Docker build →
+deploy. If code that reads a new column ships first, the site 500s (42703). New
+column reads should also degrade gracefully where cheap (probe `information_schema`
+once, select `NULL` when absent) so a behind-schema DB can't hard-block a page —
+see `lib/db/queries.ts` `hasGooglePlaceIdColumn()`.
+
+**How to apply content:** the `data_migrations` tracking table is created on live by
+its own `docs/db/*.sql`. If absent on a behind DB, the runner still applies data
+idempotently and reports `recorded:false` (pg error 42P01 caught by
+`isUndefinedTable`). So when prod is behind: **apply pending `docs/db/*.sql` first**,
 then run the content migrations from `/admin/db-migrations`.
 
 **Idempotency caveat:** apply() is check-then-insert (no unique constraint on
@@ -30,7 +36,7 @@ uniqueness constraint + ON CONFLICT.
 
 **Media-file migrations (binary vs row split):** uploads default to LOCAL storage
 (`public/uploads/…`) when `BLOB_READ_WRITE_TOKEN` is unset — and that dir is
-committed, so the PDF/image binary reaches prod via Publish (code), NOT the
+committed, so the PDF/image binary reaches prod via the Docker image (code), NOT the
 migration. A media-library data migration therefore only inserts the `media_files`
 ROW (filename/url/mime/size/storage/content_hash). Dedup by content_hash
 (`ON CONFLICT (content_hash) WHERE content_hash IS NOT NULL DO NOTHING`); resolve

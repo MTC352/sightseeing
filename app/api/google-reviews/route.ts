@@ -7,35 +7,15 @@ import {
   fetchPlaceDetails,
   type PlaceDetails,
 } from "@/lib/google-reviews-global"
+import {
+  extractPlaceId,
+  extractPlaceName,
+  extractPlaceCoords,
+} from "@/lib/google-place-url"
 
-/* -----------------------------------------------------------------------
-   Extracts a Place ID from a variety of Google Maps URL formats:
-   - https://maps.google.com/?cid=XXXX
-   - https://www.google.com/maps/place/Name/@lat,lng,z/data=...!1s<PLACE_ID>!...
-   - Raw Place ID passed directly (starts with ChIJ or EI)
-   ----------------------------------------------------------------------- */
-function extractPlaceId(url: string): string | null {
-  try {
-    if (/^ChIJ|^EI/.test(url)) return url
-
-    const u = new URL(url)
-
-    const cid = u.searchParams.get("cid")
-    if (cid) return cid
-
-    // `!1s<id>` token in the `data=` segment. May be terminated by another `!`
-    // token OR sit at the very end of the string, so don't require a trailing `!`.
-    const match = url.match(/!1s([^!?&]+)/)
-    if (match) return decodeURIComponent(match[1])
-
-    return null
-  } catch {
-    return null
-  }
-}
-
-/* `findPlaceIdByName`, `fetchPlaceDetails`, and the `PlaceDetails` type now live
-   in `@/lib/google-reviews-global` (shared with the About page). Imported above. */
+/* Place-id / name / coordinate parsing lives in `@/lib/google-place-url`
+   (pure + unit-tested). `findPlaceIdByName`, `fetchPlaceDetails`, and the
+   `PlaceDetails` type live in `@/lib/google-reviews-global`. */
 
 /* Allowlist of hostnames that are valid Google shortlink input domains */
 const SHORTLINK_ALLOWED_HOSTS = new Set([
@@ -142,19 +122,6 @@ async function resolveShortlink(url: string): Promise<string> {
 }
 
 /* Extract place name segment from a Google Maps URL */
-function extractPlaceName(url: string): string | null {
-  try {
-    const u = new URL(url)
-    const placeMatch = u.pathname.match(/\/place\/([^/@]+)/)
-    if (placeMatch) {
-      return decodeURIComponent(placeMatch[1].replace(/\+/g, " "))
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
 // Server-side response cache — 30-min TTL, keyed by place ID
 const _reviewsCache = new Map<string, { data: unknown; expiresAt: number }>()
 
@@ -242,21 +209,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cached.data)
     }
 
+    // A previously-resolved Place ID cached on the trip row. When present we
+    // use it directly and skip the (slower, fuzzier) name search entirely.
+    const cachedPlaceId = ((tripRow.googlePlaceId as string | null | undefined) ?? "").trim() || null
+
     let placeId: string | null = null
     let placeName: string | null = null
+    let coords: { lat: number; lng: number } | null = null
 
     try {
-      placeId = extractPlaceId(storedUrl)
+      placeId = cachedPlaceId ?? extractPlaceId(storedUrl)
       placeName = extractPlaceName(storedUrl)
+      coords = extractPlaceCoords(storedUrl)
 
       if (!placeId) {
         const resolvedUrl = await resolveShortlink(storedUrl)
         placeId = extractPlaceId(resolvedUrl)
         placeName = placeName ?? extractPlaceName(resolvedUrl)
+        coords = coords ?? extractPlaceCoords(resolvedUrl)
       }
 
       if (!placeId && placeName) {
-        placeId = await findPlaceIdByName(placeName, apiKey)
+        placeId = await findPlaceIdByName(placeName, apiKey, coords)
       }
 
       if (!placeId) {
@@ -272,9 +246,13 @@ export async function GET(request: NextRequest) {
       }
 
       let details = await fetchPlaceDetails(placeId, apiKey)
+      let resolvedId = placeId
       if (!details.ok && placeName) {
-        const alt = await findPlaceIdByName(placeName, apiKey)
-        if (alt && alt !== placeId) details = await fetchPlaceDetails(alt, apiKey)
+        const alt = await findPlaceIdByName(placeName, apiKey, coords)
+        if (alt && alt !== placeId) {
+          details = await fetchPlaceDetails(alt, apiKey)
+          if (details.ok) resolvedId = alt
+        }
       }
       if (!details.ok) {
         throw new Error(`Places API: ${details.status}`)
@@ -304,11 +282,19 @@ export async function GET(request: NextRequest) {
       _reviewsCache.set(tripCacheKey, { data: payload, expiresAt: Date.now() + 30 * 60_000 })
 
       // Persist aggregate rating back to the trip row so preview cards show
-      // accurate data without requiring a detail-page visit first.
-      if (typeof payload.rating === "number" || typeof payload.totalReviews === "number") {
+      // accurate data without requiring a detail-page visit first. Also cache
+      // the resolved Place ID (when newly resolved / changed) so future fetches
+      // skip the name search.
+      const newlyResolvedId = resolvedId !== cachedPlaceId ? resolvedId : null
+      if (
+        typeof payload.rating === "number" ||
+        typeof payload.totalReviews === "number" ||
+        newlyResolvedId
+      ) {
         void dbUpdateTrip(tripId, {
           rating: payload.rating ?? 0,
           reviewCount: payload.totalReviews ?? 0,
+          ...(newlyResolvedId ? { googlePlaceId: newlyResolvedId } : {}),
         })
       }
 

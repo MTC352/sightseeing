@@ -40,6 +40,8 @@ export interface Trip {
   provider?: string
   highlights?: string[]
   googleBusinessUrl?: string
+  /** Cached Google Places `ChIJ…` Place ID resolved from googleBusinessUrl. */
+  googlePlaceId?: string | null
   palisisProductId?: string | null
   /** Full custom booking iframe URL — used verbatim when set (external Palisis accounts). */
   customIframeUrl?: string | null

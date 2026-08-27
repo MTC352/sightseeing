@@ -12,6 +12,9 @@
  *   - /api/admin/trips/[id]  (after PATCH saves a new googleBusinessUrl)
  */
 
+import { extractPlaceId, extractPlaceName, extractPlaceCoords } from "@/lib/google-place-url"
+import { findPlaceIdByName } from "@/lib/google-reviews-global"
+
 interface PlaceDetails {
   rating?: number
   user_ratings_total?: number
@@ -49,26 +52,6 @@ function validateRedirectTarget(rawUrl: string): string | null {
   return parsed.href
 }
 
-function extractPlaceId(url: string): string | null {
-  try {
-    if (/^ChIJ|^EI/.test(url)) return url
-    const u = new URL(url)
-    const cid = u.searchParams.get("cid")
-    if (cid) return cid
-    const match = url.match(/!1s([^!?&]+)/)
-    if (match) return decodeURIComponent(match[1])
-    return null
-  } catch { return null }
-}
-
-function extractPlaceName(url: string): string | null {
-  try {
-    const u = new URL(url)
-    const m = u.pathname.match(/\/place\/([^/@]+)/)
-    return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : null
-  } catch { return null }
-}
-
 async function resolveShortlink(url: string): Promise<string> {
   try {
     let parsed: URL
@@ -91,18 +74,6 @@ async function resolveShortlink(url: string): Promise<string> {
     }
     return current
   } catch { return url }
-}
-
-async function findPlaceIdByName(name: string, apiKey: string): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/place/findplacefromtext/json` +
-      `?input=${encodeURIComponent(name)}&inputtype=textquery&fields=place_id&key=${apiKey}`,
-    )
-    const json = await res.json()
-    if (json.status === "OK" && json.candidates?.length > 0) return json.candidates[0].place_id
-    return null
-  } catch { return null }
 }
 
 async function fetchRatingOnly(
@@ -153,32 +124,49 @@ export async function syncGoogleRatingForTrip(
       (process.env.GOOGLE_PLACES_API_KEY ?? "")
     if (!apiKey) return null
 
-    let placeId: string | null = extractPlaceId(googleUrl)
+    // A previously-resolved Place ID cached on the trip row lets us skip the
+    // name search entirely.
+    const cachedPlaceId =
+      ((tripRow as Record<string, unknown> | null)?.googlePlaceId as string | null | undefined ?? "").trim() || null
+
+    let placeId: string | null = cachedPlaceId ?? extractPlaceId(googleUrl)
     let placeName: string | null = extractPlaceName(googleUrl)
+    let coords: { lat: number; lng: number } | null = extractPlaceCoords(googleUrl)
 
     if (!placeId) {
       const resolved = await resolveShortlink(googleUrl)
       placeId = extractPlaceId(resolved)
       placeName = placeName ?? extractPlaceName(resolved)
+      coords = coords ?? extractPlaceCoords(resolved)
     }
 
     if (!placeId && placeName) {
-      placeId = await findPlaceIdByName(placeName, apiKey)
+      placeId = await findPlaceIdByName(placeName, apiKey, coords)
     }
 
     if (!placeId) return null
 
     let details = await fetchRatingOnly(placeId, apiKey)
+    let resolvedId = placeId
     if (!details.ok && placeName) {
-      const alt = await findPlaceIdByName(placeName, apiKey)
-      if (alt && alt !== placeId) details = await fetchRatingOnly(alt, apiKey)
+      const alt = await findPlaceIdByName(placeName, apiKey, coords)
+      if (alt && alt !== placeId) {
+        details = await fetchRatingOnly(alt, apiKey)
+        if (details.ok) resolvedId = alt
+      }
     }
     if (!details.ok) return null
 
     const rating = details.result.rating ?? 0
     const reviewCount = details.result.user_ratings_total ?? 0
 
-    await dbUpdateTrip(tripId, { rating, reviewCount })
+    // Cache the resolved Place ID when newly resolved / changed.
+    const newlyResolvedId = resolvedId !== cachedPlaceId ? resolvedId : null
+    await dbUpdateTrip(tripId, {
+      rating,
+      reviewCount,
+      ...(newlyResolvedId ? { googlePlaceId: newlyResolvedId } : {}),
+    })
     return { rating, reviewCount }
   } catch (err) {
     console.warn("[google-rating-sync] failed for trip", tripId, err instanceof Error ? err.message : err)

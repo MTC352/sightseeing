@@ -187,23 +187,34 @@ All tables created and seeded. Data persists across restarts.
 - `lib/db.ts` — Pool singleton + `query()` / `queryOne()` helpers
 - `lib/db/queries.ts` — All CRUD query functions replacing `admin-store.ts`
 
+## Deploy & schema model (git + Docker → manual VPS)
+
+> **Deployment is git + Docker to a manually-handled VPS — NOT Replit Publish.**
+> (The project historically used Replit Publish; that is deprecated.) There is **no
+> automatic dev→prod schema sync**. Schema DDL (`CREATE`/`ALTER`/`DROP`) must be
+> applied **manually on the live database BEFORE the code that depends on it is
+> deployed**, or the site 500s. Each schema change is a dated file under
+> `docs/db/YYYY-MM-DD-*.sql`: run it against live first, confirm the column/table
+> exists, then `git push` → Docker build → deploy. Row CONTENT still syncs via the
+> Data Migrations system below (that admin UI is unchanged).
+
 ## Data Migrations (dev → live CONTENT sync)
 
-Publishing syncs the **schema** (new tables/columns) from dev to prod automatically,
-but it does **NOT** sync row content. To get content created in dev (admin docs, AI
-prompts, settings rows) into the live DB without the destructive "overwrite data"
-option, use the **Data Migrations** system.
+To get content created in dev (admin docs, AI prompts, settings rows) into the live
+DB without the destructive "overwrite data" option, use the **Data Migrations**
+system. It moves row content only; schema DDL is handled manually per the note above.
 
 - **What it is:** code-defined, version-controlled, **idempotent** DATA migrations.
   Registry: `lib/data-migrations/index.ts`; payloads live in `lib/data-migrations/data/*.json`.
 - **Hard rule — DATA ONLY, NEVER DDL.** Migrations only INSERT/UPDATE rows (with
   existence checks / `ON CONFLICT`). They must never `CREATE/ALTER/DROP TABLE`.
-  **Production schema is owned exclusively by the Publish flow** (see the database
-  skill). Do not add schema migration scripts, deploy-build hooks, or startup DDL.
+  **Schema DDL is applied manually on the live DB via `docs/db/*.sql` before the
+  dependent code is deployed** (see the deploy note above). Do not add startup/runtime
+  DDL to "self-heal" prod.
 - **Tracking table `data_migrations`** (id, name, applied_at) records what ran in the
-  *current* DB. It is created in dev and reaches prod via Publish — NOT via runtime DDL.
-  If it's missing in a DB, the runner still applies migrations idempotently and reports
-  `recorded:false` (status untracked until the table exists).
+  *current* DB. Create it on live via its `docs/db/*.sql` before running content
+  migrations. If it's missing in a DB, the runner still applies migrations idempotently
+  and reports `recorded:false` (status untracked until the table exists).
 - **Admin UI:** `/admin/db-migrations` (superadmin-only) — shows each migration's
   applied/pending status in the connected DB, lets you select and run individual ones.
   On the published site this targets the **live** DB.
@@ -248,9 +259,12 @@ form in `extra_config`). All paths are superadmin-only.
   all-or-nothing; counts are accurate via `RETURNING`.
 
 ### Live-DB workflow when prod is behind
-1. Re-**Publish** to apply schema (creates missing tables, e.g. `activity_log`,
-   `media_files`, `data_migrations`).
-2. On the live site, open `/admin/db-migrations` (as superadmin) and run the pending
+1. Apply any pending **schema** SQL (`docs/db/*.sql`) directly against the LIVE
+   database — creates missing tables/columns (e.g. `activity_log`, `media_files`,
+   `data_migrations`, `trips.google_place_id`). Do this BEFORE deploying the code
+   that depends on them.
+2. `git push` → Docker build → deploy the code to the VPS.
+3. On the live site, open `/admin/db-migrations` (as superadmin) and run the pending
    content migrations.
 
 ## Admin Panel Pages

@@ -44,6 +44,7 @@ export interface AdminTrip {
   slug?: string | null
   permalink?: string
   googleBusinessUrl?: string
+  googlePlaceId?: string | null
   palisisProductId?: string | null
   /** Full custom booking iframe URL — used verbatim when set (external Palisis accounts). */
   customIframeUrl?: string | null
