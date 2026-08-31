@@ -12,6 +12,7 @@ import { SidebarItinerary, ItineraryPanel, recommendedTravelMethod, type Itinera
 import { useCart } from "@/lib/cart-context"
 import { usePlannerList } from "@/lib/planner-list-context"
 import { weatherData, type Trip } from "@/lib/data"
+import { stripHtml } from "@/lib/seo/score"
 import { resolveBookingUrl } from "@/lib/booking-url"
 import { useSiteLang } from "@/components/i18n/translator"
 import { parseDurationHoursMin } from "@/lib/duration-parser"
@@ -929,7 +930,7 @@ function TripCard({
           <span className="text-[10px] font-medium uppercase tracking-wider text-primary">{trip.category}</span>
           <p className="mt-0.5 line-clamp-2 text-sm font-semibold leading-snug text-foreground">{trip.title}</p>
           {trip.description && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{trip.description}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{stripHtml(trip.description)}</p>
           )}
         </div>
         <div className="flex items-center justify-between gap-2">

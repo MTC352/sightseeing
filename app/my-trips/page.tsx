@@ -7,6 +7,7 @@ import { Navbar } from "@/components/site-navbar"
 import { useCart, type CartItem } from "@/lib/cart-context"
 import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-url"
 import { useSiteLang } from "@/components/i18n/translator"
+import { stripHtml } from "@/lib/seo/score"
 import { ShoppingBag, X, Trash2, Clock, Star, MapPin, Loader2 } from "lucide-react"
 import {
   AlertDialog,
@@ -244,7 +245,7 @@ function BookingModal({ item, persons, onClose }: { item: CartItem; persons: num
               </span>
             </div>
             {item.trip.description && (
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground line-clamp-3">{item.trip.description}</p>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground line-clamp-3">{stripHtml(item.trip.description)}</p>
             )}
             {item.trip.highlights && item.trip.highlights.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
