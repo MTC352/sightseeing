@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from "react"
 import { Link } from "@/components/i18n/link"
 import { Clock, MapPin, CloudSun, Sun, CloudRain, Sparkles, ArrowRight, ChevronRight } from "lucide-react"
 import type { OutdoorTodayResponse, OutdoorTodayTrip } from "@/app/api/outdoor-today/route"
+import { stripHtml } from "@/lib/seo/score"
 
 const WEATHER_ICONS = { sun: Sun, "cloud-sun": CloudSun, "cloud-rain": CloudRain }
 
@@ -113,7 +114,7 @@ function TripCard({ trip, fill = false }: { trip: OutdoorTodayTrip; fill?: boole
 
         {(trip.description || trip.aiReason) && (
           <p className="line-clamp-3 text-[11px] leading-relaxed text-muted-foreground">
-            {trip.description || trip.aiReason}
+            {stripHtml(trip.description || trip.aiReason || "")}
           </p>
         )}
 
