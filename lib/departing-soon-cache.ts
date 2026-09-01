@@ -894,6 +894,26 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     )
   } else if (collected.length > 0) {
     lastFailureLog = null  // healthy sweep — reset throttle
+    // Also surface the SUCCESSFUL sweep on the admin Error Logs as an INFO entry
+    // (visible under the Info / All level filter) so both a manual "Refresh Now"
+    // and the auto interval leave a visible, timestamped record — not just
+    // failures. Skips (every-60s no-op ticks) are NOT logged here — only real
+    // sweeps — so the log stays readable.
+    void logError({
+      source: "departing-soon",
+      level: "info",
+      message:
+        `Departing Soon discovery ${force ? "manual" : "auto"} refresh: swept ${collected.length} slots ` +
+        `from ${synced.length} trips (${failedTripCount} failed), window→${horizon}, ${Date.now() - start}ms`,
+      context: {
+        trigger: force ? "manual" : "auto",
+        slots: collected.length,
+        trips: synced.length,
+        failedTripCount,
+        windowEnd: horizon,
+        durationMs: Date.now() - start,
+      },
+    })
   }
 
   // Persist the full cache snapshot to DB so other process instances (cold
