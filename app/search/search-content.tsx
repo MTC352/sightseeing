@@ -1110,7 +1110,12 @@ export function SearchContent({
     let result = keywordMatched.filter((t) => {
       if (activeCategory && t.category !== activeCategory) return false
 
-      if (filtersConfig.price) {
+      // Only apply the price bounds when the user has actually narrowed the range
+      // (priceMin raised above 0, or priceMax lowered below the 500 default). The
+      // default priceMax of 500 is a sentinel for "no upper limit" — matching the
+      // active-filter badge logic above — so trips priced above it are no longer
+      // hidden by default (previously any trip over €500 was silently filtered out).
+      if (filtersConfig.price && (activeFilters.priceMin > 0 || activeFilters.priceMax < 500)) {
         if (t.price < activeFilters.priceMin || t.price > activeFilters.priceMax) return false
       }
       if (filtersConfig.rating && activeFilters.ratingMin > 0) {
