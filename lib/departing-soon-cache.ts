@@ -37,6 +37,17 @@ import { logError } from "@/lib/error-log"
 // cron this means the snapshot is refreshed ~1 day before the window elapses.
 const DISCOVERY_REFRESH_AHEAD_MS = 24 * 60 * 60 * 1000  // 1 day
 
+// ── Empty-snapshot retry throttle ────────────────────────────────────────────
+// A sweep that collects ZERO slots (a transient upstream failure, or a genuinely
+// empty window) must NOT be treated as "comfortably fresh" — otherwise the empty
+// window would be parked for the whole refresh-ahead window and the widget would
+// stay blank for days while the 60s refresh loop silently short-circuits (this is
+// exactly the class of "blank but no error logged" failure that is hard to
+// diagnose). Instead an empty snapshot is re-swept, but no more often than this
+// interval, so a persistently empty window (or a hard upstream outage) can't
+// hammer TourCMS every 60s and burn the quota.
+const EMPTY_SNAPSHOT_RETRY_MS = 10 * 60_000  // 10 min
+
 // ── Failure logging (throttled) ──────────────────────────────────────────────
 // The discovery cron runs every minute, so a persistent failure (e.g. exhausted
 // rate limit) would otherwise flood error_logs. Log a given failure reason at
@@ -255,7 +266,27 @@ export function snapshotCoversToday(cache: DiscoveryCache): boolean {
  * of expiry — instead of re-hydrating the stale one until it hard-expires.
  */
 function comfortablyFresh(cache: DiscoveryCache): boolean {
-  return snapshotCoversToday(cache) && Date.now() < cache.expiresAt - DISCOVERY_REFRESH_AHEAD_MS
+  // A zero-slot snapshot is never "comfortably fresh": serving it would park an
+  // empty widget for the whole window. It falls through to a re-sweep instead
+  // (throttled by emptyRetryThrottled so it doesn't hammer TourCMS every tick).
+  return (
+    cache.allSlots.length > 0 &&
+    snapshotCoversToday(cache) &&
+    Date.now() < cache.expiresAt - DISCOVERY_REFRESH_AHEAD_MS
+  )
+}
+
+/**
+ * An EMPTY snapshot that was refreshed very recently — serve it as-is without a
+ * re-sweep to throttle retries, even though it is not `comfortablyFresh`. This
+ * lets a transient empty sweep self-heal within EMPTY_SNAPSHOT_RETRY_MS while
+ * preventing a persistently empty window from sweeping TourCMS every 60s.
+ */
+function emptyRetryThrottled(cache: DiscoveryCache): boolean {
+  return (
+    cache.allSlots.length === 0 &&
+    Date.now() - cache.refreshedAt < EMPTY_SNAPSHOT_RETRY_MS
+  )
 }
 
 async function getBoolSetting(key: string, fallback: boolean): Promise<boolean> {
@@ -529,6 +560,86 @@ async function dbPersistDiscoveryCache(cache: DiscoveryCache): Promise<void> {
   }
 }
 
+// ── Discovery-run heartbeat (observability) ──────────────────────────────────
+// Every refreshDiscovery() decision — swept / skip-fresh / hydrated / empty-retry
+// / rate-limited — is recorded here so operators can confirm the in-process
+// refresh loop is ALIVE and see WHAT it decided, without depending on error logs
+// (which only fire on failure) or guessing from an empty `docker logs` grep. It
+// is a single integrations row that is overwritten each run; query it with:
+//
+//   SELECT to_timestamp((value::bigint)/1000) AS last_run,
+//          meta->>'action'    AS action,
+//          meta->>'slots'     AS slots,
+//          meta->>'windowEnd' AS window_end
+//   FROM integrations WHERE key = 'departing_soon_last_run';
+//
+// A `last_run` that advances every ~60s proves the loop is running; `action`
+// explains why a given tick did or didn't sweep.
+const DB_LAST_RUN_KEY = "departing_soon_last_run"
+
+type DiscoveryRunAction =
+  | "swept"                // ran a live TourCMS sweep and rebuilt the window
+  | "skip-fresh"           // in-memory snapshot still comfortably fresh
+  | "hydrated-db"          // hydrated a fresh snapshot from the DB, no sweep
+  | "skip-empty-throttle"  // snapshot is empty but re-swept < EMPTY_SNAPSHOT_RETRY_MS ago
+  | "skip-rate-limit"      // TourCMS quota too low to sweep
+  | "skip-widget-disabled" // master toggle OFF
+  | "skip-no-tourcms"      // TourCMS not configured
+
+interface DiscoveryRunDetails {
+  slots: number
+  windowEnd?: string | null
+  failedTrips?: number
+  durationMs?: number
+}
+
+async function dbRecordDiscoveryRun(action: DiscoveryRunAction, details: DiscoveryRunDetails): Promise<void> {
+  try {
+    const { query } = await import("@/lib/db")
+    const at = Date.now()
+    await query(
+      `INSERT INTO integrations (key, label, value, meta, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, meta = EXCLUDED.meta, updated_at = NOW()`,
+      [
+        DB_LAST_RUN_KEY,
+        "Departing Soon last discovery run (internal)",
+        String(at),
+        JSON.stringify({ at: new Date(at).toISOString(), action, ...details }),
+      ],
+    )
+  } catch {
+    // Observability only — a heartbeat write failure must never affect discovery.
+  }
+}
+
+// Throttle the every-60s skip lines in `docker logs` so they stay readable while
+// still showing periodic liveness. A real sweep is always logged (it's rare).
+let lastSkipLog: { action: string; at: number } | null = null
+const SKIP_LOG_THROTTLE_MS = 10 * 60_000  // 10 min
+function shouldLogSkip(action: string): boolean {
+  const now = Date.now()
+  if (lastSkipLog && lastSkipLog.action === action && now - lastSkipLog.at < SKIP_LOG_THROTTLE_MS) {
+    return false
+  }
+  lastSkipLog = { action, at: now }
+  return true
+}
+
+/** Fire-and-forget heartbeat (DB) + concise console line for the discovery loop. */
+function recordDiscoveryRun(action: DiscoveryRunAction, details: DiscoveryRunDetails): void {
+  if (action === "swept") {
+    console.log(
+      `[departing-soon] discovery swept: slots=${details.slots} ` +
+      `window→${details.windowEnd ?? "?"} failed=${details.failedTrips ?? 0} in ${details.durationMs ?? 0}ms`,
+    )
+  } else if (shouldLogSkip(action)) {
+    console.log(`[departing-soon] discovery ${action} (slots=${details.slots})`)
+  }
+  void dbRecordDiscoveryRun(action, details)
+}
+
 // ── Cron auth ──────────────────────────────────────────────────────────────
 
 import type { NextRequest } from "next/server"
@@ -567,6 +678,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   const start = Date.now()
 
   if (!(await getWidgetEnabled())) {
+    recordDiscoveryRun("skip-widget-disabled", { slots: discoveryCache?.allSlots.length ?? 0 })
     return { ok: false, error: "WIDGET_DISABLED" }
   }
 
@@ -576,7 +688,11 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   // cold-start hydration always finds a valid snapshot (no 503 at the boundary).
   // The `comfortablyFresh` coverage check also forces a sweep the moment today
   // rolls past the fetched window, even if the wall-clock TTL hasn't elapsed.
-  if (!force && discoveryCache && comfortablyFresh(discoveryCache)) {
+  if (!force && discoveryCache && (comfortablyFresh(discoveryCache) || emptyRetryThrottled(discoveryCache))) {
+    recordDiscoveryRun(
+      discoveryCache.allSlots.length === 0 ? "skip-empty-throttle" : "skip-fresh",
+      { slots: discoveryCache.allSlots.length, windowEnd: discoveryCache.windowEndDate ?? null },
+    )
     return {
       ok: true,
       slotsFound: discoveryCache.allSlots.length,
@@ -603,9 +719,13 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   // than re-hydrating the stale one until it hard-expires).
   if (!force) {
     const dbSnapshot = await dbGetDiscoveryCache()
-    if (dbSnapshot !== null && comfortablyFresh(dbSnapshot)) {
+    if (dbSnapshot !== null && (comfortablyFresh(dbSnapshot) || emptyRetryThrottled(dbSnapshot))) {
       // Hydrate the local in-memory cache and return — no TourCMS sweep needed.
       discoveryCache = dbSnapshot
+      recordDiscoveryRun(
+        dbSnapshot.allSlots.length === 0 ? "skip-empty-throttle" : "hydrated-db",
+        { slots: dbSnapshot.allSlots.length, windowEnd: dbSnapshot.windowEndDate ?? null },
+      )
       return {
         ok: true,
         slotsFound: dbSnapshot.allSlots.length,
@@ -626,6 +746,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
       "error",
       "Departing Soon discovery skipped — TourCMS is not configured; the widget cannot populate.",
     )
+    recordDiscoveryRun("skip-no-tourcms", { slots: discoveryCache?.allSlots.length ?? 0 })
     return { ok: false, error: "TOURCMS_NOT_CONFIGURED" }
   }
 
@@ -652,6 +773,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
       `Departing Soon discovery skipped — TourCMS rate-limit remaining=${rl.remaining} (< 200). Widget serves last-known data until quota recovers.`,
       { remaining: rl.remaining },
     )
+    recordDiscoveryRun("skip-rate-limit", { slots: discoveryCache?.allSlots.length ?? 0 })
     return {
       ok: true,
       slotsFound: discoveryCache?.allSlots.length ?? 0,
@@ -777,6 +899,15 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   // Persist the full cache snapshot to DB so other process instances (cold
   // starts, horizontally-scaled peers) can hydrate from it without sweeping.
   void dbPersistDiscoveryCache(discoveryCache)
+
+  // Heartbeat: record that a live sweep actually ran (slots, window, timing) so
+  // the auto-refresh is observable in the DB/logs, not just when it fails.
+  recordDiscoveryRun("swept", {
+    slots: collected.length,
+    windowEnd: horizon,
+    failedTrips: failedTripCount,
+    durationMs: Date.now() - start,
+  })
 
   // Window changed → previous availability records may now refer to slots that
   // are no longer displayed. Drop and refresh.
