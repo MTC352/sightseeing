@@ -47,8 +47,15 @@ interface Filters {
   dateFrom: string; dateTo: string; timeFrom: string; timeTo: string
   tags: string[]; types: string[]; departures: string[]
 }
+// "No upper limit" sentinel for the Max price field. Chosen well above the price
+// input's own max (5000) so a user can never type it; it renders the Max box as
+// empty and disables the upper-bound filter. Reset / Clear All returns priceMax
+// to this, so the price filter is genuinely unset by default (previously the
+// default of 500 both showed "500" in the box AND hid every trip over €500).
+const PRICE_MAX_NONE = 1_000_000
+
 const DEFAULT_FILTERS: Filters = {
-  priceMin: 0, priceMax: 500, ratingMin: 0, durationMax: 24, persons: 1,
+  priceMin: 0, priceMax: PRICE_MAX_NONE, ratingMin: 0, durationMax: 24, persons: 1,
   locationAddress: "", locationRadius: 10, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "",
   tags: [], types: [], departures: [],
 }
@@ -268,14 +275,19 @@ function FilterModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <span className="mb-1 block text-[11px] text-muted-foreground">Min (€)</span>
-                  <input type="number" min={0} max={5000} value={local.priceMin}
+                  <input type="number" min={0} max={5000} placeholder="0"
+                    value={local.priceMin === 0 ? "" : local.priceMin}
                     onChange={(e) => set("priceMin", Math.max(0, +e.target.value || 0))}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <span className="mb-1 block text-[11px] text-muted-foreground">Max (€)</span>
-                  <input type="number" min={0} max={5000} value={local.priceMax}
-                    onChange={(e) => set("priceMax", Math.max(0, +e.target.value || 0))}
+                  <input type="number" min={0} max={5000} placeholder="No max"
+                    value={local.priceMax >= PRICE_MAX_NONE ? "" : local.priceMax}
+                    onChange={(e) => {
+                      const v = e.target.value.trim()
+                      set("priceMax", v === "" ? PRICE_MAX_NONE : Math.max(0, +v || 0))
+                    }}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" />
                 </div>
               </div>
@@ -1049,7 +1061,7 @@ export function SearchContent({
     userCoord !== null
 
   const activeFilterCount = [
-    filtersConfig.price && (activeFilters.priceMin > 0 || activeFilters.priceMax < 500),
+    filtersConfig.price && (activeFilters.priceMin > 0 || activeFilters.priceMax < PRICE_MAX_NONE),
     filtersConfig.rating && activeFilters.ratingMin > 0,
     filtersConfig.duration && activeFilters.durationMax < 24,
     locationActive,
@@ -1110,12 +1122,11 @@ export function SearchContent({
     let result = keywordMatched.filter((t) => {
       if (activeCategory && t.category !== activeCategory) return false
 
-      // Only apply the price bounds when the user has actually narrowed the range
-      // (priceMin raised above 0, or priceMax lowered below the 500 default). The
-      // default priceMax of 500 is a sentinel for "no upper limit" — matching the
-      // active-filter badge logic above — so trips priced above it are no longer
-      // hidden by default (previously any trip over €500 was silently filtered out).
-      if (filtersConfig.price && (activeFilters.priceMin > 0 || activeFilters.priceMax < 500)) {
+      // Only apply the price bounds when the user has actually set them: priceMin
+      // raised above 0, or priceMax set below PRICE_MAX_NONE (the "no upper limit"
+      // default). This matches the active-filter badge and keeps the default from
+      // hiding anything — while a typed Max (e.g. 600) still filters normally.
+      if (filtersConfig.price && (activeFilters.priceMin > 0 || activeFilters.priceMax < PRICE_MAX_NONE)) {
         if (t.price < activeFilters.priceMin || t.price > activeFilters.priceMax) return false
       }
       if (filtersConfig.rating && activeFilters.ratingMin > 0) {
