@@ -188,6 +188,10 @@ export function TripEditForm({
   }, [])
   const [highlightInput, setHighlightInput] = useState("")
   const [languageInput, setLanguageInput] = useState("")
+  const [redirectSlugInput, setRedirectSlugInput] = useState("")
+  // Non-blocking notice when the server drops a redirect slug (e.g. it collides
+  // with another trip). Cleared on the next successful save.
+  const [aliasWarning, setAliasWarning] = useState<string | null>(null)
   const [uploadingFeatured, setUploadingFeatured] = useState(false)
   const [uploadingGallery, setUploadingGallery] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -286,6 +290,37 @@ export function TripEditForm({
     set("highlights", (form.highlights ?? []).filter((x) => x !== h))
   }
 
+  // Slugify a redirect-alias input the same way the server normalizes trip
+  // slugs, so what the admin sees is what gets saved. A purely-numeric / tcms_
+  // value is prefixed (never a bare number) so it can't collide with legacy
+  // id-based routing — mirrors generateSlug() in lib/db/queries.ts.
+  function slugifyRedirect(raw: string): string {
+    const s = raw
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80)
+      .replace(/-+$/g, "")
+    if (!s) return ""
+    return /^(?:tcms_?\d+|\d+)$/.test(s) ? `trip-${s}` : s
+  }
+
+  function addRedirectSlug(raw: string) {
+    const s = slugifyRedirect(raw)
+    const current = form.redirectSlugs ?? []
+    if (s && s !== (form.slug ?? "") && !current.includes(s)) {
+      set("redirectSlugs", [...current, s])
+    }
+    setRedirectSlugInput("")
+  }
+
+  function removeRedirectSlug(slug: string) {
+    set("redirectSlugs", (form.redirectSlugs ?? []).filter((s) => s !== slug))
+  }
+
   async function handleSave() {
     if (!form.title?.trim()) {
       setSaveError("Title is required before saving.")
@@ -334,11 +369,26 @@ export function TripEditForm({
         setSaveError(body.error ?? `Save failed (${res.status})`)
         return
       }
+      const body = await res.json().catch(() => ({}) as Record<string, unknown>)
+      // Reconcile redirect slugs with what the server actually persisted:
+      // normalized, with cross-trip collisions dropped and (on a slug rename)
+      // the old slug auto-added. Keep form + baseline in sync so it's not dirty.
+      let savedForm = form
+      if (Array.isArray(body._savedAliases)) {
+        savedForm = { ...form, redirectSlugs: body._savedAliases as string[] }
+        setForm(savedForm)
+      }
+      if (Array.isArray(body._rejectedAliases) && body._rejectedAliases.length) {
+        const slugs = (body._rejectedAliases as Array<{ slug: string }>).map((r) => r.slug).join(", ")
+        setAliasWarning(`Some redirect slugs were skipped (already used by another trip or invalid): ${slugs}`)
+      } else {
+        setAliasWarning(null)
+      }
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
       // Form is now persisted — reset the dirty baseline so the floating bar
       // hides and Save buttons disable until the next edit.
-      setBaseline(form)
+      setBaseline(savedForm)
       if (!trip) {
         router.push("/admin/trips")
         router.refresh()
@@ -564,6 +614,47 @@ export function TripEditForm({
               </p>
               {!can("slug") && <p className="mt-1 text-[10px] text-amber-700/80 flex items-center gap-1"><Lock className="h-2.5 w-2.5" /> Read-only — managed via Settings</p>}
             </div>
+            {trip && (
+              <div>
+                <label className={labelClass}>Redirect Slugs</label>
+                {(form.redirectSlugs ?? []).length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {(form.redirectSlugs ?? []).map((s) => (
+                      <span key={s} className="flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
+                        <span className="text-primary/50">/trip/</span>{s}
+                        {!isDeactivated && (
+                          <button type="button" onClick={() => removeRedirectSlug(s)} className="ml-0.5 text-primary/60 hover:text-primary">
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {!isDeactivated && (
+                  <div className="flex items-center gap-1">
+                    <span className="shrink-0 text-xs text-muted-foreground">/trip/</span>
+                    <input
+                      type="text"
+                      className={`${inputClass} flex-1`}
+                      placeholder="old-or-alternate-slug"
+                      value={redirectSlugInput}
+                      onChange={(e) => setRedirectSlugInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addRedirectSlug(redirectSlugInput) } }}
+                    />
+                    <button type="button" onClick={() => addRedirectSlug(redirectSlugInput)} className="rounded-lg border border-border px-3 py-2.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Extra URLs that permanently redirect (308) to this trip&apos;s slug above. Press Enter to add. When you rename the slug, the old one is kept here automatically so existing links never break.
+                </p>
+                {aliasWarning && (
+                  <p className="mt-1 text-[10px] text-amber-700/90 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {aliasWarning}</p>
+                )}
+              </div>
+            )}
             <div>
               <label className={labelClass}>Palisis Product ID</label>
               <input

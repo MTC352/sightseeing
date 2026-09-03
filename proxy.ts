@@ -54,6 +54,40 @@ async function getRedirectMap(): Promise<Map<string, CompiledRedirect>> {
   return redirectCache.map
 }
 
+// ── Trip slug alias map (cached) ───────────────────────────────────────────
+// Alternate `/trip/{alias}` URLs that permanently redirect to a trip's current
+// canonical slug (managed per-trip in the admin editor). Kept as an in-memory
+// map with the same short TTL as the blog map so a text-slug alias costs O(1)
+// per request — the legacy numeric-id branch below still uses /api/trip-slug.
+let tripAliasCache: { map: Map<string, string>; expires: number } | null = null
+
+async function getTripAliasMap(): Promise<Map<string, string>> {
+  const now = Date.now()
+  if (tripAliasCache && tripAliasCache.expires > now) return tripAliasCache.map
+  try {
+    const port = process.env.PORT || "5000"
+    const res = await fetch(`http://127.0.0.1:${port}/api/trip-alias-map`, {
+      headers: { accept: "application/json" },
+    })
+    if (res.ok) {
+      const data = (await res.json()) as { entries?: Array<{ alias: string; slug: string }> }
+      const map = new Map<string, string>()
+      for (const e of data.entries ?? []) map.set(e.alias, e.slug)
+      tripAliasCache = { map, expires: now + REDIRECT_TTL_MS }
+      return map
+    }
+  } catch {
+    // Lookup failed — keep serving the last-known map rather than dropping every
+    // alias redirect during a transient blip.
+  }
+  if (tripAliasCache) {
+    tripAliasCache.expires = now + REDIRECT_RETRY_MS // retry sooner, keep stale map
+    return tripAliasCache.map
+  }
+  tripAliasCache = { map: new Map(), expires: now + REDIRECT_RETRY_MS }
+  return tripAliasCache.map
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname: rawPathname } = request.nextUrl
 
@@ -97,24 +131,37 @@ export async function proxy(request: NextRequest) {
   // redirect() degrades to a soft client redirect under streaming SSR.
   if (pathname.startsWith("/trip/")) {
     const seg = pathname.slice("/trip/".length)
-    if (seg && !seg.includes("/") && LEGACY_TRIP_ID.test(seg)) {
-      try {
-        // Resolve the slug over the internal loopback rather than the public
-        // host — the container can't reliably self-fetch its own external URL
-        // (it round-trips the edge proxy and fails), but localhost always works.
-        const port = process.env.PORT || "5000"
-        const lookup = `http://127.0.0.1:${port}/api/trip-slug/${encodeURIComponent(seg)}`
-        const res = await fetch(lookup, { headers: { accept: "application/json" } })
-        if (res.ok) {
-          const { slug } = (await res.json()) as { slug: string | null }
-          if (slug && slug !== seg) {
-            const target = request.nextUrl.clone()
-            target.pathname = addLocale(`/trip/${slug}`, locale)
-            return NextResponse.redirect(target, 308)
+    if (seg && !seg.includes("/")) {
+      if (LEGACY_TRIP_ID.test(seg)) {
+        try {
+          // Resolve the slug over the internal loopback rather than the public
+          // host — the container can't reliably self-fetch its own external URL
+          // (it round-trips the edge proxy and fails), but localhost always works.
+          const port = process.env.PORT || "5000"
+          const lookup = `http://127.0.0.1:${port}/api/trip-slug/${encodeURIComponent(seg)}`
+          const res = await fetch(lookup, { headers: { accept: "application/json" } })
+          if (res.ok) {
+            const { slug } = (await res.json()) as { slug: string | null }
+            if (slug && slug !== seg) {
+              const target = request.nextUrl.clone()
+              target.pathname = addLocale(`/trip/${slug}`, locale)
+              return NextResponse.redirect(target, 308)
+            }
           }
+        } catch {
+          // Lookup failed — fall through and let the page render normally.
         }
-      } catch {
-        // Lookup failed — fall through and let the page render normally.
+      } else {
+        // Text slug — permanently redirect a registered redirect-alias to the
+        // trip's canonical slug. Uses the cached alias map (O(1), no per-request
+        // DB), matching the blog-redirect approach; canonical slugs miss the map
+        // and fall through to render normally.
+        const canonical = (await getTripAliasMap()).get(seg)
+        if (canonical && canonical !== seg) {
+          const target = request.nextUrl.clone()
+          target.pathname = addLocale(`/trip/${canonical}`, locale)
+          return NextResponse.redirect(target, 308)
+        }
       }
     }
   }

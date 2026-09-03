@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
-import { dbGetTrip, dbUpdateTrip, dbDeleteTrip, dbGetIntegration } from "@/lib/db/queries"
+import { dbGetTrip, dbUpdateTrip, dbDeleteTrip, dbGetIntegration, dbSetTripAliases, dbAddTripAlias } from "@/lib/db/queries"
 import { resolvePolicy, isFieldEditable, TRIP_FIELDS, type TripFieldPolicy } from "@/lib/trip-field-policy"
 import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
@@ -77,6 +77,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const session = await requirePermission("trips")
     const { id } = await params
     const data = await req.json()
+    // Redirect aliases live in a side table, not a trips column — pull them out
+    // before policy filtering / the trip UPDATE so they don't reach dbUpdateTrip.
+    const submittedAliases = Array.isArray((data as Record<string, unknown>).redirectSlugs)
+      ? ((data as Record<string, unknown>).redirectSlugs as unknown[])
+      : undefined
+    delete (data as Record<string, unknown>).redirectSlugs
     // Defense-in-depth: SEO-owned columns are written ONLY by the /seo route.
     for (const k of SEO_OWNED_KEYS) {
       if (k in (data as Record<string, unknown>)) delete (data as Record<string, unknown>)[k]
@@ -85,8 +91,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (stripped.length) {
       console.warn(`[admin/trips/${id}] PATCH: stripped read-only fields:`, stripped)
     }
+    // Capture the pre-update slug so a rename can auto-preserve the old URL.
+    const before = (await dbGetTrip(id)) as { slug?: string | null } | null
     const updated = await dbUpdateTrip(id, filtered)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+    // Persist redirect aliases. On a slug rename, auto-add the old slug so
+    // existing /trip/{old-slug} links keep resolving to the trip.
+    const oldSlug = before?.slug ? String(before.slug) : null
+    const newSlug = (updated as { slug?: string | null }).slug
+      ? String((updated as { slug?: string | null }).slug)
+      : null
+    const renamed = !!(oldSlug && newSlug && oldSlug !== newSlug)
+    let aliasResult: { saved: string[]; rejected: Array<{ slug: string; reason: string }> } | null = null
+    if (submittedAliases !== undefined) {
+      const list = submittedAliases.map(String)
+      if (renamed) list.push(oldSlug as string)
+      aliasResult = await dbSetTripAliases(id, list)
+    } else if (renamed) {
+      // Stale client that didn't submit the field — still preserve the old URL.
+      await dbAddTripAlias(id, oldSlug as string)
+    }
+    // The alias set (and the new canonical slug) change what /trip/* resolves to.
+    if (newSlug) revalidatePath(`/trip/${newSlug}`)
 
     // Auto-refresh the SEO score so it never represents stale content. We do NOT
     // regenerate the optimised seo_* text here (that requires the AI optimizer) —
@@ -119,7 +146,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       void syncGoogleRatingForTrip(id).catch(() => {})
     }
 
-    return NextResponse.json({ ...finalTrip, _strippedReadOnly: stripped.length ? stripped : undefined })
+    return NextResponse.json({
+      ...finalTrip,
+      _strippedReadOnly: stripped.length ? stripped : undefined,
+      _savedAliases: aliasResult ? aliasResult.saved : undefined,
+      _rejectedAliases: aliasResult && aliasResult.rejected.length ? aliasResult.rejected : undefined,
+    })
   } catch (err) {
     if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

@@ -127,6 +127,27 @@ async function tripSelect(): Promise<string> {
     : TRIP_SELECT.replace('google_place_id as "googlePlaceId"', 'NULL as "googlePlaceId"')
 }
 
+// `trip_slug_aliases` holds alternate /trip/{slug}s that redirect to a trip
+// (docs/db/2026-09-03-trip-slug-redirects.sql). Until that CREATE has run on a
+// given DB the table is absent — probe once (cached per process) so alias-aware
+// reads degrade to "no aliases" instead of 500ing on a behind-schema database.
+let _hasTripAliasesTable: boolean | null = null
+async function hasTripAliasesTable(): Promise<boolean> {
+  if (_hasTripAliasesTable !== null) return _hasTripAliasesTable
+  try {
+    const row = await queryOne<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables
+         WHERE table_name = 'trip_slug_aliases'
+       ) AS present`,
+    )
+    _hasTripAliasesTable = row?.present === true
+  } catch {
+    _hasTripAliasesTable = false
+  }
+  return _hasTripAliasesTable
+}
+
 export async function dbListTrips(opts: { publicOnly?: boolean } = {}) {
   const where = opts.publicOnly ? "status = 'published'" : "status != 'archived'"
   return query(`SELECT ${await tripSelect()} FROM trips WHERE ${where} ORDER BY created_at DESC`)
@@ -171,9 +192,14 @@ export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {})
   // Alias-aware lookup: imported trips have id=`tcms_<palisisId>` but may be
   // referenced publicly by their raw palisis_id (e.g. `/trip/31898`). Match
   // on either column so archived/draft status cannot be bypassed by alias.
+  // Also match a redirect-alias slug so `/trip/{old-slug}` resolves to the
+  // trip; the page's canonical-URL check then 308s it to `/trip/{slug}`.
+  const aliasClause = (await hasTripAliasesTable())
+    ? " OR id IN (SELECT trip_id FROM trip_slug_aliases WHERE slug = $1)"
+    : ""
   return queryOne(
     `SELECT ${await tripSelect()} FROM trips
-       WHERE (id = $1 OR palisis_id = $1 OR slug = $1)
+       WHERE (id = $1 OR palisis_id = $1 OR slug = $1${aliasClause})
        ${extra}
        LIMIT 1`,
     [id]
@@ -187,8 +213,11 @@ export async function dbGetTrip(id: string, opts: { publicOnly?: boolean } = {})
  * "not found". Used by public/AI surfaces to gate static-seed fallback.
  */
 export async function dbTripStatus(id: string): Promise<string | null> {
+  const aliasClause = (await hasTripAliasesTable())
+    ? " OR id IN (SELECT trip_id FROM trip_slug_aliases WHERE slug = $1)"
+    : ""
   const row = await queryOne<{ status: string }>(
-    `SELECT status FROM trips WHERE id = $1 OR palisis_id = $1 OR slug = $1 LIMIT 1`,
+    `SELECT status FROM trips WHERE id = $1 OR palisis_id = $1 OR slug = $1${aliasClause} LIMIT 1`,
     [id]
   )
   return row ? String(row.status ?? "") : null
@@ -367,6 +396,125 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
 
 export async function dbDeleteTrip(id: string) {
   await query(`DELETE FROM trips WHERE id = $1`, [id])
+}
+
+// ── Trip slug redirect aliases ───────────────────────────────────────────────
+// Alternate /trip/{slug}s that redirect to a trip's canonical URL. See
+// docs/db/2026-09-03-trip-slug-redirects.sql and dbGetTrip's alias clause.
+
+/** Current redirect-alias slugs for a trip (empty if none / table absent). */
+export async function dbListTripAliases(tripId: string): Promise<string[]> {
+  if (!(await hasTripAliasesTable())) return []
+  const rows = await query<{ slug: string }>(
+    `SELECT slug FROM trip_slug_aliases WHERE trip_id = $1 ORDER BY slug`,
+    [tripId]
+  )
+  return rows.map((r) => String(r.slug))
+}
+
+/**
+ * Every redirect alias paired with its trip's current canonical slug, for the
+ * proxy's cached alias map. Only published trips are included so an alias for a
+ * draft/archived trip doesn't 308 into a not-found page. Empty if table absent.
+ */
+export async function dbGetTripAliasMap(): Promise<Array<{ alias: string; slug: string }>> {
+  if (!(await hasTripAliasesTable())) return []
+  const rows = await query<{ alias: string; slug: string }>(
+    `SELECT a.slug AS alias, t.slug AS slug
+       FROM trip_slug_aliases a
+       JOIN trips t ON t.id = a.trip_id
+      WHERE t.slug IS NOT NULL AND t.status = 'published'`,
+  )
+  return rows.map((r) => ({ alias: String(r.alias), slug: String(r.slug) }))
+}
+
+export interface TripAliasResult {
+  /** Slugs now persisted as this trip's aliases (normalized, deduped). */
+  saved: string[]
+  /** Rejected inputs with a human-readable reason (collision / self / invalid). */
+  rejected: Array<{ slug: string; reason: string }>
+}
+
+/**
+ * Replace a trip's redirect aliases with `rawSlugs` (a full replace-set —
+ * anything omitted is removed). Each slug is normalized like a trip slug and
+ * rejected if it: is empty/invalid, equals this trip's own canonical slug, or
+ * already belongs to another trip (as a canonical slug OR an alias). Returns
+ * the persisted set plus any rejections so the caller can surface them.
+ */
+export async function dbSetTripAliases(tripId: string, rawSlugs: unknown[]): Promise<TripAliasResult> {
+  const rejected: Array<{ slug: string; reason: string }> = []
+  if (!(await hasTripAliasesTable())) {
+    return { saved: [], rejected: rawSlugs.map((s) => ({ slug: String(s), reason: "redirects table not configured" })) }
+  }
+  const self = await queryOne<{ slug: string | null }>(`SELECT slug FROM trips WHERE id = $1`, [tripId])
+  const ownSlug = self?.slug ? String(self.slug) : null
+
+  // Normalize + dedupe, dropping empties and this trip's own slug.
+  const seen = new Set<string>()
+  const candidates: string[] = []
+  for (const raw of rawSlugs) {
+    const norm = generateSlug(String(raw ?? ""))
+    if (!norm) continue
+    if (norm === ownSlug) {
+      rejected.push({ slug: String(raw), reason: "same as this trip's own URL" })
+      continue
+    }
+    if (seen.has(norm)) continue
+    seen.add(norm)
+    candidates.push(norm)
+  }
+
+  // Reject anything already owned by another trip (canonical slug or alias),
+  // then atomically replace this trip's alias set. Wrapped in a transaction so
+  // a mid-insert failure can never leave the trip with a half-applied set.
+  const accepted: string[] = []
+  await withTransaction(async (q) => {
+    if (candidates.length) {
+      const conflicts = await q<{ slug: string }>(
+        `SELECT slug FROM trips WHERE slug = ANY($1::text[]) AND id <> $2
+         UNION
+         SELECT slug FROM trip_slug_aliases WHERE slug = ANY($1::text[]) AND trip_id <> $2`,
+        [candidates, tripId]
+      )
+      const taken = new Set(conflicts.map((r) => String(r.slug)))
+      for (const c of candidates) {
+        if (taken.has(c)) rejected.push({ slug: c, reason: "already used by another trip" })
+        else accepted.push(c)
+      }
+    }
+    await q(`DELETE FROM trip_slug_aliases WHERE trip_id = $1`, [tripId])
+    for (const slug of accepted) {
+      // ON CONFLICT guards against a race between the check above and insert.
+      await q(
+        `INSERT INTO trip_slug_aliases (trip_id, slug) VALUES ($1, $2) ON CONFLICT (slug) DO NOTHING`,
+        [tripId, slug]
+      )
+    }
+  })
+  return { saved: accepted, rejected }
+}
+
+/**
+ * Add a single redirect alias without disturbing existing ones. Used to
+ * auto-preserve a trip's old slug when its canonical slug is renamed. Silently
+ * no-ops if the slug is invalid or already taken (best-effort link-keeping).
+ */
+export async function dbAddTripAlias(tripId: string, rawSlug: string): Promise<void> {
+  if (!(await hasTripAliasesTable())) return
+  const slug = generateSlug(String(rawSlug ?? ""))
+  if (!slug) return
+  // Don't shadow an existing canonical slug (ambiguous) — but the trip's own
+  // (now-changed) slug is free, which is exactly what we're capturing here.
+  const clash = await queryOne<{ id: string }>(
+    `SELECT id FROM trips WHERE slug = $1 LIMIT 1`,
+    [slug]
+  )
+  if (clash) return
+  await query(
+    `INSERT INTO trip_slug_aliases (trip_id, slug) VALUES ($1, $2) ON CONFLICT (slug) DO NOTHING`,
+    [tripId, slug]
+  )
 }
 
 // ── Blog posts ─────────────────────────────────────────────────────────────

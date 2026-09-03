@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic"
 
-import { dbGetTrip, dbGetIntegration } from "@/lib/db/queries"
+import { dbGetTrip, dbGetIntegration, dbListTripAliases } from "@/lib/db/queries"
 import { notFound, redirect } from "next/navigation"
 import { TripEditForm } from "./trip-edit-form"
 import { TripSyncButton } from "../trip-sync-button"
@@ -54,6 +54,10 @@ export default async function TripEditPage({ params }: { params: Promise<{ id: s
   if (id !== "new" && !trip) notFound()
 
   const tripData = trip as { id: string; palisis_id?: string | null; status?: string | null } | null
+  // Attach the trip's current redirect aliases so the editor can list/edit them.
+  if (trip && tripData) {
+    ;(trip as Record<string, unknown>).redirectSlugs = await dbListTripAliases(tripData.id)
+  }
   const palisisId = tripData?.palisis_id ?? null
   const isDeactivated = tripData?.status === "deactivated"
 

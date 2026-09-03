@@ -42,6 +42,8 @@ export interface AdminTrip {
   rating: number
   reviewCount: number
   slug?: string | null
+  /** Alternate /trip/{slug}s that redirect to this trip (managed in the editor). */
+  redirectSlugs?: string[]
   permalink?: string
   googleBusinessUrl?: string
   googlePlaceId?: string | null
