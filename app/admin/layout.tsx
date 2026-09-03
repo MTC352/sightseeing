@@ -39,6 +39,7 @@ const NAV: NavItem[] = [
     children: [
       { href: "/admin/trips/archived", label: "Archived", icon: Archive },
       { href: "/admin/trip-tags", label: "Trip Tags", icon: Tag },
+      { href: "/admin/trip-redirects", label: "Redirects", icon: Signpost },
     ],
   },
   {

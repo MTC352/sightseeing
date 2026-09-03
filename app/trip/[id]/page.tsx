@@ -5,7 +5,7 @@ import type { Trip } from "@/lib/data"
 import TripDetailClient, { type TripDbDetail, type TripFaq, type RelatedTrip } from "./trip-detail-view"
 import { SiteFooter } from "@/components/site-footer"
 import { ViewItemTracker } from "@/components/analytics/view-item-tracker"
-import { dbGetTrip, dbListTrips, dbTripStatus } from "@/lib/db/queries"
+import { dbGetTrip, dbListTrips, dbTripStatus, dbLog404 } from "@/lib/db/queries"
 import { getRequestLocale } from "@/lib/i18n/server-locale"
 import { translateMeta } from "@/lib/i18n/metadata"
 import { buildAlternates, addLocale, LOCALE_OG } from "@/lib/i18n/routing"
@@ -378,6 +378,11 @@ export default async function TripPage({
     })
 
   if (!trip) {
+    // Record the broken /trip URL so it surfaces in the admin Trip Redirects
+    // "Unresolved trip 404s" discovery feed. Best-effort (dbLog404 is fail-soft
+    // and dedupes by path); legacy-id / alias URLs never reach here (the proxy
+    // 308s them first), so this only captures genuinely unknown trip slugs.
+    void dbLog404(`/trip/${id}`)
     return (
       <TripDetailClient
         id={id}

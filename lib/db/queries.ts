@@ -517,6 +517,107 @@ export async function dbAddTripAlias(tripId: string, rawSlug: string): Promise<v
   )
 }
 
+// ── Trip Redirects manager (central admin page, /admin/trip-redirects) ────────
+// A second UI over the SAME trip_slug_aliases table used by the per-trip editor
+// field and the proxy 308 map. Shape mirrors the blog-redirects db functions.
+
+const TRIP_REDIRECT_SELECT = `
+  SELECT a.id, a.slug, a.trip_id AS "tripId",
+         a.created_at AS "createdAt",
+         t.title AS "tripTitle", t.slug AS "tripSlug", t.status AS "tripStatus"
+  FROM trip_slug_aliases a
+  JOIN trips t ON t.id = a.trip_id`
+
+export async function dbListTripRedirects() {
+  if (!(await hasTripAliasesTable())) return []
+  return query(`${TRIP_REDIRECT_SELECT} ORDER BY a.created_at DESC`)
+}
+
+export async function dbGetTripRedirect(id: string) {
+  if (!(await hasTripAliasesTable())) return null
+  return queryOne(`${TRIP_REDIRECT_SELECT} WHERE a.id = $1`, [id])
+}
+
+/**
+ * Validate a candidate alias slug for a trip. Throws a coded Error the API maps
+ * to a friendly message. `excludeAliasId` lets an edit keep its own row.
+ * Returns the normalized slug.
+ */
+async function validateTripAliasSlug(
+  tripId: string,
+  rawSlug: string,
+  excludeAliasId?: string,
+): Promise<string> {
+  const trip = await queryOne<{ id: string; slug: string | null }>(
+    `SELECT id, slug FROM trips WHERE id = $1`, [tripId]
+  )
+  if (!trip) throw new Error("TRIP_NOT_FOUND")
+  const slug = generateSlug(String(rawSlug ?? ""))
+  if (!slug) throw new Error("INVALID_SLUG")
+  if (slug === trip.slug) throw new Error("SLUG_IS_CANONICAL")
+  // Collision with another trip's canonical slug, or any OTHER alias row.
+  const clash = await queryOne(
+    `SELECT 1 FROM trips WHERE slug = $1 AND id <> $2
+     UNION
+     SELECT 1 FROM trip_slug_aliases WHERE slug = $1${excludeAliasId ? " AND id <> $3" : ""}`,
+    excludeAliasId ? [slug, tripId, excludeAliasId] : [slug, tripId]
+  )
+  if (clash) throw new Error("SLUG_TAKEN")
+  return slug
+}
+
+export async function dbCreateTripRedirect(data: { tripId: string; slug: string; userId?: string }) {
+  if (!(await hasTripAliasesTable())) throw new Error("NOT_CONFIGURED")
+  if (!data.tripId?.trim()) throw new Error("TRIP_NOT_FOUND")
+  const slug = await validateTripAliasSlug(data.tripId, data.slug)
+  const uid = isUuid(data.userId) ? data.userId : null
+  const rows = await query(
+    `INSERT INTO trip_slug_aliases (trip_id, slug, created_by) VALUES ($1, $2, $3) RETURNING id`,
+    [data.tripId, slug, uid]
+  )
+  return dbGetTripRedirect((rows[0] as { id: string }).id)
+}
+
+export async function dbUpdateTripRedirect(
+  id: string,
+  data: { tripId?: string; slug?: string },
+) {
+  if (!(await hasTripAliasesTable())) throw new Error("NOT_CONFIGURED")
+  const existing = await queryOne<{ trip_id: string; slug: string }>(
+    `SELECT trip_id, slug FROM trip_slug_aliases WHERE id = $1`, [id]
+  )
+  if (!existing) return null
+  const tripId = data.tripId?.trim() ? data.tripId : existing.trip_id
+  const rawSlug = "slug" in data ? String(data.slug) : existing.slug
+  const slug = await validateTripAliasSlug(tripId, rawSlug, id)
+  const rows = await query(
+    `UPDATE trip_slug_aliases SET trip_id = $1, slug = $2 WHERE id = $3 RETURNING id`,
+    [tripId, slug, id]
+  )
+  return rows[0] ? dbGetTripRedirect((rows[0] as { id: string }).id) : null
+}
+
+export async function dbDeleteTripRedirect(id: string) {
+  if (!(await hasTripAliasesTable())) return
+  await query(`DELETE FROM trip_slug_aliases WHERE id = $1`, [id])
+}
+
+/** Unresolved 404s scoped to /trip/... paths, for the Trip Redirects feed.
+ *  Reuses the global blog_404_log (it captures every broken URL site-wide). */
+export async function dbListTrip404s(status?: string) {
+  const clauses = ["path LIKE '/trip/%'"]
+  const params: unknown[] = []
+  if (status) { params.push(status); clauses.push(`status = $${params.length}`) }
+  return query(
+    `SELECT id, path, hits, status,
+            first_seen AS "firstSeen", last_seen AS "lastSeen"
+     FROM blog_404_log
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY hits DESC, last_seen DESC LIMIT 500`,
+    params
+  )
+}
+
 // ── Blog posts ─────────────────────────────────────────────────────────────
 
 // A blog post is publicly live only when it is published AND its scheduled

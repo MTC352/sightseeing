@@ -94,8 +94,10 @@ const ROUTE_RULES: { prefix: string; keys: PermissionKey[] }[] = [
   // Trips family
   { prefix: "/admin/trips", keys: ["trips"] },
   { prefix: "/admin/trip-tags", keys: ["trips"] },
+  { prefix: "/admin/trip-redirects", keys: ["trips"] },
   { prefix: "/api/admin/trips", keys: ["trips"] },
   { prefix: "/api/admin/trip-tags", keys: ["trips"] },
+  { prefix: "/api/admin/trip-redirects", keys: ["trips"] },
   { prefix: "/api/admin/departures", keys: ["trips"] },
   { prefix: "/api/admin/taxonomies", keys: ["trips"] },
   // Blog
