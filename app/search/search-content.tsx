@@ -26,6 +26,7 @@ import {
 } from "@/lib/search-filters-config"
 import { parseDurationHoursMin } from "@/lib/duration-parser"
 import { haversineKm, parseGeocode, geocodeAddress } from "@/lib/geo-distance"
+import { isVisibleTripTag, keywordsFromQuery, tripMatchesKeywords } from "@/lib/search-keyword-match"
 
 /** Extended trip shape used on the search page (includes Palisis-rich fields
  *  needed for the new location/tags/type filters). */
@@ -63,13 +64,6 @@ const DEFAULT_FILTERS: Filters = {
 const RADIUS_OPTIONS = [1, 2, 5, 10, 20, 50] as const
 const RATING_OPTIONS = [0, 3, 3.5, 4, 4.5, 5] as const
 const DURATION_OPTIONS = [1, 2, 3, 4, 6, 8, 24] as const // 24 = "Any"
-
-/** Tags imported from Palisis include internal flags like `operator-direct-product`
- *  that aren't meaningful to end users. Hide them from the filter UI. */
-const HIDDEN_TRIP_TAGS = new Set(["operator-direct-product"])
-function isVisibleTripTag(t: string): boolean {
-  return Boolean(t) && !HIDDEN_TRIP_TAGS.has(t.toLowerCase())
-}
 
 type Timeslot = AvTimeslot
 type SlotGroup = AvSlotGroup
@@ -1105,14 +1099,9 @@ export function SearchContent({
      each keyword is stripped the same way and matched against the spaceless
      haystack — so an omitted or extra space never blocks a match. */
   const keywordMatched = useMemo(() => {
-    if (!query.trim()) return initialTrips
-    const strip = (s: string) =>
-      s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/[^a-z0-9]/g, "")
-    const kws = query.trim().split(/\s+/).map(strip).filter(Boolean)
-    return initialTrips.filter((t) => {
-      const hay = strip([t.title, t.category, t.city ?? "", t.departureLocation ?? "", t.description ?? "", t.provider ?? "", ...(t.tags ?? [])].join(" "))
-      return kws.every((kw) => hay.includes(kw))
-    })
+    const kws = keywordsFromQuery(query)
+    if (kws.length === 0) return initialTrips
+    return initialTrips.filter((t) => tripMatchesKeywords(t, kws))
   }, [query, initialTrips])
 
   /* Full filter chain — each clause is gated by its config flag so disabled
