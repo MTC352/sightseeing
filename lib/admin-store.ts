@@ -120,6 +120,8 @@ export interface AdminJob {
   description: string
   requirements: string[]
   status: "open" | "closed"
+  /** Where applications for this posting go; null → DEFAULT_JOB_EMAIL. */
+  applicationEmail?: string | null
   createdAt: string
 }
 

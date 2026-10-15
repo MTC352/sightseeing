@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache"
 import { dbGetJob, dbUpdateJob, dbDeleteJob } from "@/lib/db/queries"
 import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { parseJobEmailInput } from "@/lib/job-email"
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof Error && (err as { status?: number }).status === 401
@@ -32,6 +33,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const session = await requirePermission("jobs")
     const { id } = await params
     const data = await req.json()
+    if ("applicationEmail" in data) {
+      const email = parseJobEmailInput(data.applicationEmail)
+      if ("error" in email) return NextResponse.json({ error: email.error }, { status: 400 })
+      data.applicationEmail = email.value
+    }
     const updated = await dbUpdateJob(id, data)
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
     revalidatePath("/admin/jobs")

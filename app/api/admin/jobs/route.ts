@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache"
 import { dbListJobs, dbCreateJob } from "@/lib/db/queries"
 import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { parseJobEmailInput } from "@/lib/job-email"
 
 export const dynamic = "force-dynamic"
 
@@ -31,6 +32,11 @@ export async function POST(req: Request) {
     const session = await requirePermission("jobs")
     const data = await req.json()
     if (!data.title?.trim()) return NextResponse.json({ error: "Job title is required" }, { status: 400 })
+    if ("applicationEmail" in data) {
+      const email = parseJobEmailInput(data.applicationEmail)
+      if ("error" in email) return NextResponse.json({ error: email.error }, { status: 400 })
+      data.applicationEmail = email.value
+    }
     const job = await dbCreateJob(data)
     revalidatePath("/admin/jobs")
     void logActivity({

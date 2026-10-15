@@ -1065,29 +1065,33 @@ export async function dbResolve404ByPath(path: string): Promise<void> {
 
 // ── Jobs ───────────────────────────────────────────────────────────────────
 
+// `jobs.application_email` (docs/db/2026-10-15-job-application-email.sql):
+// where applications for that posting are sent. NULL → DEFAULT_JOB_EMAIL.
+async function jobSelect(): Promise<string> {
+  const email = (await hasColumn('jobs', 'application_email'))
+    ? 'application_email as "applicationEmail"'
+    : 'NULL as "applicationEmail"'
+  return `id, title, department, location, type, description, requirements,
+          status, ${email}, created_at as "createdAt", updated_at`
+}
+
 export async function dbListJobs() {
-  return query(`
-    SELECT id, title, department, location, type, description, requirements,
-           status, created_at as "createdAt", updated_at
-    FROM jobs ORDER BY created_at DESC
-  `)
+  return query(`SELECT ${await jobSelect()} FROM jobs ORDER BY created_at DESC`)
 }
 
 export async function dbGetJob(id: string) {
-  return queryOne(
-    `SELECT id, title, department, location, type, description, requirements,
-            status, created_at as "createdAt", updated_at
-     FROM jobs WHERE id = $1`, [id]
-  )
+  return queryOne(`SELECT ${await jobSelect()} FROM jobs WHERE id = $1`, [id])
 }
 
 export async function dbCreateJob(data: Record<string, unknown>) {
+  const withEmail = await hasColumn('jobs', 'application_email')
   const rows = await query(`
-    INSERT INTO jobs (title, department, location, type, description, requirements, status)
-    VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *
+    INSERT INTO jobs (title, department, location, type, description, requirements, status${withEmail ? ', application_email' : ''})
+    VALUES ($1,$2,$3,$4,$5,$6,$7${withEmail ? ',$8' : ''}) RETURNING *
   `, [
     data.title, data.department ?? null, data.location ?? null, data.type ?? 'Full-time',
     data.description ?? null, data.requirements ?? [], data.status ?? 'open',
+    ...(withEmail ? [data.applicationEmail ?? null] : []),
   ])
   return rows[0]
 }
@@ -1099,6 +1103,10 @@ export async function dbUpdateJob(id: string, data: Record<string, unknown>) {
   const fieldMap: Record<string, string> = {
     title: 'title', department: 'department', location: 'location', type: 'type',
     description: 'description', requirements: 'requirements', status: 'status',
+    applicationEmail: 'application_email',
+  }
+  if ('applicationEmail' in data && !(await hasColumn('jobs', 'application_email'))) {
+    delete fieldMap.applicationEmail
   }
   for (const [key, col] of Object.entries(fieldMap)) {
     if (key in data) { sets.push(`${col} = $${i++}`); vals.push(data[key]) }

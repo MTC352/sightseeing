@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import type { AdminJob } from "@/lib/admin-store"
 import { Save, ArrowLeft, Plus, X, AlertCircle } from "lucide-react"
 import Link from "next/link"
+import { DEFAULT_JOB_EMAIL } from "@/lib/job-email"
 
 const DEPARTMENTS = ["Operations", "Marketing", "Technology", "Support", "Sales", "Finance", "HR"]
 
@@ -125,6 +126,11 @@ export function JobEditForm({ job }: { job: AdminJob | null }) {
             <div>
               <label className={labelClass}>Location</label>
               <input type="text" className={inputClass} placeholder="e.g. Luxembourg City" value={form.location ?? ""} onChange={(e) => set("location", e.target.value)} />
+            </div>
+            <div>
+              <label className={labelClass}>Application email</label>
+              <input type="email" className={inputClass} placeholder={DEFAULT_JOB_EMAIL} value={form.applicationEmail ?? ""} onChange={(e) => set("applicationEmail", e.target.value || null)} />
+              <p className="mt-1 text-[11px] text-muted-foreground">Applications for this job are sent here. Leave empty to use {DEFAULT_JOB_EMAIL}.</p>
             </div>
             <div>
               <label className={labelClass}>Description</label>

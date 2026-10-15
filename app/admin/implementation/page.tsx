@@ -1412,7 +1412,7 @@ Key stored in: DB integrations table (key: 'weglot') + NEXT_PUBLIC_WEGLOT_KEY en
             {
               priority: "High",
               label: "Public job application form",
-              detail: "POST /api/public/apply endpoint for applicants to submit from /careers. Saves to job_applications table. Email notification to careers@sightseeing.lu.",
+              detail: "POST /api/public/apply endpoint for applicants to submit from /careers. Saves to job_applications table. Email notification to the posting's application email (default hello@sightseeing.lu).",
             },
             {
               priority: "High",

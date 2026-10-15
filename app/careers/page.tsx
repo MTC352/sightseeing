@@ -5,6 +5,7 @@ import type { JobListing } from "./careers-client"
 import { dbListJobs } from "@/lib/db/queries"
 import type { Metadata } from "next"
 import { localizedMetadata } from "@/lib/i18n/metadata"
+import { jobApplicationEmail } from "@/lib/job-email"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -44,6 +45,7 @@ export default async function CareersPage() {
     type: (r.type as JobListing["type"]) ?? "Full-time",
     description: String(r.description ?? ""),
     requirements: Array.isArray(r.requirements) ? (r.requirements as string[]) : [],
+    applicationEmail: jobApplicationEmail(r.applicationEmail),
   }))
 
   // One JobPosting per role + a single ItemList grouping. Each posting needs

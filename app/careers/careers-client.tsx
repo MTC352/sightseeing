@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { MapPin, Clock, Briefcase, ChevronDown, ChevronUp } from "lucide-react"
+import { DEFAULT_JOB_EMAIL } from "@/lib/job-email"
 
 export interface JobListing {
   id: string
@@ -11,6 +12,8 @@ export interface JobListing {
   type: "Full-time" | "Part-time" | "Freelance"
   description: string
   requirements: string[]
+  /** Resolved server-side: the posting's own address or DEFAULT_JOB_EMAIL. */
+  applicationEmail: string
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -58,7 +61,7 @@ function JobCard({ job }: { job: JobListing }) {
               ))}
             </ul>
             <a
-              href={`mailto:careers@sightseeing.lu?subject=Application: ${encodeURIComponent(job.title)}`}
+              href={`mailto:${job.applicationEmail}?subject=${encodeURIComponent(`Application: ${job.title}`)}`}
               className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Briefcase className="h-4 w-4" /> Apply for this role
@@ -107,7 +110,7 @@ export function CareersClient({ jobs }: { jobs: JobListing[] }) {
         <h2 className="text-base font-bold text-foreground">Don&#39;t see the right role?</h2>
         <p className="mt-1 text-sm text-muted-foreground">We are always open to hearing from talented people. Send us your CV and tell us how you can contribute.</p>
         <a
-          href="mailto:careers@sightseeing.lu?subject=Open Application"
+          href={`mailto:${DEFAULT_JOB_EMAIL}?subject=${encodeURIComponent("Open Application")}`}
           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
         >
           Send an open application
