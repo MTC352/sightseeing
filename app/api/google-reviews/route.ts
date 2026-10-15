@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { dbGetSettings, dbGetTrip, dbUpdateTrip } from "@/lib/db/queries"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import {
   getGlobalGoogleReviews,
   findPlaceIdByName,
@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
   schedulePrune()
   pruneReviewsCache()
 
-  const rl = rateLimit(request, { limit: 10, windowMs: 60_000 })
+  const rl = rateLimit(request, { key: "google-reviews", ...RATE_LIMITS.cachedRead })
   if (!rl.allowed) return rl.response
 
   const { searchParams } = request.nextUrl

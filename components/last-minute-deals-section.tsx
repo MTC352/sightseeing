@@ -20,6 +20,7 @@ import { Link } from "@/components/i18n/link"
 import { Star, Clock, Zap, ArrowRight } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DealItem } from "@/app/api/last-minute-deals/route"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -258,7 +259,10 @@ export function LastMinuteDealsSection() {
 
   const fetchDeals = useCallback(async (attempt = 0) => {
     try {
-      const res  = await fetch("/api/last-minute-deals", { cache: "no-store" })
+      const res  = await fetchWithRetry("/api/last-minute-deals", { cache: "no-store" })
+      // Still rate-limited after retries — keep current state rather than
+      // treating it as "deals disabled" and hiding the section for good.
+      if (res.status === 429) return
       const data = await res.json()
 
       if (!data.ok || data.enabled === false) { setHidden(true); return }

@@ -3,6 +3,7 @@
 import useSWR from 'swr'
 import { Star, ExternalLink, AlertCircle } from 'lucide-react'
 import { Link } from '@/components/i18n/link'
+import { fetchWithRetry } from '@/lib/fetch-retry'
 
 interface GoogleReviewsProps {
   googleBusinessUrl?: string
@@ -27,7 +28,7 @@ interface ReviewsData {
   error?: string
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => {
+const fetcher = (url: string) => fetchWithRetry(url).then((r) => {
   if (!r.ok) {
     return { error: `HTTP ${r.status}`, reviews: [] }
   }

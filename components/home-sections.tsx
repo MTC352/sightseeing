@@ -598,8 +598,10 @@ export function ReviewsSection() {
               <GoogleBrandIcon className="h-10 w-10 opacity-50" />
               <p className="mt-4 text-sm font-semibold text-foreground">Read what travelers are saying</p>
               <p className="mt-1.5 max-w-sm text-xs leading-relaxed text-muted-foreground">
-                {isError
-                  ? "Configure a Google Places API key in Admin → Integrations to display live reviews here."
+                {/* Any failure (incl. a transient 429) lands here — only hint at
+                    configuration to admins in edit mode, never to visitors. */}
+                {isError && isEditMode
+                  ? "Live reviews could not be loaded. Check the Google Places API key and Place ID in Admin → Integrations."
                   : "Authentic reviews from guests who have experienced our tours."}
               </p>
               <a

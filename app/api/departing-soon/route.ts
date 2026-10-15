@@ -13,7 +13,7 @@
 
 import { NextResponse } from "next/server"
 import { getTourCMSConfig } from "@/lib/tourcms"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import {
   discoveryCache,
   availabilityCache,
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
   // upstream TourCMS refresh work, so cap per-IP request volume (production
   // only — see lib/rate-limit.ts for the dev/preview bypass rationale).
   schedulePrune()
-  const limit = rateLimit(req, { limit: 30, windowMs: 60_000 })
+  const limit = rateLimit(req, { key: "departing-soon", ...RATE_LIMITS.cachedRead })
   if (!limit.allowed) return limit.response
 
   try {

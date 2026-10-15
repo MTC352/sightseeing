@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import {
   scanCatalogAvailability,
   pruneAvailabilityCache,
@@ -23,7 +23,7 @@ export type { PlannerTripAvailability, PlannerAvailabilityResponse }
 export async function GET(req: Request) {
   schedulePrune()
   pruneAvailabilityCache()
-  const rl = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  const rl = rateLimit(req, { key: "planner-availability", ...RATE_LIMITS.liveAvailability })
   if (!rl.allowed) return rl.response
 
   const { searchParams } = new URL(req.url)
@@ -63,7 +63,7 @@ export async function GET(req: Request) {
   // process-local limit above.  Fail-open on DB error.
   const { sharedRateLimit: srl, getClientIp: gcip } = await import("@/lib/shared-rate-limit")
   const availClientIp = gcip(req)
-  const sharedAvail = await srl(`avail:${availClientIp}`, { limit: 20, windowMs: 60_000 })
+  const sharedAvail = await srl(`avail:${availClientIp}`, RATE_LIMITS.liveAvailability)
   if (!sharedAvail.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please wait before trying again." },

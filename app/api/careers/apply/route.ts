@@ -6,7 +6,7 @@ import {
   dbFinalizeApplication,
 } from "@/lib/db/queries"
 import { queryOne } from "@/lib/db"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import { sharedRateLimit } from "@/lib/shared-rate-limit"
 import { sanitizeExternalUrl } from "@/lib/sanitize-html"
 import { randomBytes } from "crypto"
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
   // ── Tier-1: in-process per-IP limiter (first-line, cheap) ───────────────
   // NOT sufficient on its own against distributed/rotating callers, but cuts
   // trivial single-IP abuse before any I/O is incurred.
-  const limit = rateLimit(request, { limit: 3, windowMs: 60 * 60 * 1000 })
+  const limit = rateLimit(request, { key: "careers-apply", ...RATE_LIMITS.careersApply })
   if (!limit.allowed) return limit.response
 
   // ── Tier-2: durable cross-instance attempt gate (pre-body-read, fail-closed)

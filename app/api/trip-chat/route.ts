@@ -2,7 +2,7 @@ import { convertToModelMessages, streamText, UIMessage, validateUIMessages } fro
 import { dbGetTrip, dbGetSettings, dbListTrips, dbListPosts, dbListJobs, dbTripStatus } from "@/lib/db/queries"
 import { resolveAi } from "@/lib/ai/provider"
 import { getTripById, getTripDetail } from "@/lib/data"
-import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 export const maxDuration = 30
@@ -16,7 +16,7 @@ const CHAT_BUDGET = { maxMessages: 40, maxChars: 60_000, maxBytes: 262_144 }
 export async function POST(req: Request) {
   const reqMeta = requestMeta(req)
   schedulePrune()
-  const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  const limit = rateLimit(req, { key: "trip-chat", ...RATE_LIMITS.ai })
   if (!limit.allowed) return limit.response
   const tooBig = oversizedBody(req, CHAT_BUDGET.maxBytes)
   if (tooBig) return tooBig

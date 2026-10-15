@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { dbGetSettings } from "@/lib/db/queries"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 
 // Luxembourg City coordinates — fixed, so one server-side cache entry covers all callers
 const LAT = 49.6116
@@ -55,7 +55,7 @@ function buildFallback(reason?: string) {
 
 export async function GET(request: Request) {
   schedulePrune()
-  const rl = rateLimit(request, { limit: 20, windowMs: 60_000 })
+  const rl = rateLimit(request, { key: "weather", ...RATE_LIMITS.cachedRead })
   if (!rl.allowed) return rl.response
 
   // cityOverride param is intentionally ignored — coordinates are fixed to Luxembourg City

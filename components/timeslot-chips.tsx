@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Sparkles } from "lucide-react"
 import type { PlannerTimeslot, PlannerTimeslotsResponse } from "@/app/api/planner/timeslots/route"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 
 /* ── Types ── */
 export type Timeslot = PlannerTimeslot
@@ -142,7 +143,7 @@ export function ItineraryTimeslots({
     setData(null)
     ;(async () => {
       try {
-        const res = await fetch(
+        const res = await fetchWithRetry(
           `/api/planner/timeslots?tripId=${encodeURIComponent(tripId)}`,
           { cache: "no-store" },
         )

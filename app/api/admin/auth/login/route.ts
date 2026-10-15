@@ -3,12 +3,12 @@ import { compare } from "bcryptjs"
 import { queryOne } from "@/lib/db"
 import { signSession, sessionCookieOptions } from "@/lib/auth"
 import { sanitizePermissions } from "@/lib/admin-permissions"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import { recordDbLoginFailure, resetDbLoginFailures } from "@/lib/login-lockout"
 import { logActivity } from "@/lib/activity-log"
 
 export async function POST(req: Request) {
-  const limit = rateLimit(req, { limit: 10, windowMs: 15 * 60 * 1000 })
+  const limit = rateLimit(req, { key: "admin-login", ...RATE_LIMITS.adminLogin })
   schedulePrune()
   if (!limit.allowed) return limit.response
 

@@ -1,5 +1,6 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 
 export type { DepartingSoonItem }
 
@@ -71,7 +72,9 @@ export type PublicPost = {
 
 export const siteApi = createApi({
   reducerPath: "siteApi",
-  baseQuery: fetchBaseQuery({ baseUrl: "/api" }),
+  // fetchWithRetry waits out per-IP 429s (Retry-After) so weather/reviews
+  // don't surface as errors when visitors share an IP.
+  baseQuery: fetchBaseQuery({ baseUrl: "/api", fetchFn: (input, init) => fetchWithRetry(input, init) }),
   keepUnusedDataFor: 300,
   endpoints: (builder) => ({
     getWeather: builder.query<WeatherData, string | void>({

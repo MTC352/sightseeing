@@ -22,7 +22,7 @@ import { z } from "zod"
 import { weatherData as staticWeatherData, type Trip } from "@/lib/data"
 import { dbGetSettings, dbGetTrip, dbListTrips, dbGetChatPlannerConfig } from "@/lib/db/queries"
 import { getTourCMSConfig, showTourDatesAndDeals, checkAvailability } from "@/lib/tourcms"
-import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
 import { sharedRateLimit, getClientIp } from "@/lib/shared-rate-limit"
 import { logError, logCaughtError, requestMeta } from "@/lib/error-log"
 
@@ -1563,7 +1563,7 @@ Reply with ONE word only. No explanation.`
 
 export async function POST(req: Request) {
   schedulePrune()
-  const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
+  const limit = rateLimit(req, { key: "planner", ...RATE_LIMITS.ai })
   if (!limit.allowed) return limit.response
   // Shared cross-instance per-IP rate limit.  The process-local `rateLimit`
   // above collapses all traffic behind the same Replit reverse-proxy IP into
@@ -1572,7 +1572,7 @@ export async function POST(req: Request) {
   // ALL autoscale instances, so rotating to a fresh instance no longer resets
   // the counter.  Fail-open on any DB error.
   const clientIp = getClientIp(req)
-  const sharedLimit = await sharedRateLimit(`planner:${clientIp}`, { limit: 10, windowMs: 60_000 })
+  const sharedLimit = await sharedRateLimit(`planner:${clientIp}`, RATE_LIMITS.ai)
   if (!sharedLimit.allowed) {
     return Response.json(
       { error: "Too many requests. Please wait before trying again." },

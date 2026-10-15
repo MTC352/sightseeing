@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from "react"
 import { Link } from "@/components/i18n/link"
 import { Clock, MapPin, CloudSun, Sun, CloudRain, Sparkles, ArrowRight, ChevronRight } from "lucide-react"
 import type { OutdoorTodayResponse, OutdoorTodayTrip } from "@/app/api/outdoor-today/route"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 import { stripHtml } from "@/lib/seo/score"
 
 const WEATHER_ICONS = { sun: Sun, "cloud-sun": CloudSun, "cloud-rain": CloudRain }
@@ -147,7 +148,7 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch("/api/outdoor-today", { cache: "no-store" })
+      const res = await fetchWithRetry("/api/outdoor-today", { cache: "no-store" })
       if (res.ok) setData(await res.json())
     } catch { /* ignore */ } finally {
       setLoading(false)

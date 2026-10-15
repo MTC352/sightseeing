@@ -13,6 +13,7 @@ import { Link } from "@/components/i18n/link"
 import { Calendar, Clock, MapPin, ArrowRight, RefreshCw, Loader2 } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 
 /** Availability pill — mirrors the homepage widget's thresholds. */
 function UrgencyBadge({
@@ -87,7 +88,7 @@ export function DepartingSoonPageClient() {
   // keys are stable (tripId-date-time), so unchanged cards don't re-mount.
   const overlayAvailability = useCallback(async () => {
     try {
-      const res = await fetch("/api/departing-soon?scope=today&dsFilter=1", { cache: "no-store" })
+      const res = await fetchWithRetry("/api/departing-soon?scope=today&dsFilter=1", { cache: "no-store" })
       const data = await res.json()
       if (!data.ok || !Array.isArray(data.departures)) return
       if (typeof data.availabilityThreshold === "number") setThreshold(data.availabilityThreshold)
@@ -105,7 +106,7 @@ export function DepartingSoonPageClient() {
   // then trigger the availability overlay for the now-visible trips.
   const fetchSnapshot = useCallback(async () => {
     try {
-      const res = await fetch("/api/departing-soon?scope=today&dsFilter=1&availability=0", { cache: "no-store" })
+      const res = await fetchWithRetry("/api/departing-soon?scope=today&dsFilter=1&availability=0", { cache: "no-store" })
       const data = await res.json()
 
       if (data.widgetEnabled === false || data.tourcmsConfigured === false) {

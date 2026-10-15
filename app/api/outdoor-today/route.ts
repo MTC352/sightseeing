@@ -4,7 +4,7 @@ import { z } from "zod"
 import { dbListTrips, dbGetSettings } from "@/lib/db/queries"
 import { resolveAi } from "@/lib/ai/provider"
 import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import { logCaughtError } from "@/lib/error-log"
 
 export const dynamic = "force-dynamic"
@@ -121,7 +121,7 @@ function weatherTagMatch(
 
 export async function GET(req: Request) {
   schedulePrune()
-  const rl = rateLimit(req, { limit: 10, windowMs: 60_000 })
+  const rl = rateLimit(req, { key: "outdoor-today", ...RATE_LIMITS.cachedRead })
   if (!rl.allowed) return rl.response
 
   // Read settings FIRST so displayCount can be part of the cache key.

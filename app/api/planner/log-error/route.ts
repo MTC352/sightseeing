@@ -1,5 +1,5 @@
 import { logError, requestMeta } from "@/lib/error-log"
-import { rateLimit } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   // (still 204 — never surface an error to the fire-and-forget client) once a
   // caller exceeds a generous per-IP budget so it can't be spammed into log /
   // storage churn. No-ops in dev (the helper bypasses non-production).
-  const limited = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  const limited = rateLimit(req, { key: "planner-log-error", ...RATE_LIMITS.clientLog })
   if (!limited.allowed) return new Response(null, { status: 204 })
 
   try {

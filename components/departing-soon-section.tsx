@@ -15,6 +15,7 @@ import { Link } from "@/components/i18n/link"
 import { Calendar, ChevronLeft, ChevronRight, Clock, MapPin, ArrowRight, RefreshCw } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 
 function SkeletonCard() {
   return (
@@ -132,7 +133,7 @@ export function DeparturesSoonSection() {
   // slots. Card keys are stable, so unchanged cards don't re-mount.
   const overlayAvailability = useCallback(async () => {
     try {
-      const res = await fetch("/api/departing-soon?dsFilter=1", { cache: "no-store" })
+      const res = await fetchWithRetry("/api/departing-soon?dsFilter=1", { cache: "no-store" })
       const data = await res.json()
       if (!data.ok || !Array.isArray(data.departures)) return
       setDepartures(data.departures)
@@ -150,7 +151,7 @@ export function DeparturesSoonSection() {
   // then overlay live seat availability for the now-visible trips.
   const fetchDepartures = useCallback(async (isRetry = false) => {
     try {
-      const res = await fetch("/api/departing-soon?dsFilter=1&availability=0", { cache: "no-store" })
+      const res = await fetchWithRetry("/api/departing-soon?dsFilter=1&availability=0", { cache: "no-store" })
       const data = await res.json()
 
       // Administratively unavailable → hide widget (master toggle OFF or no TourCMS creds)

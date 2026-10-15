@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { dbGetTrip } from "@/lib/db/queries"
 import { query } from "@/lib/db"
 import { getTourCMSConfig, checkAvailability, type AvailabilityComponent } from "@/lib/tourcms"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import { MAX_SELECTED_DATE_DAYS, MAX_PARTY_SIZE } from "@/lib/planner/availability-scan"
 
 export const dynamic = "force-dynamic"
@@ -140,12 +140,12 @@ async function fetchSlotsForDate(
 export async function GET(req: Request) {
   schedulePrune()
   pruneTimeslotsCache()
-  const rl = rateLimit(req, { limit: 30, windowMs: 60_000 })
+  const rl = rateLimit(req, { key: "planner-timeslots", ...RATE_LIMITS.liveAvailability })
   if (!rl.allowed) return rl.response
   // Shared cross-instance per-IP limit.  Fail-open on DB error.
   const { sharedRateLimit: srl, getClientIp: gcip } = await import("@/lib/shared-rate-limit")
   const tsClientIp = gcip(req)
-  const sharedTs = await srl(`timeslots:${tsClientIp}`, { limit: 30, windowMs: 60_000 })
+  const sharedTs = await srl(`timeslots:${tsClientIp}`, RATE_LIMITS.liveAvailability)
   if (!sharedTs.allowed) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429, headers: { "Retry-After": "60" } })
   }

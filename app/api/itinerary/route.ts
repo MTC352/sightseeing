@@ -8,7 +8,7 @@ import {
   type DepartureDate,
   type AvailabilityComponent,
 } from "@/lib/tourcms"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import { sharedRateLimit } from "@/lib/shared-rate-limit"
 import { parseHumanDuration } from "@/lib/parse-duration"
 import {
@@ -256,14 +256,14 @@ interface IncomingPreferences {
 
 export async function POST(req: Request) {
   schedulePrune()
-  const limit = rateLimit(req, { limit: 10, windowMs: 60_000 })
+  const limit = rateLimit(req, { key: "itinerary", ...RATE_LIMITS.ai })
   if (!limit.allowed) return limit.response
   // Shared cross-instance per-IP rate limit.  Mirrors the planner route guard:
   // the process-local counter resets on cold starts and doesn't help across
   // autoscaled instances.  The shared DB counter survives both.  Fail-open.
   const { sharedRateLimit: srl, getClientIp: gcip } = await import("@/lib/shared-rate-limit")
   const itinClientIp = gcip(req)
-  const sharedItinLimit = await srl(`itinerary:${itinClientIp}`, { limit: 10, windowMs: 60_000 })
+  const sharedItinLimit = await srl(`itinerary:${itinClientIp}`, RATE_LIMITS.ai)
   if (!sharedItinLimit.allowed) {
     return Response.json(
       { error: "Too many requests. Please wait before trying again." },

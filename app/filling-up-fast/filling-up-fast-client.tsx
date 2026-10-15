@@ -16,6 +16,7 @@ import { Link } from "@/components/i18n/link"
 import { Zap, Clock, MapPin, ArrowRight, RefreshCw, Loader2 } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 
 /** Rank a card by seats remaining (fewest first). Unlimited / unknown sort last. */
 function seatRank(d: DepartingSoonItem): number {
@@ -94,7 +95,7 @@ export function FillingUpFastClient() {
   // Phase 2: overlay live seat availability, then re-order by scarcity.
   const overlayAvailability = useCallback(async () => {
     try {
-      const res = await fetch("/api/departing-soon?scope=today", { cache: "no-store" })
+      const res = await fetchWithRetry("/api/departing-soon?scope=today", { cache: "no-store" })
       const data = await res.json()
       if (!data.ok || !Array.isArray(data.departures)) return
       if (typeof data.availabilityThreshold === "number") setThreshold(data.availabilityThreshold)
@@ -112,7 +113,7 @@ export function FillingUpFastClient() {
   // Phase 1: fast paint from the snapshot (no availability), then overlay.
   const fetchSnapshot = useCallback(async () => {
     try {
-      const res = await fetch("/api/departing-soon?scope=today&availability=0", { cache: "no-store" })
+      const res = await fetchWithRetry("/api/departing-soon?scope=today&availability=0", { cache: "no-store" })
       const data = await res.json()
 
       if (data.widgetEnabled === false || data.tourcmsConfigured === false) {

@@ -6,7 +6,7 @@ import {
   checkAvailability,
   type AvailabilityComponent,
 } from "@/lib/tourcms"
-import { rateLimit, schedulePrune } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import { getSearchAvailabilityConfig } from "@/lib/search-availability-source"
 import { getLastKnownRateLimit } from "@/lib/departing-soon-cache"
 
@@ -517,7 +517,7 @@ function scheduleNodateSweep(
 export async function GET(req: Request) {
   schedulePrune()
   pruneAvailabilityCache()
-  const rl = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  const rl = rateLimit(req, { key: "availability", ...RATE_LIMITS.liveAvailability })
   if (!rl.allowed) return rl.response
 
   const { searchParams } = new URL(req.url)

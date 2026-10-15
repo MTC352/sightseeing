@@ -1,7 +1,7 @@
 import { convertToModelMessages, streamText, UIMessage, validateUIMessages } from "ai"
 import { resolveAi } from "@/lib/ai/provider"
 import { dbGetSettings, dbListHelpArticles } from "@/lib/db/queries"
-import { rateLimit, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
+import { rateLimit, RATE_LIMITS, schedulePrune, oversizedBody, oversizedChat } from "@/lib/rate-limit"
 import { logCaughtError, requestMeta } from "@/lib/error-log"
 
 // Per-request cost cap: the help assistant has no large tool payloads, so a
@@ -75,7 +75,7 @@ async function buildKnowledgeBase(): Promise<{ text: string; count: number }> {
 export async function POST(req: Request) {
   const reqMeta = requestMeta(req)
   schedulePrune()
-  const limit = rateLimit(req, { limit: 20, windowMs: 60_000 })
+  const limit = rateLimit(req, { key: "help-chat", ...RATE_LIMITS.ai })
   if (!limit.allowed) return limit.response
   const tooBig = oversizedBody(req, CHAT_BUDGET.maxBytes)
   if (tooBig) return tooBig

@@ -9,6 +9,7 @@ import { Navbar } from "@/components/site-navbar"
 import type { ReactNode } from "react"
 import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 import {
   Star, Clock, MapPin, SlidersHorizontal, CalendarDays, X,
@@ -971,7 +972,7 @@ export function SearchContent({
     // Wipe stale data + show skeleton immediately so no old slots flash during transitions.
     setAvailability({})
     setAvailLoading(true)
-    fetch(`/api/availability?${params}`, { signal })
+    fetchWithRetry(`/api/availability?${params}`, { signal })
       .then((r) => r.ok ? r.json() : {})
       .then((data: AvailabilityMap) => {
         // Only update state when this fetch was NOT aborted.

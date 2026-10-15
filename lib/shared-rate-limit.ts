@@ -74,23 +74,10 @@ function maybePrune(): void {
 /* ── IP extraction ───────────────────────────────────────────────────────── */
 
 /**
- * Extract the client IP from a request.  Mirrors the strategy in
- * lib/rate-limit.ts: prefer `x-real-ip` (set by the trusted proxy layer,
- * not forgeable by clients), then the RIGHTMOST hop in `x-forwarded-for`
- * (the nearest trusted proxy's addition).  The leftmost XFF entry can be
- * forged by the client and MUST NOT be used for rate limiting.
+ * Client IP extraction is shared with the in-memory limiter so both key on the
+ * same visitor address (cf-connecting-ip → x-real-ip → rightmost XFF hop).
  */
-export function getClientIp(request: Request): string {
-  const headers = request.headers
-  const realIp = headers.get("x-real-ip")?.trim()
-  if (realIp) return realIp
-  const forwarded = headers.get("x-forwarded-for")
-  if (forwarded) {
-    const hops = forwarded.split(",").map((s) => s.trim()).filter(Boolean)
-    if (hops.length > 0) return hops[hops.length - 1]
-  }
-  return "unknown"
-}
+export { getClientIp } from "@/lib/rate-limit"
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
 

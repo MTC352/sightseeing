@@ -10,6 +10,7 @@ import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
 import { SightseeingAlbum } from "@/components/chatgpt-widgets/sightseeing-album"
 import { SidebarItinerary, ItineraryPanel, recommendedTravelMethod, type Itinerary, type TravelMethod, type SidebarPrefsView, type PlanConflictPayload, type ItineraryFailurePayload, type AlternativeDate } from "@/components/sidebar-itinerary"
 import { useCart } from "@/lib/cart-context"
+import { fetchWithRetry } from "@/lib/fetch-retry"
 import { usePlannerList } from "@/lib/planner-list-context"
 import { weatherData, type Trip } from "@/lib/data"
 import { stripHtml } from "@/lib/seo/score"
@@ -4053,7 +4054,7 @@ export default function PlannerPage() {
     if (selectedDateForAvail) params.set("date", selectedDateForAvail)
     params.set("party", String(partyForAvail))
     const qs = params.toString() ? `?${params.toString()}` : ""
-    fetch(`/api/planner/availability${qs}`, { cache: "no-store" })
+    fetchWithRetry(`/api/planner/availability${qs}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { trips?: Record<string, { availableOnSelectedDate: boolean; availableDates: string[]; unknown?: boolean }> } | null) => {
         if (cancelled) return
@@ -4105,7 +4106,7 @@ export default function PlannerPage() {
     const party = partyForAvail
     Promise.allSettled(
       tripIds.map((id) =>
-        fetch(`/api/planner/timeslots?tripId=${encodeURIComponent(id)}&date=${encodeURIComponent(date)}&party=${party}`, { cache: "no-store" })
+        fetchWithRetry(`/api/planner/timeslots?tripId=${encodeURIComponent(id)}&date=${encodeURIComponent(date)}&party=${party}`, { cache: "no-store" })
           .then((r) => (r.ok ? r.json() : null))
           .then((json) => {
             if (!json) return
