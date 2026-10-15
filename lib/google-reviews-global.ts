@@ -67,33 +67,107 @@ export async function fetchPlaceDetails(
 const _globalCache = new Map<string, { data: GlobalReviews; expiresAt: number }>()
 const TTL_MS = 30 * 60_000
 
+// ── Persistent last-good copy ───────────────────────────────────────────────
+// The in-memory cache is lost on every restart/redeploy and any Google error
+// (quota, network, bad response) used to blank the homepage reviews. The last
+// successful payload is kept in the integrations table: reused without calling
+// Google for DB_FRESH_MS, and served — however old — whenever Google fails.
+// Only a non-empty result ever overwrites it. Keyed by `source` (Place ID or the
+// fallback search identity) so changing the Place ID never shows old reviews.
+const DB_CACHE_KEY = "google_reviews_cache"
+const DB_FRESH_MS = 6 * 60 * 60_000
+// After a failure with nothing stored to fall back on, don't call Google again
+// on every request.
+const FAILURE_BACKOFF_MS = 5 * 60_000
+
+interface StoredReviews {
+  source: string
+  fetchedAt: number
+  data: GlobalReviews
+}
+
+let _lastFailure: { source: string; at: number; error: string } | null = null
+
+async function readStoredReviews(source: string): Promise<StoredReviews | null> {
+  try {
+    const { queryOne } = await import("@/lib/db")
+    const row = await queryOne<{ meta: unknown }>(
+      `SELECT meta FROM integrations WHERE key = $1`,
+      [DB_CACHE_KEY],
+    )
+    const stored = row?.meta as Partial<StoredReviews> | undefined
+    if (!stored || stored.source !== source || typeof stored.fetchedAt !== "number") return null
+    if (!Array.isArray(stored.data?.reviews) || stored.data.reviews.length === 0) return null
+    return stored as StoredReviews
+  } catch {
+    return null
+  }
+}
+
+async function writeStoredReviews(stored: StoredReviews): Promise<void> {
+  try {
+    const { query } = await import("@/lib/db")
+    await query(
+      `INSERT INTO integrations (key, label, value, meta, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value, meta = EXCLUDED.meta, updated_at = NOW()`,
+      [DB_CACHE_KEY, "Google Reviews Cache (internal)", String(stored.fetchedAt), JSON.stringify(stored)],
+    )
+  } catch {
+    // Fail-soft: the in-memory copy still serves this process.
+  }
+}
+
 /** Resolve + fetch the general Sightseeing.lu Google reviews. Never throws —
- *  returns `{ reviews: [], error }` on any failure so callers can fail soft. */
+ *  returns `{ reviews: [], error }` on any failure so callers can fail soft.
+ *  Prefers the stored last-good copy over an error or an empty result. */
 export async function getGlobalGoogleReviews(): Promise<GlobalReviews> {
   const settings = await dbGetSettings()
   const apiKeys = settings.apiKeys as Record<string, string> | undefined
   const apiKey = apiKeys?.googleReviews || process.env.GOOGLE_PLACES_API_KEY
-  if (!apiKey) {
-    return { reviews: [], error: "Google Places API key not configured" }
-  }
 
   let placeId: string | null = (apiKeys?.googlePlaceId ?? "").trim() || null
   const cacheKey = placeId ?? "global:sightseeing-luxembourg"
   const cached = _globalCache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) return cached.data
 
+  const stored = await readStoredReviews(cacheKey)
+  if (stored && Date.now() - stored.fetchedAt < DB_FRESH_MS) {
+    _globalCache.set(cacheKey, { data: stored.data, expiresAt: Date.now() + TTL_MS })
+    return stored.data
+  }
+
+  const fail = (error: string): GlobalReviews => {
+    _lastFailure = { source: cacheKey, at: Date.now(), error }
+    return stored?.data ?? { reviews: [], error }
+  }
+
+  if (!apiKey) {
+    return stored?.data ?? { reviews: [], error: "Google Places API key not configured" }
+  }
+  if (_lastFailure && _lastFailure.source === cacheKey && Date.now() - _lastFailure.at < FAILURE_BACKOFF_MS) {
+    return stored?.data ?? { reviews: [], error: _lastFailure.error }
+  }
+
   try {
     // Fixed server-side name — not influenced by caller input.
     if (!placeId) placeId = await findPlaceIdByName("Sightseeing Luxembourg", apiKey)
-    if (!placeId) return { reviews: [], error: "Could not resolve a Google Place ID" }
+    if (!placeId) return fail("Could not resolve a Google Place ID")
 
     const details = await fetchPlaceDetails(placeId, apiKey)
-    if (!details.ok) return { reviews: [], error: `Places API: ${details.status}` }
+    if (!details.ok) return fail(`Places API: ${details.status}`)
 
     const payload = normalizePlaceDetails(details.result)
+    if (payload.reviews.length === 0 && stored) return stored.data
+
+    _lastFailure = null
     _globalCache.set(cacheKey, { data: payload, expiresAt: Date.now() + TTL_MS })
+    if (payload.reviews.length > 0) {
+      await writeStoredReviews({ source: cacheKey, fetchedAt: Date.now(), data: payload })
+    }
     return payload
   } catch (err) {
-    return { reviews: [], error: err instanceof Error ? err.message : "Failed to fetch Google reviews" }
+    return fail(err instanceof Error ? err.message : "Failed to fetch Google reviews")
   }
 }

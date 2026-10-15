@@ -125,6 +125,12 @@ async function resolveShortlink(url: string): Promise<string> {
 // Server-side response cache — 30-min TTL, keyed by place ID
 const _reviewsCache = new Map<string, { data: unknown; expiresAt: number }>()
 
+// Last non-empty payload per trip, kept past the TTL and served when a later
+// Google call fails, so a transient error doesn't replace reviews with an error
+// box. One small entry per trip; process-local (the homepage copy is persisted
+// in the DB by lib/google-reviews-global.ts).
+const _tripLastGood = new Map<string, unknown>()
+
 function pruneReviewsCache() {
   const now = Date.now()
   for (const [key, entry] of _reviewsCache) {
@@ -145,17 +151,6 @@ export async function GET(request: NextRequest) {
   const apiKey =
     (settings.apiKeys as Record<string, string> | undefined)?.googleReviews ||
     process.env.GOOGLE_PLACES_API_KEY
-
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        error:
-          "Google Places API key not configured. Add it in Admin → Integrations → Google Reviews.",
-        reviews: [],
-      },
-      { status: 503 },
-    )
-  }
 
   /* ── Resolve Place ID ─────────────────────────────────────────────────
      Two scopes:
@@ -180,6 +175,16 @@ export async function GET(request: NextRequest) {
   // never from a caller-supplied URL.  This is the allowlist gate that stops
   // the endpoint being used as a public Google Places proxy.
   if (isTrip) {
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            "Google Places API key not configured. Add it in Admin → Integrations → Google Reviews.",
+          reviews: [],
+        },
+        { status: 503 },
+      )
+    }
     const tripId = searchParams.get("tripId") ?? ""
     if (!tripId) {
       return NextResponse.json({ error: "Missing tripId", reviews: [] }, { status: 400 })
@@ -280,6 +285,7 @@ export async function GET(request: NextRequest) {
       }
 
       _reviewsCache.set(tripCacheKey, { data: payload, expiresAt: Date.now() + 30 * 60_000 })
+      if (payload.reviews.length > 0) _tripLastGood.set(tripCacheKey, payload)
 
       // Persist aggregate rating back to the trip row so preview cards show
       // accurate data without requiring a detail-page visit first. Also cache
@@ -301,6 +307,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(payload)
     } catch (err) {
       console.error("[google-reviews] trip fetch error:", err)
+      const lastGood = _tripLastGood.get(tripCacheKey)
+      if (lastGood) return NextResponse.json(lastGood)
       return NextResponse.json(
         {
           error: err instanceof Error ? err.message : "Failed to fetch Google reviews",
