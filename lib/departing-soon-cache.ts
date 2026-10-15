@@ -123,22 +123,51 @@ export interface AvailabilityCache {
   refreshedAt: number
 }
 
-// ── Module-level state ─────────────────────────────────────────────────────
-// NOTE: This is process-local. If Replit scales horizontally each instance
-// has its own cache — that's OK; the lazy bootstrap warms each instance.
+// ── Process-wide state ─────────────────────────────────────────────────────
+// Held on globalThis, NOT in module-level `let`s: Next bundles this module
+// separately for instrumentation.ts (the 60s refresh loop) and for the API
+// routes, so module-level variables existed twice. The loop refreshed its own
+// copy while /api/departing-soon kept serving the snapshot it hydrated once at
+// boot — weeks stale, 0 "today" slots, widget hidden. One shared store fixes
+// that. Still per-process: other instances re-hydrate from the DB snapshot.
 
-export let discoveryCache: DiscoveryCache | null = null
-export let availabilityCache: AvailabilityCache | null = null
-let availabilityRefreshLock: Promise<void> | null = null
+interface RateLimitSnapshot {
+  remaining: number
+  recordedAt: number
+}
 
-// Bootstrap-in-progress guard so the lazy bootstrap doesn't fire twice
-let discoveryBootstrapInFlight: Promise<unknown> | null = null
+interface DepartingSoonState {
+  discoveryCache: DiscoveryCache | null
+  availabilityCache: AvailabilityCache | null
+  availabilityRefreshLock: Promise<void> | null
+  /** Bootstrap-in-progress guard so the lazy bootstrap doesn't fire twice. */
+  discoveryBootstrapInFlight: Promise<unknown> | null
+  /** Last time the public path re-checked the DB for a newer snapshot. */
+  lastDbRecheckAt: number
+  lastRateLimit: RateLimitSnapshot | null
+}
 
+const globalStore = globalThis as typeof globalThis & { __departingSoonState?: DepartingSoonState }
+const state: DepartingSoonState = (globalStore.__departingSoonState ??= {
+  discoveryCache: null,
+  availabilityCache: null,
+  availabilityRefreshLock: null,
+  discoveryBootstrapInFlight: null,
+  lastDbRecheckAt: 0,
+  lastRateLimit: null,
+})
+
+export function getDiscoveryCache(): DiscoveryCache | null {
+  return state.discoveryCache
+}
+export function getAvailabilityCache(): AvailabilityCache | null {
+  return state.availabilityCache
+}
 export function setDiscoveryCache(next: DiscoveryCache | null) {
-  discoveryCache = next
+  state.discoveryCache = next
 }
 export function setAvailabilityCache(next: AvailabilityCache | null) {
-  availabilityCache = next
+  state.availabilityCache = next
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -335,9 +364,9 @@ export async function getLmdMaxCards(): Promise<number> {
 
 /** True when the discovery window is empty, has elapsed, or no longer covers today. */
 export function isDiscoveryExpired(): boolean {
-  if (!discoveryCache) return true
-  if (!snapshotCoversToday(discoveryCache)) return true
-  return Date.now() >= discoveryCache.expiresAt
+  if (!state.discoveryCache) return true
+  if (!snapshotCoversToday(state.discoveryCache)) return true
+  return Date.now() >= state.discoveryCache.expiresAt
 }
 
 /** Compute UTC seconds from a Luxembourg local date+time string (datesndeals doesn't return UTC). */
@@ -363,16 +392,16 @@ function lxToUtcSeconds(date: string, time: string): number {
 }
 
 // ── computeDisplayedSlots ──────────────────────────────────────────────────
-// The earliest upcoming slot for every trip, drawn from discoveryCache.allSlots,
+// The earliest upcoming slot for every trip, drawn from state.discoveryCache.allSlots,
 // sorted by departure time. NO count cap applied here — the API route applies
 // the availability filter first and then slices to the configured slot count.
 
 export function computeDisplayedSlots(): DiscoverySlot[] {
-  if (!discoveryCache) return []
+  if (!state.discoveryCache) return []
   const nowUtc = Math.floor(Date.now() / 1000)
 
   const earliestPerTrip = new Map<string, DiscoverySlot>()
-  for (const s of discoveryCache.allSlots) {
+  for (const s of state.discoveryCache.allSlots) {
     if (s.startTimeUtcSeconds <= nowUtc) continue
     const existing = earliestPerTrip.get(s.tripId)
     if (!existing || s.startTimeUtcSeconds < existing.startTimeUtcSeconds) {
@@ -383,17 +412,48 @@ export function computeDisplayedSlots(): DiscoverySlot[] {
     .sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
 }
 
+/**
+ * The earliest upcoming slot per trip departing on `date` (Luxembourg
+ * YYYY-MM-DD), sorted by departure time. For today this equals
+ * computeDisplayedSlots() filtered to today.
+ */
+export function computeSlotsForDate(date: string): DiscoverySlot[] {
+  if (!state.discoveryCache) return []
+  const nowUtc = Math.floor(Date.now() / 1000)
+
+  const earliestPerTrip = new Map<string, DiscoverySlot>()
+  for (const s of state.discoveryCache.allSlots) {
+    if (s.date !== date || s.startTimeUtcSeconds <= nowUtc) continue
+    const existing = earliestPerTrip.get(s.tripId)
+    if (!existing || s.startTimeUtcSeconds < existing.startTimeUtcSeconds) {
+      earliestPerTrip.set(s.tripId, s)
+    }
+  }
+  return [...earliestPerTrip.values()].sort((a, b) => a.startTimeUtcSeconds - b.startTimeUtcSeconds)
+}
+
+/** Distinct dates that still have upcoming slots in the snapshot, ascending. */
+export function upcomingSlotDates(): string[] {
+  if (!state.discoveryCache) return []
+  const nowUtc = Math.floor(Date.now() / 1000)
+  const dates = new Set<string>()
+  for (const s of state.discoveryCache.allSlots) {
+    if (s.startTimeUtcSeconds > nowUtc) dates.add(s.date)
+  }
+  return [...dates].sort()
+}
+
 // ── computeAllFirstSlots ───────────────────────────────────────────────────
 // The earliest upcoming slot for EVERY trip — no count limit.
 // Used by refreshAvailability (so the availability cache covers all trips)
 // and by the Last Minute Deals API (which filters by spaces, not by top-N).
 
 export function computeAllFirstSlots(): DiscoverySlot[] {
-  if (!discoveryCache) return []
+  if (!state.discoveryCache) return []
   const nowUtc = Math.floor(Date.now() / 1000)
 
   const earliestPerTrip = new Map<string, DiscoverySlot>()
-  for (const s of discoveryCache.allSlots) {
+  for (const s of state.discoveryCache.allSlots) {
     if (s.startTimeUtcSeconds <= nowUtc) continue
     const existing = earliestPerTrip.get(s.tripId)
     if (!existing || s.startTimeUtcSeconds < existing.startTimeUtcSeconds) {
@@ -413,15 +473,15 @@ export function computeAllFirstSlots(): DiscoverySlot[] {
 // Does ONE parallel checkavail per CURRENTLY DISPLAYED slot.
 
 export async function refreshAvailability(): Promise<void> {
-  if (availabilityRefreshLock) return availabilityRefreshLock
+  if (state.availabilityRefreshLock) return state.availabilityRefreshLock
 
-  availabilityRefreshLock = (async () => {
+  state.availabilityRefreshLock = (async () => {
     try {
       if (!(await getWidgetEnabled())) return
       if (!(await getShowAvailability())) return
 
       const ttl = await getAvailabilityTtlSeconds()
-      if (availabilityCache && (Date.now() - availabilityCache.refreshedAt) / 1000 < ttl) return
+      if (state.availabilityCache && (Date.now() - state.availabilityCache.refreshedAt) / 1000 < ttl) return
 
       // Only fetch live seat counts for IMMINENT departures. Each trip's first
       // upcoming slot is included only when it departs within the availability
@@ -468,7 +528,7 @@ export async function refreshAvailability(): Promise<void> {
         if (r.status === "rejected") {
           // Transient — keep last known record if any, else mark sold-out
           newBySlotKey[key] =
-            availabilityCache?.bySlotKey[key] ?? { spacesRemaining: 0, stillBookable: false }
+            state.availabilityCache?.bySlotKey[key] ?? { spacesRemaining: 0, stillBookable: false }
           return
         }
         if (!r.value.ok) {
@@ -490,13 +550,13 @@ export async function refreshAvailability(): Promise<void> {
         newBySlotKey[key] = { spacesRemaining, stillBookable: true }
       })
 
-      availabilityCache = { bySlotKey: newBySlotKey, refreshedAt: Date.now() }
+      state.availabilityCache = { bySlotKey: newBySlotKey, refreshedAt: Date.now() }
     } finally {
-      availabilityRefreshLock = null
+      state.availabilityRefreshLock = null
     }
   })()
 
-  return availabilityRefreshLock
+  return state.availabilityRefreshLock
 }
 
 // ── DB-backed cross-instance discovery cache ───────────────────────────────
@@ -655,7 +715,7 @@ export function isAuthorizedCron(req: NextRequest): boolean {
 
 // ── refreshDiscovery ───────────────────────────────────────────────────────
 // Fetches `datesndeals` for the next windowDays days for every published+synced
-// trip and stores ALL bookable upcoming timeslots in `discoveryCache.allSlots`.
+// trip and stores ALL bookable upcoming timeslots in `state.discoveryCache.allSlots`.
 // One call per trip — no per-trip checkavail.
 //
 // Called by:
@@ -678,7 +738,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   const start = Date.now()
 
   if (!(await getWidgetEnabled())) {
-    recordDiscoveryRun("skip-widget-disabled", { slots: discoveryCache?.allSlots.length ?? 0 })
+    recordDiscoveryRun("skip-widget-disabled", { slots: state.discoveryCache?.allSlots.length ?? 0 })
     return { ok: false, error: "WIDGET_DISABLED" }
   }
 
@@ -688,18 +748,18 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
   // cold-start hydration always finds a valid snapshot (no 503 at the boundary).
   // The `comfortablyFresh` coverage check also forces a sweep the moment today
   // rolls past the fetched window, even if the wall-clock TTL hasn't elapsed.
-  if (!force && discoveryCache && (comfortablyFresh(discoveryCache) || emptyRetryThrottled(discoveryCache))) {
+  if (!force && state.discoveryCache && (comfortablyFresh(state.discoveryCache) || emptyRetryThrottled(state.discoveryCache))) {
     recordDiscoveryRun(
-      discoveryCache.allSlots.length === 0 ? "skip-empty-throttle" : "skip-fresh",
-      { slots: discoveryCache.allSlots.length, windowEnd: discoveryCache.windowEndDate ?? null },
+      state.discoveryCache.allSlots.length === 0 ? "skip-empty-throttle" : "skip-fresh",
+      { slots: state.discoveryCache.allSlots.length, windowEnd: state.discoveryCache.windowEndDate ?? null },
     )
     return {
       ok: true,
-      slotsFound: discoveryCache.allSlots.length,
-      tripsWithSlots: new Set(discoveryCache.allSlots.map((s) => s.tripId)).size,
-      failedTripCount: discoveryCache.failedTripCount,
-      tripsChecked: discoveryCache.tripsChecked,
-      daysFetched: discoveryCache.daysFetched,
+      slotsFound: state.discoveryCache.allSlots.length,
+      tripsWithSlots: new Set(state.discoveryCache.allSlots.map((s) => s.tripId)).size,
+      failedTripCount: state.discoveryCache.failedTripCount,
+      tripsChecked: state.discoveryCache.tripsChecked,
+      daysFetched: state.discoveryCache.daysFetched,
       durationMs: 0,
       rateLimitSkipped: false,
     }
@@ -721,7 +781,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
     const dbSnapshot = await dbGetDiscoveryCache()
     if (dbSnapshot !== null && (comfortablyFresh(dbSnapshot) || emptyRetryThrottled(dbSnapshot))) {
       // Hydrate the local in-memory cache and return — no TourCMS sweep needed.
-      discoveryCache = dbSnapshot
+      state.discoveryCache = dbSnapshot
       recordDiscoveryRun(
         dbSnapshot.allSlots.length === 0 ? "skip-empty-throttle" : "hydrated-db",
         { slots: dbSnapshot.allSlots.length, windowEnd: dbSnapshot.windowEndDate ?? null },
@@ -746,7 +806,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
       "error",
       "Departing Soon discovery skipped — TourCMS is not configured; the widget cannot populate.",
     )
-    recordDiscoveryRun("skip-no-tourcms", { slots: discoveryCache?.allSlots.length ?? 0 })
+    recordDiscoveryRun("skip-no-tourcms", { slots: state.discoveryCache?.allSlots.length ?? 0 })
     return { ok: false, error: "TOURCMS_NOT_CONFIGURED" }
   }
 
@@ -773,14 +833,14 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
       `Departing Soon discovery skipped — TourCMS rate-limit remaining=${rl.remaining} (< 200). Widget serves last-known data until quota recovers.`,
       { remaining: rl.remaining },
     )
-    recordDiscoveryRun("skip-rate-limit", { slots: discoveryCache?.allSlots.length ?? 0 })
+    recordDiscoveryRun("skip-rate-limit", { slots: state.discoveryCache?.allSlots.length ?? 0 })
     return {
       ok: true,
-      slotsFound: discoveryCache?.allSlots.length ?? 0,
-      tripsWithSlots: discoveryCache ? new Set(discoveryCache.allSlots.map((s) => s.tripId)).size : 0,
+      slotsFound: state.discoveryCache?.allSlots.length ?? 0,
+      tripsWithSlots: state.discoveryCache ? new Set(state.discoveryCache.allSlots.map((s) => s.tripId)).size : 0,
       failedTripCount: 0,
       tripsChecked: 0,
-      daysFetched: discoveryCache?.daysFetched ?? 0,
+      daysFetched: state.discoveryCache?.daysFetched ?? 0,
       durationMs: Date.now() - start,
       rateLimitSkipped: true,
     }
@@ -868,7 +928,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 
   const now = Date.now()
   const newExpiresAt = now + windowDays * 86_400_000
-  discoveryCache = {
+  state.discoveryCache = {
     allSlots: collected,
     refreshedAt: now,
     expiresAt: newExpiresAt,
@@ -918,7 +978,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 
   // Persist the full cache snapshot to DB so other process instances (cold
   // starts, horizontally-scaled peers) can hydrate from it without sweeping.
-  void dbPersistDiscoveryCache(discoveryCache)
+  void dbPersistDiscoveryCache(state.discoveryCache)
 
   // Heartbeat: record that a live sweep actually ran (slots, window, timing) so
   // the auto-refresh is observable in the DB/logs, not just when it fails.
@@ -931,7 +991,7 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 
   // Window changed → previous availability records may now refer to slots that
   // are no longer displayed. Drop and refresh.
-  availabilityCache = null
+  state.availabilityCache = null
   if (await getShowAvailability()) {
     await refreshAvailability().catch((e) =>
       console.warn("[departing-soon] post-discovery availability refresh failed:", e),
@@ -953,11 +1013,11 @@ export async function refreshDiscovery(force: boolean): Promise<RefreshDiscovery
 // ── Lazy bootstrap / expiry refresh ────────────────────────────────────────
 // Called exclusively by privileged server-startup (instrumentation.ts) and
 // admin/cron routes. Public widget routes MUST NOT call this — they use
-// tryHydrateFromDb() instead (DB-only, never touches TourCMS).
+// hydrateFromDbAwait() instead (DB-only, never touches TourCMS).
 
 export function triggerDiscoveryBootstrap(): void {
-  if (discoveryBootstrapInFlight) return
-  discoveryBootstrapInFlight = refreshDiscovery(false)
+  if (state.discoveryBootstrapInFlight) return
+  state.discoveryBootstrapInFlight = refreshDiscovery(false)
     .catch((e) => {
       console.warn("[departing-soon] bootstrap failed:", e)
       logDiscoveryFailure(
@@ -966,58 +1026,51 @@ export function triggerDiscoveryBootstrap(): void {
         `Departing Soon discovery bootstrap threw: ${e instanceof Error ? e.message : String(e)}`,
       )
     })
-    .finally(() => { discoveryBootstrapInFlight = null })
+    .finally(() => { state.discoveryBootstrapInFlight = null })
 }
 
 // ── DB-only hydration for public routes ────────────────────────────────────
-// Safe to fire-and-forget from unauthenticated requests. Only reads the
-// already-computed DB snapshot that a previous server instance (or the
-// instrumentation bootstrap) persisted. Never calls TourCMS. If no fresh
-// DB snapshot exists the call is a no-op and discoveryCache stays null.
-let dbHydrateInFlight: Promise<void> | null = null
+// Safe for unauthenticated requests: only reads the DB snapshot persisted by
+// the refresh loop, an admin/cron route or another instance. Never calls TourCMS.
 
-export function tryHydrateFromDb(): void {
-  if (discoveryCache || dbHydrateInFlight) return
-  dbHydrateInFlight = dbGetDiscoveryCache()
-    .then((snap) => {
-      if (snap && !discoveryCache) discoveryCache = snap
-    })
-    .catch((e) => console.warn("[departing-soon] DB hydration failed:", e))
-    .finally(() => { dbHydrateInFlight = null })
-}
+const DB_RECHECK_MS = 60_000
 
 /**
  * Awaitable DB hydration for the public route's cold-cache path.
  *
  * Loads the persisted snapshot (when a fresh one exists) into the in-process
  * cache and resolves to `true` when the cache is populated afterward. Never
- * calls TourCMS. Unlike tryHydrateFromDb(), the caller can await this so a valid
+ * calls TourCMS. The caller awaits this so a valid
  * snapshot is served as 200 on the SAME request instead of a warm-up 503.
  */
 export async function hydrateFromDbAwait(): Promise<boolean> {
-  if (discoveryCache) return true
+  const current = state.discoveryCache
+  if (current && !isDiscoveryExpired()) return true
+  // In-memory snapshot is stale (no longer covers today / past expiry): a newer
+  // one may have been persisted by the refresh loop or another instance.
+  // Re-check at most once per DB_RECHECK_MS so a stale cache doesn't cost a
+  // query on every request. A missing cache always checks (cold start).
+  if (current && Date.now() - state.lastDbRecheckAt < DB_RECHECK_MS) return true
+  state.lastDbRecheckAt = Date.now()
   try {
     const snap = await dbGetDiscoveryCache()
-    if (snap && !discoveryCache) discoveryCache = snap
+    if (snap && (!state.discoveryCache || snap.refreshedAt > state.discoveryCache.refreshedAt)) {
+      state.discoveryCache = snap
+    }
   } catch (e) {
     console.warn("[departing-soon] DB hydration failed:", e)
   }
-  return discoveryCache !== null
+  return state.discoveryCache !== null
 }
 
 // ── Rate-limit tracking ────────────────────────────────────────────────────
 
-interface RateLimitSnapshot {
-  remaining: number
-  recordedAt: number
-}
-let lastRateLimit: RateLimitSnapshot | null = null
 
 export function recordRateLimit(remaining: number) {
-  lastRateLimit = { remaining, recordedAt: Date.now() }
+  state.lastRateLimit = { remaining, recordedAt: Date.now() }
 }
 export function getLastKnownRateLimit(): RateLimitSnapshot | null {
-  if (!lastRateLimit) return null
-  if (Date.now() - lastRateLimit.recordedAt > 10 * 60 * 1000) return null
-  return lastRateLimit
+  if (!state.lastRateLimit) return null
+  if (Date.now() - state.lastRateLimit.recordedAt > 10 * 60 * 1000) return null
+  return state.lastRateLimit
 }

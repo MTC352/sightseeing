@@ -75,13 +75,20 @@ function SeatPillSkeleton() {
   )
 }
 
-/** Day label: Today / Tomorrow / weekday name. */
-function dayLabel(dateIso: string): string {
+/**
+ * Day label: Today / Tomorrow / weekday name. `todayIso` is the server's
+ * Luxembourg date — comparing against the browser's UTC date mislabelled
+ * today's departures as "Tomorrow" between midnight and 1–2am Lux time.
+ */
+function dayLabel(dateIso: string, todayIso: string | null): string {
   try {
     const [y, m, d] = dateIso.split("-").map(Number)
     const target = new Date(Date.UTC(y, m - 1, d))
     const now = new Date()
-    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    const [ty, tm, td] = todayIso
+      ? todayIso.split("-").map(Number)
+      : [now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate()]
+    const today = new Date(Date.UTC(ty, tm - 1, td))
     const diff = Math.round((target.getTime() - today.getTime()) / 86_400_000)
     if (diff === 0) return "Today"
     if (diff === 1) return "Tomorrow"
@@ -101,6 +108,7 @@ export function DeparturesSoonSection() {
   const [hidden, setHidden] = useState(false)
   const [threshold, setThreshold] = useState(15)
   const [scrollPx, setScrollPx] = useState(320)
+  const [today, setToday] = useState<string | null>(null)
   // Seat-availability loading state: while snapshot cards are visible but the
   // availability overlay hasn't resolved, the seat pill shows a loading skeleton.
   const [availEnabled, setAvailEnabled] = useState(false)
@@ -185,6 +193,7 @@ export function DeparturesSoonSection() {
         if (typeof data.sliderScrollPx === "number") {
           setScrollPx(data.sliderScrollPx)
         }
+        if (typeof data.today === "string") setToday(data.today)
         // Seat pills enter loading state (skeleton) until the overlay resolves.
         setAvailEnabled(data.availabilityEnabled === true)
         setAvailLoaded(false)
@@ -290,7 +299,7 @@ export function DeparturesSoonSection() {
         {loading
           ? Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)
           : departures.map((dep) => {
-              const label = dayLabel(dep.date)
+              const label = dayLabel(dep.date, today)
               const labelClass =
                 label === "Today" ? "bg-destructive text-white"
                 : label === "Tomorrow" ? "bg-primary text-primary-foreground"

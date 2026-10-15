@@ -15,9 +15,10 @@ import { NextResponse } from "next/server"
 import { getTourCMSConfig } from "@/lib/tourcms"
 import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import {
-  discoveryCache,
-  availabilityCache,
-  computeDisplayedSlots,
+  getDiscoveryCache,
+  getAvailabilityCache,
+  computeSlotsForDate,
+  upcomingSlotDates,
   getAutoUpdateEnabled,
   getAutoUpdateIntervalSeconds,
   getWidgetEnabled,
@@ -91,8 +92,10 @@ export async function GET(req: Request) {
     //              request instead of a warm-up 503. Only when there is genuinely
     //              no snapshot do we return 503; the bootstrap/cron will populate
     //              it and the next request succeeds.
-    //    - expired → serve stale data; admin/cron routes handle refresh.
-    if (!discoveryCache) {
+    //    - stale (no longer covers today / expired) → re-check the DB for a
+    //              newer snapshot (throttled inside hydrateFromDbAwait); else
+    //              serve what we have. Refresh itself stays admin/cron/loop-only.
+    {
       const hydrated = await hydrateFromDbAwait()
       if (!hydrated) {
         return NextResponse.json(
@@ -109,12 +112,13 @@ export async function GET(req: Request) {
       }
     }
 
-    // "Departing Soon" means departing TODAY (Luxembourg local date) on EVERY
-    // surface — homepage widget and standalone page alike. `scope=today` only
-    // controls capping: it powers the standalone page with NO slot-count cap,
-    // returning the soonest upcoming slot for every trip departing today. The
-    // default scope (homepage widget) is likewise today-only but capped at
-    // slotCount. Neither scope surfaces departures for future days.
+    // "Departing Soon" means departing TODAY (Luxembourg local date).
+    // `scope=today` powers the standalone "Departing today" page: uncapped and
+    // strictly today (it has its own "No more departures today" empty state).
+    // The default scope (homepage widget) is capped at slotCount and, when no
+    // bookable slot is left today (evenings, closed days), falls back to the
+    // NEXT date that has bookable slots — usually tomorrow — so the widget
+    // never hides just because today is over.
     const params = new URL(req.url).searchParams
     const scope = params.get("scope")
     const uncapped = scope === "today"
@@ -135,12 +139,6 @@ export async function GET(req: Request) {
     const availabilityEnabled = await getShowAvailability()
     const showAvailability = withAvailability && availabilityEnabled
     const slotCount = await getSlotCount()
-    // All trips' earliest upcoming slot, restricted to TODAY's departures — NO
-    // count cap yet. The availability filter runs below; we slice to slotCount
-    // AFTER it (default scope only).
-    const displayed = computeDisplayedSlots().filter(
-      (slot) => slot.date === luxToday,
-    )
 
     // Re-validate eligibility against the live DB so that trips archived — or
     // (when dsFilter is on) toggled OFF for Departing Soon — AFTER the discovery
@@ -170,43 +168,67 @@ export async function GET(req: Request) {
     // 4. Build response — check ALL trips through the filters, then cap at slotCount.
     //    This ensures availability filtering happens before the count limit so that
     //    sold-out / non-bookable trips don't consume one of the N display slots.
-    const allPassing: DepartingSoonItem[] = []
-    for (const slot of displayed) {
-      // Hard gate: drop any slot whose trip is no longer in the published set.
-      if (publishedIds === null || !publishedIds.has(String(slot.tripId))) continue
-      let spacesRemaining: number | "UNLIMITED" | undefined
-      if (showAvailability) {
-        const key = `${slot.tripId}:${slot.date}:${slot.time}`
-        const avail = availabilityCache?.bySlotKey[key]
-        // No live record yet (warming up) — fall back to initial snapshot so
-        // the card still appears.
-        const effective = avail ?? { spacesRemaining: slot.initialSpacesRemaining, stillBookable: true }
-        if (!effective.stillBookable) continue
-        if (effective.spacesRemaining !== "UNLIMITED" && effective.spacesRemaining <= 0) continue
-        spacesRemaining = effective.spacesRemaining
-      }
+    const availabilityCache = getAvailabilityCache()
+    const passingFor = (slots: ReturnType<typeof computeSlotsForDate>): DepartingSoonItem[] => {
+      const allPassing: DepartingSoonItem[] = []
+      for (const slot of slots) {
+        // Hard gate: drop any slot whose trip is no longer in the published set.
+        if (publishedIds === null || !publishedIds.has(String(slot.tripId))) continue
+        let spacesRemaining: number | "UNLIMITED" | undefined
+        if (showAvailability) {
+          const key = `${slot.tripId}:${slot.date}:${slot.time}`
+          const avail = availabilityCache?.bySlotKey[key]
+          // No live record yet (warming up) — fall back to initial snapshot so
+          // the card still appears.
+          const effective = avail ?? { spacesRemaining: slot.initialSpacesRemaining, stillBookable: true }
+          if (!effective.stillBookable) continue
+          if (effective.spacesRemaining !== "UNLIMITED" && effective.spacesRemaining <= 0) continue
+          spacesRemaining = effective.spacesRemaining
+        }
 
-      allPassing.push({
-        tripId: slot.tripId,
-        palisisId: slot.palisisId,
-        tripTitle: slot.tripTitle,
-        tripImage: slot.tripImage,
-        tripPermalink: slot.tripPermalink,
-        tripSlug: slot.tripSlug,
-        tripCategory: slot.tripCategory,
-        tripCity: slot.tripCity,
-        date: slot.date,
-        time: slot.time,
-        startTimeUtcSeconds: slot.startTimeUtcSeconds,
-        priceDisplay: slot.priceDisplay,
-        ...(spacesRemaining !== undefined ? { spacesRemaining } : {}),
-      })
+        allPassing.push({
+          tripId: slot.tripId,
+          palisisId: slot.palisisId,
+          tripTitle: slot.tripTitle,
+          tripImage: slot.tripImage,
+          tripPermalink: slot.tripPermalink,
+          tripSlug: slot.tripSlug,
+          tripCategory: slot.tripCategory,
+          tripCity: slot.tripCity,
+          date: slot.date,
+          time: slot.time,
+          startTimeUtcSeconds: slot.startTimeUtcSeconds,
+          priceDisplay: slot.priceDisplay,
+          ...(spacesRemaining !== undefined ? { spacesRemaining } : {}),
+        })
+      }
+      return allPassing
+    }
+
+    // Each trip's earliest upcoming slot on the display date — NO count cap yet;
+    // the filters above run first, then we slice to slotCount (default scope).
+    let displayDate = luxToday
+    let displayed = computeSlotsForDate(luxToday)
+    let allPassing = passingFor(displayed)
+    if (allPassing.length === 0 && !uncapped) {
+      for (const date of upcomingSlotDates()) {
+        if (date <= luxToday) continue
+        const candidates = computeSlotsForDate(date)
+        const passing = passingFor(candidates)
+        if (passing.length > 0) {
+          displayDate = date
+          displayed = candidates
+          allPassing = passing
+          break
+        }
+      }
     }
 
     // Slice AFTER filtering — so we always show up to slotCount bookable trips.
     // The standalone page (scope=today) is uncapped: it shows every today trip.
     const departures = uncapped ? allPassing : allPassing.slice(0, slotCount)
 
+    const discoveryCache = getDiscoveryCache()
     const autoUpdate = await getAutoUpdateEnabled()
     const intervalSecs = await getAutoUpdateIntervalSeconds()
     const availabilityThreshold = await getAvailabilityThreshold()
@@ -217,6 +239,8 @@ export async function GET(req: Request) {
       departures,
       scope: uncapped ? "today" : "default",
       today: luxToday,
+      // Date the departures are for: luxToday, or the next-day fallback.
+      displayDate,
       widgetEnabled: true,
       showAvailability,
       availabilityEnabled,

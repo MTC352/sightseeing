@@ -6,7 +6,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { refreshAvailability, availabilityCache } from "@/lib/departing-soon-cache"
+import { refreshAvailability, getAvailabilityCache } from "@/lib/departing-soon-cache"
 import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic"
 export async function POST() {
   try { await requirePermission("integrations") } catch (authErr: unknown) { if ((authErr as { status?: number })?.status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 }); return NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   await refreshAvailability()
+  const availabilityCache = getAvailabilityCache()
   return NextResponse.json({
     ok: true,
     lastAvailabilityAt: availabilityCache ? new Date(availabilityCache.refreshedAt).toISOString() : null,

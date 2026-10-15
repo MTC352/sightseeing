@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { refreshDiscovery, discoveryCache } from "@/lib/departing-soon-cache"
+import { refreshDiscovery, getDiscoveryCache } from "@/lib/departing-soon-cache"
 import { requirePermission } from "@/lib/auth-server"
 
 export const dynamic = "force-dynamic"
@@ -22,6 +22,7 @@ export async function POST() {
   if (!("ok" in result) || !result.ok) {
     return NextResponse.json(result, { status: 500 })
   }
+  const discoveryCache = getDiscoveryCache()
   return NextResponse.json({
     ...result,
     lastDiscoveryAt: discoveryCache ? new Date(discoveryCache.refreshedAt).toISOString() : null,

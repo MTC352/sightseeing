@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   refreshAvailability,
-  availabilityCache,
+  getAvailabilityCache,
   getAutoUpdateEnabled,
   getAutoUpdateIntervalSeconds,
   getWidgetEnabled,
@@ -39,11 +39,13 @@ async function handle(req: NextRequest) {
   }
 
   const interval = await getAutoUpdateIntervalSeconds()
-  if (availabilityCache && (Date.now() - availabilityCache.refreshedAt) / 1000 < interval) {
+  const cached = getAvailabilityCache()
+  if (cached && (Date.now() - cached.refreshedAt) / 1000 < interval) {
     return NextResponse.json({ ok: true, skipped: "TTL_NOT_EXPIRED" })
   }
 
   await refreshAvailability()
+  const availabilityCache = getAvailabilityCache()
   return NextResponse.json({
     ok: true,
     lastAvailabilityAt: availabilityCache ? new Date(availabilityCache.refreshedAt).toISOString() : null,

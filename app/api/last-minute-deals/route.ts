@@ -24,8 +24,7 @@
 import { NextResponse } from "next/server"
 import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import {
-  discoveryCache,
-  availabilityCache,
+  getAvailabilityCache,
   getLmdWidgetEnabled,
   getLmdMaxSpaces,
   getLmdMaxHours,
@@ -33,7 +32,7 @@ import {
   getShowAvailability,
   computeAllFirstSlots,
   luxembourgTodayDate,
-  tryHydrateFromDb,
+  hydrateFromDbAwait,
 } from "@/lib/departing-soon-cache"
 import { dbGetTrip } from "@/lib/db/queries"
 
@@ -130,11 +129,11 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, enabled: false, deals: [], previewDeals: [] })
     }
 
-    // On null cache: attempt DB-only hydration (no TourCMS fan-out), then return
-    // cacheWarming so the client retries. The instrumentation bootstrap (45s after
-    // server start) or admin/cron routes populate the DB snapshot that we read from.
-    if (!discoveryCache) {
-      tryHydrateFromDb()
+    // DB-only hydration (no TourCMS fan-out): loads the snapshot on a cold cache
+    // and re-checks for a newer one when ours is stale. With no snapshot at all,
+    // return cacheWarming so the client retries; the refresh loop or admin/cron
+    // routes populate the DB snapshot that we read from.
+    if (!(await hydrateFromDbAwait())) {
       return NextResponse.json({
         ok: true, enabled: true, cacheWarming: true,
         deals: [], previewDeals: [],
@@ -148,6 +147,7 @@ export async function GET(req: Request) {
 
     // Availability is served from the in-process cache only.
     // The cron/admin availability refresh routes maintain that cache.
+    const availabilityCache = getAvailabilityCache()
 
     const nowUtc     = Math.floor(Date.now() / 1000)
     const horizonUtc = nowUtc + maxHours * 3600
