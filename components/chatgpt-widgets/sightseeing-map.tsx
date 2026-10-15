@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useEffect, useState, useCallback } from "react"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Star, Clock, X, Maximize2 } from "lucide-react"
 import type { Trip } from "@/lib/data"
 import type { TravelMethod } from "@/components/sidebar-itinerary"
@@ -524,7 +524,7 @@ export function SightseeingMap({ trips, onSelect, visible = true, suppressFullsc
             className="-m-2 flex w-full gap-3 rounded-xl p-2 text-left transition-colors hover:bg-secondary/50"
           >
             <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg">
-              <Image
+              <AppImage
                 src={selected.image}
                 alt={selected.title}
                 fill

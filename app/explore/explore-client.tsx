@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import type { ReactNode } from "react"
@@ -284,7 +284,7 @@ function ExploreCard({ trip, priority = false }: { trip: Trip; priority?: boolea
     <div className="group flex flex-col overflow-hidden rounded-xl bg-card transition-shadow hover:shadow-md">
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl">
         <Link href={`/trip/${trip.slug ?? trip.id}`} className="absolute inset-0">
-          <Image
+          <AppImage
             src={trip.image || "/placeholder.svg"}
             alt={trip.title}
             fill
@@ -389,7 +389,7 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
       {/* Image */}
       <div className="relative aspect-[16/10] sm:aspect-auto sm:w-56 lg:w-64 shrink-0">
         <Link href={`/trip/${trip.slug ?? trip.id}`} className="absolute inset-0">
-          <Image
+          <AppImage
             src={trip.image || "/placeholder.svg"}
             alt={trip.title}
             fill
@@ -793,7 +793,7 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
             {TOP_SIGHTS.map((s) => (
               <div key={s.name} className="group flex flex-col items-center gap-2 text-center">
                 <div className="relative h-20 w-20 overflow-hidden rounded-full border-2 border-border group-hover:border-primary transition-colors">
-                  <Image src={s.image} alt={s.name} fill className="object-cover" sizes="80px" />
+                  <AppImage src={s.image} alt={s.name} fill className="object-cover" sizes="80px" />
                 </div>
                 <p className="text-xs font-semibold text-foreground">{s.name}</p>
                 <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{s.desc}</p>
@@ -812,7 +812,7 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
             {GUIDES.map((g) => (
               <div key={g.title} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
                 <div className="relative aspect-[16/9] overflow-hidden">
-                  <Image src={g.img} alt={g.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 640px) 100vw, 25vw" />
+                  <AppImage src={g.img} alt={g.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 640px) 100vw, 25vw" />
                   <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-semibold text-foreground backdrop-blur-sm">{g.tag}</span>
                 </div>
                 <div className="p-3">

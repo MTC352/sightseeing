@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Star, Clock, MapPin, ChevronLeft, ChevronRight, Heart, ExternalLink, Users, Globe } from "lucide-react"
 import type { Trip } from "@/lib/data"
 import { getTripDetail } from "@/lib/data"
@@ -24,7 +24,7 @@ export function SightseeingAlbum({ trip, onBook }: SightseeingAlbumProps) {
     <div className="flex flex-col">
       {/* Hero gallery */}
       <div className="relative h-[260px] w-full overflow-hidden bg-muted">
-        <Image
+        <AppImage
           src={gallery[photoIdx]}
           alt={`${trip.title} - photo ${photoIdx + 1}`}
           fill

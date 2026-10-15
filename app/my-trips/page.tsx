@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import { useCart, type CartItem } from "@/lib/cart-context"
@@ -116,7 +116,7 @@ export default function SavedTripsPage() {
                 className="flex w-full items-start gap-4 p-4 pr-12 text-left"
               >
                 <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl sm:h-28 sm:w-36">
-                  <Image
+                  <AppImage
                     src={item.trip.image || "/placeholder.svg"}
                     alt={item.trip.title}
                     fill
@@ -208,7 +208,7 @@ function BookingModal({ item, persons, onClose }: { item: CartItem; persons: num
         <div className="flex-1 overflow-y-auto">
           {/* Trip hero */}
           <div className="relative h-44 sm:h-56">
-            <Image
+            <AppImage
               src={item.trip.image || "/placeholder.svg"}
               alt={item.trip.title}
               fill

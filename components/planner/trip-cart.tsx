@@ -1,7 +1,7 @@
 "use client"
 
 import { usePlannerList } from "@/lib/planner-list-context"
-import Image from "next/image"
+import { AppImage } from "@/components/app-image"
 import { Link } from "@/components/i18n/link"
 import { ShoppingBag, X, Trash2, Clock, Users, CalendarX } from "lucide-react"
 
@@ -70,7 +70,7 @@ export function TripCart({ persons, disabledMap }: TripCartProps = {}) {
                 data-testid={`planner-list-item-${item.trip.id}`}
               >
                 <Link href={`/trip/${item.trip.slug ?? item.trip.id}`} className={`relative h-[72px] w-[88px] shrink-0 overflow-hidden rounded-xl ${disabled ? "opacity-50" : ""}`}>
-                  <Image
+                  <AppImage
                     src={item.trip.image || "/placeholder.svg"}
                     alt={item.trip.title}
                     fill
