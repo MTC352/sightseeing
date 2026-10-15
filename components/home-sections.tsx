@@ -16,6 +16,7 @@ import { useRecentlyViewed } from "@/lib/use-recently-viewed"
 interface ApiTrip {
   id: string | number
   slug?: string | null
+  priceLabel?: string | null
   title: string
   price: number
   originalPrice?: number
@@ -74,6 +75,7 @@ function apiToTrip(t: ApiTrip): Trip {
     tags: Array.isArray(t.tags) ? t.tags : [],
     badge: t.badge ?? undefined,
     featured: t.featured === true,
+    priceLabel: t.priceLabel ?? undefined,
     city: t.city ?? undefined,
   }
 }

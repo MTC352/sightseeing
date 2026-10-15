@@ -145,7 +145,7 @@ export default function SavedTripsPage() {
                       <span className="text-xs text-muted-foreground line-through">{(item.trip.originalPrice * persons).toFixed(2)} &euro;</span>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      {persons === 1 ? "/ person" : `${item.trip.price.toFixed(2)} \u20ac \u00d7 ${persons} people`}
+                      {persons === 1 ? (item.trip.priceLabel || "/ person") : `${item.trip.price.toFixed(2)} \u20ac \u00d7 ${persons} people`}
                     </span>
                   </div>
                 </div>
@@ -241,7 +241,7 @@ function BookingModal({ item, persons, onClose }: { item: CartItem; persons: num
                 <span className="text-sm text-muted-foreground line-through">{(item.trip.originalPrice * persons).toFixed(2)} &euro;</span>
               )}
               <span className="text-xs text-muted-foreground">
-                {persons === 1 ? "/ person" : `${item.trip.price.toFixed(2)} \u20ac \u00d7 ${persons} people`}
+                {persons === 1 ? (item.trip.priceLabel || "/ person") : `${item.trip.price.toFixed(2)} \u20ac \u00d7 ${persons} people`}
               </span>
             </div>
             {item.trip.description && (

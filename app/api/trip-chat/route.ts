@@ -93,6 +93,7 @@ export async function POST(req: Request) {
     const city       = dbTrip?.city ?? staticTrip?.city ?? "Luxembourg"
     const duration   = dbTrip?.duration ?? staticTrip?.duration ?? ""
     const price      = Number(dbTrip?.price ?? staticTrip?.price ?? 0)
+    const priceUnit  = (typeof dbTrip?.priceLabel === "string" && dbTrip.priceLabel.trim()) || "per person"
     const rating     = Number(dbTrip?.rating ?? staticTrip?.rating ?? 0)
     const reviews    = Number(dbTrip?.reviewCount ?? staticTrip?.reviewCount ?? 0)
     const description = dbTrip?.description || staticDetail?.description || staticTrip?.description || ""
@@ -146,7 +147,7 @@ export async function POST(req: Request) {
       departureLocation ? `Departure Location: ${departureLocation}` : "",
       endLocation && endLocation !== departureLocation ? `End Location: ${endLocation}` : "",
       `Duration: ${duration}`,
-      `Price: ${price > 0 ? price + " EUR per person" : "Free"}`,
+      `Price: ${price > 0 ? `${price} EUR ${priceUnit}` : "Free"}`,
       `Rating: ${rating}/5 (${reviews} reviews)`,
       shortDesc ? `Short Description: ${shortDesc}` : "",
       description ? `Description: ${description}` : "",

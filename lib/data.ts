@@ -48,6 +48,9 @@ export interface Trip {
   palisisProductId?: string | null
   /** Full custom booking iframe URL — used verbatim when set (external Palisis accounts). */
   customIframeUrl?: string | null
+  /** Admin override for the price unit ("per group", "per bike", …). Empty →
+   *  each surface keeps its default "per person" wording. */
+  priceLabel?: string | null
   /** Friendly name of the departure/start point (e.g. "Place de Paris"). */
   departureLocation?: string | null
   /** "lat,lng" string of the departure point. */

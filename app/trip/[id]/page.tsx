@@ -30,6 +30,7 @@ function mapDbTrip(r: Record<string, unknown>): Trip {
     permalink: r.permalink != null ? String(r.permalink) : undefined,
     palisisProductId: typeof r.palisisProductId === "string" && r.palisisProductId ? r.palisisProductId : undefined,
     customIframeUrl: typeof r.customIframeUrl === "string" && r.customIframeUrl ? r.customIframeUrl : undefined,
+    priceLabel: typeof r.priceLabel === "string" && r.priceLabel.trim() ? r.priceLabel.trim() : undefined,
     provider: r.provider != null ? String(r.provider) : undefined,
     highlights: Array.isArray(r.highlights) ? (r.highlights as string[]) : [],
     googleBusinessUrl: r.googleBusinessUrl != null ? String(r.googleBusinessUrl) : undefined,
@@ -174,7 +175,7 @@ function buildFaqs(
     if (trip.price > 0) {
       out.push({
         question: "How much does it cost?",
-        answer: `${trip.price.toFixed(2)} EUR per person.`,
+        answer: `${trip.price.toFixed(2)} EUR ${trip.priceLabel || "per person"}.`,
       })
     }
   }

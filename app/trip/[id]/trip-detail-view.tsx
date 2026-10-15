@@ -701,7 +701,7 @@ export default function TripDetailClient({
                 <div data-no-edit className="flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-foreground">{trip.price.toFixed(2)} &euro;</span>
                   {trip.originalPrice && <span className="text-sm text-muted-foreground line-through">{trip.originalPrice.toFixed(2)} &euro;</span>}
-                  <span className="text-xs text-muted-foreground">/ person</span>
+                  <span className="text-xs text-muted-foreground">{trip.priceLabel || "/ person"}</span>
                 </div>
                 <button
                   type="button"
@@ -780,7 +780,7 @@ export default function TripDetailClient({
                 <span className="text-lg font-bold text-foreground">{trip.price.toFixed(2)} &euro;</span>
                 {trip.originalPrice && <span className="text-xs text-muted-foreground line-through">{trip.originalPrice.toFixed(2)} &euro;</span>}
               </div>
-              <span className="text-[11px] text-muted-foreground">per person</span>
+              <span className="text-[11px] text-muted-foreground">{trip.priceLabel || "per person"}</span>
             </div>
             <button
               type="button"
@@ -806,7 +806,7 @@ export default function TripDetailClient({
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-foreground">{trip.title}</p>
-              <p className="text-xs text-muted-foreground">{trip.price.toFixed(2)} &euro; / person</p>
+              <p className="text-xs text-muted-foreground">{trip.price.toFixed(2)} &euro; {trip.priceLabel || "/ person"}</p>
             </div>
             <button
               type="button"

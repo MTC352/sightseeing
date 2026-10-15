@@ -42,6 +42,7 @@ export const TRIP_FIELDS: TripFieldDef[] = [
   { key: "gallery",           label: "Gallery",          group: "Basics",  source: "palisis", defaultMode: "editable" },
   { key: "price",             label: "Price",            group: "Basics",  source: "palisis", defaultMode: "editable" },
   { key: "originalPrice",     label: "Original Price",   group: "Basics",  source: "local",   defaultMode: "editable" },
+  { key: "priceLabel",        label: "Price Unit Label", group: "Basics",  source: "local",   defaultMode: "editable" },
   { key: "duration",          label: "Duration",         group: "Basics",  source: "palisis", defaultMode: "editable" },
   { key: "badge",             label: "Badge",            group: "Basics",  source: "local",   defaultMode: "editable" },
   { key: "city",              label: "City",             group: "Basics",  source: "palisis", defaultMode: "editable" },

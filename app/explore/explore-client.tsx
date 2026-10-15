@@ -472,7 +472,7 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
             {trip.originalPrice && (
               <p className="text-xs text-muted-foreground line-through">{trip.originalPrice.toFixed(2)} €</p>
             )}
-            <p className="text-[10px] text-muted-foreground">per person</p>
+            <p className="text-[10px] text-muted-foreground">{trip.priceLabel || "per person"}</p>
           </div>
         </div>
 

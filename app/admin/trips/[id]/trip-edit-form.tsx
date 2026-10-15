@@ -699,7 +699,7 @@ export function TripEditForm({
         </section>
 
         {/* Pricing */}
-        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("price", "originalPrice") && "hidden")}>
+        <section className={cn("rounded-xl border border-border bg-card p-5", groupHidden("price", "originalPrice", "priceLabel") && "hidden")}>
           <h2 className="mb-4 text-sm font-semibold text-foreground">Pricing</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className={cn(roHidden("price") && "hidden")}>
@@ -709,6 +709,11 @@ export function TripEditForm({
             <div className={cn(roHidden("originalPrice") && "hidden")}>
               <label className={labelClass}>Original Price (€) — optional {!can("originalPrice") && <ReadOnlyBadge />}</label>
               <input type="number" min="0" step="0.01" readOnly={!can("originalPrice")} className={inputClass} placeholder="For strikethrough" value={form.originalPrice ?? ""} onChange={(e) => set("originalPrice", e.target.value ? parseFloat(e.target.value) : null)} />
+            </div>
+            <div className={cn("col-span-2", roHidden("priceLabel") && "hidden")}>
+              <label className={labelClass}>Price Unit Label — optional {!can("priceLabel") && <ReadOnlyBadge />}</label>
+              <input type="text" maxLength={40} readOnly={!can("priceLabel")} className={inputClass} placeholder="per person" value={form.priceLabel ?? ""} onChange={(e) => set("priceLabel", e.target.value || null)} />
+              <p className="mt-1 text-[11px] text-muted-foreground">Shown after the price, e.g. &quot;per group&quot; or &quot;per bike&quot;. Leave empty for &quot;per person&quot;.</p>
             </div>
           </div>
         </section>

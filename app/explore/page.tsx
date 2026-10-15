@@ -41,6 +41,7 @@ export default async function ExplorePage() {
       tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
       badge: r.badge != null ? String(r.badge) : undefined,
       featured: r.featured === true,
+      priceLabel: typeof r.priceLabel === "string" && r.priceLabel.trim() ? r.priceLabel.trim() : undefined,
       city: r.city != null ? String(r.city) : undefined,
       description: r.description != null ? String(r.description) : undefined,
       permalink: r.permalink != null ? String(r.permalink) : undefined,

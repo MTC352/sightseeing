@@ -844,7 +844,7 @@ function SearchListCard({
           <div className="sm:text-right">
             <p className="text-lg font-bold text-foreground">{trip.price.toFixed(2)} <span className="text-sm font-medium">€</span></p>
             {trip.originalPrice && <p className="text-xs text-muted-foreground line-through">{trip.originalPrice.toFixed(2)} €</p>}
-            <p className="text-[10px] text-muted-foreground">per person</p>
+            <p className="text-[10px] text-muted-foreground">{trip.priceLabel || "per person"}</p>
           </div>
         </div>
 

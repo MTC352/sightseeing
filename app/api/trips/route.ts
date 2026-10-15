@@ -27,6 +27,7 @@ type TripRow = {
    *  section. Forwarded in the public payload so the client can filter
    *  without making a second admin API call. */
   featured?: boolean | null
+  priceLabel?: string | null
 }
 
 /**
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
     badge: r.badge ?? null,
     image: r.image ?? "/placeholder.svg",
     featured: Boolean(r.featured),
+    priceLabel: r.priceLabel?.trim() || null,
   }))
 
   /* Filters */
@@ -123,6 +125,7 @@ export async function GET(request: NextRequest) {
       badge: t.badge,
       image: t.image.startsWith("/") ? `${BASE}${t.image}` : t.image,
       featured: t.featured,
+      priceLabel: t.priceLabel,
     })),
   }
 

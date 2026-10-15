@@ -50,6 +50,8 @@ export interface AdminTrip {
   palisisProductId?: string | null
   /** Full custom booking iframe URL — used verbatim when set (external Palisis accounts). */
   customIframeUrl?: string | null
+  /** Overrides the default "per person" price unit; null → default. */
+  priceLabel?: string | null
   featured: boolean
   featuredDeparture?: boolean
   /** Eligible for the Departing Soon widget + page. Default true (allow). */

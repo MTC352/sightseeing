@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic"
 type TripRow = {
   id: string
   slug?: string | null
+  priceLabel?: string | null
   title: string
   title_override?: string | null
   price: number
@@ -59,7 +60,7 @@ export async function GET() {
       lines.push("")
       lines.push(`- **ID**: ${t.id}`)
       lines.push(`- **URL**: ${BASE}/trip/${t.slug || t.id}`)
-      lines.push(`- **Price**: ${price === 0 ? "Free" : `${price.toFixed(2)} EUR per person`}`)
+      lines.push(`- **Price**: ${price === 0 ? "Free" : `${price.toFixed(2)} EUR ${t.priceLabel?.trim() || "per person"}`}`)
       if (t.originalPrice) lines.push(`- **Original Price**: ${Number(t.originalPrice).toFixed(2)} EUR`)
       lines.push(`- **Duration**: ${t.duration ?? ""}`)
       lines.push(`- **Rating**: ${t.rating ?? 0}/5 (${t.reviewCount ?? 0} reviews)`)

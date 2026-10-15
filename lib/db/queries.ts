@@ -97,9 +97,40 @@ const TRIP_SELECT = `
   itinerary_steps as "itinerarySteps",
   palisis_product_id as "palisisProductId",
   custom_iframe_url as "customIframeUrl",
+  price_label as "priceLabel",
   slug,
   created_at, updated_at
 `
+
+// Columns added after launch are probed (cached per process) so code can ship
+// before its ALTER has run on a given DB: reads select NULL and writes skip the
+// column instead of 500ing. "Present" is cached for good; "missing" is
+// re-checked after a minute, so running the migration after a deploy takes
+// effect without a restart.
+const MISSING_COLUMN_RECHECK_MS = 60_000
+const _columnCache = new Map<string, { present: boolean; at: number }>()
+async function hasColumn(table: string, column: string): Promise<boolean> {
+  const key = `${table}.${column}`
+  const cached = _columnCache.get(key)
+  if (cached && (cached.present || Date.now() - cached.at < MISSING_COLUMN_RECHECK_MS)) {
+    return cached.present
+  }
+  let present = false
+  try {
+    const row = await queryOne<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_name = $1 AND column_name = $2
+       ) AS present`,
+      [table, column],
+    )
+    present = row?.present === true
+  } catch {
+    present = false
+  }
+  _columnCache.set(key, { present, at: Date.now() })
+  return present
+}
 
 // `google_place_id` is a resolver cache added later (docs/db/2026-08-27-trip-
 // google-place-id.sql). Until that ALTER has run on a given DB the column is
@@ -143,9 +174,15 @@ async function hasManualTripTagsColumn(): Promise<boolean> {
 }
 
 async function tripSelect(): Promise<string> {
-  return (await hasGooglePlaceIdColumn())
-    ? TRIP_SELECT
-    : TRIP_SELECT.replace('google_place_id as "googlePlaceId"', 'NULL as "googlePlaceId"')
+  let sel = TRIP_SELECT
+  if (!(await hasGooglePlaceIdColumn())) {
+    sel = sel.replace('google_place_id as "googlePlaceId"', 'NULL as "googlePlaceId"')
+  }
+  // docs/db/2026-10-15-trip-price-label.sql
+  if (!(await hasColumn('trips', 'price_label'))) {
+    sel = sel.replace('price_label as "priceLabel"', 'NULL as "priceLabel"')
+  }
+  return sel
 }
 
 // `trip_slug_aliases` holds alternate /trip/{slug}s that redirect to a trip
@@ -389,12 +426,17 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
     // ── Admin-only booking overrides (never written by Palisis importer) ───────
     palisisProductId: 'palisis_product_id',
     customIframeUrl: 'custom_iframe_url',
+    // Admin override for the "per person" price unit (null → default).
+    priceLabel: 'price_label',
   }
   // Drop the google_place_id write on a behind-schema DB (column not yet added)
   // so a resolver back-write can never 500 the update — it silently no-ops until
   // docs/db/2026-08-27-trip-google-place-id.sql has been run on that DB.
   if ('googlePlaceId' in data && !(await hasGooglePlaceIdColumn())) {
     delete fieldMap.googlePlaceId
+  }
+  if ('priceLabel' in data && !(await hasColumn('trips', 'price_label'))) {
+    delete fieldMap.priceLabel
   }
   // jsonb columns must be serialized to a JSON string before binding (node-pg
   // would otherwise coerce a JS array of objects into a Postgres array literal).

@@ -122,7 +122,7 @@ export function SightseeingAlbum({ trip, onBook }: SightseeingAlbumProps) {
             <div className="flex items-baseline gap-1.5">
               <span className="text-xl font-bold text-foreground">{trip.price > 0 ? `${trip.price.toFixed(2)}\u20AC` : "Free"}</span>
               {trip.originalPrice && <span className="text-sm text-muted-foreground line-through">{trip.originalPrice.toFixed(0)}&euro;</span>}
-              <span className="text-xs text-muted-foreground">/ person</span>
+              <span className="text-xs text-muted-foreground">{trip.priceLabel || "/ person"}</span>
             </div>
           </div>
           <button
