@@ -8,7 +8,7 @@ import {
   Search, ChevronDown, ChevronRight, Bot, Send, MessageCircle,
   HelpCircle, CreditCard, Calendar, Smartphone, Bus, MapPin,
   Mail, Phone, FileText, Clock, Ticket, Download, Users, Globe,
-  Accessibility as AccessibilityIcon, X,
+  Accessibility as AccessibilityIcon, X, ExternalLink,
 } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 
@@ -42,16 +42,96 @@ function formatBytes(n?: number | null): string {
   return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+type AttachmentKind = "image" | "pdf" | "file"
+
+/** Image / PDF / other — mimeType first, file extension as fallback (older
+ *  attachments may have no mimeType). */
+function attachmentKind(a: HelpAttachment): AttachmentKind {
+  const mime = (a.mimeType ?? "").toLowerCase()
+  const names = [a.filename ?? "", a.url.split(/[?#]/)[0]].map((n) => n.toLowerCase())
+  const hasExt = (re: RegExp) => names.some((n) => re.test(n))
+  if (mime.startsWith("image/") || hasExt(/\.(png|jpe?g|gif|webp|avif|svg)$/)) return "image"
+  if (mime === "application/pdf" || hasExt(/\.pdf$/)) return "pdf"
+  return "file"
+}
+
+/** Same rule as the server-side sanitizer: site-relative path or http(s). */
+function isPreviewableUrl(url: string): boolean {
+  if (url.startsWith("/")) return !url.startsWith("//")
+  return /^https?:\/\//i.test(url)
+}
+
+function AttachmentActions({ a }: { a: HelpAttachment }) {
+  const size = formatBytes(a.sizeBytes)
+  return (
+    <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-sm">
+      <span className="min-w-0 flex-1 truncate font-medium text-foreground">{a.title || a.filename}</span>
+      {size && <span className="shrink-0 text-[11px] text-muted-foreground">{size}</span>}
+      <a
+        href={a.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-secondary/60"
+      >
+        <ExternalLink className="h-3.5 w-3.5" /> Open
+      </a>
+      <a
+        href={a.url}
+        download
+        className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+      >
+        <Download className="h-3.5 w-3.5" /> Download
+      </a>
+    </div>
+  )
+}
+
+/**
+ * FAQ attachments. Images and same-site PDFs are previewed inline (the answer
+ * only renders once its FAQ is opened, so previews load on demand); every
+ * attachment keeps Open + Download. Other files, and PDFs hosted elsewhere
+ * (often not frameable), keep the plain download row.
+ */
 function AttachmentList({ attachments }: { attachments?: HelpAttachment[] | null }) {
   if (!attachments || attachments.length === 0) return null
   return (
-    <div className="mt-3 space-y-1.5">
+    <div className="mt-3 space-y-2 whitespace-normal">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">Attachments</p>
       {attachments.map((a) => {
+        const key = a.id || a.url
+        const kind = isPreviewableUrl(a.url) ? attachmentKind(a) : "file"
+        const label = a.title || a.filename
+
+        if (kind === "image") {
+          return (
+            <figure key={key} className="overflow-hidden rounded-lg border border-border bg-background">
+              <a href={a.url} target="_blank" rel="noopener noreferrer" title="Open full size">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={a.url} alt={label} loading="lazy" className="max-h-96 w-full bg-secondary/30 object-contain" />
+              </a>
+              <AttachmentActions a={a} />
+            </figure>
+          )
+        }
+
+        if (kind === "pdf" && a.url.startsWith("/")) {
+          return (
+            <div key={key} className="overflow-hidden rounded-lg border border-border bg-background">
+              <iframe
+                src={`${a.url}#view=FitH`}
+                title={label}
+                loading="lazy"
+                className="h-[420px] w-full bg-white sm:h-[520px]"
+              />
+              <AttachmentActions a={a} />
+            </div>
+          )
+        }
+
         const size = formatBytes(a.sizeBytes)
         return (
           <a
-            key={a.id || a.url}
+            key={key}
             href={a.url}
             download
             target="_blank"
@@ -59,7 +139,7 @@ function AttachmentList({ attachments }: { attachments?: HelpAttachment[] | null
             className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-secondary/40"
           >
             <FileText className="h-4 w-4 shrink-0 text-primary" />
-            <span className="min-w-0 flex-1 truncate font-medium">{a.title || a.filename}</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
             {size && <span className="shrink-0 text-[11px] text-muted-foreground">{size}</span>}
             <Download className="h-4 w-4 shrink-0 text-muted-foreground" />
           </a>
