@@ -6,6 +6,7 @@ import { resolveAi } from "@/lib/ai/provider"
 import { getTourCMSConfig, showTourDatesAndDeals } from "@/lib/tourcms"
 import { rateLimit, RATE_LIMITS, schedulePrune } from "@/lib/rate-limit"
 import { logCaughtError } from "@/lib/error-log"
+import { getLuxembourgWeather } from "@/lib/weather"
 
 export const dynamic = "force-dynamic"
 
@@ -119,6 +120,41 @@ function weatherTagMatch(
   return "good"
 }
 
+/**
+ * Trending trips = the admin "featured" switch, in the same order as the
+ * homepage "Trending this month" section (dbListTrips order, newest first).
+ */
+function trendingTrips(allTrips: Record<string, unknown>[]): Record<string, unknown>[] {
+  return allTrips.filter((t) => t.featured === true)
+}
+
+function toOutdoorTrip(
+  trip: Record<string, unknown>,
+  upcomingSlots: OutdoorTodaySlot[],
+  weatherMatch: OutdoorTodayTrip["weatherMatch"],
+  aiReason: string,
+  score: number,
+): OutdoorTodayTrip {
+  return {
+    id: String(trip.id),
+    slug: typeof trip.slug === "string" ? trip.slug : null,
+    title: String(trip.title ?? ""),
+    description: (trip.description as string | null) ?? null,
+    image: (trip.image as string | null) ?? null,
+    price: typeof trip.price === "number" ? trip.price : null,
+    originalPrice: typeof trip.originalPrice === "number" ? trip.originalPrice : null,
+    duration: (trip.duration as string | null) ?? null,
+    tags: Array.isArray(trip.tags) ? (trip.tags as string[]) : [],
+    tripTags: Array.isArray(trip.tripTags) ? (trip.tripTags as string[]) : [],
+    category: (trip.category as string | null) ?? null,
+    city: (trip.city as string | null) ?? null,
+    upcomingSlots,
+    weatherMatch,
+    aiReason,
+    score,
+  }
+}
+
 export async function GET(req: Request) {
   schedulePrune()
   const rl = rateLimit(req, { key: "outdoor-today", ...RATE_LIMITS.cachedRead })
@@ -155,18 +191,13 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Fetch weather from internal route
-    const origin = new URL(req.url).origin
+    // Weather straight from the shared helper (same 10-min cache as /api/weather).
+    // Its static placeholder is NOT real weather, so it ranks as "no weather".
     let weather: { icon: string; condition: string; temp: number } | null = null
     try {
-      const wRes = await fetch(`${origin}/api/weather`, { cache: "no-store" })
-      if (wRes.ok) {
-        const wData = await wRes.json()
-        weather = {
-          icon: wData?.current?.icon ?? "cloud-sun",
-          condition: wData?.current?.condition ?? "Partly Cloudy",
-          temp: wData?.current?.temp ?? 12,
-        }
+      const w = await getLuxembourgWeather()
+      if (!w.isFallback) {
+        weather = { icon: w.current.icon, condition: w.current.condition, temp: w.current.temp }
       }
     } catch { /* ignore, proceed without weather */ }
 
@@ -230,12 +261,13 @@ export async function GET(req: Request) {
       : allTrips.slice(0, 20)
 
     // FALLBACK: if nothing has a slot today (or TourCMS returned nothing), the
-    // section must STILL show the best available trips — never render empty.
-    // These fallback trips just won't carry a "Today HH:MM" timeslot badge.
-    // The cache key is day-scoped, so once real today-slots appear the next
-    // refresh automatically swaps them in.
+    // section must STILL show trips — never render empty. Use the trending
+    // (admin "featured") trips, else the newest published ones. These won't
+    // carry a "Today HH:MM" timeslot badge. The cache key is time-bucketed, so
+    // once real today-slots appear the next refresh swaps them in.
     if (eligibleTrips.length === 0) {
-      eligibleTrips = allTrips.slice(0, 20)
+      const trending = trendingTrips(allTrips)
+      eligibleTrips = trending.length > 0 ? trending : allTrips.slice(0, 20)
     }
 
     // Only genuinely empty when the DB has no published trips at all.
@@ -337,24 +369,9 @@ export async function GET(req: Request) {
 
     const topTrips: OutdoorTodayTrip[] = scored
       .slice(0, Math.max(displayCount, 1) * 2)
-      .map(({ trip, score, reason, weatherMatch }) => ({
-        id: String(trip.id),
-        slug: typeof trip.slug === "string" ? trip.slug : null,
-        title: String(trip.title ?? ""),
-        description: (trip.description as string | null) ?? null,
-        image: (trip.image as string | null) ?? null,
-        price: typeof trip.price === "number" ? trip.price : null,
-        originalPrice: typeof trip.originalPrice === "number" ? trip.originalPrice : null,
-        duration: (trip.duration as string | null) ?? null,
-        tags: Array.isArray(trip.tags) ? (trip.tags as string[]) : [],
-        tripTags: Array.isArray(trip.tripTags) ? (trip.tripTags as string[]) : [],
-        category: (trip.category as string | null) ?? null,
-        city: (trip.city as string | null) ?? null,
-        upcomingSlots: slotMap.get(String(trip.id)) ?? [],
-        weatherMatch,
-        aiReason: reason,
-        score,
-      }))
+      .map(({ trip, score, reason, weatherMatch }) =>
+        toOutdoorTrip(trip, slotMap.get(String(trip.id)) ?? [], weatherMatch, reason, score),
+      )
 
     const payload: OutdoorTodayResponse = {
       ok: true,
@@ -368,6 +385,21 @@ export async function GET(req: Request) {
   } catch (err) {
     console.error("[outdoor-today] Error:", err)
     void logCaughtError("outdoor-today", err, { phase: "handler" })
+    // Last resort: show the top trending trips rather than an empty section.
+    try {
+      const trending = trendingTrips(
+        (await dbListTrips({ publicOnly: true })) as Record<string, unknown>[],
+      ).slice(0, displayCount)
+      if (trending.length > 0) {
+        return NextResponse.json<OutdoorTodayResponse>({
+          ok: true,
+          trips: trending.map((t) => toOutdoorTrip(t, [], "good", "", 0)),
+          weather: null,
+          displayCount,
+          aiPowered: false,
+        })
+      }
+    } catch { /* fall through to the error response */ }
     return NextResponse.json<OutdoorTodayResponse>(
       { ok: false, trips: [], weather: null, displayCount: 2, aiPowered: false, error: "Internal error" },
       { status: 500 },

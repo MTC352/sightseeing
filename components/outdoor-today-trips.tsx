@@ -1,11 +1,12 @@
 "use client"
 
-import React, { useEffect, useState, useCallback } from "react"
+import React, { useEffect, useState, useCallback, useMemo } from "react"
 import { Link } from "@/components/i18n/link"
 import { Clock, MapPin, CloudSun, Sun, CloudRain, Sparkles, ArrowRight, ChevronRight } from "lucide-react"
 import type { OutdoorTodayResponse, OutdoorTodayTrip } from "@/app/api/outdoor-today/route"
 import { fetchWithRetry } from "@/lib/fetch-retry"
 import { stripHtml } from "@/lib/seo/score"
+import { useGetPublicTripsQuery } from "@/store/site/api"
 
 const WEATHER_ICONS = { sun: Sun, "cloud-sun": CloudSun, "cloud-rain": CloudRain }
 
@@ -56,6 +57,52 @@ function SkeletonCard({ fill = false }: { fill?: boolean }) {
       </div>
     </div>
   )
+}
+
+type PublicTripRow = {
+  id: string | number
+  slug?: string | null
+  title: string
+  description?: string | null
+  image?: string | null
+  price?: number | null
+  originalPrice?: number | null
+  duration?: string | null
+  tags?: string[] | null
+  category?: string | null
+  city?: string | null
+  featured?: boolean | null
+}
+
+/**
+ * Backup when /api/outdoor-today fails or returns nothing: the trending
+ * (admin "featured") trips from /api/trips — already loaded on the homepage —
+ * in the same order as "Trending this month".
+ */
+function trendingFallback(data: unknown): OutdoorTodayTrip[] {
+  const rows: PublicTripRow[] = Array.isArray(data)
+    ? (data as PublicTripRow[])
+    : ((data as { trips?: PublicTripRow[] } | undefined)?.trips ?? [])
+  return rows
+    .filter((t) => t.featured === true)
+    .map((t) => ({
+      id: String(t.id),
+      slug: t.slug ?? null,
+      title: t.title,
+      description: t.description ?? null,
+      image: t.image ?? null,
+      price: typeof t.price === "number" ? t.price : null,
+      originalPrice: typeof t.originalPrice === "number" ? t.originalPrice : null,
+      duration: t.duration ?? null,
+      tags: t.tags ?? [],
+      tripTags: [],
+      category: t.category ?? null,
+      city: t.city ?? null,
+      upcomingSlots: [],
+      weatherMatch: "good" as const,
+      aiReason: "",
+      score: 0,
+    }))
 }
 
 function TripCard({ trip, fill = false }: { trip: OutdoorTodayTrip; fill?: boolean }) {
@@ -145,12 +192,13 @@ interface OutdoorTodayTripsProps {
 export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: OutdoorTodayTripsProps) {
   const [data, setData] = useState<OutdoorTodayResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const { data: publicTrips } = useGetPublicTripsQuery()
 
   const fetchData = useCallback(async () => {
     try {
       const res = await fetchWithRetry("/api/outdoor-today", { cache: "no-store" })
       if (res.ok) setData(await res.json())
-    } catch { /* ignore */ } finally {
+    } catch { /* ignore — trending fallback below */ } finally {
       setLoading(false)
     }
   }, [])
@@ -161,7 +209,8 @@ export function OutdoorTodayTrips({ isWeatherLoading, weatherCondition }: Outdoo
 
   const isLoading = loading || isWeatherLoading
   const displayCount = data?.displayCount ?? 2
-  const trips = (data?.trips ?? []).slice(0, displayCount)
+  const fallbackTrips = useMemo(() => trendingFallback(publicTrips), [publicTrips])
+  const trips = (data?.trips?.length ? data.trips : fallbackTrips).slice(0, displayCount)
   const isRainy = weatherCondition?.toLowerCase().includes("rain") ?? false
 
   const heading = isLoading
