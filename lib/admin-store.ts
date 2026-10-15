@@ -29,7 +29,7 @@ export interface AdminTrip {
   title: string
   description: string
   price: number
-  originalPrice?: number
+  originalPrice?: number | null
   duration: string
   category: string
   tags: string[]

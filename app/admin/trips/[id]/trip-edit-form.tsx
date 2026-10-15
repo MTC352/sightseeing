@@ -708,7 +708,7 @@ export function TripEditForm({
             </div>
             <div className={cn(roHidden("originalPrice") && "hidden")}>
               <label className={labelClass}>Original Price (€) — optional {!can("originalPrice") && <ReadOnlyBadge />}</label>
-              <input type="number" min="0" step="0.01" readOnly={!can("originalPrice")} className={inputClass} placeholder="For strikethrough" value={form.originalPrice ?? ""} onChange={(e) => set("originalPrice", e.target.value ? parseFloat(e.target.value) : undefined)} />
+              <input type="number" min="0" step="0.01" readOnly={!can("originalPrice")} className={inputClass} placeholder="For strikethrough" value={form.originalPrice ?? ""} onChange={(e) => set("originalPrice", e.target.value ? parseFloat(e.target.value) : null)} />
             </div>
           </div>
         </section>
