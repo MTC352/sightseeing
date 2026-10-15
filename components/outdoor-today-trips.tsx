@@ -72,12 +72,13 @@ type PublicTripRow = {
   category?: string | null
   city?: string | null
   featured?: boolean | null
+  reviewCount?: number | null
 }
 
 /**
  * Backup when /api/outdoor-today fails or returns nothing: the trending
  * (admin "featured") trips from /api/trips — already loaded on the homepage —
- * in the same order as "Trending this month".
+ * most reviewed first, the same order as "Trending this month".
  */
 function trendingFallback(data: unknown): OutdoorTodayTrip[] {
   const rows: PublicTripRow[] = Array.isArray(data)
@@ -85,6 +86,7 @@ function trendingFallback(data: unknown): OutdoorTodayTrip[] {
     : ((data as { trips?: PublicTripRow[] } | undefined)?.trips ?? [])
   return rows
     .filter((t) => t.featured === true)
+    .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
     .map((t) => ({
       id: String(t.id),
       slug: t.slug ?? null,

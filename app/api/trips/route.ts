@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
     },
     trips: results.map((t) => ({
       id: t.id,
+      slug: t.slug,
       title: t.title,
       url: `${BASE}/trip/${t.slug || t.id}`,
       price: t.price,

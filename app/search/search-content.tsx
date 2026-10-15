@@ -9,12 +9,13 @@ import { Navbar } from "@/components/site-navbar"
 import type { ReactNode } from "react"
 import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"
+import { TrendingBadge } from "@/components/trending-badge"
 import { fetchWithRetry } from "@/lib/fetch-retry"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 import {
   Star, Clock, MapPin, SlidersHorizontal, CalendarDays, X,
   Sparkles, Check, Plus, Sun, LayoutGrid, List, ArrowRight,
-  Users, Minus, CalendarClock,
+  Users, Minus, CalendarClock, TrendingUp,
 } from "lucide-react"
 import { DateTimeModal } from "@/components/date-time-modal"
 import {
@@ -48,6 +49,8 @@ interface Filters {
   persons: number; locationAddress: string; locationRadius: number
   dateFrom: string; dateTo: string; timeFrom: string; timeTo: string
   tags: string[]; types: string[]; departures: string[]
+  /** Only trips with the admin Trending switch (`?trending=1`, homepage "View all"). */
+  trending: boolean
 }
 // "No upper limit" sentinel for the Max price field. Chosen well above the price
 // input's own max (5000) so a user can never type it; it renders the Max box as
@@ -59,7 +62,7 @@ const PRICE_MAX_NONE = 1_000_000
 const DEFAULT_FILTERS: Filters = {
   priceMin: 0, priceMax: PRICE_MAX_NONE, ratingMin: 0, durationMax: 24, persons: 1,
   locationAddress: "", locationRadius: 10, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "",
-  tags: [], types: [], departures: [],
+  tags: [], types: [], departures: [], trending: false,
 }
 
 const RADIUS_OPTIONS = [1, 2, 5, 10, 20, 50] as const
@@ -547,8 +550,11 @@ function SearchCard({ trip, priority = false, hasTodaySlots = false }: { trip: T
           unoptimized={!!trip.image?.startsWith('/uploads/')}
           className="object-cover transition-transform duration-300 group-hover:scale-105"
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" />
-        {showBadge && (
-          <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">{trip.badge}</span>
+        {(showBadge || trip.featured) && (
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {showBadge && <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">{trip.badge}</span>}
+            {trip.featured && <TrendingBadge />}
+          </div>
         )}
         {goodWeather && hasTodaySlots && (
           <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-semibold text-amber-900 shadow backdrop-blur-sm">
@@ -799,8 +805,11 @@ function SearchListCard({
             className="object-cover transition-transform duration-300 group-hover:scale-105"
             sizes="(max-width: 640px) 100vw, 256px" />
         </Link>
-        {showBadge && (
-          <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">{trip.badge}</span>
+        {(showBadge || trip.featured) && (
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {showBadge && <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">{trip.badge}</span>}
+            {trip.featured && <TrendingBadge />}
+          </div>
         )}
         {goodWeather && hasTodaySlots && (
           <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-semibold text-amber-900 shadow backdrop-blur-sm">
@@ -939,6 +948,7 @@ export function SearchContent({
       persons:  Math.max(1, parseInt(searchParams.get("persons") ?? "1", 10) || 1),
       tags:     tagsFromUrl,
       departures: departuresFromUrl,
+      trending: searchParams.get("trending") === "1",
     }
   })
 
@@ -954,8 +964,9 @@ export function SearchContent({
     if (activeFilters.persons > 1) params.set("persons", String(activeFilters.persons))
     if (activeFilters.tags.length > 0) params.set("tag", activeFilters.tags.join(","))
     for (const d of activeFilters.departures) params.append("departure", d)
+    if (activeFilters.trending) params.set("trending", "1")
     router.replace(`/search?${params.toString()}`, { scroll: false })
-  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons, activeFilters.tags, activeFilters.departures]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeFilters.dateFrom, activeFilters.timeFrom, activeFilters.timeTo, activeFilters.persons, activeFilters.tags, activeFilters.departures, activeFilters.trending]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Fetch availability — re-fires when the DATE or PERSONS count changes
      (persons drives real-time checkavail slots server-side; it's ignored by the
@@ -1063,6 +1074,7 @@ export function SearchContent({
     filtersConfig.tags && activeFilters.tags.length > 0,
     filtersConfig.type && activeFilters.types.length > 0,
     activeFilters.departures.length > 0,
+    activeFilters.trending,
   ].filter(Boolean).length
 
   /* Debounced geocoding of the address input → user lat/lng for radius filter. */
@@ -1145,6 +1157,7 @@ export function SearchContent({
       if (activeFilters.departures.length > 0) {
         if (!activeFilters.departures.includes(departureKey(t))) return false
       }
+      if (activeFilters.trending && !t.featured) return false
       return true
     })
 
@@ -1228,6 +1241,11 @@ export function SearchContent({
         )
         .map((x) => x.t)
     }
+
+    // Trending trips (admin switch) always rank first — even without
+    // availability — keeping the order above within each group. Filters still
+    // apply: a trending trip that doesn't match stays hidden.
+    result = [...result.filter((t) => t.featured), ...result.filter((t) => !t.featured)]
 
     return result
   }, [keywordMatched, activeCategory, activeFilters, dateFilterActive, availability, availLoading, persons, filtersConfig, userCoord])
@@ -1392,6 +1410,22 @@ export function SearchContent({
             {query && (
               <p className="mb-0.5 text-xs text-muted-foreground">
                 Results for <span className="font-semibold text-foreground">&quot;{query}&quot;</span>
+              </p>
+            )}
+            {activeFilters.trending && (
+              <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                Showing{" "}
+                <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 font-medium text-primary">
+                  <TrendingUp className="h-3 w-3" />Trending only
+                  <button
+                    type="button"
+                    aria-label="Remove trending filter"
+                    onClick={() => setActiveFilters((p) => ({ ...p, trending: false }))}
+                    className="ml-0.5 rounded-full hover:bg-primary/10"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
               </p>
             )}
             {activeFilters.departures.length > 0 && (

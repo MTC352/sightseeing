@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { AppImage } from "@/components/app-image"
+import { TrendingBadge } from "@/components/trending-badge"
 import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import type { ReactNode } from "react"
@@ -293,10 +294,15 @@ function ExploreCard({ trip, priority = false }: { trip: Trip; priority?: boolea
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           />
         </Link>
-        {trip.badge && (
-          <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">
-            {trip.badge}
-          </span>
+        {(trip.badge || trip.featured) && (
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {trip.badge && (
+              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">
+                {trip.badge}
+              </span>
+            )}
+            {trip.featured && <TrendingBadge />}
+          </div>
         )}
         {trip.originalPrice && (
           <span className="absolute right-8 top-2 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
@@ -398,10 +404,15 @@ function TripListCard({ trip, priority = false }: { trip: Trip; priority?: boole
             sizes="(max-width: 640px) 100vw, 256px"
           />
         </Link>
-        {trip.badge && (
-          <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">
-            {trip.badge}
-          </span>
+        {(trip.badge || trip.featured) && (
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {trip.badge && (
+              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">
+                {trip.badge}
+              </span>
+            )}
+            {trip.featured && <TrendingBadge />}
+          </div>
         )}
         {goodWeather && (
           <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-semibold text-amber-900 shadow backdrop-blur-sm">
@@ -576,7 +587,10 @@ const INSIDER_TIPS = [
 export default function ExplorePage({ initialTrips, footer }: { initialTrips?: Trip[]; footer?: ReactNode }) {
   // Fail-closed: server always passes DB-backed publicOnly trips. Never fall
   // back to the static seed catalog (would resurface archived/draft trips).
-  const tripList: Trip[] = initialTrips ?? []
+  // Trending trips (admin switch) always first — same rule as /search — so
+  // every list below (results, top rated, category rows) leads with them.
+  const allTrips: Trip[] = initialTrips ?? []
+  const tripList: Trip[] = [...allTrips.filter((t) => t.featured), ...allTrips.filter((t) => !t.featured)]
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [dateOpen, setDateOpen] = useState(false)

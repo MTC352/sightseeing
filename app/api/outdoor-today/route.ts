@@ -122,10 +122,12 @@ function weatherTagMatch(
 
 /**
  * Trending trips = the admin "featured" switch, in the same order as the
- * homepage "Trending this month" section (dbListTrips order, newest first).
+ * homepage "Trending this month" section (most reviewed first).
  */
 function trendingTrips(allTrips: Record<string, unknown>[]): Record<string, unknown>[] {
-  return allTrips.filter((t) => t.featured === true)
+  return allTrips
+    .filter((t) => t.featured === true)
+    .sort((a, b) => Number(b.reviewCount ?? 0) - Number(a.reviewCount ?? 0))
 }
 
 function toOutdoorTrip(

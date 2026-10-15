@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useRef, useCallback, useEffect } from "react"
 
 import { Link } from "@/components/i18n/link"
 import { TripCard, TripCardSkeleton, TripCardSmallSkeleton } from "./trip-card"
@@ -15,6 +15,7 @@ import { useRecentlyViewed } from "@/lib/use-recently-viewed"
 /** Shape of one trip in the /api/trips response. */
 interface ApiTrip {
   id: string | number
+  slug?: string | null
   title: string
   price: number
   originalPrice?: number
@@ -61,6 +62,7 @@ function toRelativeLocalAsset(src: string): string {
 function apiToTrip(t: ApiTrip): Trip {
   return {
     id: String(t.id),
+    slug: t.slug ?? undefined,
     title: t.title,
     image: toRelativeLocalAsset(t.image || "/placeholder.svg"),
     price: Number(t.price ?? 0),
@@ -71,6 +73,7 @@ function apiToTrip(t: ApiTrip): Trip {
     category: t.category ?? "Tours",
     tags: Array.isArray(t.tags) ? t.tags : [],
     badge: t.badge ?? undefined,
+    featured: t.featured === true,
     city: t.city ?? undefined,
   }
 }
@@ -98,23 +101,7 @@ function usePublishedTrips(): { trips: Trip[]; isLoading: boolean } {
   return { trips: extractApiTrips(data).map(apiToTrip), isLoading: false }
 }
 
-/**
- * Hook: returns the set of trip IDs flagged `featured` in the DB. The
- * homepage "Trending this month" section uses this so the admin's
- * Featured toggle on /admin/trips actually drives what shows up there
- * (previously it filtered by the static "popular" tag, which the admin
- * couldn't control, so toggling Featured had no visible effect).
- */
-function useFeaturedTripIds(): Set<string> {
-  const { data, isLoading, isError } = useGetPublicTripsQuery()
-  if (isLoading || isError) return new Set()
-  return new Set(
-    extractApiTrips(data)
-      .filter((t) => t.featured === true)
-      .map((t) => String(t.id))
-  )
-}
-import { Star, ChevronRight, CloudSun, CloudRain, Sun, Wind, Droplets, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink, Settings2, Loader2, Check, X as XIcon } from "lucide-react"
+import { Star, ChevronRight, ChevronLeft, CloudSun, CloudRain, Sun, Wind, Droplets, Utensils, Bike, Landmark, Map as MapIcon, Gift, Users, Wine, Sparkles, TrendingUp, Zap, Clock, ExternalLink, Settings2, Loader2, Check, X as XIcon } from "lucide-react"
 import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
 import { useEditMode } from "@/components/edit-mode-provider"
@@ -126,18 +113,45 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = { "Food & Events": Ute
 const WEATHER_ICONS: Record<string, React.ElementType> = { "cloud-sun": CloudSun, "cloud-rain": CloudRain, sun: Sun }
 
 /* Trending Section */
+// Every trip with the admin "Trending" switch on (DB `featured`), most reviewed
+// first, as a horizontal carousel. Hidden when none are trending. "View all"
+// opens search pre-filtered to trending trips (removable chip).
 export function TrendingSection() {
   const { trips, isLoading } = usePublishedTrips()
-  const featuredIds = useFeaturedTripIds()
-  // Trending now reflects the admin's Featured toggle on /admin/trips
-  // (DB `trips.featured`) instead of the static "popular" tag, which
-  // wasn't user-editable. Fallback to the legacy "popular" tag only
-  // when nothing is featured yet, so the section is never empty on a
-  // fresh install.
-  const trending = (featuredIds.size > 0
-    ? trips.filter((t) => featuredIds.has(String(t.id)))
-    : trips.filter((t) => t.tags.includes("popular"))
-  ).slice(0, 3)
+  const trending = trips
+    .filter((t) => t.featured)
+    .sort((a, b) => b.reviewCount - a.reviewCount)
+
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    // 1px slack absorbs sub-pixel rounding at the track ends.
+    setCanScrollLeft(el.scrollLeft > 1)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
+
+  // One "page" of cards per arrow click.
+  const scrollByArrow = useCallback((dir: -1 | 1) => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollBy({ left: dir * el.clientWidth, behavior: "smooth" })
+  }, [])
+
+  useEffect(() => {
+    updateScrollState()
+    window.addEventListener("resize", updateScrollState)
+    return () => window.removeEventListener("resize", updateScrollState)
+  }, [updateScrollState, trending.length, isLoading])
+
+  if (!isLoading && trending.length === 0) return null
+
+  // Mobile: one card + a peek of the next; sm: 2 per view; lg: 3 per view.
+  const itemClass = "w-[85%] shrink-0 snap-start sm:w-[calc((100%-1.5rem)/2)] lg:w-[calc((100%-3rem)/3)]"
+
   return (
     <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="flex items-center justify-between">
@@ -150,12 +164,41 @@ export function TrendingSection() {
             <EditableText id="home:trending:subheading" defaultValue="Do not miss out on these trips." />
           </p>
         </div>
-        <Link href="/search" className="hidden items-center gap-1 text-sm font-medium text-primary hover:underline sm:flex">See all <ChevronRight className="h-4 w-4" /></Link>
+        <Link href="/search?trending=1" className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline">View all <ChevronRight className="h-4 w-4" /></Link>
       </div>
-      <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {isLoading
-          ? Array.from({ length: 3 }).map((_, i) => <TripCardSkeleton key={`sk-${i}`} />)
-          : trending.map((t, i) => <TripCard key={t.id} trip={t} priority={i === 0} />)}
+      <div className="relative mt-6">
+        {/* Desktop-only arrows; touch devices scroll natively. */}
+        <button
+          type="button"
+          onClick={() => scrollByArrow(-1)}
+          disabled={!canScrollLeft}
+          aria-label="Previous trending trips"
+          className="absolute -left-3 top-1/3 z-20 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-md transition-all hover:bg-secondary disabled:pointer-events-none disabled:opacity-0 md:flex"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => scrollByArrow(1)}
+          disabled={!canScrollRight}
+          aria-label="More trending trips"
+          className="absolute -right-3 top-1/3 z-20 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-md transition-all hover:bg-secondary disabled:pointer-events-none disabled:opacity-0 md:flex"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+        <div
+          ref={scrollRef}
+          onScroll={updateScrollState}
+          className="flex snap-x snap-mandatory gap-6 overflow-x-auto pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {isLoading
+            ? Array.from({ length: 3 }).map((_, i) => (
+                <div key={`sk-${i}`} className={itemClass}><TripCardSkeleton /></div>
+              ))
+            : trending.map((t, i) => (
+                <div key={t.id} className={itemClass}><TripCard trip={t} priority={i === 0} /></div>
+              ))}
+        </div>
       </div>
     </section>
   )

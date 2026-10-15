@@ -4,6 +4,7 @@ import Image from "next/image"
 import { Link } from "@/components/i18n/link"
 import { Star, Clock, ShoppingBag, Check, Plus, Sun } from "lucide-react"
 import type { Trip } from "@/lib/data"
+import { TrendingBadge } from "@/components/trending-badge"
 import { useCart } from "@/lib/cart-context"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 
@@ -35,7 +36,12 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
       <div data-no-edit className="group flex overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
         <Link href={`/trip/${trip.slug ?? trip.id}`} className="relative h-36 w-40 shrink-0 overflow-hidden sm:w-48">
           <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} unoptimized={!!trip.image?.startsWith('/uploads/')} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="200px" />
-          {trip.badge && <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">{trip.badge}</span>}
+          {(trip.badge || trip.featured) && (
+            <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+              {trip.badge && <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">{trip.badge}</span>}
+              {trip.featured && <TrendingBadge />}
+            </div>
+          )}
         </Link>
         <div className="flex flex-1 flex-col justify-between p-3">
           <div>
@@ -61,7 +67,12 @@ export function TripCard({ trip, priority = false, variant = "default" }: { trip
       {/* Image — bottom corners are square so card body sits flush */}
       <Link href={`/trip/${trip.slug ?? trip.id}`} className="relative aspect-[4/3] overflow-hidden rounded-b-none">
         <Image src={trip.image || "/placeholder.svg"} alt={`${trip.title} — ${trip.category} in ${trip.city ?? "Luxembourg"}`} fill priority={priority} unoptimized={!!trip.image?.startsWith('/uploads/')} className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
-        {trip.badge && <span className="absolute left-3 top-3 rounded-full bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-sm">{trip.badge}</span>}
+        {(trip.badge || trip.featured) && (
+          <div className="absolute left-3 top-3 flex flex-col items-start gap-1">
+            {trip.badge && <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground shadow-sm">{trip.badge}</span>}
+            {trip.featured && <TrendingBadge size="md" />}
+          </div>
+        )}
         {trip.originalPrice && <span className="absolute right-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-destructive-foreground">-{Math.round((1 - trip.price / trip.originalPrice) * 100)}%</span>}
         {/* Good for weather badge */}
         {goodWeather && (

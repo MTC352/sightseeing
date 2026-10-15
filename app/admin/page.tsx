@@ -41,7 +41,7 @@ export default async function AdminDashboard() {
     canTrips && { label: "Total Trips", value: trips.length, sub: `${publishedTrips} published`, icon: Map, href: "/admin/trips" },
     canBlog && { label: "Blog Posts", value: posts.length, sub: `${publishedPosts} published`, icon: FileText, href: "/admin/blog" },
     canJobs && { label: "Open Jobs", value: openJobs, sub: `${jobs.length} total listings`, icon: Briefcase, href: "/admin/jobs" },
-    canTrips && { label: "Featured Trips", value: featuredTrips, sub: "Shown on homepage", icon: Star, href: "/admin/trips" },
+    canTrips && { label: "Trending Trips", value: featuredTrips, sub: "Badge, homepage & top of search", icon: Star, href: "/admin/trips" },
   ].filter(Boolean) as { label: string; value: number; sub: string; icon: typeof Map; href: string }[]
 
   const quickActions = [

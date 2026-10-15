@@ -1284,7 +1284,7 @@ export function TripEditForm({
                 </div>
               ))}
               <div className={cn(roHidden("featured") && "hidden")}>
-                <label className={labelClass}>Featured on homepage {!can("featured") && <ReadOnlyBadge />}</label>
+                <label className={labelClass}>Trending {!can("featured") && <ReadOnlyBadge />}</label>
                 <button
                   type="button"
                   disabled={!can("featured")}

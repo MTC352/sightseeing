@@ -34,6 +34,9 @@ export interface Trip {
   category: string
   tags: string[]
   badge?: string
+  /** Admin "Trending" switch (DB column `featured`): Trending badge, homepage
+   *  "Trending this month", and ranked first in search/explore. */
+  featured?: boolean
   city?: string
   description?: string
   permalink?: string
