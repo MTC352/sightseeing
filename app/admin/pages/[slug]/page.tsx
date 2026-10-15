@@ -9,6 +9,7 @@ const SLUG_TO_URL: Record<string, string> = {
   departures: "/departures",
   blog:       "/blog",
   careers:    "/careers",
+  dmc:        "/dmc",
   help:       "/help",
   checkout:   "/my-trips",
   "live-tracking": "/live-tracking",

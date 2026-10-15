@@ -24,6 +24,7 @@ const MANAGED_PAGES: ManagedPage[] = [
   { slug: "filling-up-fast", label: "Filling Up Fast", url: "/filling-up-fast", description: "Today's experiences ranked by seats left. Only the hero copy is editable; trip cards are live data." },
   { slug: "blog",       label: "Blog",            url: "/blog",        description: "Blog index page" },
   { slug: "careers",    label: "Careers",         url: "/careers",     description: "Job listings and apply CTAs" },
+  { slug: "dmc",        label: "DMC & Tour Operator", url: "/dmc",     description: "DMC landing page — all text, images and button links (e.g. brochure PDF) are editable; the request form emails hello@sightseeing.lu" },
   { slug: "help",       label: "Help & FAQ",      url: "/help",        description: "FAQ accordion and help AI chat" },
   { slug: "checkout",   label: "My Trips",        url: "/my-trips",    description: "Saved trips and Palisis booking iframe" },
   { slug: "cfl-sightseeing", label: "CFL Sightseeing", url: "/cfl-sightseeing", description: "CFL self-guided walking tours — hero + audio-guide iframe" },

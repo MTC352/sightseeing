@@ -885,7 +885,7 @@ export async function dbDeletePost(id: string) {
  */
 const RESERVED_TOP_LEVEL = new Set<string>([
   "about", "admin", "api", "blog", "careers", "cars", "cfl-sightseeing",
-  "departing-soon", "departures", "emergency", "experiences", "explore",
+  "departing-soon", "departures", "dmc", "emergency", "experiences", "explore",
   "filling-up-fast", "flights", "help", "hotels", "impressum", "live-tracking",
   "my-trips", "planner", "privacy", "public-objects", "search", "trains",
   "travel", "trip", "widgets",

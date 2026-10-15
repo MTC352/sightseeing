@@ -53,6 +53,8 @@ export const RATE_LIMITS = {
   adminLogin: { limit: 15, windowMs: 15 * 60_000 },
   /** Job application uploads (spam/storage protection). */
   careersApply: { limit: 8, windowMs: 60 * 60_000 },
+  /** Public enquiry forms that send an email (spam protection). */
+  formSubmit: { limit: 10, windowMs: 60 * 60_000 },
 } as const
 
 interface Entry {
