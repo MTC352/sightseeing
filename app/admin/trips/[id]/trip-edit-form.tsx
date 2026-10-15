@@ -1323,7 +1323,8 @@ export function TripEditForm({
             if (field === "highlights" && Array.isArray(value)) {
               if (can("highlights")) set("highlights", value as string[])
             } else if (field === "tags" && Array.isArray(value)) {
-              if (can("tripTags")) set("tripTags", value as string[])
+              // Add the suggested tags; never drop tags the admin already set.
+              if (can("tripTags")) set("tripTags", [...new Set([...(form.tripTags ?? []), ...(value as string[])])])
             } else if (typeof value === "string") {
               if (can(field as string)) set(field as "title" | "description", value)
             }

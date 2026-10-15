@@ -121,6 +121,27 @@ async function hasGooglePlaceIdColumn(): Promise<boolean> {
   }
   return _hasGooglePlaceIdCol
 }
+// `trips.trip_tags_manual` (docs/db/2026-10-15-trip-tags-manual.sql) records
+// which Trip Tags an admin added by hand, so supplier imports can never remove
+// them. Probed like google_place_id: on a behind-schema DB, writes fall back to
+// the previous behaviour instead of failing.
+let _hasManualTripTagsCol: boolean | null = null
+async function hasManualTripTagsColumn(): Promise<boolean> {
+  if (_hasManualTripTagsCol !== null) return _hasManualTripTagsCol
+  try {
+    const row = await queryOne<{ present: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'trips' AND column_name = 'trip_tags_manual'
+       ) AS present`,
+    )
+    _hasManualTripTagsCol = row?.present === true
+  } catch {
+    _hasManualTripTagsCol = false
+  }
+  return _hasManualTripTagsCol
+}
+
 async function tripSelect(): Promise<string> {
   return (await hasGooglePlaceIdColumn())
     ? TRIP_SELECT
@@ -379,10 +400,45 @@ export async function dbUpdateTrip(id: string, data: Record<string, unknown>) {
   // would otherwise coerce a JS array of objects into a Postgres array literal).
   const JSONB_COLS = new Set(['itinerary_steps'])
   for (const [key, col] of Object.entries(fieldMap)) {
+    if (key === 'tripTags') continue // handled below
     if (key in data) {
       sets.push(`${col} = $${i++}`)
       const v = data[key]
       vals.push(JSONB_COLS.has(col) && v != null && typeof v !== 'string' ? JSON.stringify(v) : v)
+    }
+  }
+
+  // ── Trip Tags: manual tags survive every import ─────────────────────────
+  // `trip_tags` stays the displayed list (all readers unchanged);
+  // `trip_tags_manual` remembers which of them an admin added by hand.
+  //  • Admin save (`tripTags`): writes the list as-is. A tag counts as manual
+  //    if it already was, or wasn't on the trip before (i.e. newly added); a
+  //    kept supplier tag stays supplier-owned. Removing a tag removes it.
+  //  • Import (`importedTripTags`, from mappedToUpdatePayload): supplier tags
+  //    UNION manual tags — supplier tags follow TourCMS, manual ones are never
+  //    dropped. Order: supplier first, then manual.
+  // (SET expressions see the row's pre-update values.)
+  if ('tripTags' in data || 'importedTripTags' in data) {
+    const manualCol = await hasManualTripTagsColumn()
+    if ('tripTags' in data) {
+      const p = `$${i++}`
+      vals.push(data.tripTags ?? [])
+      sets.push(`trip_tags = ${p}::text[]`)
+      if (manualCol) {
+        sets.push(
+          `trip_tags_manual = ARRAY(SELECT t FROM unnest(COALESCE(${p}::text[], '{}')) AS t
+             WHERE t = ANY(COALESCE(trip_tags_manual, '{}')) OR NOT (t = ANY(COALESCE(trip_tags, '{}'))))`,
+        )
+      }
+    } else {
+      const p = `$${i++}`
+      vals.push(data.importedTripTags ?? [])
+      sets.push(
+        manualCol
+          ? `trip_tags = ARRAY(SELECT t FROM unnest(COALESCE(${p}::text[], '{}') || COALESCE(trip_tags_manual, '{}'))
+               WITH ORDINALITY AS u(t, o) GROUP BY t ORDER BY min(o))`
+          : `trip_tags = ${p}::text[]`,
+      )
     }
   }
   if (sets.length === 0) return dbGetTrip(id)

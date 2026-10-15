@@ -465,5 +465,13 @@ export function mappedToUpdatePayload(
       if (f in payload) delete payload[f]
     }
   }
+  // Supplier tags go out as `importedTripTags`, which dbUpdateTrip MERGES with
+  // the admin's manual tags instead of overwriting trip_tags — so an import can
+  // never remove a manually added tag. (Renamed after the exclusion pass so
+  // excluding "tripTags" still skips them entirely.)
+  if ("tripTags" in payload) {
+    payload.importedTripTags = payload.tripTags
+    delete payload.tripTags
+  }
   return payload
 }
