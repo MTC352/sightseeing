@@ -126,6 +126,28 @@
   }
 }
 
+/* ── No iOS zoom on input focus ─────────────────────────────────────────────
+   iOS Safari zooms into any focused field whose font-size is below 16px and
+   keeps that zoom after navigating (e.g. search → results), breaking the
+   layout. Our inputs use text-sm/text-xs, so force 16px on iOS (any width —
+   -webkit-touch-callout is WebKit-iOS only) and on phone-width screens.
+   !important because element selectors otherwise lose to Tailwind utilities.
+   Prefer this over maximum-scale=1, which would also block pinch-zoom. */
+@supports (-webkit-touch-callout: none) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* Booking iframe — responsive wrapper.
    We hide the Palisis header by offsetting the iframe upward, but keep the
    offset modest (24px) so legitimate booking content (calendar header,
