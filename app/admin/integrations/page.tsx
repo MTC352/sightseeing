@@ -9,6 +9,7 @@ import {
   CheckCircle2, XCircle, Loader2, ShieldCheck, Lock, Cookie,
 } from "lucide-react"
 import TripFieldsPanel from "@/components/admin/trip-fields-panel"
+import { TicketNotificationSettings } from "@/components/admin/ticket-notification-settings"
 import { FileRulesPanel } from "@/components/admin/file-rules-panel"
 import { SecuritySettings } from "@/components/admin/security-settings"
 import { CookieSettings } from "@/components/admin/cookie-settings"
@@ -837,6 +838,8 @@ export default function IntegrationsPage() {
       {/* ── SETTINGS TAB ─────────────────────────────────────────── */}
       {tab === "settings" && (
         <div className="space-y-5">
+
+          <TicketNotificationSettings />
 
           {/* Site cache — clear Next.js page cache on demand */}
           <div className="rounded-xl border border-border bg-card overflow-hidden">

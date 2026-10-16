@@ -1411,11 +1411,11 @@ export async function dbListTickets(filters?: { status?: string }) {
     SELECT t.id, t.subject, t.description, t.category, t.priority, t.status,
            t.author_name as "authorName", t.author_email as "authorEmail",
            t.author_role as "authorRole", t.assigned_to as "assignedTo",
-           t.created_at as "createdAt", t.updated_at,
+           t.created_at as "createdAt", t.updated_at, t.updated_at as "updatedAt",
            COALESCE(
              json_agg(
                json_build_object(
-                 'id', r.id, 'ticketId', r.ticket_id,
+                 'id', r.id, 'ticketId', r.ticket_id, 'authorId', r.author_id,
                  'authorName', r.author_name, 'authorRole', r.author_role,
                  'message', r.message, 'createdAt', r.created_at
                ) ORDER BY r.created_at
@@ -1434,11 +1434,11 @@ export async function dbGetTicket(id: string) {
     SELECT t.id, t.subject, t.description, t.category, t.priority, t.status,
            t.author_name as "authorName", t.author_email as "authorEmail",
            t.author_role as "authorRole", t.assigned_to as "assignedTo",
-           t.created_at as "createdAt", t.updated_at,
+           t.created_at as "createdAt", t.updated_at, t.updated_at as "updatedAt",
            COALESCE(
              json_agg(
                json_build_object(
-                 'id', r.id, 'ticketId', r.ticket_id,
+                 'id', r.id, 'ticketId', r.ticket_id, 'authorId', r.author_id,
                  'authorName', r.author_name, 'authorRole', r.author_role,
                  'message', r.message, 'createdAt', r.created_at
                ) ORDER BY r.created_at
@@ -1472,6 +1472,7 @@ export async function dbUpdateTicket(id: string, data: Record<string, unknown>) 
   let i = 1
   const fieldMap: Record<string, string> = {
     status: 'status', priority: 'priority', assignedTo: 'assigned_to',
+    authorName: 'author_name', authorEmail: 'author_email', authorRole: 'author_role',
   }
   for (const [key, col] of Object.entries(fieldMap)) {
     if (key in data) { sets.push(`${col} = $${i++}`); vals.push(data[key]) }
@@ -1479,8 +1480,10 @@ export async function dbUpdateTicket(id: string, data: Record<string, unknown>) 
   if (sets.length === 0) return dbGetTicket(id)
   sets.push(`updated_at = NOW()`)
   vals.push(id)
-  const rows = await query(`UPDATE support_tickets SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, vals)
-  return rows[0] ?? null
+  const rows = await query(`UPDATE support_tickets SET ${sets.join(', ')} WHERE id = $${i} RETURNING id`, vals)
+  // Return the same shape as dbGetTicket (camelCase + replies) — the admin
+  // detail page replaces its state with this response.
+  return rows[0] ? dbGetTicket(id) : null
 }
 
 export async function dbDeleteTicket(id: string) {
@@ -1489,9 +1492,13 @@ export async function dbDeleteTicket(id: string) {
 
 export async function dbAddTicketReply(ticketId: string, data: Record<string, unknown>) {
   const rows = await query(`
-    INSERT INTO ticket_replies (ticket_id, author_name, author_role, message)
-    VALUES ($1,$2,$3,$4) RETURNING *
-  `, [ticketId, data.authorName ?? 'Admin', data.authorRole ?? 'admin', data.message])
+    INSERT INTO ticket_replies (ticket_id, author_id, author_name, author_role, message)
+    VALUES ($1,$2,$3,$4,$5)
+    RETURNING id, ticket_id as "ticketId", author_id as "authorId", author_name as "authorName",
+              author_role as "authorRole", message, created_at as "createdAt"
+  `, [ticketId, data.authorId ?? null, data.authorName ?? 'Admin', data.authorRole ?? 'admin', data.message])
+  // A reply is activity on the ticket — bump "Last updated".
+  await query(`UPDATE support_tickets SET updated_at = NOW() WHERE id = $1`, [ticketId])
   return rows[0]
 }
 

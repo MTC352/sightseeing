@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Plus, Ticket, Eye, Trash2, AlertCircle, Clock, CheckCircle, XCircle, Loader2 } from "lucide-react"
 import {
@@ -68,6 +68,10 @@ export default function AdminTicketsPage() {
           <h1 className="mt-1 text-2xl font-bold text-foreground">Tickets</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {openCount} open, {inProgressCount} in progress
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Email notifications: set the addresses in{" "}
+            <Link href="/admin/integrations" className="font-medium text-primary hover:underline">Admin Settings → Settings → Ticket notifications</Link>.
           </p>
         </div>
         <button
@@ -156,7 +160,7 @@ export default function AdminTicketsPage() {
                     </td>
                     <td className="hidden px-4 py-3 lg:table-cell">
                       <p className="text-foreground">{ticket.authorName}</p>
-                      <p className="text-xs text-muted-foreground">{ticket.authorRole}</p>
+                      <p className="text-xs text-muted-foreground">{ticket.authorEmail ?? ticket.authorRole}</p>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
@@ -194,15 +198,36 @@ function NewTicketForm({ onClose }: { onClose: () => void }) {
     description: "",
     category: "question" as TicketType["category"],
     priority: "medium" as TicketType["priority"],
+    authorName: "",
+    authorEmail: "",
   })
+  const [error, setError] = useState<string | null>(null)
+
+  // Default the author to the logged-in admin; change it to the client the
+  // ticket is for so they get the status / reply emails.
+  useEffect(() => {
+    fetch("/api/admin/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me: { name?: string; email?: string | null } | null) => {
+        if (!me) return
+        setForm((f) => ({
+          ...f,
+          authorName: f.authorName || me.name || "",
+          authorEmail: f.authorEmail || me.email || "",
+        }))
+      })
+      .catch(() => {})
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setError(null)
     try {
       await createTicket(form).unwrap()
       onClose()
-    } catch {
-      alert("Failed to create ticket")
+    } catch (err) {
+      const msg = (err as { data?: { error?: string } })?.data?.error
+      setError(msg ?? "Failed to create ticket")
     }
   }
 
@@ -234,6 +259,31 @@ function NewTicketForm({ onClose }: { onClose: () => void }) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">Author name</label>
+              <input
+                type="text"
+                value={form.authorName}
+                onChange={(e) => setForm({ ...form, authorName: e.target.value })}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="Who the ticket is for"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">Author email</label>
+              <input
+                type="email"
+                value={form.authorEmail}
+                onChange={(e) => setForm({ ...form, authorEmail: e.target.value })}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="client@example.com"
+              />
+            </div>
+            <p className="col-span-2 -mt-2 text-[11px] text-muted-foreground">
+              The author is emailed when the status changes or someone replies. Defaults to you — enter the client&apos;s email to keep them informed.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
               <label className="mb-1 block text-sm font-medium text-foreground">Category</label>
               <select
                 value={form.category}
@@ -261,6 +311,11 @@ function NewTicketForm({ onClose }: { onClose: () => void }) {
               </select>
             </div>
           </div>
+          {error && (
+            <p className="flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+            </p>
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"

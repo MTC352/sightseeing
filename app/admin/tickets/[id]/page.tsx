@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react"
 import Link from "next/link"
-import { ArrowLeft, Send, Loader2, AlertCircle, Clock, CheckCircle, XCircle, User } from "lucide-react"
+import { ArrowLeft, Send, Loader2, AlertCircle, Clock, CheckCircle, XCircle, User, Pencil, Mail } from "lucide-react"
 import type { SupportTicket, TicketReply } from "@/lib/admin-store"
 
 const PRIORITY_STYLES = {
@@ -41,6 +41,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   const [replyText, setReplyText] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [editingAuthor, setEditingAuthor] = useState(false)
+  const [authorDraft, setAuthorDraft] = useState({ name: "", email: "" })
 
   useEffect(() => {
     fetchTicket()
@@ -62,20 +65,71 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   async function handleStatusChange(newStatus: SupportTicket["status"]) {
     if (!ticket) return
     setUpdating(true)
-    
+    setActionError(null)
+
     try {
       const res = await fetch(`/api/admin/tickets/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       })
-      
-      if (!res.ok) throw new Error("Failed to update status")
-      
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error ?? "Failed to update status")
+      }
+
+      // The API returns the full ticket (with replies), same shape as GET.
       const updated = await res.json()
       setTicket(updated)
     } catch (error) {
-      console.error("Failed to update status:", error)
+      setActionError(error instanceof Error ? error.message : "Failed to update status")
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  async function handlePriorityChange(newPriority: SupportTicket["priority"]) {
+    if (!ticket || newPriority === ticket.priority) return
+    setUpdating(true)
+    setActionError(null)
+    try {
+      const res = await fetch(`/api/admin/tickets/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priority: newPriority }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error ?? "Failed to update priority")
+      }
+      setTicket(await res.json())
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to update priority")
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  // Change who is notified about status changes / replies (e.g. the client).
+  async function saveAuthor() {
+    if (!ticket) return
+    setUpdating(true)
+    setActionError(null)
+    try {
+      const res = await fetch(`/api/admin/tickets/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ authorName: authorDraft.name, authorEmail: authorDraft.email }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error ?? "Failed to update the author")
+      }
+      setTicket(await res.json())
+      setEditingAuthor(false)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to update the author")
     } finally {
       setUpdating(false)
     }
@@ -86,28 +140,30 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     if (!replyText.trim() || !ticket) return
     
     setSubmitting(true)
-    
+    setActionError(null)
+
     try {
+      // The server takes the author from the logged-in admin.
       const res = await fetch(`/api/admin/tickets/${id}/replies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: replyText,
-          authorRole: "superadmin", // For now, assume super admin
-          authorName: "Super Admin",
-        }),
+        body: JSON.stringify({ message: replyText }),
       })
 
-      if (!res.ok) throw new Error("Failed to add reply")
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error ?? "Failed to add reply")
+      }
 
       const reply = await res.json()
       setTicket((prev) => prev ? {
         ...prev,
         replies: [...prev.replies, reply],
+        updatedAt: new Date().toISOString(),
       } : null)
       setReplyText("")
     } catch (error) {
-      console.error("Failed to add reply:", error)
+      setActionError(error instanceof Error ? error.message : "Failed to add reply")
     } finally {
       setSubmitting(false)
     }
@@ -155,6 +211,12 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
+      {actionError && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {actionError}
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
@@ -194,7 +256,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                 placeholder="Type your reply..."
                 className="h-32 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
-              <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-[11px] text-muted-foreground">
+                  The ticket author and the ticket notification addresses are emailed (not you).
+                </p>
                 <button
                   type="submit"
                   disabled={submitting || !replyText.trim()}
@@ -223,17 +288,68 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Priority</p>
-                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold uppercase ${PRIORITY_STYLES[ticket.priority]}`}>
-                  {ticket.priority}
-                </span>
+                {/* Internal only — changing priority sends no email. */}
+                <select
+                  value={ticket.priority}
+                  onChange={(e) => handlePriorityChange(e.target.value as SupportTicket["priority"])}
+                  disabled={updating}
+                  aria-label="Change priority"
+                  className={`cursor-pointer rounded-full border-0 px-2.5 py-1 text-xs font-semibold uppercase focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 ${PRIORITY_STYLES[ticket.priority]}`}
+                >
+                  {(["low", "medium", "high", "urgent"] as const).map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Category</p>
                 <p className="text-sm text-foreground capitalize">{ticket.category.replace("-", " ")}</p>
               </div>
               <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="text-xs font-medium text-muted-foreground">Notify author</p>
+                  {!editingAuthor && (
+                    <button
+                      type="button"
+                      onClick={() => { setAuthorDraft({ name: ticket.authorName, email: ticket.authorEmail }); setEditingAuthor(true) }}
+                      className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                    >
+                      <Pencil className="h-3 w-3" /> Edit
+                    </button>
+                  )}
+                </div>
+                {editingAuthor ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={authorDraft.name}
+                      onChange={(e) => setAuthorDraft({ ...authorDraft, name: e.target.value })}
+                      placeholder="Author name"
+                      className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    <input
+                      type="email"
+                      value={authorDraft.email}
+                      onChange={(e) => setAuthorDraft({ ...authorDraft, email: e.target.value })}
+                      placeholder="client@example.com"
+                      className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => setEditingAuthor(false)} className="rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-secondary">Cancel</button>
+                      <button type="button" onClick={saveAuthor} disabled={updating || !authorDraft.email.trim()} className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">Save</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="flex items-center gap-1.5 text-sm text-foreground break-all">
+                    <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    {ticket.authorName} &lt;{ticket.authorEmail}&gt;
+                  </p>
+                )}
+                <p className="mt-1 text-[11px] text-muted-foreground">Emailed about status changes and replies.</p>
+              </div>
+              <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Last Updated</p>
-                <p className="text-sm text-foreground">{new Date(ticket.updatedAt).toLocaleString()}</p>
+                <p className="text-sm text-foreground">{new Date(ticket.updatedAt ?? ticket.createdAt).toLocaleString()}</p>
               </div>
             </div>
           </div>
@@ -287,13 +403,17 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                   Close Ticket
                 </button>
               )}
-              {ticket.status !== "closed" && ticket.status !== "open" && (
+              {ticket.status !== "open" && (
                 <button
                   onClick={() => handleStatusChange("open")}
                   disabled={updating}
-                  className="w-full rounded-lg bg-secondary px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary/80 disabled:opacity-50"
+                  className={`w-full rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                    ticket.status === "closed"
+                      ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                      : "bg-secondary text-muted-foreground hover:bg-secondary/80"
+                  }`}
                 >
-                  Reopen
+                  {ticket.status === "closed" ? "Reopen Ticket" : "Reopen"}
                 </button>
               )}
             </div>

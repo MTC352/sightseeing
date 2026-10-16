@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import { dbListTickets, dbCreateTicket } from "@/lib/db/queries"
 import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
+import { notifyTicketEvent } from "@/lib/ticket-notifications"
+import { isTicketCategory, isTicketPriority, resolveTicketAuthor, TICKET_MESSAGE_MAX } from "@/lib/ticket-fields"
+import { isValidEmail } from "@/lib/job-email"
 
 export const dynamic = "force-dynamic"
 
@@ -29,20 +32,31 @@ export async function POST(req: Request) {
   try {
     const session = await requirePermission("tickets")
     const data = await req.json()
-    if (!data.subject || !data.description || !data.category || !data.priority) {
-      return NextResponse.json({ error: "Missing required fields: subject, description, category, priority" }, { status: 400 })
+    const subject = typeof data.subject === "string" ? data.subject.trim().slice(0, 200) : ""
+    const description = typeof data.description === "string" ? data.description.trim().slice(0, TICKET_MESSAGE_MAX) : ""
+    if (!subject || !description || !isTicketCategory(data.category) || !isTicketPriority(data.priority)) {
+      return NextResponse.json({ error: "Missing or invalid fields: subject, description, category, priority" }, { status: 400 })
     }
-    const ticket = await dbCreateTicket({
-      subject: data.subject,
-      description: data.description,
+    // Author = the person to keep informed (status changes, replies): the
+    // name/email entered on the form (e.g. a client), defaulting to the
+    // logged-in admin.
+    const author = resolveTicketAuthor(data, session, isValidEmail)
+    if (!author.ok) return NextResponse.json({ error: author.error }, { status: 400 })
+    const ticket = (await dbCreateTicket({
+      subject,
+      description,
       category: data.category,
       priority: data.priority,
       status: "open",
-      authorName: data.authorName ?? "Admin User",
-      authorEmail: data.authorEmail ?? "admin@sightseeing.lu",
-      authorRole: data.authorRole ?? "admin",
-      assignedTo: data.assignedTo ?? null,
-    })
+      authorName: author.name,
+      authorEmail: author.email,
+      authorRole: author.role,
+    })) as { id: string }
+    void notifyTicketEvent(
+      { kind: "created" },
+      { id: String(ticket.id), subject, description, category: data.category, priority: data.priority, status: "open", authorName: author.name, authorEmail: author.email, authorRole: author.role },
+      { name: session.name || session.email, email: session.email },
+    )
     void logActivity({
       actor: session,
       action: "ticket.create",
