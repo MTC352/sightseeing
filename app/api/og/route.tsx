@@ -80,7 +80,8 @@ export async function GET(req: Request) {
           </div>
           <div style={{ fontSize: 28, color: "rgba(255,255,255,0.85)", lineHeight: 1.35 }}>{subtitle}</div>
           {price ? (
-            <div style={{ marginTop: 8, fontSize: 24, color: "#a7f3d0" }}>From {price}</div>
+            // One text node: Satori rejects a non-flex <div> with several children ("From " + price).
+            <div style={{ marginTop: 8, fontSize: 24, color: "#a7f3d0" }}>{`From ${price.slice(0, 40)}`}</div>
           ) : null}
         </div>
       </div>
