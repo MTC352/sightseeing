@@ -6,6 +6,7 @@ import { Pencil, X, CheckCircle, Eye, Save, AlertCircle } from "lucide-react"
 import { AutoEditableLayer } from "@/components/auto-editable-layer"
 import { SavedContentApplier } from "@/components/saved-content-applier"
 import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
+import { isFullAdmin } from "@/lib/admin-permissions"
 
 interface EditModeCtx {
   isEditMode: boolean
@@ -65,9 +66,12 @@ export function EditModeProvider({ children, initialContent = {} }: { children: 
         if (res.ok) {
           return res.json().then((data: { role?: string; permissions?: string[] }) => {
             if (cancelled) return
-            const isSuperAdmin = data?.role === "superadmin"
+            // Full admins (superadmin or a "*" full-access employee) or an
+            // employee granted "pages" — mirrors canAccessPath for
+            // /api/admin/page-content.
+            const isFull = isFullAdmin(data?.role ?? "", data?.permissions)
             const hasPages = Array.isArray(data?.permissions) && data.permissions.includes("pages")
-            if (isSuperAdmin || hasPages) {
+            if (isFull || hasPages) {
               setAdminVerified(true)
             } else {
               setAdminVerified(false)
