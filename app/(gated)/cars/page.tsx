@@ -161,7 +161,7 @@ export default async function CarsPage() {
                 <p className="text-sm font-semibold text-foreground">Find your rental car</p>
                 <span className="ml-auto text-[10px] text-muted-foreground">Powered by Travelpayouts</span>
               </div>
-              <div className="p-2">
+              <div data-no-edit className="p-2">
                 <CarRentalWidget />
               </div>
             </div>

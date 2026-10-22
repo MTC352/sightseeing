@@ -104,8 +104,8 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
               </p>
             </div>
 
-            {/* Widget render area */}
-            <div className="overflow-hidden rounded-b-2xl border border-border bg-card shadow-lg">
+            {/* Widget render area — live trip data, not editable copy */}
+            <div data-no-edit className="overflow-hidden rounded-b-2xl border border-border bg-card shadow-lg">
               {active === "list" && <SightseeingList trips={trips.slice(0, 5)} />}
               {active === "carousel" && <SightseeingCarousel trips={trips} />}
               {active === "map" && <SightseeingMap trips={trips} />}

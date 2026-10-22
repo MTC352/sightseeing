@@ -3,13 +3,19 @@ import { Link } from "@/components/i18n/link"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { CookieSettingsButton } from "@/components/cookie-banner"
+import { LegalLink } from "@/components/legal-link"
+import { dbGetLegalLinks, LEGAL_LINKS_DEFAULTS } from "@/lib/db/queries"
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description: "Privacy Policy for sightseeing.lu — how we collect, use, and protect your personal data under GDPR.",
 }
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const legal = await dbGetLegalLinks().catch(() => LEGAL_LINKS_DEFAULTS)
+  // The "official policy" card only makes sense when the configured Privacy
+  // Policy URL points somewhere other than this page.
+  const showOfficialPolicy = /^https?:\/\//i.test(legal.privacyUrl)
   return (
     <>
       <Navbar />
@@ -19,20 +25,22 @@ export default function PrivacyPage() {
           Last updated: 29 May 2026 · Effective from first publication
         </p>
 
-        <a
-          href="https://www.slg.lu/politique-de-confidentialite/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-8 flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 px-6 py-5 transition-colors hover:bg-primary/15 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div>
-            <p className="text-base font-semibold text-foreground">View our official Privacy Policy</p>
-            <p className="mt-1 text-sm text-muted-foreground">Read the full, legally binding privacy policy on slg.lu</p>
-          </div>
-          <span className="inline-flex shrink-0 items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90">
-            Open Privacy Policy →
-          </span>
-        </a>
+        {showOfficialPolicy && (
+          <a
+            href={legal.privacyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-8 flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 px-6 py-5 transition-colors hover:bg-primary/15 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <p className="text-base font-semibold text-foreground">View our official Privacy Policy</p>
+              <p className="mt-1 text-sm text-muted-foreground">Read the full, legally binding privacy policy on {new URL(legal.privacyUrl).hostname.replace(/^www\./, "")}</p>
+            </div>
+            <span className="inline-flex shrink-0 items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90">
+              Open Privacy Policy →
+            </span>
+          </a>
+        )}
 
         <div className="mt-8 rounded-xl border border-border bg-secondary/30 px-5 py-4 text-sm text-muted-foreground">
           This policy explains which personal data sightseeing.lu collects, why, who we share it with, and what rights you have under the EU General Data Protection Regulation (GDPR — Regulation 2016/679) and Luxembourg data protection law as supervised by the <strong>CNPD</strong>.
@@ -297,7 +305,7 @@ export default function PrivacyPage() {
         </div>
 
         <div className="mt-12 border-t border-border pt-6 flex flex-wrap gap-4 text-xs text-muted-foreground">
-          <Link href="/impressum" className="hover:text-primary underline underline-offset-2">Legal Notice (Impressum)</Link>
+          <LegalLink href={legal.legalNoticeUrl} className="hover:text-primary underline underline-offset-2">Legal Notice (Impressum)</LegalLink>
           <Link href="/help" className="hover:text-primary underline underline-offset-2">Help & FAQ</Link>
           <Link href="/" className="hover:text-primary underline underline-offset-2">Back to homepage</Link>
         </div>

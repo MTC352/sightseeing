@@ -3,7 +3,8 @@ import Image from "next/image"
 import { MapPin, Mail, Phone } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
 import { CookieSettingsButton } from "@/components/cookie-banner"
-import { dbGetContactInfo } from "@/lib/db/queries"
+import { LegalLink } from "@/components/legal-link"
+import { dbGetContactInfo, dbGetLegalLinks, LEGAL_LINKS_DEFAULTS } from "@/lib/db/queries"
 import { getViewerFooterMenu } from "@/lib/footer-menu"
 
 export async function SiteFooter() {
@@ -13,6 +14,7 @@ export async function SiteFooter() {
     phone: "+352 266 51 2200",
   }))
   const menu = await getViewerFooterMenu()
+  const legal = await dbGetLegalLinks().catch(() => LEGAL_LINKS_DEFAULTS)
 
   return (
     <footer className="border-t border-border bg-card">
@@ -53,8 +55,8 @@ export async function SiteFooter() {
               &copy; {new Date().getFullYear()} sightseeing.lu S.A. — All rights reserved.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
-              <a href="https://www.slg.lu/politique-de-confidentialite/" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-primary">Privacy Policy</a>
-              <Link href="/impressum" className="text-xs text-muted-foreground transition-colors hover:text-primary">Legal Notice</Link>
+              <LegalLink href={legal.privacyUrl} className="text-xs text-muted-foreground transition-colors hover:text-primary">Privacy Policy</LegalLink>
+              <LegalLink href={legal.legalNoticeUrl} className="text-xs text-muted-foreground transition-colors hover:text-primary">Legal Notice</LegalLink>
               <CookieSettingsButton />
             </div>
           </div>

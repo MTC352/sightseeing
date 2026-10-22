@@ -245,7 +245,7 @@ export default async function FlightsPage() {
             </div>
 
             {/* Search widget */}
-            <div className="mt-8 overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div data-no-edit className="mt-8 overflow-hidden rounded-2xl bg-white shadow-xl">
               <FlightEmbedWidget />
             </div>
           </div>

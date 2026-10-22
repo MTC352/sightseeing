@@ -10,10 +10,10 @@ const {
   isDevPageBlocked,
 } = mod.default ?? mod
 
-test("registry lists exactly the 9 governed pages", () => {
+test("registry lists exactly the 8 governed pages", () => {
   const slugs = DEVELOPMENT_PAGES.map((p) => p.slug).sort()
-  assert.deepEqual(slugs, ["cars", "emergency", "flights", "hotels", "impressum", "privacy", "trains", "travel", "widgets"])
-  assert.equal(DEVELOPMENT_PAGE_SLUGS.size, 9)
+  assert.deepEqual(slugs, ["cars", "emergency", "flights", "hotels", "privacy", "trains", "travel", "widgets"])
+  assert.equal(DEVELOPMENT_PAGE_SLUGS.size, 8)
 })
 
 test("topLevelSlug extracts the first path segment", () => {

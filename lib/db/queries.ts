@@ -1511,6 +1511,7 @@ export async function dbGetSettings() {
     query(`SELECT name, label, placement, html, enabled FROM header_footer_blocks`),
   ])
   const contactInfo = await dbGetContactInfo()
+  const legalLinks = await dbGetLegalLinks().catch(() => ({ ...LEGAL_LINKS_DEFAULTS }))
 
   const apiKeys: Record<string, string> = {}
   let weglot: Record<string, unknown> = { originalLang: 'en', destinationLangs: [], showFlags: true }
@@ -1656,9 +1657,8 @@ export async function dbGetSettings() {
   const aiProvider = effectiveProvider(apiKeys, aiEnv)
 
   const footerMenu = (await dbGetFooterMenu().catch(() => null)) ?? FOOTER_MENU_DEFAULT
-  const disabledPages = await dbGetDisabledPages().catch(() => [] as string[])
 
-  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, contactInfo, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) }, footerMenu, pageVisibility: { disabled: disabledPages } }
+  return { apiKeys, ai, plannerBehavior, itineraryBehavior, seoBehavior, weglot, announcement, contactInfo, legalLinks, importExcludedFields, aiProvider, aiProviderSelected, header: { customHtml: mergeHtml(headerBlocks) }, footer: { customHtml: mergeHtml(footerBlocks) }, footerMenu }
 }
 
 export async function dbUpdateItineraryConfig(data: Record<string, unknown>) {
@@ -2597,6 +2597,55 @@ export async function dbUpdateContactInfo(data: { address?: string; email?: stri
   return updated
 }
 
+// ── Legal links (footer, cookie banner, legal pages) ────────────────────────
+// Single `integrations` row (key='legal_links', JSONB in `meta`) — mirrors the
+// contact_info pattern above. No dedicated table/migration.
+
+export interface LegalLinks {
+  privacyUrl: string
+  legalNoticeUrl: string
+}
+
+export const LEGAL_LINKS_DEFAULTS: LegalLinks = {
+  privacyUrl: 'https://www.slg.lu/politique-de-confidentialite/',
+  legalNoticeUrl: '/impressum',
+}
+
+/** Allow only same-origin paths or http(s) URLs (blocks javascript: etc.). */
+function legalUrl(v: unknown, fallback: string): string {
+  if (typeof v !== 'string') return fallback
+  const s = v.trim()
+  if (s.startsWith('/') && !s.startsWith('//')) return s.slice(0, 300)
+  if (/^https?:\/\//i.test(s)) return s.slice(0, 300)
+  return fallback
+}
+
+export async function dbGetLegalLinks(): Promise<LegalLinks> {
+  const row = await queryOne<{ meta: unknown }>(
+    `SELECT meta FROM integrations WHERE key = 'legal_links'`,
+  )
+  const meta = (row?.meta && typeof row.meta === 'object' ? row.meta : {}) as Record<string, unknown>
+  return {
+    privacyUrl: legalUrl(meta.privacyUrl, LEGAL_LINKS_DEFAULTS.privacyUrl),
+    legalNoticeUrl: legalUrl(meta.legalNoticeUrl, LEGAL_LINKS_DEFAULTS.legalNoticeUrl),
+  }
+}
+
+export async function dbUpdateLegalLinks(data: { privacyUrl?: string; legalNoticeUrl?: string }): Promise<LegalLinks> {
+  const current = await dbGetLegalLinks()
+  const updated: LegalLinks = {
+    privacyUrl: legalUrl(data.privacyUrl, current.privacyUrl),
+    legalNoticeUrl: legalUrl(data.legalNoticeUrl, current.legalNoticeUrl),
+  }
+  await query(
+    `INSERT INTO integrations (key, label, value, meta)
+     VALUES ('legal_links', 'Legal Links', '', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET meta = $1::jsonb, updated_at = NOW()`,
+    [JSON.stringify(updated)],
+  )
+  return updated
+}
+
 // ── Site frontend protection (admin-configurable staging gate) ──────────────
 
 export interface SiteProtection {
@@ -2706,7 +2755,6 @@ export interface CookieSettings {
   enabled: boolean
   title: string
   message: string
-  privacyUrl: string
   necessaryTitle: string
   necessaryDescription: string
   categories: {
@@ -2720,7 +2768,6 @@ export const DEFAULT_COOKIE_SETTINGS: CookieSettings = {
   title: "We use cookies",
   message:
     "We use strictly necessary cookies to operate the site, and optional functional cookies for language preferences and trip planning. Marketing cookies power our flight and hotel search widgets.",
-  privacyUrl: "/privacy",
   necessaryTitle: "Strictly necessary",
   necessaryDescription:
     "Required for the website to function. Includes your shopping cart and admin authentication. Cannot be disabled.",
@@ -2749,16 +2796,6 @@ function cookieText(v: unknown, fallback: string, max = 600): string {
   return cleaned ? cleaned.slice(0, max) : fallback
 }
 
-/** Allow only same-origin paths or http(s) URLs (blocks javascript: etc.). */
-function cookieUrl(v: unknown, fallback: string): string {
-  if (typeof v !== "string") return fallback
-  const s = v.trim()
-  if (!s) return fallback
-  if (s.startsWith("/")) return s.slice(0, 300)
-  if (/^https?:\/\//i.test(s)) return s.slice(0, 300)
-  return fallback
-}
-
 function normalizeCookieCategory(raw: unknown, def: CookieCategory): CookieCategory {
   const r = (raw ?? {}) as Record<string, unknown>
   return {
@@ -2776,7 +2813,6 @@ function normalizeCookieSettings(raw: unknown): CookieSettings {
     enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_COOKIE_SETTINGS.enabled,
     title: cookieText(r.title, DEFAULT_COOKIE_SETTINGS.title, 120),
     message: cookieText(r.message, DEFAULT_COOKIE_SETTINGS.message, 800),
-    privacyUrl: cookieUrl(r.privacyUrl, DEFAULT_COOKIE_SETTINGS.privacyUrl),
     necessaryTitle: cookieText(r.necessaryTitle, DEFAULT_COOKIE_SETTINGS.necessaryTitle, 120),
     necessaryDescription: cookieText(
       r.necessaryDescription,

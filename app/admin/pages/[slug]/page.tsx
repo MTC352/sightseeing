@@ -11,6 +11,7 @@ const SLUG_TO_URL: Record<string, string> = {
   careers:    "/careers",
   dmc:        "/dmc",
   help:       "/help",
+  impressum:  "/impressum",
   checkout:   "/my-trips",
   "live-tracking": "/live-tracking",
 }

@@ -160,7 +160,7 @@ export default async function TrainsPage() {
           </p>
 
           {/* Search widget */}
-          <div className="mx-auto mt-8 max-w-2xl overflow-hidden rounded-2xl bg-card p-1 shadow-xl">
+          <div data-no-edit className="mx-auto mt-8 max-w-2xl overflow-hidden rounded-2xl bg-card p-1 shadow-xl">
             <TrainSearchWidget />
           </div>
         </div>

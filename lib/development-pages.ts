@@ -1,12 +1,11 @@
 /**
  * lib/development-pages.ts
- * Single source of truth for the "Development Pages" admin tab and the
- * public-facing 404 gate in app/layout.tsx.
+ * Single source of truth for the pages with an Enabled/Disabled switch on
+ * Admin → Pages, and the public-facing 404 gate in app/(gated)/layout.tsx.
  *
- * These are static public routes (app/<slug>/page.tsx) that are NOT in the
- * hardcoded MANAGED_PAGES list on /admin/pages, so before this module they were
- * unmanageable. All default to ENABLED; a slug is "disabled" only when it
- * appears in the stored integrations row 'page_visibility'.meta.disabled.
+ * These are static public routes (app/(gated)/<slug>/page.tsx). All default to
+ * ENABLED; a slug is "disabled" only when it appears in the stored integrations
+ * row 'page_visibility'.meta.disabled.
  */
 export interface DevelopmentPage {
   /** Top-level route segment, e.g. "emergency" for /emergency. */
@@ -24,7 +23,6 @@ export const DEVELOPMENT_PAGES: DevelopmentPage[] = [
   { slug: "trains",    label: "Trains",    url: "/trains",    description: "Trains vertical" },
   { slug: "travel",    label: "Travel",    url: "/travel",    description: "Travel vertical" },
   { slug: "widgets",   label: "Widgets",   url: "/widgets",   description: "Embeddable widgets demo" },
-  { slug: "impressum", label: "Impressum", url: "/impressum", description: "Legal notice (Impressum)" },
   { slug: "privacy",   label: "Privacy",   url: "/privacy",   description: "Privacy policy" },
 ]
 

@@ -14,7 +14,6 @@ interface CookieSettings {
   enabled: boolean
   title: string
   message: string
-  privacyUrl: string
   necessaryTitle: string
   necessaryDescription: string
   categories: {
@@ -205,12 +204,10 @@ export function CookieSettings() {
               onChange={(v) => patch({ message: v })}
               textarea
             />
-            <TextField
-              label="Privacy policy link"
-              value={settings.privacyUrl}
-              onChange={(v) => patch({ privacyUrl: v })}
-              placeholder="/privacy"
-            />
+            <p className="text-xs text-muted-foreground">
+              The banner&apos;s &quot;Privacy Policy&quot; link uses the Privacy Policy URL set in
+              Header &amp; Footer → Footer → Legal Links.
+            </p>
           </div>
         </div>
       </div>

@@ -16,7 +16,7 @@ import { CustomHtmlBlock } from "@/components/custom-html-block"
 import { AnnouncementBanner } from "@/components/announcement-banner"
 import { SiteAccessGate } from "@/components/site-access-gate"
 import { isIndexingEnabled } from "@/lib/seo"
-import { dbGetInjectionBlocks, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetPageContent, dbGetCookiebotId } from "@/lib/db/queries"
+import { dbGetInjectionBlocks, dbGetAnnouncement, dbGetSiteProtection, dbGetCookieSettings, DEFAULT_COOKIE_SETTINGS, dbGetLegalLinks, LEGAL_LINKS_DEFAULTS, dbGetPageContent, dbGetCookiebotId } from "@/lib/db/queries"
 import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
 import { withTimeout } from "@/lib/db"
 import { headers, cookies } from "next/headers"
@@ -123,7 +123,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // wrongly appears even when protection is disabled. So dev gets a generous
   // timeout (and never fails closed — see protectionEnabled below).
   const isDev = process.env.NODE_ENV !== "production"
-  const [injection, announcement, protection, cookieSettings, pageContent, cookiebotId] = await Promise.all([
+  const [injection, announcement, protection, cookieSettings, pageContent, cookiebotId, legalLinks] = await Promise.all([
     withTimeout(dbGetInjectionBlocks().catch(() => ({ header: "", footer: "" })), 250, { header: "", footer: "" }),
     withTimeout(dbGetAnnouncement().catch(() => null), 250, null),
     // null = DB read failed/timed out. Treated as "protected, password unknown"
@@ -133,6 +133,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     withTimeout(dbGetCookieSettings().catch(() => DEFAULT_COOKIE_SETTINGS), 250, DEFAULT_COOKIE_SETTINGS),
     withTimeout(dbGetPageContent(INLINE_CONTENT_SLUG).catch(() => ({})), 500, {}),
     withTimeout(dbGetCookiebotId().catch(() => ""), 250, ""),
+    withTimeout(dbGetLegalLinks().catch(() => LEGAL_LINKS_DEFAULTS), 250, LEGAL_LINKS_DEFAULTS),
   ])
 
   // When a Cookiebot Domain Group ID is configured (Admin → API Keys), Cookiebot
@@ -286,7 +287,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <ConsentedScripts />
           </>
         ) : (
-          <CookieBanner settings={cookieSettings} />
+          <CookieBanner settings={cookieSettings} privacyUrl={legalLinks.privacyUrl} />
         )}
 
         {!isAdminRoute && <Translator />}

@@ -22,7 +22,6 @@ export interface CookieBannerSettings {
   enabled: boolean
   title: string
   message: string
-  privacyUrl: string
   necessaryTitle: string
   necessaryDescription: string
   categories: {
@@ -36,7 +35,6 @@ const FALLBACK_SETTINGS: CookieBannerSettings = {
   title: "We use cookies",
   message:
     "We use strictly necessary cookies to operate the site, and optional functional cookies for language preferences and trip planning. Marketing cookies power our flight and hotel search widgets.",
-  privacyUrl: "/privacy",
   necessaryTitle: "Strictly necessary",
   necessaryDescription:
     "Required for the website to function. Includes your shopping cart and admin authentication. Cannot be disabled.",
@@ -60,8 +58,11 @@ const FALLBACK_SETTINGS: CookieBannerSettings = {
 
 export function CookieBanner({
   settings,
+  privacyUrl,
 }: {
   settings?: CookieBannerSettings
+  /** Site-wide Privacy Policy URL (Admin → Header & Footer → Legal Links). */
+  privacyUrl?: string
 }) {
   const cfg = settings ?? FALLBACK_SETTINGS
   const functionalOffered = cfg.categories.functional.enabled
@@ -170,9 +171,10 @@ export function CookieBanner({
                 <p className="text-sm font-semibold text-foreground">{cfg.title}</p>
                 <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-muted-foreground">
                   {cfg.message}{" "}
-                  {cfg.privacyUrl && (
+                  {privacyUrl && (
                     <a
-                      href={cfg.privacyUrl}
+                      href={privacyUrl}
+                      {...(/^https?:\/\//i.test(privacyUrl) ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                       className="underline underline-offset-2 hover:text-primary"
                     >
                       Privacy Policy

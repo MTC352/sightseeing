@@ -199,7 +199,7 @@ export default async function HotelsPage() {
                 </div>
                 <span className="text-[10px] text-muted-foreground/60">Powered by Travelpayouts</span>
               </div>
-              <div className="p-4">
+              <div data-no-edit className="p-4">
                 <HotelBookingWidget />
               </div>
             </div>

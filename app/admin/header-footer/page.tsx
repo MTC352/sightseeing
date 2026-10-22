@@ -5,7 +5,7 @@ import {
   Save, Check, AlertCircle, Code2, Eye, EyeOff,
   ChevronDown, ChevronUp, Layers, ArrowUpToLine, ArrowDownToLine, X,
   Megaphone, AlignLeft, AlignCenter, AlignRight, RotateCcw, MapPin, Mail, Phone,
-  ShieldCheck, ListTree, FileText,
+  ShieldCheck, ListTree, Scale, Link2,
 } from "lucide-react"
 import { RichTextEditor } from "@/components/admin/rich-text-editor"
 import {
@@ -16,14 +16,13 @@ import {
 import type { FooterMenu, FooterGroup, FooterItem } from "@/lib/footer-menu-types"
 import { newId } from "@/lib/footer-menu-normalize"
 import { FOOTER_MENU_DEFAULT } from "@/lib/footer-menu-default"
-import { DEVELOPMENT_PAGES } from "@/lib/development-pages"
 
 /* ── Types ── */
 type Section = "header" | "footer"
 /** Tabs shown in the editor. `header`/`footer` drive the code-injection blocks
- *  (keyed by Section); `footer-menu` is a standalone panel for the footer menu;
- *  `pages` is a standalone panel for the Development Pages visibility toggles. */
-type TabKey = Section | "footer-menu" | "pages"
+ *  (keyed by Section); `footer-menu` is a standalone panel for the footer menu.
+ *  (Page visibility toggles live on Admin → Pages.) */
+type TabKey = Section | "footer-menu"
 
 interface CodeBlock {
   id: string
@@ -644,6 +643,90 @@ function ContactInfoEditor({
   )
 }
 
+/* ── Legal Links editor ── */
+interface LegalLinksValue {
+  privacyUrl: string
+  legalNoticeUrl: string
+}
+
+const LEGAL_LINKS_DEFAULT: LegalLinksValue = {
+  privacyUrl: "https://www.slg.lu/politique-de-confidentialite/",
+  legalNoticeUrl: "/impressum",
+}
+
+/** Same rule the server enforces: a site path ("/…") or an http(s) URL. */
+function isValidLegalUrl(v: string): boolean {
+  const s = v.trim()
+  return (s.startsWith("/") && !s.startsWith("//")) || /^https?:\/\//i.test(s)
+}
+
+function LegalLinksEditor({
+  value,
+  onChange,
+}: {
+  value: LegalLinksValue
+  onChange: (v: LegalLinksValue) => void
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const fields = [
+    { key: "privacyUrl", label: "Privacy Policy URL", placeholder: LEGAL_LINKS_DEFAULT.privacyUrl },
+    { key: "legalNoticeUrl", label: "Legal Notice URL", placeholder: LEGAL_LINKS_DEFAULT.legalNoticeUrl },
+  ] as const
+
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <div className={`flex items-center gap-3 px-5 py-4 ${expanded ? "border-b border-border" : ""}`}>
+        <Scale className="h-5 w-5 shrink-0 text-primary" />
+        <div className="flex flex-1 flex-col min-w-0">
+          <span className="text-sm font-semibold text-foreground">Legal Links</span>
+          <span className="text-[11px] text-muted-foreground">
+            Used by the footer bottom bar, the cookie banner, and the links between the Privacy and Legal Notice pages.
+            The Footer Menu tab has its own links.
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Collapse" : "Expand"}
+          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="flex flex-col gap-4 px-5 py-4">
+          {fields.map(({ key, label, placeholder }) => {
+            const invalid = value[key].trim() !== "" && !isValidLegalUrl(value[key])
+            return (
+              <div key={key}>
+                <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <Link2 className="h-3 w-3" /> {label}
+                </label>
+                <input
+                  type="text"
+                  value={value[key]}
+                  onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  placeholder={placeholder}
+                />
+                {invalid && (
+                  <p className="mt-1 text-[11px] text-destructive">
+                    Use a site path like /impressum or a full https:// URL.
+                  </p>
+                )}
+              </div>
+            )
+          })}
+          <p className="text-[11px] text-muted-foreground">
+            Site paths (e.g. /privacy) open in the same tab; full https:// URLs open in a new tab.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function move<T>(arr: T[], from: number, to: number): T[] {
   if (to < 0 || to >= arr.length) return arr
   const next = arr.slice()
@@ -769,49 +852,6 @@ function FooterMenuEditor({ value, onChange }: { value: FooterMenu; onChange: (m
   )
 }
 
-function DevelopmentPagesEditor({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  const disabled = new Set(value)
-  const toggle = (slug: string) => {
-    const next = new Set(value)
-    if (next.has(slug)) next.delete(slug)
-    else next.add(slug)
-    onChange([...next])
-  }
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
-        <span className="font-semibold">Enabled pages</span> are public. <span className="font-semibold">Disabled pages</span> return a 404 to visitors (you, as an admin, can still preview them). Click <span className="font-semibold">Save</span> to apply.
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {DEVELOPMENT_PAGES.map((p) => {
-          const isEnabled = !disabled.has(p.slug)
-          return (
-            <div key={p.slug} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-foreground">{p.label}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{p.url} — {p.description}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <a href={p.url} target="_blank" rel="noopener noreferrer" title="Preview" className="rounded-lg border border-border p-2 text-muted-foreground hover:text-foreground">
-                  <Eye className="h-4 w-4" />
-                </a>
-                <button
-                  type="button"
-                  onClick={() => toggle(p.slug)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${isEnabled ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}
-                >
-                  {isEnabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                  {isEnabled ? "Enabled" : "Disabled"}
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 /* ── Main page ── */
 export default function HeaderFooterPage() {
   const [tab, setTab] = useState<TabKey>("header")
@@ -824,8 +864,8 @@ export default function HeaderFooterPage() {
     email: "hello@sightseeing.lu",
     phone: "+352 266 51 2200",
   })
+  const [legalLinks, setLegalLinks] = useState<LegalLinksValue>(LEGAL_LINKS_DEFAULT)
   const [footerMenu, setFooterMenu] = useState<FooterMenu>(FOOTER_MENU_DEFAULT)
-  const [disabledPages, setDisabledPages] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
@@ -870,13 +910,24 @@ export default function HeaderFooterPage() {
             phone: typeof c.phone === "string" && c.phone ? c.phone : "+352 266 51 2200",
           })
         }
+        if (s?.legalLinks) {
+          const l = s.legalLinks
+          setLegalLinks({
+            privacyUrl: typeof l.privacyUrl === "string" && l.privacyUrl ? l.privacyUrl : LEGAL_LINKS_DEFAULT.privacyUrl,
+            legalNoticeUrl: typeof l.legalNoticeUrl === "string" && l.legalNoticeUrl ? l.legalNoticeUrl : LEGAL_LINKS_DEFAULT.legalNoticeUrl,
+          })
+        }
         if (s?.footerMenu?.groups) setFooterMenu(s.footerMenu as FooterMenu)
-        if (Array.isArray(s?.pageVisibility?.disabled)) setDisabledPages(s.pageVisibility.disabled as string[])
       })
       .catch(() => {})
   }, [])
 
   async function save() {
+    if (!isValidLegalUrl(legalLinks.privacyUrl) || !isValidLegalUrl(legalLinks.legalNoticeUrl)) {
+      setTab("footer")
+      setError("Legal Links: use a site path like /impressum or a full https:// URL.")
+      return
+    }
     setSaving(true)
     setError("")
     try {
@@ -920,12 +971,12 @@ export default function HeaderFooterPage() {
         fetch("/api/admin/settings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ section: "footerMenu", data: { menu: footerMenu } }),
+          body: JSON.stringify({ section: "legalLinks", data: legalLinks }),
         }),
         fetch("/api/admin/settings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ section: "pageVisibility", data: { disabled: disabledPages } }),
+          body: JSON.stringify({ section: "footerMenu", data: { menu: footerMenu } }),
         }),
       ])
 
@@ -990,7 +1041,6 @@ export default function HeaderFooterPage() {
           { key: "header", label: "Header", Icon: ArrowUpToLine },
           { key: "footer", label: "Footer", Icon: ArrowDownToLine },
           { key: "footer-menu", label: "Footer Menu", Icon: ListTree },
-          { key: "pages", label: "Extra Pages", Icon: FileText },
         ] as const).map(({ key, label, Icon }) => {
           const count = key === "header" ? headerActive : key === "footer" ? footerActive : 0
           return (
@@ -1025,16 +1075,17 @@ export default function HeaderFooterPage() {
             <AnnouncementEditor value={announcement} onChange={setAnnouncement} />
           )}
 
-          {/* Contact info (footer tab only) */}
+          {/* Contact info + legal links (footer tab only) */}
           {tab === "footer" && (
-            <ContactInfoEditor value={contactInfo} onChange={setContactInfo} />
+            <>
+              <ContactInfoEditor value={contactInfo} onChange={setContactInfo} />
+              <LegalLinksEditor value={legalLinks} onChange={setLegalLinks} />
+            </>
           )}
 
           {/* Footer Menu tab — standalone editor, no code-injection blocks */}
           {tab === "footer-menu" ? (
             <FooterMenuEditor value={footerMenu} onChange={setFooterMenu} />
-          ) : tab === "pages" ? (
-            <DevelopmentPagesEditor value={disabledPages} onChange={setDisabledPages} />
           ) : (
             <>
               {/* Injection zone info */}
