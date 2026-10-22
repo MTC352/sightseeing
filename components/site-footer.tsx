@@ -50,7 +50,7 @@ export async function SiteFooter() {
         <div className="mt-10 border-t border-border pt-6">
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
             <p className="text-xs text-muted-foreground">
-              &copy; {new Date().getFullYear()} sightseeing.lu S.à r.l. — All rights reserved.
+              &copy; {new Date().getFullYear()} sightseeing.lu S.A. — All rights reserved.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
               <a href="https://www.slg.lu/politique-de-confidentialite/" target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground transition-colors hover:text-primary">Privacy Policy</a>
