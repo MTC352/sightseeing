@@ -4,6 +4,7 @@ import { SiteFooter } from "@/components/site-footer"
 import { Radio } from "lucide-react"
 import { LiveTrackingMaps } from "@/components/live-tracking-maps"
 import { dbGetPageBySlug } from "@/lib/db/queries"
+import { EditableBox } from "@/components/editable-layout"
 
 // DB-backed static route — must stay dynamic or the deploy build tries to
 // prerender it without a reachable database.
@@ -33,7 +34,7 @@ export default async function LiveTrackingPage() {
       <Navbar />
 
       {/* Hero */}
-      <section className="border-b border-border bg-card">
+      <EditableBox boxId="live-tracking/hero" label="Hero" as="section" className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-16">
           <div className="flex items-center gap-2">
             <Radio className="h-5 w-5 text-primary" />
@@ -47,7 +48,7 @@ export default async function LiveTrackingPage() {
             routes around Luxembourg on the interactive maps below.
           </p>
         </div>
-      </section>
+      </EditableBox>
 
       {/* Maps */}
       <main className="mx-auto max-w-7xl px-4 py-12 lg:px-8">

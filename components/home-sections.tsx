@@ -107,6 +107,8 @@ import { Star, ChevronRight, ChevronLeft, CloudSun, CloudRain, Sun, Wind, Drople
 import { iconForSlug } from "@/lib/tag-icons"
 import { EditableText } from "@/components/editable-text"
 import { useEditMode } from "@/components/edit-mode-provider"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 import { DeparturesSoonSection } from "@/components/departing-soon-section"
 
 export { DeparturesSoonSection }
@@ -155,7 +157,7 @@ export function TrendingSection() {
   const itemClass = "w-[85%] shrink-0 snap-start sm:w-[calc((100%-1.5rem)/2)] lg:w-[calc((100%-3rem)/3)]"
 
   return (
-    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <EditableBox boxId="home/trending" label="Trending this month" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
@@ -202,7 +204,7 @@ export function TrendingSection() {
               ))}
         </div>
       </div>
-    </section>
+    </EditableBox>
   )
 }
 
@@ -248,13 +250,15 @@ export function WeatherSection() {
   const theme = BG_STYLES[icon] ?? BG_STYLES["cloud-sun"]
 
   return (
-    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <EditableBox boxId="home/weather" label="Weather & today's trips" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="rounded-2xl border border-border bg-card p-6 shadow-sm lg:p-8">
-        <div className="flex flex-col gap-6 lg:flex-row lg:gap-10">
+        <EditableColumns rowId="home/weather/columns" kind="split" className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-10">
           {/* Weather card — minimal white design */}
-          <div
+          <EditableBox
+            boxId="home/weather/forecast"
+            label="Weather forecast card"
             data-no-edit
-            className={`shrink-0 overflow-hidden rounded-2xl border border-border shadow-sm lg:w-72 ${theme.bg}`}
+            className={`shrink-0 overflow-hidden rounded-2xl border border-border shadow-sm ${theme.bg}`}
           >
             {/* Content */}
             <div className="relative z-10 p-6">
@@ -319,18 +323,18 @@ export function WeatherSection() {
                 )}
               </div>
             </div>
-          </div>
+          </EditableBox>
 
           {/* AI-powered outdoor recommendations */}
-          <div className="flex min-w-0 flex-1 flex-col">
+          <EditableBox boxId="home/weather/recommendations" label="Today's recommended trips" className="flex min-w-0 flex-1 flex-col">
             <OutdoorTodayTrips
               isWeatherLoading={isLoading}
               weatherCondition={weather?.current.condition}
             />
-          </div>
-        </div>
+          </EditableBox>
+        </EditableColumns>
       </div>
-    </section>
+    </EditableBox>
   )
 }
 
@@ -366,7 +370,7 @@ export function CategoriesSection() {
   // and avoids the layout shift the user reported.
   if (!loading && tags.length === 0) return null
   return (
-    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <EditableBox boxId="home/categories" label="Trending categories" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <h2 className="text-xl font-bold text-foreground">
         <EditableText id="home:categories:heading" defaultValue="Currently trending categories" />
       </h2>
@@ -387,7 +391,7 @@ export function CategoriesSection() {
               )
             })}
       </div>
-    </section>
+    </EditableBox>
   )
 }
 
@@ -509,7 +513,7 @@ export function ReviewsSection() {
   }
 
   return (
-    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <EditableBox boxId="home/reviews" label="Reviews & bestseller" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
 
       {/* ── Google Reviews Settings Panel (edit mode only) ── */}
       {isEditMode && panelOpen && (
@@ -571,7 +575,7 @@ export function ReviewsSection() {
       )}
 
       <div className="flex flex-col gap-8 lg:flex-row lg:items-stretch">
-        <div className="flex min-w-0 flex-1 flex-col">
+        <EditableBox boxId="home/reviews/google" label="Google reviews" className="flex min-w-0 flex-1 flex-col">
 
           {/* ── Header row: title + overall rating + CTA button ── */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -664,12 +668,12 @@ export function ReviewsSection() {
             <ReviewSlider reviews={liveReviews.slice(0, 5)} />
           )}
           </div>
-        </div>
+        </EditableBox>
 
         {/* ── Bestseller sidebar ── */}
         <BestsellerSidebar />
       </div>
-    </section>
+    </EditableBox>
   )
 }
 
@@ -677,14 +681,14 @@ function BestsellerSidebar() {
   const { trips, isLoading } = usePublishedTrips()
   if (!isLoading && !trips[0]) return null
   return (
-    <div className="shrink-0 lg:w-80">
+    <EditableBox boxId="home/reviews/bestseller" label="This week's bestseller" className="shrink-0 lg:w-80">
       <h3 className="text-lg font-bold text-foreground">
         <EditableText id="home:bestseller:heading" defaultValue="This week's bestseller" />
       </h3>
       <div className="mt-4">
         {isLoading ? <TripCardSkeleton /> : <TripCard trip={trips[0]} priority />}
       </div>
-    </div>
+    </EditableBox>
   )
 }
 
@@ -844,7 +848,7 @@ export function RecentlyViewed() {
   const skeletonCount = Math.min(recentIds.length, 4)
 
   return (
-    <section data-testid="recently-viewed" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <EditableBox boxId="home/recently-viewed" label="Recently viewed" as="section" data-testid="recently-viewed" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
         <Clock className="h-5 w-5 text-primary" />
         <EditableText id="home:recent:heading" defaultValue="Recently Viewed" />
@@ -859,7 +863,7 @@ export function RecentlyViewed() {
               <TripCard key={t.id} trip={t} variant="small" priority={i === 0} />
             ))}
       </div>
-    </section>
+    </EditableBox>
   )
 }
 
@@ -867,16 +871,16 @@ export function RecentlyViewed() {
 export function StatsBar() {
   const stats = [{ label: "Routes", value: "+100", sub: "Destinations near you" }, { label: "TripAdvisor Score", value: "4.5", sub: "4,500 on TripAdvisor" }, { label: "Seating Capacity", value: "1,920", sub: "Capacity of rides" }, { label: "E-Bikes", value: "76", sub: "An ecological way to discover" }]
   return (
-    <section className="bg-primary/10">
-      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-8 lg:grid-cols-4 lg:px-8">
+    <EditableBox boxId="home/stats" label="Stats bar" as="section" className="bg-primary/10">
+      <EditableColumns rowId="home/stats/grid" kind="cards" cols={4} className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-8 lg:grid-cols-4 lg:px-8">
         {stats.map((s) => (
-          <div key={s.label} className="text-center">
+          <EditableBox key={s.label} boxId={`home/stats/${layoutSlug(s.label)}`} label={`Stat: ${s.label}`} className="text-center">
             <p className="text-2xl font-bold text-primary">{s.value}</p>
             <p className="text-sm font-semibold text-foreground">{s.label}</p>
             <p className="text-xs text-muted-foreground">{s.sub}</p>
-          </div>
+          </EditableBox>
         ))}
-      </div>
-    </section>
+      </EditableColumns>
+    </EditableBox>
   )
 }

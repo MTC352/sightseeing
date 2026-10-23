@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { dbGetPageContent, dbSavePageContent } from "@/lib/db/queries"
 import { requirePermission } from "@/lib/auth-server"
+import { FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { validateLayoutChanges } from "@/lib/page-layout"
 
 export const dynamic = "force-dynamic"
 
@@ -30,7 +32,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    await requirePermission("pages")
+    const session = await requirePermission("pages")
     const data = await req.json()
     const { slug, changes } = data
     if (
@@ -48,6 +50,14 @@ export async function POST(req: Request) {
         { status: 400 },
       )
     }
+    // Layout controls (removed boxes / column presets): validate values, and
+    // reserve restoring a removed box for the superadmin.
+    const layoutError = validateLayoutChanges(
+      changes as Record<string, string>,
+      await dbGetPageContent(slug),
+      session.role === FULL_ACCESS_ROLE,
+    )
+    if (layoutError) return NextResponse.json({ error: layoutError }, { status: 403 })
     const saved = await dbSavePageContent(slug, changes)
     return NextResponse.json({ saved })
   } catch (err) {

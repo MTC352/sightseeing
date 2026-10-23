@@ -4,6 +4,7 @@ import { Link } from "@/components/i18n/link"
 import { EditableText } from "@/components/editable-text"
 import { EditableLink } from "@/components/editable-link"
 import { LegalLink } from "@/components/legal-link"
+import { EditableBox } from "@/components/editable-layout"
 
 /*
  * /impressum — Legal Notice. Every heading, label and paragraph is editable in
@@ -44,7 +45,7 @@ export function ImpressumContent({
 
       <section className="mt-10 space-y-8 text-sm leading-relaxed text-foreground">
 
-        <div>
+        <EditableBox boxId="impressum/company" label="Company details">
           <h2 className={H2}><EditableText id="impressum:company:heading" defaultValue="Company details" /></h2>
           <div className="mt-3 space-y-1">
             <Detail id="name" label="Company name" value={<EditableText id="impressum:company:name" defaultValue="sightseeing.lu S.à r.l." />} />
@@ -57,9 +58,9 @@ export function ImpressumContent({
             <Detail id="rcs" label="Commercial Register" value={<EditableText id="impressum:company:rcs" defaultValue="Registre de Commerce et des Sociétés (RCS) Luxembourg — B [Registration number to be added]" />} />
             <Detail id="vat" label="VAT number" value={<EditableText id="impressum:company:vat" defaultValue="LU [VAT number to be added]" />} />
           </div>
-        </div>
+        </EditableBox>
 
-        <div>
+        <EditableBox boxId="impressum/contact" label="Contact">
           <h2 className={H2}><EditableText id="impressum:contact:heading" defaultValue="Contact" /></h2>
           <div className="mt-3 space-y-1">
             <p>
@@ -70,9 +71,9 @@ export function ImpressumContent({
               <span className="font-medium"><EditableText id="impressum:contact:phone-label" defaultValue="Telephone" />:</span> {contact.phone}
             </p>
           </div>
-        </div>
+        </EditableBox>
 
-        <div>
+        <EditableBox boxId="impressum/responsible" label="Person responsible for content">
           <h2 className={H2}><EditableText id="impressum:responsible:heading" defaultValue="Person responsible for content" /></h2>
           <div className="mt-3 space-y-1">
             <p>
@@ -83,9 +84,9 @@ export function ImpressumContent({
               />
             </p>
           </div>
-        </div>
+        </EditableBox>
 
-        <div>
+        <EditableBox boxId="impressum/hosting" label="Hosting">
           <h2 className={H2}><EditableText id="impressum:hosting:heading" defaultValue="Hosting & technical infrastructure" /></h2>
           <div className="mt-3 space-y-1">
             <p>
@@ -96,9 +97,9 @@ export function ImpressumContent({
               />
             </p>
           </div>
-        </div>
+        </EditableBox>
 
-        <div>
+        <EditableBox boxId="impressum/authority" label="Supervisory authority">
           <h2 className={H2}><EditableText id="impressum:authority:heading" defaultValue="Supervisory authority" /></h2>
           <div className="mt-3 space-y-1">
             <p><EditableText id="impressum:authority:intro" multiline defaultValue="The competent supervisory authority for data protection matters is:" /></p>
@@ -113,9 +114,9 @@ export function ImpressumContent({
               </EditableLink>
             </p>
           </div>
-        </div>
+        </EditableBox>
 
-        <div>
+        <EditableBox boxId="impressum/disclaimer" label="Disclaimer">
           <h2 className={H2}><EditableText id="impressum:disclaimer:heading" defaultValue="Disclaimer" /></h2>
           <div className="mt-3 space-y-3 text-muted-foreground">
             <p>
@@ -140,9 +141,9 @@ export function ImpressumContent({
               />
             </p>
           </div>
-        </div>
+        </EditableBox>
 
-        <div>
+        <EditableBox boxId="impressum/odr" label="Online dispute resolution">
           <h2 className={H2}><EditableText id="impressum:odr:heading" defaultValue="Online dispute resolution" /></h2>
           <div className="mt-3 text-muted-foreground">
             <p>
@@ -161,15 +162,15 @@ export function ImpressumContent({
               />
             </p>
           </div>
-        </div>
+        </EditableBox>
 
       </section>
 
-      <div className="mt-12 border-t border-border pt-6 flex flex-wrap gap-4 text-xs text-muted-foreground">
+      <EditableBox boxId="impressum/links" label="Bottom links" className="mt-12 border-t border-border pt-6 flex flex-wrap gap-4 text-xs text-muted-foreground">
         <LegalLink href={privacyUrl} className="hover:text-primary underline underline-offset-2">Privacy Policy</LegalLink>
         <Link href="/help" className="hover:text-primary underline underline-offset-2">Help & FAQ</Link>
         <Link href="/" className="hover:text-primary underline underline-offset-2">Back to homepage</Link>
-      </div>
+      </EditableBox>
     </main>
   )
 }

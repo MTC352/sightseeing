@@ -2,11 +2,12 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
-import { Pencil, X, CheckCircle, Eye, Save, AlertCircle } from "lucide-react"
+import { Pencil, CheckCircle, Eye, Save, AlertCircle, Undo2 } from "lucide-react"
 import { AutoEditableLayer } from "@/components/auto-editable-layer"
 import { SavedContentApplier } from "@/components/saved-content-applier"
 import { INLINE_CONTENT_SLUG } from "@/lib/page-content-slug"
-import { isFullAdmin } from "@/lib/admin-permissions"
+import { isFullAdmin, FULL_ACCESS_ROLE } from "@/lib/admin-permissions"
+import { RemovedSectionsPanel } from "@/components/removed-sections-panel"
 
 interface EditModeCtx {
   isEditMode: boolean
@@ -19,6 +20,8 @@ interface EditModeCtx {
    * edits to the same key compose instead of clobbering one another.
    */
   mutateChange: (key: string, mutate: (current: string | undefined) => string) => void
+  /** Superadmin with Developer mode on — may restore removed sections. */
+  canRestore: boolean
 }
 
 const EditModeContext = createContext<EditModeCtx>({
@@ -27,6 +30,7 @@ const EditModeContext = createContext<EditModeCtx>({
   savedChanges: {},
   addChange: () => {},
   mutateChange: () => {},
+  canRestore: false,
 })
 
 export function useEditMode() {
@@ -45,10 +49,18 @@ export function EditModeProvider({ children, initialContent = {} }: { children: 
   // /api/admin/auth/me check confirms a valid admin session. If the
   // param is absent, this stays false without making any network call.
   const [adminVerified, setAdminVerified] = useState(false)
+  const [isSuperadmin, setIsSuperadmin] = useState(false)
+  // Developer mode is the admin panel's hidden superadmin toggle (?dev=1),
+  // persisted in localStorage — see app/admin/layout.tsx.
+  const [devMode, setDevMode] = useState(false)
+  useEffect(() => {
+    try { setDevMode(localStorage.getItem("admin_dev_mode") === "1") } catch { /* ignore */ }
+  }, [pathname])
 
   const [pendingChanges, setPendingChanges] = useState<Record<string, string>>({})
   const [savedChanges, setSavedChanges] = useState<Record<string, string>>(initialContent)
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [saveError, setSaveError] = useState("")
 
   // Whenever the param appears (or the page mounts with it), check the
   // admin session. If the check fails (not logged in, session expired,
@@ -71,6 +83,7 @@ export function EditModeProvider({ children, initialContent = {} }: { children: 
             // /api/admin/page-content.
             const isFull = isFullAdmin(data?.role ?? "", data?.permissions)
             const hasPages = Array.isArray(data?.permissions) && data.permissions.includes("pages")
+            setIsSuperadmin(data?.role === FULL_ACCESS_ROLE)
             if (isFull || hasPages) {
               setAdminVerified(true)
             } else {
@@ -108,6 +121,7 @@ export function EditModeProvider({ children, initialContent = {} }: { children: 
   // The actual gate: the URL param AND a verified session must both be true,
   // AND the current page must not be an admin route.
   const isEditMode = paramRequested && adminVerified && !pathname.startsWith("/admin")
+  const canRestore = isEditMode && isSuperadmin && devMode
 
   // Load all persisted inline edits once on mount — for EVERY visitor, not just
   // admins — so the live site reflects saved edits immediately.
@@ -154,21 +168,32 @@ export function EditModeProvider({ children, initialContent = {} }: { children: 
         credentials: "include",
         body: JSON.stringify({ slug: INLINE_CONTENT_SLUG, changes: pendingChanges }),
       })
-      if (!res.ok) throw new Error("save failed")
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(body?.error || "Save failed")
+      }
       setSavedChanges((prev) => ({ ...prev, ...pendingChanges }))
       setPendingChanges({})
       setSaveState("saved")
       setTimeout(() => setSaveState("idle"), 2500)
-    } catch {
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed")
       setSaveState("error")
-      setTimeout(() => setSaveState("idle"), 3000)
+      setTimeout(() => { setSaveState("idle"); setSaveError("") }, 5000)
     }
+  }
+
+  // Reload rather than just clearing state: auto-detected text edits are
+  // written straight into the DOM, so only a fresh render reverts them.
+  function discardAll() {
+    setPendingChanges({})
+    window.location.reload()
   }
 
   const changeCount = Object.keys(pendingChanges).length
 
   return (
-    <EditModeContext.Provider value={{ isEditMode, pendingChanges, savedChanges, addChange, mutateChange }}>
+    <EditModeContext.Provider value={{ isEditMode, pendingChanges, savedChanges, addChange, mutateChange, canRestore }}>
       {isEditMode && (
         <>
           {/* Amber top banner */}
@@ -178,13 +203,28 @@ export function EditModeProvider({ children, initialContent = {} }: { children: 
           >
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Pencil className="h-3.5 w-3.5" />
-              Edit Mode — hover any underlined text and click the pen to edit
+              Edit Mode — click underlined text to edit · hover a box to remove it or change its columns
             </div>
             <div className="flex items-center gap-2">
+              {saveState === "error" && saveError && (
+                <span className="max-w-xs truncate text-xs font-medium text-red-800" title={saveError}>{saveError}</span>
+              )}
+              {canRestore && <RemovedSectionsPanel />}
               {changeCount > 0 && (
-                <span className="rounded-full bg-amber-950/15 px-2 py-0.5 text-xs font-medium">
-                  {changeCount} unsaved change{changeCount > 1 ? "s" : ""}
-                </span>
+                <>
+                  <span className="rounded-full bg-amber-950/15 px-2 py-0.5 text-xs font-medium">
+                    {changeCount} unsaved change{changeCount > 1 ? "s" : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={discardAll}
+                    disabled={saveState === "saving"}
+                    className="flex items-center gap-1.5 rounded-lg border border-amber-950/20 bg-amber-950/10 px-3 py-1 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-950/20 disabled:opacity-40"
+                  >
+                    <Undo2 className="h-3 w-3" />
+                    Discard
+                  </button>
+                </>
               )}
               <button
                 type="button"

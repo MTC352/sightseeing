@@ -3,6 +3,7 @@ import { dbListTrips } from "@/lib/db/queries"
 import type { Trip } from "@/lib/data"
 import { WidgetsShowcase } from "./widgets-showcase"
 import { SiteFooter } from "@/components/site-footer"
+import { EditableBox } from "@/components/editable-layout"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -42,12 +43,12 @@ export default async function WidgetsPage() {
 
   if (!featureTrip) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-16 text-center">
+      <EditableBox boxId="widgets/empty" label="No experiences notice" className="mx-auto max-w-3xl px-4 py-16 text-center">
         <h1 className="text-2xl font-bold">ChatGPT Widgets</h1>
         <p className="mt-3 text-sm text-muted-foreground">
           No published experiences are available right now.
         </p>
-      </div>
+      </EditableBox>
     )
   }
 

@@ -6,6 +6,7 @@ import { Clock, User, ArrowRight } from "lucide-react"
 import type { Metadata } from "next"
 import { dbListPublicPosts } from "@/lib/db/queries"
 import { localizedMetadata } from "@/lib/i18n/metadata"
+import { EditableBox } from "@/components/editable-layout"
 
 export const dynamic = "force-dynamic"
 
@@ -68,15 +69,15 @@ export default async function BlogPage() {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <section className="border-b border-border bg-card">
+      <EditableBox boxId="blog/hero" label="Hero" as="section" className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-16">
           <p className="text-sm font-medium text-primary">From our blog</p>
           <h1 className="mt-2 text-3xl font-bold text-foreground lg:text-4xl">Stories, guides &amp; local insight</h1>
           <p className="mt-3 max-w-xl text-muted-foreground">Travel tips, hidden gems, and expert advice from our team of local Luxembourg guides.</p>
         </div>
-      </section>
+      </EditableBox>
 
-      <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
+      <EditableBox boxId="blog/posts" label="Blog posts" className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
         {/* Featured post */}
         <Link data-no-edit href={`/blog/${featured.slug}`} className="group mb-10 flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md lg:flex-row">
           <div className="relative h-56 shrink-0 lg:h-auto lg:w-[480px]">
@@ -120,7 +121,7 @@ export default async function BlogPage() {
             ))}
           </div>
         )}
-      </div>
+      </EditableBox>
 
       <SiteFooter />
     </div>

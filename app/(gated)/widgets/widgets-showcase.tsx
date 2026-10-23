@@ -9,6 +9,8 @@ import { SightseeingMap } from "@/components/chatgpt-widgets/sightseeing-map"
 import { SightseeingAlbum } from "@/components/chatgpt-widgets/sightseeing-album"
 import { List, Image as ImageIcon, Map, BookOpen, Code2, ExternalLink } from "lucide-react"
 import type { Trip } from "@/lib/data"
+import { EditableBox } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 const WIDGETS = [
   { id: "list", label: "List", icon: List, desc: "Ranked card list with favorites and pricing. Ideal for search results." },
@@ -34,7 +36,7 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
 
       <main className="mx-auto max-w-6xl px-4 py-12 lg:px-8">
         {/* Header */}
-        <div className="mx-auto max-w-2xl text-center">
+        <EditableBox boxId="widgets/header" label="Header" className="mx-auto max-w-2xl text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15">
             <Code2 className="h-6 w-6 text-primary" />
           </div>
@@ -53,10 +55,10 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
           >
             OpenAI Apps SDK Docs <ExternalLink className="h-3.5 w-3.5" />
           </a>
-        </div>
+        </EditableBox>
 
         {/* Widget selector tabs */}
-        <div className="mt-10 flex flex-wrap justify-center gap-2">
+        <EditableBox boxId="widgets/selector" label="Widget selector" className="mt-10 flex flex-wrap justify-center gap-2">
           {WIDGETS.map((w) => (
             <button
               key={w.id}
@@ -72,7 +74,7 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
               {w.label}
             </button>
           ))}
-        </div>
+        </EditableBox>
 
         {/* Active widget description */}
         <p className="mt-4 text-center text-sm text-muted-foreground">
@@ -80,7 +82,7 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
         </p>
 
         {/* Preview container -- phone-width mock */}
-        <div className="mt-8 flex justify-center">
+        <EditableBox boxId="widgets/preview" label="Widget preview" className="mt-8 flex justify-center">
           <div className="w-full max-w-[420px]">
             {/* Chrome bar */}
             <div className="flex items-center gap-2 rounded-t-2xl border border-b-0 border-border bg-card px-4 py-2.5">
@@ -112,10 +114,10 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
               {active === "album" && <SightseeingAlbum trip={featureTrip} />}
             </div>
           </div>
-        </div>
+        </EditableBox>
 
         {/* MCP tool response JSON example */}
-        <div className="mt-12 mx-auto max-w-2xl">
+        <EditableBox boxId="widgets/mcp-example" label="MCP tool response example" className="mt-12 mx-auto max-w-2xl">
           <h2 className="text-lg font-bold text-foreground">MCP Tool Response Example</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Your MCP server returns <code className="rounded bg-secondary px-1.5 py-0.5 text-xs font-mono">structuredContent</code> with the trip data.
@@ -144,10 +146,10 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
   }
 }`}
           </pre>
-        </div>
+        </EditableBox>
 
         {/* Integration steps */}
-        <div className="mt-12 mx-auto max-w-2xl">
+        <EditableBox boxId="widgets/integration" label="Integration architecture" className="mt-12 mx-auto max-w-2xl">
           <h2 className="text-lg font-bold text-foreground">Integration Architecture</h2>
           <div className="mt-4 flex flex-col gap-3">
             {[
@@ -156,16 +158,16 @@ export function WidgetsShowcase({ trips, featureTrip, footer }: Props) {
               { step: "3", title: "Widget Iframe", desc: "ChatGPT renders your bundled widget in a sandboxed iframe. It receives data via the MCP Apps bridge (postMessage)." },
               { step: "4", title: "User Interaction", desc: "Clicks in the widget can call tools/call for booking, or ui/message to continue the conversation." },
             ].map((s) => (
-              <div key={s.step} className="flex gap-3 rounded-xl border border-border bg-card p-4">
+              <EditableBox key={s.step} boxId={`widgets/integration/${layoutSlug(s.title)}`} label={`Step: ${s.title}`} className="flex gap-3 rounded-xl border border-border bg-card p-4">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-sm font-bold text-primary">{s.step}</span>
                 <div>
                   <p className="text-sm font-semibold text-foreground">{s.title}</p>
                   <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{s.desc}</p>
                 </div>
-              </div>
+              </EditableBox>
             ))}
           </div>
-        </div>
+        </EditableBox>
       </main>
 
       {footer}

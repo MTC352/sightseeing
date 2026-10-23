@@ -11,6 +11,7 @@ import {
   Accessibility as AccessibilityIcon, X, ExternalLink,
 } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
+import { EditableBox } from "@/components/editable-layout"
 
 /* ─────────────────────────────────────────────────────────────
    TYPES — articles come from the DB (admin panel)
@@ -312,7 +313,7 @@ export function HelpClient({ articles }: Props) {
   return (
     <>
       {/* Hero with search */}
-      <section className="border-b border-border bg-gradient-to-b from-primary/5 to-background">
+      <EditableBox boxId="help/hero" label="Hero with search" as="section" className="border-b border-border bg-gradient-to-b from-primary/5 to-background">
         <div className="mx-auto max-w-5xl px-4 py-14 text-center lg:py-20">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1">
             <HelpCircle className="h-3.5 w-3.5 text-primary" />
@@ -364,7 +365,7 @@ export function HelpClient({ articles }: Props) {
             ))}
           </div>
         </div>
-      </section>
+      </EditableBox>
 
       <div className="mx-auto max-w-6xl px-4 py-12 lg:px-8" data-testid="help-content">
 
@@ -390,7 +391,7 @@ export function HelpClient({ articles }: Props) {
 
         {/* Category cards (shown when no search, no active category, and there are articles) */}
         {!searchQuery && !activeCategory && categories.length > 0 && (
-          <div className="mb-12">
+          <EditableBox boxId="help/categories" label="Browse by category" className="mb-12">
             <h2 className="mb-6 text-xl font-bold text-foreground">Browse by Category</h2>
             <div data-no-edit className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="help-categories">
               {categories.map((cat) => (
@@ -413,7 +414,7 @@ export function HelpClient({ articles }: Props) {
                 </button>
               ))}
             </div>
-          </div>
+          </EditableBox>
         )}
 
         {/* Active category view */}
@@ -523,7 +524,7 @@ export function HelpClient({ articles }: Props) {
         )}
 
         {/* AI Help chat */}
-        <div id="chat" className="rounded-2xl border border-border bg-card overflow-hidden">
+        <EditableBox boxId="help/chat" label="AI help chat" id="chat" className="rounded-2xl border border-border bg-card overflow-hidden">
           <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
               <Bot className="h-4 w-4 text-primary" />
@@ -612,10 +613,10 @@ export function HelpClient({ articles }: Props) {
               </button>
             </div>
           </div>
-        </div>
+        </EditableBox>
 
         {/* Contact section */}
-        <section id="contact" className="mt-12 rounded-2xl border border-border bg-card p-6 lg:p-8">
+        <EditableBox boxId="help/contact" label="Still need help? (contact)" as="section" id="contact" className="mt-12 rounded-2xl border border-border bg-card p-6 lg:p-8">
           <h2 className="text-xl font-bold text-foreground">Still need help?</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Our team typically responds within 24 hours. We&apos;re here to help with any questions about your booking or experience.
@@ -658,11 +659,11 @@ export function HelpClient({ articles }: Props) {
           <p className="mt-4 text-xs text-muted-foreground">
             Office hours: Monday – Friday, 8:30 am – 5:30 pm
           </p>
-        </section>
+        </EditableBox>
 
         {/* Popular articles */}
         {popularArticles.length > 0 && (
-          <section className="mt-12">
+          <EditableBox boxId="help/popular" label="Popular articles" as="section" className="mt-12">
             <h2 className="mb-6 text-xl font-bold text-foreground">Popular Articles</h2>
             <div data-no-edit className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {popularArticles.map(({ article, category }) => (
@@ -684,7 +685,7 @@ export function HelpClient({ articles }: Props) {
                 </button>
               ))}
             </div>
-          </section>
+          </EditableBox>
         )}
       </div>
     </>

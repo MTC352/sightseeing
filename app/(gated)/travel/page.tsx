@@ -11,6 +11,8 @@ import {
   BadgeCheck, Headphones, CreditCard, Zap, TrainFront,
 } from "lucide-react"
 import type { Metadata } from "next"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 export const metadata: Metadata = {
   title: "Vacation Agregator — Flights, Trains, Hotels & Car Rentals | sightseeing.lu",
@@ -179,7 +181,7 @@ export default async function TravelPage() {
       <main className="flex-1">
 
         {/* ── Hero ── */}
-        <section className="relative overflow-hidden bg-foreground">
+        <EditableBox boxId="travel/hero" label="Hero" as="section" className="relative overflow-hidden bg-foreground">
           {/* Background image */}
           <EditableHero
             id="travel:hero:image"
@@ -214,10 +216,10 @@ export default async function TravelPage() {
                 { label: "Hotels available", value: "1,200+" },
                 { label: "Car rental suppliers", value: "40+" },
               ].map((s) => (
-                <div key={s.label} className="flex items-center gap-1.5">
+                <EditableBox key={s.label} boxId={`travel/hero/stats/${layoutSlug(s.label)}`} label={`Stat: ${s.label}`} className="flex items-center gap-1.5">
                   <span className="text-lg font-bold text-primary">{s.value}</span>
                   <span className="text-xs text-white/50">{s.label}</span>
-                </div>
+                </EditableBox>
               ))}
             </div>
 
@@ -246,14 +248,14 @@ export default async function TravelPage() {
               ))}
             </div>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Trust badges ── */}
-        <section className="border-b border-border bg-card">
+        <EditableBox boxId="travel/trust" label="Trust badges" as="section" className="border-b border-border bg-card">
           <div className="mx-auto max-w-5xl px-4 py-6">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <EditableColumns rowId="travel/trust/grid" kind="cards" cols={4} className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {TRUST_BADGES.map(({ icon: Icon, label, desc }) => (
-                <div key={label} className="flex items-start gap-3">
+                <EditableBox key={label} boxId={`travel/trust/${layoutSlug(label)}`} label={`Badge: ${label}`} className="flex items-start gap-3">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                     <Icon className="h-4 w-4 text-primary" />
                   </div>
@@ -261,21 +263,21 @@ export default async function TravelPage() {
                     <p className="text-xs font-semibold text-foreground">{label}</p>
                     <p className="text-[11px] text-muted-foreground">{desc}</p>
                   </div>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Flights & Trains ── */}
-        <section className="mx-auto max-w-5xl px-4 py-10">
+        <EditableBox boxId="travel/getting-here" label="Flights & trains" as="section" className="mx-auto max-w-5xl px-4 py-10">
           <p className="text-xs font-semibold uppercase tracking-wider text-primary">Getting to Luxembourg</p>
           <h2 className="mt-1 text-xl font-bold text-foreground sm:text-2xl">Flights &amp; trains</h2>
           <p className="mt-1 text-sm text-muted-foreground">Luxembourg is well connected by air and rail. Choose the option that suits your departure point.</p>
 
-          <div className="mt-6 grid gap-5 sm:grid-cols-2">
+          <EditableColumns rowId="travel/getting-here/grid" kind="cards" cols={2} className="mt-6 grid gap-5 sm:grid-cols-2">
             {/* Flights card */}
-            <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card">
+            <EditableBox boxId="travel/getting-here/flights" label="Flights card" className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card">
               <div className="relative aspect-[16/7] overflow-hidden">
                 <Image src="/images/travel-hero.jpg" alt="Luxembourg Findel Airport" fill className="object-cover" sizes="(max-width:640px) 100vw, 50vw" />
                 <div className="absolute inset-0 bg-foreground/40" />
@@ -304,10 +306,10 @@ export default async function TravelPage() {
                   Search flights <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
-            </div>
+            </EditableBox>
 
             {/* Trains card */}
-            <div className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card">
+            <EditableBox boxId="travel/getting-here/trains" label="Trains card" className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card">
               <div className="relative aspect-[16/7] overflow-hidden">
                 <Image src="/images/trains-hero.jpg" alt="Train to Luxembourg" fill className="object-cover" sizes="(max-width:640px) 100vw, 50vw" />
                 <div className="absolute inset-0 bg-foreground/40" />
@@ -336,12 +338,12 @@ export default async function TravelPage() {
                   Search trains <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
-            </div>
-          </div>
-        </section>
+            </EditableBox>
+          </EditableColumns>
+        </EditableBox>
 
         {/* ── Popular destinations ── */}
-        <section className="mx-auto max-w-5xl px-4 py-10">
+        <EditableBox boxId="travel/destinations" label="Popular destinations" as="section" className="mx-auto max-w-5xl px-4 py-10">
           <div className="mb-6 flex items-end justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-primary">Where to go</p>
@@ -367,10 +369,10 @@ export default async function TravelPage() {
               </Link>
             ))}
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Car rentals ── */}
-        <section className="border-t border-border bg-secondary/30 py-10">
+        <EditableBox boxId="travel/cars" label="Car rentals" as="section" className="border-t border-border bg-secondary/30 py-10">
           <div className="mx-auto max-w-5xl px-4">
             <div className="mb-6 flex items-end justify-between">
               <div>
@@ -385,7 +387,7 @@ export default async function TravelPage() {
 
             <div className="flex flex-col gap-3">
               {CARS.map((car) => (
-                <div key={car.id} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md sm:flex-row">
+                <EditableBox key={car.id} boxId={`travel/cars/${car.id}`} label={`Car: ${car.name}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md sm:flex-row">
                   <div className="relative aspect-[16/10] w-full overflow-hidden sm:aspect-auto sm:w-44">
                     <Image
                       src={car.image}
@@ -432,31 +434,31 @@ export default async function TravelPage() {
                       </Link>
                     </div>
                   </div>
-                </div>
+                </EditableBox>
               ))}
             </div>
 
             {/* Info strip */}
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <EditableColumns rowId="travel/cars/info" kind="cards" cols={3} className="mt-5 grid gap-3 sm:grid-cols-3">
               {[
                 { icon: Zap, title: "Instant confirmation", desc: "Booking confirmed in under 60 seconds" },
                 { icon: Shield, title: "Full insurance available", desc: "Zero-excess options on all vehicles" },
                 { icon: Clock, title: "Flexible pickup times", desc: "24/7 collection at Findel Airport" },
               ].map(({ icon: Icon, title, desc }) => (
-                <div key={title} className="flex items-start gap-3 rounded-xl border border-border bg-card p-3.5">
+                <EditableBox key={title} boxId={`travel/cars/info/${layoutSlug(title)}`} label={`Info: ${title}`} className="flex items-start gap-3 rounded-xl border border-border bg-card p-3.5">
                   <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                   <div>
                     <p className="text-xs font-semibold text-foreground">{title}</p>
                     <p className="text-[11px] text-muted-foreground">{desc}</p>
                   </div>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Hotels ── */}
-        <section className="py-10">
+        <EditableBox boxId="travel/hotels" label="Recommended hotels" as="section" className="py-10">
           <div className="mx-auto max-w-5xl px-4">
             <div className="mb-6 flex items-end justify-between">
               <div>
@@ -469,9 +471,9 @@ export default async function TravelPage() {
               </Link>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <EditableColumns rowId="travel/hotels/grid" kind="cards" cols={3} className="grid gap-4 sm:grid-cols-3">
               {HOTELS.map((hotel) => (
-                <div key={hotel.id} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md">
+                <EditableBox key={hotel.id} boxId={`travel/hotels/${hotel.id}`} label={`Hotel: ${hotel.name}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md">
                   <div className="relative aspect-[4/3] overflow-hidden">
                     <Image
                       src={hotel.image}
@@ -524,14 +526,14 @@ export default async function TravelPage() {
                       Check availability
                     </Link>
                   </div>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Editorial / travel guides ── */}
-        <section className="border-t border-border bg-secondary/30 py-10">
+        <EditableBox boxId="travel/guides" label="Travel guides" as="section" className="border-t border-border bg-secondary/30 py-10">
           <div className="mx-auto max-w-5xl px-4">
             <div className="mb-6">
               <p className="text-xs font-semibold uppercase tracking-wider text-primary">Know before you go</p>
@@ -572,10 +574,10 @@ export default async function TravelPage() {
               ))}
             </div>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── CTA strip ── */}
-        <section className="border-t border-border bg-primary/10 py-12">
+        <EditableBox boxId="travel/cta" label="Call to action" as="section" className="border-t border-border bg-primary/10 py-12">
           <div className="mx-auto max-w-2xl px-4 text-center">
             <h2 className="text-balance text-2xl font-bold text-foreground sm:text-3xl">
               Let AI plan your perfect day in Luxembourg
@@ -600,7 +602,7 @@ export default async function TravelPage() {
               </Link>
             </div>
           </div>
-        </section>
+        </EditableBox>
 
       </main>
 

@@ -11,6 +11,8 @@ import {
   Shield, Award, Clock, HeartHandshake, ChevronDown, ArrowRight, Sparkles,
 } from "lucide-react"
 import type { Metadata } from "next"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 export const metadata: Metadata = {
   title: "Hotels in Luxembourg | Best Rates – sightseeing.lu",
@@ -159,7 +161,7 @@ export default async function HotelsPage() {
       <main className="flex-1">
 
         {/* ── Hero ── */}
-        <section className="relative min-h-[520px] overflow-hidden">
+        <EditableBox boxId="hotels/hero" label="Hero" as="section" className="relative min-h-[520px] overflow-hidden">
           <EditableHero
             id="hotels:hero:image"
             defaultSrc="/images/hotels-hero.jpg"
@@ -191,7 +193,7 @@ export default async function HotelsPage() {
             </div>
 
             {/* Widget card */}
-            <div className="mt-10 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-white/20">
+            <EditableBox boxId="hotels/hero/search" label="Hotel search" className="mt-10 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-white/20">
               <div className="flex items-center justify-between border-b border-border px-5 py-3">
                 <div className="flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-primary" />
@@ -202,16 +204,16 @@ export default async function HotelsPage() {
               <div data-no-edit className="p-4">
                 <HotelBookingWidget />
               </div>
-            </div>
+            </EditableBox>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Trust badges ── */}
-        <section className="border-b border-border bg-card">
+        <EditableBox boxId="hotels/trust" label="Trust badges" as="section" className="border-b border-border bg-card">
           <div className="mx-auto max-w-7xl px-4 py-5 lg:px-8">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <EditableColumns rowId="hotels/trust/grid" kind="cards" cols={4} className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {TRUST_BADGES.map(({ icon: Icon, label, sub }) => (
-                <div key={label} className="flex items-center gap-3">
+                <EditableBox key={label} boxId={`hotels/trust/${layoutSlug(label)}`} label={`Badge: ${label}`} className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                     <Icon className="h-4 w-4 text-primary" />
                   </div>
@@ -219,14 +221,14 @@ export default async function HotelsPage() {
                     <p className="text-xs font-semibold text-foreground">{label}</p>
                     <p className="text-[11px] text-muted-foreground">{sub}</p>
                   </div>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Featured hotels ── */}
-        <section className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
+        <EditableBox boxId="hotels/featured" label="Hand-picked hotels" as="section" className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
           <div className="mb-8 flex items-end justify-between">
             <div>
               <h2 className="text-2xl font-bold text-foreground">Hand-Picked Hotels</h2>
@@ -235,10 +237,13 @@ export default async function HotelsPage() {
             <span className="text-xs text-muted-foreground">{HOTELS.length} properties</span>
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <EditableColumns rowId="hotels/featured/grid" kind="cards" cols={3} className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {HOTELS.map((hotel) => (
-              <article
+              <EditableBox
+                as="article"
                 key={hotel.name}
+                boxId={`hotels/featured/${layoutSlug(hotel.name)}`}
+                label={`Hotel: ${hotel.name}`}
                 className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
               >
                 {/* Image */}
@@ -299,34 +304,34 @@ export default async function HotelsPage() {
                     </div>
                   </div>
                 </div>
-              </article>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* ── Explore by area ── */}
-        <section className="border-t border-border bg-secondary/30">
+        <EditableBox boxId="hotels/areas" label="Explore by area" as="section" className="border-t border-border bg-secondary/30">
           <div className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
             <h2 className="text-2xl font-bold text-foreground">Explore Luxembourg by Area</h2>
             <p className="mt-1 text-sm text-muted-foreground">Each region offers a different kind of stay — find the right fit for your trip.</p>
-            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <EditableColumns rowId="hotels/areas/grid" kind="cards" cols={3} className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {AREAS.map((area) => (
-                <div key={area.name} className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md">
+                <EditableBox key={area.name} boxId={`hotels/areas/${layoutSlug(area.name)}`} label={`Area: ${area.name}`} className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-foreground">{area.name}</h3>
                     <span className="text-xs font-semibold text-primary">from {area.from}&euro;</span>
                   </div>
                   <p className="text-xs leading-relaxed text-muted-foreground">{area.desc}</p>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── SEO editorial ── */}
-        <section className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
-          <div className="grid gap-10 lg:grid-cols-2">
-            <div>
+        <EditableBox boxId="hotels/editorial" label="Hotel guide" as="section" className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
+          <EditableColumns rowId="hotels/editorial/columns" kind="split" className="grid gap-10 lg:grid-cols-2">
+            <EditableBox boxId="hotels/editorial/city" label="Hotels in Luxembourg City">
               <h2 className="text-2xl font-bold text-foreground">Hotels in Luxembourg City</h2>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
                 Luxembourg City is one of Europe's most compact yet stunning capitals. Staying in the city centre puts
@@ -339,8 +344,8 @@ export default async function HotelsPage() {
                 single base in the capital. Most major attractions — including the Philharmonie, Mudam, and the
                 Adolphe Bridge — are reachable within 15 minutes from any city-centre hotel.
               </p>
-            </div>
-            <div>
+            </EditableBox>
+            <EditableBox boxId="hotels/editorial/countryside" label="Countryside retreats">
               <h2 className="text-2xl font-bold text-foreground">Countryside Retreats &amp; Nature Hotels</h2>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
                 Beyond the capital, Luxembourg offers a wealth of charming countryside accommodation. The Mullerthal
@@ -352,10 +357,10 @@ export default async function HotelsPage() {
                 Wiltz, and Vianden. The Our Valley along the German border offers riverside hotels with stunning
                 castle views, while the Moselle wine region to the east provides vineyard hotels and spa retreats.
               </p>
-            </div>
-          </div>
+            </EditableBox>
+          </EditableColumns>
 
-          <div className="mt-8 flex items-center gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5">
+          <EditableBox boxId="hotels/editorial/planner-tip" label="AI trip planner tip" className="mt-8 flex items-center gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5">
             <Sparkles className="h-6 w-6 shrink-0 text-primary" />
             <div>
               <p className="text-sm font-semibold text-foreground">Pair your hotel with a sightseeing experience</p>
@@ -369,11 +374,11 @@ export default async function HotelsPage() {
             >
               Plan my trip <ArrowRight className="h-3.5 w-3.5" />
             </Link>
-          </div>
-        </section>
+          </EditableBox>
+        </EditableBox>
 
         {/* ── FAQ ── */}
-        <section className="border-t border-border bg-card">
+        <EditableBox boxId="hotels/faq" label="FAQ" as="section" className="border-t border-border bg-card">
           <div className="mx-auto max-w-3xl px-4 py-14 lg:px-8">
             <h2 className="text-2xl font-bold text-foreground">Hotel FAQs — Luxembourg</h2>
             <p className="mt-1 text-sm text-muted-foreground">Everything you need to know before you book.</p>
@@ -389,10 +394,10 @@ export default async function HotelsPage() {
               ))}
             </div>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── CTA strip ── */}
-        <section className="border-t border-border bg-primary/5">
+        <EditableBox boxId="hotels/cta" label="Call to action" as="section" className="border-t border-border bg-primary/5">
           <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
             <div className="flex flex-col items-center gap-6 text-center sm:flex-row sm:text-left">
               <div className="flex-1">
@@ -417,7 +422,7 @@ export default async function HotelsPage() {
               </div>
             </div>
           </div>
-        </section>
+        </EditableBox>
 
       </main>
 

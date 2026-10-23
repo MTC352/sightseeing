@@ -13,6 +13,8 @@ import {
   Users, Wifi, Coffee,
 } from "lucide-react"
 import type { Metadata } from "next"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 export const metadata: Metadata = {
   title: "Trains to Luxembourg | Compare & Book Rail Tickets | sightseeing.lu",
@@ -140,7 +142,7 @@ export default async function TrainsPage() {
       <Navbar />
 
       {/* Hero */}
-      <section className="relative flex min-h-[520px] items-end justify-center overflow-hidden bg-foreground pb-12 pt-28 text-center md:min-h-[560px] md:pb-16">
+      <EditableBox boxId="trains/hero" label="Hero" as="section" className="relative flex min-h-[520px] items-end justify-center overflow-hidden bg-foreground pb-12 pt-28 text-center md:min-h-[560px] md:pb-16">
         <EditableHero
           id="trains:hero:image"
           defaultSrc="/images/trains-hero.jpg"
@@ -164,13 +166,13 @@ export default async function TrainsPage() {
             <TrainSearchWidget />
           </div>
         </div>
-      </section>
+      </EditableBox>
 
       {/* Trust badges */}
-      <section className="border-b border-border bg-card py-6">
+      <EditableBox boxId="trains/trust" label="Trust badges" as="section" className="border-b border-border bg-card py-6">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-6 px-4 md:gap-10">
           {TRUST_BADGES.map((b) => (
-            <div key={b.label} className="flex items-center gap-2.5">
+            <EditableBox key={b.label} boxId={`trains/trust/${layoutSlug(b.label)}`} label={`Badge: ${b.label}`} className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                 <b.icon className="h-4 w-4 text-primary" />
               </div>
@@ -178,13 +180,13 @@ export default async function TrainsPage() {
                 <p className="text-xs font-semibold text-foreground">{b.label}</p>
                 <p className="text-[11px] text-muted-foreground">{b.desc}</p>
               </div>
-            </div>
+            </EditableBox>
           ))}
         </div>
-      </section>
+      </EditableBox>
 
       {/* Popular routes */}
-      <section className="py-16 md:py-20">
+      <EditableBox boxId="trains/routes" label="Popular routes" as="section" className="py-16 md:py-20">
         <div className="mx-auto max-w-6xl px-4">
           <div className="mb-10 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
             <div>
@@ -196,10 +198,12 @@ export default async function TrainsPage() {
             </div>
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <EditableColumns rowId="trains/routes/grid" kind="cards" cols={4} className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {ROUTES.map((route) => (
-              <div
+              <EditableBox
                 key={route.id}
+                boxId={`trains/routes/${route.id}`}
+                label={`Route: ${route.from}`}
                 className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md"
               >
                 {route.badge && (
@@ -256,35 +260,35 @@ export default async function TrainsPage() {
                     </button>
                   </div>
                 </div>
-              </div>
+              </EditableBox>
             ))}
-          </div>
+          </EditableColumns>
         </div>
-      </section>
+      </EditableBox>
 
       {/* Why book section */}
-      <section className="bg-secondary/40 py-16 md:py-20">
+      <EditableBox boxId="trains/why" label="Why travel by train" as="section" className="bg-secondary/40 py-16 md:py-20">
         <div className="mx-auto max-w-6xl px-4">
           <div className="mb-10 text-center">
             <span className="text-xs font-semibold uppercase tracking-widest text-primary">Why travel by train</span>
             <h2 className="mt-1 text-2xl font-bold text-foreground md:text-3xl">The smart way to reach Luxembourg</h2>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <EditableColumns rowId="trains/why/grid" kind="cards" cols={3} className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {WHY_ITEMS.map((item) => (
-              <div key={item.title} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+              <EditableBox key={item.title} boxId={`trains/why/${layoutSlug(item.title)}`} label={`Reason: ${item.title}`} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                   <item.icon className="h-5 w-5 text-primary" />
                 </div>
                 <h3 className="text-sm font-semibold text-foreground">{item.title}</h3>
                 <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.desc}</p>
-              </div>
+              </EditableBox>
             ))}
-          </div>
+          </EditableColumns>
         </div>
-      </section>
+      </EditableBox>
 
       {/* Nearby stations */}
-      <section className="py-16 md:py-20">
+      <EditableBox boxId="trains/nearby" label="Nearby stations" as="section" className="py-16 md:py-20">
         <div className="mx-auto max-w-6xl px-4">
           <div className="mb-10">
             <span className="text-xs font-semibold uppercase tracking-widest text-primary">Regional connections</span>
@@ -293,9 +297,9 @@ export default async function TrainsPage() {
               Luxembourg is a rail hub connecting France, Belgium, and Germany. These nearby cities are perfect for day trips.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <EditableColumns rowId="trains/nearby/grid" kind="cards" cols={3} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {NEARBY_STATIONS.map((s) => (
-              <div key={s.city} className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30">
+              <EditableBox key={s.city} boxId={`trains/nearby/${layoutSlug(s.city)}`} label={`Station: ${s.city}`} className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                   <MapPin className="h-5 w-5 text-primary" />
                 </div>
@@ -304,16 +308,16 @@ export default async function TrainsPage() {
                   <p className="text-xs text-muted-foreground">{s.time} · {s.highlight}</p>
                 </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </div>
+              </EditableBox>
             ))}
-          </div>
+          </EditableColumns>
         </div>
-      </section>
+      </EditableBox>
 
       {/* SEO content */}
-      <section className="border-t border-border bg-card py-16 md:py-20">
-        <div className="mx-auto grid max-w-6xl gap-10 px-4 lg:grid-cols-2">
-          <div>
+      <EditableBox boxId="trains/seo" label="About train travel" as="section" className="border-t border-border bg-card py-16 md:py-20">
+        <EditableColumns rowId="trains/seo/columns" kind="split" className="mx-auto grid max-w-6xl gap-10 px-4 lg:grid-cols-2">
+          <EditableBox boxId="trains/seo/why" label="Why travel by train — text">
             <h2 className="text-xl font-bold text-foreground md:text-2xl">Why travel by train to Luxembourg?</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Luxembourg is one of the best-connected capitals in Europe, with high-speed rail services from Paris, Brussels, Frankfurt, and Amsterdam. The TGV INOUI from Paris Gare de l'Est takes just over two hours, while Thalys and ICE services link the Grand Duchy to the Benelux and German rail networks.
@@ -321,8 +325,8 @@ export default async function TrainsPage() {
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Train travel is comfortable, sustainable, and stress-free. Skip airport security, enjoy generous luggage allowances, and arrive directly in the city centre at Luxembourg Gare — a short walk from the Old Town, museums, and major attractions.
             </p>
-          </div>
-          <div>
+          </EditableBox>
+          <EditableBox boxId="trains/seo/getting-around" label="Getting around by rail — text">
             <h2 className="text-xl font-bold text-foreground md:text-2xl">Getting around Luxembourg by rail</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Once you arrive, all public transport in Luxembourg is completely free — buses, trams, and regional trains included. Use the CFL network to explore the Moselle Valley, Vianden, Echternach, and more without spending a cent on fares.
@@ -330,12 +334,12 @@ export default async function TrainsPage() {
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Book your international train tickets in advance for the best prices. Early-bird "Prems" fares from Paris start at €29, while Brussels IC trains offer flat-rate tickets year-round. Remember to download your e-ticket for offline access before boarding.
             </p>
-          </div>
-        </div>
-      </section>
+          </EditableBox>
+        </EditableColumns>
+      </EditableBox>
 
       {/* FAQ */}
-      <section className="py-16 md:py-20">
+      <EditableBox boxId="trains/faq" label="FAQ" as="section" className="py-16 md:py-20">
         <div className="mx-auto max-w-3xl px-4">
           <div className="mb-10 text-center">
             <span className="text-xs font-semibold uppercase tracking-widest text-primary">FAQ</span>
@@ -353,10 +357,10 @@ export default async function TrainsPage() {
             ))}
           </div>
         </div>
-      </section>
+      </EditableBox>
 
       {/* CTA */}
-      <section className="bg-primary py-12">
+      <EditableBox boxId="trains/cta" label="Call to action" as="section" className="bg-primary py-12">
         <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 px-4 text-center md:flex-row md:text-left">
           <div className="flex-1">
             <h2 className="text-xl font-bold text-primary-foreground md:text-2xl">Need help planning your trip?</h2>
@@ -371,7 +375,7 @@ export default async function TrainsPage() {
             Try the AI Planner <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-      </section>
+      </EditableBox>
 
       <SiteFooter />
     </div>

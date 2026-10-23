@@ -6,6 +6,7 @@ import { Search, Calendar, CloudSun, CloudRain, Sun, Users, Plus, Minus, X } fro
 import { useWeather } from "@/hooks/use-weather"
 import { EditableText } from "@/components/editable-text"
 import { EditableHeroBackground } from "@/components/editable-hero-background"
+import { EditableBox } from "@/components/editable-layout"
 import { DateTimeModal } from "@/components/date-time-modal"
 import type { DateTimeValue } from "@/components/date-time-modal"
 
@@ -57,7 +58,7 @@ export function HeroSection() {
       value={dateTime}
       onApply={(v) => setDateTime(v)}
     />
-    <section className="relative overflow-hidden">
+    <EditableBox boxId="home/hero" label="Hero" as="section" className="relative overflow-hidden">
       <div className="absolute inset-0">
         <EditableHeroBackground />
         <div className="absolute inset-0 bg-gradient-to-b from-foreground/60 via-foreground/40 to-foreground/70" />
@@ -185,7 +186,7 @@ export function HeroSection() {
           </form>
         </div>
       </div>
-    </section>
+    </EditableBox>
     </>
   )
 }

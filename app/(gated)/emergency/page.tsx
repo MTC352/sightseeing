@@ -6,6 +6,7 @@ import {
   ChevronRight, Shield, HeadphonesIcon, MapPin,
 } from "lucide-react"
 import type { Metadata } from "next"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
 
 export const metadata: Metadata = {
   title: "Emergency & 24/7 Support | sightseeing.lu",
@@ -29,7 +30,7 @@ export default function EmergencyPage() {
       <Navbar />
 
       {/* Hero — urgent red-tinted banner */}
-      <section className="border-b border-border bg-card">
+      <EditableBox boxId="emergency/hero" label="Hero" as="section" className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-16">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -44,16 +45,16 @@ export default function EmergencyPage() {
             business hours, use the options further down this page.
           </p>
         </div>
-      </section>
+      </EditableBox>
 
       <main className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
-        <div className="grid gap-8 lg:grid-cols-3">
+        <EditableColumns rowId="emergency/main/columns" kind="split" className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_calc((100%_-_4rem)/3)]">
 
           {/* Left: contact cards */}
-          <div className="flex flex-col gap-5 lg:col-span-2">
+          <EditableBox boxId="emergency/contact" label="Contact cards column" className="flex flex-col gap-5">
 
             {/* 24/7 Emergency card */}
-            <div className="relative overflow-hidden rounded-2xl border-2 border-destructive/30 bg-destructive/5 p-6">
+            <EditableBox boxId="emergency/contact/helpline" label="Emergency helpline" className="relative overflow-hidden rounded-2xl border-2 border-destructive/30 bg-destructive/5 p-6">
               <div className="absolute right-4 top-4 rounded-full bg-destructive/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-destructive">
                 24 / 7
               </div>
@@ -78,10 +79,10 @@ export default function EmergencyPage() {
               <p className="mt-3 text-xs text-muted-foreground">
                 International charges may apply depending on your mobile plan.
               </p>
-            </div>
+            </EditableBox>
 
             {/* Business phone */}
-            <div className="rounded-2xl border border-border bg-card p-6">
+            <EditableBox boxId="emergency/contact/support-line" label="General support line" className="rounded-2xl border border-border bg-card p-6">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                 <HeadphonesIcon className="h-5 w-5 text-primary" />
               </div>
@@ -100,10 +101,10 @@ export default function EmergencyPage() {
                   <p className="text-xl font-bold">+352 123 456</p>
                 </div>
               </a>
-            </div>
+            </EditableBox>
 
             {/* Email */}
-            <div className="rounded-2xl border border-border bg-card p-6">
+            <EditableBox boxId="emergency/contact/email" label="Email support" className="rounded-2xl border border-border bg-card p-6">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                 <Mail className="h-5 w-5 text-primary" />
               </div>
@@ -122,10 +123,10 @@ export default function EmergencyPage() {
                   <p className="text-lg font-bold">hello@sightseeing.lu</p>
                 </div>
               </a>
-            </div>
+            </EditableBox>
 
             {/* AI chat tip */}
-            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-6">
+            <EditableBox boxId="emergency/contact/ai-chat" label="AI chat tip" className="rounded-2xl border border-primary/20 bg-primary/5 p-6">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15">
                 <MessageCircle className="h-5 w-5 text-primary" />
               </div>
@@ -146,14 +147,14 @@ export default function EmergencyPage() {
                 Browse experiences &amp; open trip chat
                 <ChevronRight className="h-4 w-4" />
               </Link>
-            </div>
-          </div>
+            </EditableBox>
+          </EditableBox>
 
           {/* Right: business hours + location */}
-          <div className="flex flex-col gap-5">
+          <EditableBox boxId="emergency/info" label="Hours & location column" className="flex flex-col gap-5">
 
             {/* Business hours */}
-            <div className="rounded-2xl border border-border bg-card p-6">
+            <EditableBox boxId="emergency/info/hours" label="Business hours" className="rounded-2xl border border-border bg-card p-6">
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-primary" />
                 <h2 className="text-sm font-bold text-foreground">Business Hours</h2>
@@ -181,10 +182,10 @@ export default function EmergencyPage() {
                 Outside business hours? Our 24/7 emergency line is always available for
                 urgent situations, and our AI trip chat is available around the clock.
               </p>
-            </div>
+            </EditableBox>
 
             {/* Location */}
-            <div className="rounded-2xl border border-border bg-card p-6">
+            <EditableBox boxId="emergency/info/location" label="Our location" className="rounded-2xl border border-border bg-card p-6">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-primary" />
                 <h2 className="text-sm font-bold text-foreground">Our Location</h2>
@@ -196,10 +197,10 @@ export default function EmergencyPage() {
                 Experiences operate across the entire Grand Duchy and select
                 cross-border destinations.
               </p>
-            </div>
+            </EditableBox>
 
             {/* Quick links */}
-            <div className="rounded-2xl border border-border bg-card p-6">
+            <EditableBox boxId="emergency/info/quick-links" label="Quick links" className="rounded-2xl border border-border bg-card p-6">
               <h2 className="text-sm font-bold text-foreground">Quick Links</h2>
               <ul className="mt-3 flex flex-col gap-2">
                 {[
@@ -221,9 +222,9 @@ export default function EmergencyPage() {
                   </li>
                 ))}
               </ul>
-            </div>
-          </div>
-        </div>
+            </EditableBox>
+          </EditableBox>
+        </EditableColumns>
       </main>
 
       <SiteFooter />

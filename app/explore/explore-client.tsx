@@ -12,6 +12,8 @@ import type { Trip } from "@/lib/data"
 import { useCart } from "@/lib/cart-context"
 import { useIsGoodWeatherForTrip } from "@/lib/weather-context"
 import { DateTimeModal } from "@/components/date-time-modal"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 /* ── Filter types ── */
 interface Filters {
@@ -653,7 +655,7 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
       />
 
       {/* ── Sticky filter bar ── */}
-      <div className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
+      <EditableBox boxId="explore/filter-bar" label="Filter bar" className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="flex items-center py-2.5">
 
@@ -735,10 +737,10 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
             </div>
           </div>
         </div>
-      </div>
+      </EditableBox>
 
       {/* ── Main results ── */}
-      <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
+      <EditableBox boxId="explore/results" label="Experiences list" className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
         <div className="mb-4 flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             <span className="font-semibold text-foreground">{filtered.length}</span> experiences
@@ -794,37 +796,37 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
             ))}
           </div>
         )}
-      </div>
+      </EditableBox>
 
       {/* ── SEO Content ── */}
       <div className="mx-auto max-w-7xl px-4 pb-16 lg:px-8">
 
         {/* Top sights */}
-        <section className="border-t border-border pt-12">
+        <EditableBox boxId="explore/top-sights" label="Top sights" as="section" className="border-t border-border pt-12">
           <h2 className="text-xl font-bold text-foreground">Top sights in Luxembourg</h2>
           <p className="mt-1 text-sm text-muted-foreground">The unmissable landmarks every visitor should explore.</p>
-          <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <EditableColumns rowId="explore/top-sights/grid" kind="cards" cols={6} className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             {TOP_SIGHTS.map((s) => (
-              <div key={s.name} className="group flex flex-col items-center gap-2 text-center">
+              <EditableBox key={s.name} boxId={`explore/top-sights/${layoutSlug(s.name)}`} label={`Sight: ${s.name}`} className="group flex flex-col items-center gap-2 text-center">
                 <div className="relative h-20 w-20 overflow-hidden rounded-full border-2 border-border group-hover:border-primary transition-colors">
                   <AppImage src={s.image} alt={s.name} fill className="object-cover" sizes="80px" />
                 </div>
                 <p className="text-xs font-semibold text-foreground">{s.name}</p>
                 <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{s.desc}</p>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Travel guides */}
-        <section className="border-t border-border pt-12 mt-12">
+        <EditableBox boxId="explore/travel-guides" label="Travel guides" as="section" className="border-t border-border pt-12 mt-12">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-foreground">Essential Luxembourg travel guides</h2>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">Expert tips and curated itineraries from our local team.</p>
-          <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <EditableColumns rowId="explore/travel-guides/grid" kind="cards" cols={4} className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {GUIDES.map((g) => (
-              <div key={g.title} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
+              <EditableBox key={g.title} boxId={`explore/travel-guides/${layoutSlug(g.title)}`} label={`Guide: ${g.title}`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
                 <div className="relative aspect-[16/9] overflow-hidden">
                   <AppImage src={g.img} alt={g.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 640px) 100vw, 25vw" />
                   <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-semibold text-foreground backdrop-blur-sm">{g.tag}</span>
@@ -832,13 +834,13 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
                 <div className="p-3">
                   <p className="text-sm font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">{g.title}</p>
                 </div>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Our most recommended */}
-        <section className="border-t border-border pt-12 mt-12">
+        <EditableBox boxId="explore/recommended" label="Most recommended" as="section" className="border-t border-border pt-12 mt-12">
           <h2 className="text-xl font-bold text-foreground">Our most recommended things to do in Luxembourg</h2>
           <p className="mt-1 text-sm text-muted-foreground">Top-rated by travellers — these experiences consistently earn 5-star reviews.</p>
           <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
@@ -846,35 +848,35 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
               <ExploreCard key={t.id} trip={t} priority={i < 4} />
             ))}
           </div>
-        </section>
+        </EditableBox>
 
         {/* FAQ */}
-        <section className="border-t border-border pt-12 mt-12">
+        <EditableBox boxId="explore/faq" label="FAQ" as="section" className="border-t border-border pt-12 mt-12">
           <h2 className="text-xl font-bold text-foreground">Frequently asked questions about Luxembourg</h2>
           <div className="mt-4 max-w-3xl">
             {FAQS.map((f) => (
               <FaqItem key={f.q} q={f.q} a={f.a} />
             ))}
           </div>
-        </section>
+        </EditableBox>
 
         {/* Insider tips */}
-        <section className="border-t border-border pt-12 mt-12">
+        <EditableBox boxId="explore/insider-tips" label="Insider tips" as="section" className="border-t border-border pt-12 mt-12">
           <h2 className="text-xl font-bold text-foreground">Insider tips: Planning a trip to Luxembourg</h2>
           <p className="mt-1 text-sm text-muted-foreground">Local knowledge to help you make the most of your visit.</p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <EditableColumns rowId="explore/insider-tips/grid" kind="cards" cols={3} className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {INSIDER_TIPS.map((tip) => (
-              <div key={tip.heading} className="rounded-xl border border-border bg-card p-4">
+              <EditableBox key={tip.heading} boxId={`explore/insider-tips/${layoutSlug(tip.heading)}`} label={`Tip: ${tip.heading}`} className="rounded-xl border border-border bg-card p-4">
                 <p className="text-sm font-bold text-foreground">{tip.heading}</p>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{tip.tip}</p>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Category sub-grids */}
         {byCategory.filter((c) => c.trips.length > 0).map((c) => (
-          <section key={c.name} className="border-t border-border pt-10 mt-10">
+          <EditableBox key={c.name} boxId={`explore/category/${layoutSlug(c.name)}`} label={`Category: ${c.name}`} as="section" className="border-t border-border pt-10 mt-10">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-foreground">{c.name} in Luxembourg</h2>
               <button
@@ -890,20 +892,20 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
                 <ExploreCard key={t.id} trip={t} />
               ))}
             </div>
-          </section>
+          </EditableBox>
         ))}
 
         {/* What people say */}
-        <section className="border-t border-border pt-12 mt-12">
+        <EditableBox boxId="explore/testimonials" label="What travellers say" as="section" className="border-t border-border pt-12 mt-12">
           <h2 className="text-xl font-bold text-foreground">What travellers are saying about Luxembourg</h2>
           <p className="mt-1 text-sm text-muted-foreground">Real reviews from visitors who booked through sightseeing.lu.</p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          <EditableColumns rowId="explore/testimonials/grid" kind="cards" cols={3} className="mt-5 grid gap-4 sm:grid-cols-3">
             {[
               { name: "Sophie M.", rating: 5, text: "An absolutely magical experience! Our guide was incredibly knowledgeable and made the whole tour feel personal.", tour: "Guided E-Bike Tour" },
               { name: "Thomas K.", rating: 5, text: "One of the highlights of our Luxembourg trip. Perfect organisation, small group, and the local insights were priceless.", tour: "Nature and Castles Day Tour" },
               { name: "Lucia B.", rating: 5, text: "Superbe expérience — guide passionné et très professionnel. Je recommande vivement à tous ceux qui visitent le Luxembourg.", tour: "Dinner Hopping Bus" },
             ].map((r) => (
-              <div key={r.name} className="flex flex-col justify-between rounded-2xl border border-border bg-card p-5">
+              <EditableBox key={r.name} boxId={`explore/testimonials/${layoutSlug(r.name)}`} label={`Testimonial: ${r.name}`} className="flex flex-col justify-between rounded-2xl border border-border bg-card p-5">
                 <div>
                   <div className="flex gap-0.5">
                     {Array.from({ length: 5 }).map((_, i) => (
@@ -916,13 +918,13 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
                   <p className="text-xs font-bold text-foreground">{r.name}</p>
                   <p className="text-[10px] text-muted-foreground">{r.tour}</p>
                 </div>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Location links */}
-        <section className="border-t border-border pt-12 mt-12">
+        <EditableBox boxId="explore/locations" label="Explore by location" as="section" className="border-t border-border pt-12 mt-12">
           <h2 className="text-xl font-bold text-foreground">Explore by location</h2>
           <div className="mt-4 flex flex-wrap gap-3">
             {["Luxembourg City", "Grevenmacher", "Echternach", "Vianden", "Clervaux", "Remich", "Moselle Valley", "Mullerthal", "Esch-sur-Alzette", "Mersch"].map((city) => (
@@ -932,7 +934,7 @@ export default function ExplorePage({ initialTrips, footer }: { initialTrips?: T
               </div>
             ))}
           </div>
-        </section>
+        </EditableBox>
 
       </div>
 

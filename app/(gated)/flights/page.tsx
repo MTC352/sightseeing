@@ -12,6 +12,8 @@ import {
   Wifi, Zap, Globe, ChevronRight, Luggage,
 } from "lucide-react"
 import type { Metadata } from "next"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 export const metadata: Metadata = {
   title: "Flights to Luxembourg | Compare & Book Cheap Airfare | sightseeing.lu",
@@ -211,7 +213,7 @@ export default async function FlightsPage() {
 
       <main>
         {/* ── Hero ── */}
-        <section className="relative overflow-hidden bg-foreground">
+        <EditableBox boxId="flights/hero" label="Hero" as="section" className="relative overflow-hidden bg-foreground">
           <EditableHero
             id="flights:hero:image"
             defaultSrc="/images/flights-hero.jpg"
@@ -245,17 +247,17 @@ export default async function FlightsPage() {
             </div>
 
             {/* Search widget */}
-            <div data-no-edit className="mt-8 overflow-hidden rounded-2xl bg-white shadow-xl">
+            <EditableBox data-no-edit boxId="flights/hero/search" label="Flight search" className="mt-8 overflow-hidden rounded-2xl bg-white shadow-xl">
               <FlightEmbedWidget />
-            </div>
+            </EditableBox>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Trust badges ── */}
-        <section className="border-b border-border bg-background">
-          <div className="mx-auto grid max-w-5xl grid-cols-2 divide-x divide-y divide-border md:grid-cols-4 md:divide-y-0">
+        <EditableBox boxId="flights/trust" label="Trust badges" as="section" className="border-b border-border bg-background">
+          <EditableColumns rowId="flights/trust/grid" kind="cards" cols={4} className="mx-auto grid max-w-5xl grid-cols-2 divide-x divide-y divide-border md:grid-cols-4 md:divide-y-0">
             {TRUST_BADGES.map(({ icon: Icon, label, desc }) => (
-              <div key={label} className="flex items-center gap-3 px-6 py-5">
+              <EditableBox key={label} boxId={`flights/trust/${layoutSlug(label)}`} label={`Badge: ${label}`} className="flex items-center gap-3 px-6 py-5">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
                   <Icon className="h-4 w-4 text-primary" />
                 </div>
@@ -263,13 +265,13 @@ export default async function FlightsPage() {
                   <p className="text-sm font-semibold text-foreground">{label}</p>
                   <p className="text-xs text-muted-foreground">{desc}</p>
                 </div>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* ── Popular routes ── */}
-        <section className="mx-auto max-w-5xl px-4 py-14">
+        <EditableBox boxId="flights/routes" label="Popular routes" as="section" className="mx-auto max-w-5xl px-4 py-14">
           <div className="mb-2 flex items-center gap-2 text-primary">
             <Plane className="h-4 w-4" />
             <span className="text-xs font-semibold uppercase tracking-widest">Top connections</span>
@@ -279,10 +281,13 @@ export default async function FlightsPage() {
             <span className="shrink-0 text-sm text-muted-foreground">{ROUTES.length} routes</span>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <EditableColumns rowId="flights/routes/grid" kind="cards" cols={3} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {ROUTES.map((route) => (
-              <article
+              <EditableBox
+                as="article"
                 key={route.id}
+                boxId={`flights/routes/${route.id}`}
+                label={`Route: ${route.from}`}
                 className="group relative flex flex-col rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
               >
                 {route.badge && (
@@ -332,13 +337,13 @@ export default async function FlightsPage() {
                     </p>
                   </div>
                 </div>
-              </article>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* ── Airport info ── */}
-        <section className="border-t border-border bg-secondary/30">
+        <EditableBox boxId="flights/airport" label="Airport info" as="section" className="border-t border-border bg-secondary/30">
           <div className="mx-auto max-w-5xl px-4 py-14">
             <div className="mb-2 flex items-center gap-2 text-primary">
               <MapPin className="h-4 w-4" />
@@ -346,9 +351,9 @@ export default async function FlightsPage() {
             </div>
             <h2 className="mb-8 text-2xl font-bold text-foreground sm:text-3xl">Getting to &amp; from the airport</h2>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <EditableColumns rowId="flights/airport/grid" kind="cards" cols={3} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {AIRPORT_FACTS.map(({ icon: Icon, label, value }) => (
-                <div key={label} className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
+                <EditableBox key={label} boxId={`flights/airport/${layoutSlug(label)}`} label={`Airport fact: ${label}`} className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
                     <Icon className="h-4 w-4 text-primary" />
                   </div>
@@ -356,11 +361,11 @@ export default async function FlightsPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
                     <p className="mt-0.5 text-sm font-medium text-foreground">{value}</p>
                   </div>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
 
-            <div className="mt-8 rounded-2xl border border-primary/20 bg-primary/5 p-6">
+            <EditableBox boxId="flights/airport/free-transport" label="Free public transport tip" className="mt-8 rounded-2xl border border-primary/20 bg-primary/5 p-6">
               <div className="flex items-start gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15">
                   <Check className="h-5 w-5 text-primary" />
@@ -372,21 +377,21 @@ export default async function FlightsPage() {
                   </p>
                 </div>
               </div>
-            </div>
+            </EditableBox>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Airlines ── */}
-        <section className="mx-auto max-w-5xl px-4 py-14">
+        <EditableBox boxId="flights/airlines" label="Airlines" as="section" className="mx-auto max-w-5xl px-4 py-14">
           <div className="mb-2 flex items-center gap-2 text-primary">
             <Globe className="h-4 w-4" />
             <span className="text-xs font-semibold uppercase tracking-widest">Carriers</span>
           </div>
           <h2 className="mb-8 text-2xl font-bold text-foreground sm:text-3xl">Airlines flying to Luxembourg</h2>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <EditableColumns rowId="flights/airlines/grid" kind="cards" cols={3} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {AIRLINES.map((airline) => (
-              <div key={airline.name} className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
+              <EditableBox key={airline.name} boxId={`flights/airlines/${layoutSlug(airline.name)}`} label={`Airline: ${airline.name}`} className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
                   <Plane className="h-5 w-5 text-primary" />
                 </div>
@@ -394,16 +399,16 @@ export default async function FlightsPage() {
                   <p className="font-semibold text-foreground">{airline.name}</p>
                   <p className="text-xs text-muted-foreground">{airline.type} · {airline.routes}</p>
                 </div>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* ── SEO editorial ── */}
-        <section className="border-t border-border bg-secondary/20">
+        <EditableBox boxId="flights/editorial" label="Travel guide" as="section" className="border-t border-border bg-secondary/20">
           <div className="mx-auto max-w-5xl px-4 py-14">
-            <div className="grid gap-10 md:grid-cols-2">
-              <div>
+            <EditableColumns rowId="flights/editorial/columns" kind="split" className="grid gap-10 md:grid-cols-2">
+              <EditableBox boxId="flights/editorial/why-fly" label="Why fly to Luxembourg">
                 <h2 className="text-xl font-bold text-foreground sm:text-2xl">Why fly to Luxembourg?</h2>
                 <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
                   Luxembourg is the heart of Europe — a tiny Grand Duchy with a world-class capital, UNESCO World Heritage fortress, Michelin-starred restaurants, and thriving international culture. Flying in is the fastest way to arrive, with Luxembourg Airport just 6 km from the city centre.
@@ -417,8 +422,8 @@ export default async function FlightsPage() {
                 >
                   Explore Luxembourg experiences <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
-              </div>
-              <div>
+              </EditableBox>
+              <EditableBox boxId="flights/editorial/when-to-book" label="When to book your flight">
                 <h2 className="text-xl font-bold text-foreground sm:text-2xl">When to book your flight</h2>
                 <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
                   Luxembourg's mild climate means it's a year-round destination. Spring (April–June) and autumn (September–October) offer the best weather for exploring castles, vineyards and the Ardennes. Summer brings festivals and open-air events, while Christmas markets light up the capital from late November.
@@ -432,13 +437,13 @@ export default async function FlightsPage() {
                 >
                   Plan your full trip with AI <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
-              </div>
-            </div>
+              </EditableBox>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── FAQ ── */}
-        <section className="mx-auto max-w-5xl px-4 py-14">
+        <EditableBox boxId="flights/faq" label="FAQ" as="section" className="mx-auto max-w-5xl px-4 py-14">
           <div className="mb-2 flex items-center gap-2 text-primary">
             <BadgeCheck className="h-4 w-4" />
             <span className="text-xs font-semibold uppercase tracking-widest">Common questions</span>
@@ -449,10 +454,10 @@ export default async function FlightsPage() {
               <FaqItem key={faq.q} q={faq.q} a={faq.a} />
             ))}
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── CTA ── */}
-        <section className="border-t border-border bg-primary/5">
+        <EditableBox boxId="flights/cta" label="Call to action" as="section" className="border-t border-border bg-primary/5">
           <div className="mx-auto max-w-5xl px-4 py-14 text-center">
             <h2 className="text-2xl font-bold text-foreground sm:text-3xl">Ready to explore Luxembourg?</h2>
             <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
@@ -473,7 +478,7 @@ export default async function FlightsPage() {
               </Link>
             </div>
           </div>
-        </section>
+        </EditableBox>
       </main>
 
       <SiteFooter />

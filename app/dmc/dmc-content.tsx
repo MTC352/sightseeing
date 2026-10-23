@@ -5,6 +5,8 @@ import { EditableText } from "@/components/editable-text"
 import { EditableImage } from "@/components/editable-image"
 import { EditableLink } from "@/components/editable-link"
 import { cn } from "@/lib/utils"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 import {
   DMC_PURPOSES, DMC_DESTINATIONS, DMC_MESSAGE_MAX, validateDmcInquiry, type DmcField,
 } from "@/lib/dmc-inquiry"
@@ -158,7 +160,7 @@ export function DmcContent() {
   return (
     <main data-no-edit className="bg-background text-foreground">
       {/* Hero */}
-      <header className="relative flex min-h-[480px] items-end bg-[#2c3e43] text-white sm:min-h-[520px]">
+      <EditableBox boxId="dmc/hero" label="Hero" as="header" className="relative flex min-h-[480px] items-end bg-[#2c3e43] text-white sm:min-h-[520px]">
         <div className="absolute inset-0">
           <Photo id="dmc:hero:image" src={IMG.hero} className="absolute inset-0" eager />
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(15,25,30,.25)_0%,rgba(15,25,30,.35)_45%,rgba(15,25,30,.78)_100%)]" />
@@ -190,11 +192,11 @@ export function DmcContent() {
             </div>
           </div>
         </div>
-      </header>
+      </EditableBox>
 
       <div className="mx-auto max-w-[1180px] px-4">
         {/* About */}
-        <section className="grid items-center gap-[clamp(24px,4vw,56px)] py-[clamp(44px,7vw,80px)] lg:grid-cols-[1.1fr_.9fr]">
+        <EditableBox boxId="dmc/about" label="About our DMC service" as="section" className="grid items-center gap-[clamp(24px,4vw,56px)] py-[clamp(44px,7vw,80px)] lg:grid-cols-[1.1fr_.9fr]">
           <div className="flex min-w-0 flex-col gap-4">
             <Pill id="dmc:about:label" text="About our DMC service" />
             <h2 className="text-balance text-[clamp(26px,3.4vw,38px)] font-bold leading-[1.15] tracking-[-0.015em]">
@@ -203,24 +205,24 @@ export function DmcContent() {
             <p className="max-w-[65ch] text-[clamp(16px,1.5vw,19px)] text-muted-foreground">
               <EditableText id="dmc:about:lead" multiline defaultValue="Sightseeing.lu is best known for its tours and experiences in Luxembourg. As a destination management company and tour operator we also plan complete programmes for travel agencies, companies and groups. We bring together our own guides, transport and trusted local partners, and we take care of every detail on the ground." />
             </p>
-            <div className="mt-2 grid grid-cols-3 gap-3">
+            <EditableColumns rowId="dmc/about/facts" kind="cards" cols={3} className="mt-2 grid grid-cols-3 gap-3">
               {[["40+", "tours & experiences"], ["North–South", "the whole country"], ["EN · FR · DE", "and more on request"]].map(([v, l], i) => (
-                <div key={i} className={cn(CARD, "px-4 py-3.5")}>
+                <EditableBox key={i} boxId={`dmc/about/facts/${layoutSlug(l)}`} label={`Fact: ${l}`} className={cn(CARD, "px-4 py-3.5")}>
                   <strong className="block text-lg tracking-[-0.01em] sm:text-[22px]"><EditableText id={`dmc:about:fact${i + 1}:value`} defaultValue={v} /></strong>
                   <span className="text-[13px] text-muted-foreground"><EditableText id={`dmc:about:fact${i + 1}:label`} defaultValue={l} /></span>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
           <Photo id="dmc:about:image" src={IMG.intro} alt="Guided tour with Sightseeing.lu" className="aspect-[4/3] overflow-hidden rounded-[10px]" />
-        </section>
+        </EditableBox>
 
         {/* What we offer */}
-        <section className="pb-[clamp(44px,7vw,80px)]">
+        <EditableBox boxId="dmc/offer" label="What we offer" as="section" className="pb-[clamp(44px,7vw,80px)]">
           <SectionHead id="offer" label="What we offer" title="Tours and programmes for every kind of trip" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <EditableColumns rowId="dmc/offer/grid" kind="cards" cols={4} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {OFFERS.map((o) => (
-              <article key={o.key} className={cn(CARD, "flex min-w-0 flex-col overflow-hidden transition hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(29,38,43,.08)]")}>
+              <EditableBox key={o.key} boxId={`dmc/offer/${o.key}`} label={`Offer: ${o.title}`} as="article" className={cn(CARD, "flex min-w-0 flex-col overflow-hidden transition hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(29,38,43,.08)]")}>
                 <Photo id={`dmc:offer:${o.key}:image`} src={o.img} className="aspect-[3/2]" />
                 <div className="flex flex-1 flex-col gap-2.5 p-[18px] pb-5">
                   <span className={cn("text-xs font-semibold", MINT_DARK)}><EditableText id={`dmc:offer:${o.key}:kicker`} defaultValue={o.kicker} /></span>
@@ -232,17 +234,17 @@ export function DmcContent() {
                     ))}
                   </ul>
                 </div>
-              </article>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Services */}
-        <section id="services" className="pb-[clamp(44px,7vw,80px)]">
+        <EditableBox boxId="dmc/services" label="Our services" as="section" id="services" className="pb-[clamp(44px,7vw,80px)]">
           <SectionHead id="services" label="Take a tour" title="Our services" />
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <EditableColumns rowId="dmc/services/grid" kind="cards" cols={4} as="ul" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {SERVICES.map((s) => (
-              <li key={s.key} className={cn(CARD, "flex min-w-0 items-start gap-3 p-4")}>
+              <EditableBox key={s.key} boxId={`dmc/services/${s.key}`} label={`Service: ${s.title}`} as="li" className={cn(CARD, "flex min-w-0 items-start gap-3 p-4")}>
                 <span className={cn("grid h-10 w-10 flex-none place-items-center rounded-[10px]", MINT_TINT)}>
                   <svg viewBox="0 0 24 24" className="h-[22px] w-[22px]" fill="none" stroke="#3f9c83" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{SERVICE_ICONS[s.key]}</svg>
                 </span>
@@ -250,29 +252,29 @@ export function DmcContent() {
                   <strong className="text-[15px] leading-tight"><EditableText id={`dmc:services:${s.key}:title`} defaultValue={s.title} /></strong>
                   <span className="text-[13.5px] text-muted-foreground"><EditableText id={`dmc:services:${s.key}:text`} defaultValue={s.text} /></span>
                 </div>
-              </li>
+              </EditableBox>
             ))}
-          </ul>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Mission */}
-        <section id="mission" className="pb-[clamp(44px,7vw,80px)]">
+        <EditableBox boxId="dmc/mission" label="Our mission" as="section" id="mission" className="pb-[clamp(44px,7vw,80px)]">
           <div className={cn("flex flex-col gap-4 rounded-2xl p-[clamp(24px,5vw,48px)]", MINT_TINT)}>
             <Pill id="dmc:mission:label" text="Our mission" className="bg-white" />
             <p className="max-w-[52ch] text-[clamp(19px,2.2vw,26px)] font-semibold leading-[1.4] tracking-[-0.01em]">
               <EditableText id="dmc:mission:text" multiline defaultValue="Our mission is to provide a great and sustainable experience for travellers visiting Luxembourg. We work with all stakeholders to reduce any negative impact on the natural environment and on the local communities where we operate." />
             </p>
           </div>
-        </section>
+        </EditableBox>
       </div>
 
       {/* Destinations (full-width white band) */}
-      <section className="border-y border-border bg-card py-[clamp(44px,7vw,80px)]">
+      <EditableBox boxId="dmc/destinations" label="Destinations" as="section" className="border-y border-border bg-card py-[clamp(44px,7vw,80px)]">
         <div className="mx-auto max-w-[1180px] px-4">
           <SectionHead id="dest" label="Destinations" title="Luxembourg from north to south" lead="A small country with a lot to discover. Every region is easy to reach in a day, so themes and places combine into one smooth programme." />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <EditableColumns rowId="dmc/destinations/grid" kind="cards" cols={4} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {DESTINATIONS.map((d) => (
-              <article key={d.key} className={cn(CARD, "flex min-w-0 flex-col overflow-hidden")}>
+              <EditableBox key={d.key} boxId={`dmc/destinations/${d.key}`} label={`Destination: ${d.title}`} as="article" className={cn(CARD, "flex min-w-0 flex-col overflow-hidden")}>
                 <Photo id={`dmc:dest:${d.key}:image`} src="" placeholder={d.photo} className="aspect-[4/3]" />
                 <div className="flex flex-1 flex-col gap-2.5 p-[18px] pb-5">
                   <div className="flex flex-wrap gap-1.5">
@@ -282,18 +284,18 @@ export function DmcContent() {
                   <h3 className="text-lg font-bold leading-snug"><EditableText id={`dmc:dest:${d.key}:title`} defaultValue={d.title} /></h3>
                   <p className="text-[14.5px] text-muted-foreground"><EditableText id={`dmc:dest:${d.key}:text`} multiline defaultValue={d.text} /></p>
                 </div>
-              </article>
+              </EditableBox>
             ))}
-          </div>
+          </EditableColumns>
           <p className="mt-7 max-w-[65ch] text-[clamp(16px,1.5vw,19px)] text-muted-foreground">
             <EditableText id="dmc:dest:footnote" multiline defaultValue="Every theme is also available as a private tour with your own guide, tailored to your guests' interests and pace." />
           </p>
         </div>
-      </section>
+      </EditableBox>
 
       <div className="mx-auto max-w-[1180px] px-4">
         {/* Partners */}
-        <section className="grid items-start gap-[clamp(24px,4vw,56px)] py-[clamp(44px,7vw,80px)] lg:grid-cols-[.85fr_1.15fr]">
+        <EditableBox boxId="dmc/partners" label="Who we work with" as="section" className="grid items-start gap-[clamp(24px,4vw,56px)] py-[clamp(44px,7vw,80px)] lg:grid-cols-[.85fr_1.15fr]">
           <div className="flex min-w-0 flex-col gap-3">
             <Pill id="dmc:partners:label" text="Who we work with" />
             <h2 className="text-balance text-[clamp(26px,3.4vw,38px)] font-bold leading-[1.15] tracking-[-0.015em]">
@@ -306,46 +308,46 @@ export function DmcContent() {
               <EditableText id="dmc:partners:lead" multiline defaultValue="We supply single services or complete programmes, ready to sell under your name or ours." />
             </p>
           </div>
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-            <div className={cn("flex flex-col gap-1 rounded-[10px] px-[22px] py-5 sm:col-span-2", MINT_TINT)}>
+          <EditableColumns rowId="dmc/partners/grid" kind="cards" cols={2} className="grid min-w-0 gap-3 sm:grid-cols-2">
+            <EditableBox boxId="dmc/partners/fit" label="Partners: FIT" className={cn("flex flex-col gap-1 rounded-[10px] px-[22px] py-5 sm:col-span-2", MINT_TINT)}>
               <span className={cn("text-xs font-bold tracking-[.06em]", MINT_DARK)}><EditableText id="dmc:partners:fit:kicker" defaultValue="FIT" /></span>
               <strong className="text-[15.5px]"><EditableText id="dmc:partners:fit:title" defaultValue="Your reliable partner for individual travellers" /></strong>
               <span className="text-[15px]"><EditableText id="dmc:partners:fit:text" multiline defaultValue="Many renowned FIT operators rely on us as their partner in Luxembourg. From accommodation to excursions, transfers and special requests, Sightseeing.lu is a true specialist in individual travel." /></span>
-            </div>
+            </EditableBox>
             {PARTNERS.map((p) => (
-              <div key={p.key} className={cn(CARD, "flex flex-col gap-1 px-[18px] py-4")}>
+              <EditableBox key={p.key} boxId={`dmc/partners/${p.key}`} label={`Partner: ${p.title}`} className={cn(CARD, "flex flex-col gap-1 px-[18px] py-4")}>
                 <strong className="text-[15.5px]"><EditableText id={`dmc:partners:${p.key}:title`} defaultValue={p.title} /></strong>
                 <span className="text-sm text-muted-foreground"><EditableText id={`dmc:partners:${p.key}:text`} defaultValue={p.text} /></span>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* How it works */}
-        <section className="pb-[clamp(44px,7vw,80px)]">
+        <EditableBox boxId="dmc/steps" label="How it works" as="section" className="pb-[clamp(44px,7vw,80px)]">
           <SectionHead id="steps" label="How it works" title="From your request to the tour day" />
-          <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <EditableColumns rowId="dmc/steps/grid" kind="cards" cols={4} as="ol" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((s) => (
-              <li key={s.key} className={cn(CARD, "flex flex-col gap-2 p-5")}>
+              <EditableBox key={s.key} boxId={`dmc/steps/${layoutSlug(s.title)}`} label={`Step: ${s.title}`} as="li" className={cn(CARD, "flex flex-col gap-2 p-5")}>
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-[15px] font-bold text-white">{s.key}</span>
                 <h3 className="text-lg font-bold leading-snug"><EditableText id={`dmc:steps:${s.key}:title`} defaultValue={s.title} /></h3>
                 <p className="text-[14.5px] text-muted-foreground"><EditableText id={`dmc:steps:${s.key}:text`} multiline defaultValue={s.text} /></p>
-              </li>
+              </EditableBox>
             ))}
-          </ol>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Brochure */}
-        <section id="brochure" className="scroll-mt-20 pb-[clamp(44px,7vw,80px)]">
-          <div className="grid items-center gap-[clamp(24px,5vw,56px)] rounded-2xl bg-[#1d262b] p-[clamp(24px,5vw,52px)] text-white sm:grid-cols-[auto_1fr]">
-            <div className="grid aspect-[210/297] w-[150px] max-w-full -rotate-3 grid-rows-[1fr_auto] overflow-hidden rounded-md bg-white shadow-[0_20px_40px_rgba(0,0,0,.35)] sm:w-[190px]" aria-hidden="true">
+        <EditableBox boxId="dmc/brochure" label="Brochure" as="section" id="brochure" className="scroll-mt-20 pb-[clamp(44px,7vw,80px)]">
+          <EditableColumns rowId="dmc/brochure/columns" kind="split" className="grid items-center gap-[clamp(24px,5vw,56px)] rounded-2xl bg-[#1d262b] p-[clamp(24px,5vw,52px)] text-white sm:grid-cols-[auto_1fr]">
+            <EditableBox boxId="dmc/brochure/cover" label="Brochure — cover" className="grid aspect-[210/297] w-[150px] max-w-full -rotate-3 grid-rows-[1fr_auto] overflow-hidden rounded-md bg-white shadow-[0_20px_40px_rgba(0,0,0,.35)] sm:w-[190px]" aria-hidden="true">
               <Photo id="dmc:brochure:cover" src={IMG.hero} className="h-full" />
               <div className="px-3.5 py-3 text-[15px] font-bold leading-tight text-[#1d262b]">
                 <EditableText id="dmc:brochure:cover:title" defaultValue="DMC & Tour Operator" />
                 <small className="mt-1 block text-[11px] font-medium text-[#6b7980]"><EditableText id="dmc:brochure:cover:sub" defaultValue="sightseeing.lu · Brochure" /></small>
               </div>
-            </div>
-            <div className="flex min-w-0 flex-col gap-4">
+            </EditableBox>
+            <EditableBox boxId="dmc/brochure/text" label="Brochure — text" className="flex min-w-0 flex-col gap-4">
               <Pill id="dmc:brochure:label" text="Brochure" className="bg-[rgba(123,198,177,.18)] text-primary" />
               <h2 className="text-balance text-[clamp(26px,3.4vw,38px)] font-bold leading-[1.15] tracking-[-0.015em]">
                 <EditableText id="dmc:brochure:title" defaultValue="All our programmes in one PDF" />
@@ -360,12 +362,12 @@ export function DmcContent() {
                   <EditableText id="dmc:brochure:cta" defaultValue="Download brochure (PDF)" />
                 </EditableLink>
               </div>
-            </div>
-          </div>
-        </section>
+            </EditableBox>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Contact */}
-        <section id="contact" className="scroll-mt-20 pb-[clamp(44px,7vw,80px)]">
+        <EditableBox boxId="dmc/contact" label="Contact" as="section" id="contact" className="scroll-mt-20 pb-[clamp(44px,7vw,80px)]">
           <div className={cn("grid items-start gap-[clamp(24px,4vw,48px)] rounded-2xl p-[clamp(20px,5vw,48px)] lg:grid-cols-[.8fr_1.2fr]", MINT_TINT)}>
             <div className="flex min-w-0 flex-col gap-3.5">
               <Pill id="dmc:contact:label" text="Contact" className="bg-white" />
@@ -375,18 +377,18 @@ export function DmcContent() {
               <p className="max-w-[65ch] text-[clamp(16px,1.5vw,19px)] text-muted-foreground">
                 <EditableText id="dmc:contact:lead" multiline defaultValue="Tell us about your guests and your plans. We will reply with a programme proposal." />
               </p>
-              <div className="mt-2 grid gap-2.5 rounded-[10px] bg-card px-5 py-[18px] text-[15px]">
+              <EditableBox boxId="dmc/contact/details" label="Contact details" className="mt-2 grid gap-2.5 rounded-[10px] bg-card px-5 py-[18px] text-[15px]">
                 {[["email", "E-mail", "[add e-mail]"], ["phone", "Phone", "[add phone]"], ["address", "Address", "[add address]"]].map(([k, label, value]) => (
                   <div key={k} className="flex flex-wrap justify-between gap-3 border-b border-border pb-2.5 last:border-b-0 last:pb-0">
                     <span className="text-muted-foreground"><EditableText id={`dmc:contact:${k}:label`} defaultValue={label} /></span>
                     <b className={cn("font-semibold", MINT_DARK)}><EditableText id={`dmc:contact:${k}:value`} defaultValue={value} /></b>
                   </div>
                 ))}
-              </div>
+              </EditableBox>
             </div>
             <DmcForm />
           </div>
-        </section>
+        </EditableBox>
       </div>
     </main>
   )

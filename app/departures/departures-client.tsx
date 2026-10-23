@@ -8,6 +8,7 @@ import {
   Search, X, ChevronDown, SlidersHorizontal, Navigation,
 } from "lucide-react"
 import { useGetMapboxTokenQuery } from "@/store/site/api"
+import { EditableBox } from "@/components/editable-layout"
 
 const DEPARTURE_TIMES: Record<string, { time: string; date: string; spots: number }> = {
   "31898": { time: "09:30", date: "Today", spots: 4 },
@@ -225,7 +226,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
   return (
     <>
       {/* Hero */}
-      <section className="border-b border-border bg-card">
+      <EditableBox boxId="departures/hero" label="Hero" as="section" className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-16">
           <div className="flex items-center gap-2 text-sm font-medium text-primary">
             <MapPin className="h-4 w-4" />
@@ -266,7 +267,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
             </div>
           </div>
         </div>
-      </section>
+      </EditableBox>
 
       {/* Active filter banner */}
       {selectedTrip && (
@@ -296,7 +297,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
       )}
 
       {/* Location grid */}
-      <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
+      <EditableBox boxId="departures/locations" label="Departure locations list" className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
         {grouped.length === 0 ? (
           <div className="py-16 text-center text-muted-foreground">No departure locations found.</div>
         ) : (
@@ -438,7 +439,7 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
           </div>
         )}
 
-        <div className="mt-12 text-center">
+        <EditableBox boxId="departures/browse-all" label="Browse all experiences button" className="mt-12 text-center">
           <Link
             href="/explore"
             className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
@@ -446,8 +447,8 @@ export function DeparturesClient({ initialTrips }: { initialTrips?: Trip[] }) {
             Browse all experiences
             <ChevronRight className="h-4 w-4" />
           </Link>
-        </div>
-      </div>
+        </EditableBox>
+      </EditableBox>
     </>
   )
 }

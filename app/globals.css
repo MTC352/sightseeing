@@ -420,3 +420,49 @@
 .auto-editable-img:hover {
   filter: brightness(0.95);
 }
+
+/* ── Layout controls (components/editable-layout.tsx) ─────────────────────
+   Column overrides chosen in the inline editor. Desktop only: tablet keeps
+   the coded layout and mobile stacks. A row with one visible box always fills
+   the full width. */
+[data-cols-single] {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+/* Coded column spans (e.g. sm:col-span-2) would add an implicit empty track
+   once the column count is overridden, so overridden rows drop them. */
+[data-cols-single] > * {
+  grid-column: auto !important;
+}
+@media (min-width: 1024px) {
+  [data-cols-desktop] {
+    grid-template-columns: repeat(var(--cols-desktop), minmax(0, 1fr)) !important;
+  }
+  [data-split-desktop] {
+    grid-template-columns: var(--split-desktop) !important;
+  }
+  [data-cols-desktop] > *,
+  [data-split-desktop] > * {
+    grid-column: auto !important;
+  }
+}
+
+/* Edit mode: outline + toolbar only on the innermost hovered box/row. */
+[data-box-toolbar],
+[data-cols-toolbar] {
+  display: none;
+}
+[data-box-edit]:hover:not(:has([data-box-edit]:hover)) {
+  outline: 2px dashed rgba(225, 29, 72, 0.8);
+  outline-offset: 2px;
+}
+[data-box-edit]:hover:not(:has([data-box-edit]:hover)) > [data-box-toolbar] {
+  display: flex;
+}
+[data-cols-edit]:hover:not(:has([data-cols-edit]:hover)) {
+  outline: 2px dashed rgba(2, 132, 199, 0.6);
+  outline-offset: 6px;
+}
+[data-cols-edit]:hover > [data-cols-toolbar],
+[data-cols-toolbar][data-open] {
+  display: block;
+}

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "@/components/i18n/link"
 import { Calendar, Clock, MapPin, ArrowRight, RefreshCw, Loader2 } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
+import { EditableBox } from "@/components/editable-layout"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
 import { fetchWithRetry } from "@/lib/fetch-retry"
 
@@ -164,7 +165,7 @@ export function DepartingSoonPageClient() {
   return (
     <>
       {/* Hero */}
-      <section className="border-b border-border bg-card">
+      <EditableBox boxId="departing-soon/hero" label="Hero" as="section" className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-14">
           <div className="flex items-center gap-2 text-sm font-medium text-primary">
             <Calendar className="h-4 w-4" />
@@ -208,10 +209,10 @@ export function DepartingSoonPageClient() {
             </button>
           </div>
         </div>
-      </section>
+      </EditableBox>
 
       {/* Grid */}
-      <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
+      <EditableBox boxId="departing-soon/listing" label="Departures list" className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
         {loading ? (
           // Transient live status — never editable.
           <div data-no-edit className="flex flex-col items-center justify-center py-24 text-muted-foreground">
@@ -315,7 +316,7 @@ export function DepartingSoonPageClient() {
             </div>
           </>
         )}
-      </div>
+      </EditableBox>
     </>
   )
 }

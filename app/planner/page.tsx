@@ -26,6 +26,8 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 const staticTripsFallback: Trip[] = []
 import { AppImage } from "@/components/app-image"
 import { Link } from "@/components/i18n/link"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 import {
   Send, Bot, User, PanelLeftClose, PanelLeftOpen, ShoppingBag,
   MapPin, Compass, Utensils, Bike, Landmark, Star, X, Sparkles,
@@ -5790,21 +5792,21 @@ export default function PlannerPage() {
                 </div>
               )}
               {!prefs && (
-                <div className="mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:gap-4 lg:grid-cols-3">
+                <EditableColumns rowId="planner/welcome/features" kind="cards" cols={3} className="mt-6 grid grid-cols-1 gap-3 sm:mt-8 sm:gap-4 lg:grid-cols-3">
                   {[
                     { icon: Sparkles, title: "AI-Powered", desc: "Smart recommendations based on your preferences" },
                     { icon: CloudSun, title: "Weather-Aware", desc: "Adapts to current conditions automatically" },
                     { icon: MapPin, title: "Local Experts", desc: "Curated by passionate local guides" },
                   ].map((f) => (
-                    <div key={f.title} className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
+                    <EditableBox key={f.title} boxId={`planner/welcome/features/${layoutSlug(f.title)}`} label={`Feature: ${f.title}`} className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10"><f.icon className="h-5 w-5 text-primary" /></div>
                       <div>
                         <p className="text-sm font-semibold text-foreground">{f.title}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">{f.desc}</p>
                       </div>
-                    </div>
+                    </EditableBox>
                   ))}
-                </div>
+                </EditableColumns>
               )}
             </div>
           ) : selectedTrip ? (

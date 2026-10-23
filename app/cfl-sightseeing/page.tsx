@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Navbar } from "@/components/site-navbar"
 import { SiteFooter } from "@/components/site-footer"
 import { CflLogoImage, CflHeroImage } from "./cfl-images"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -25,9 +26,9 @@ export default function CflSightseeingPage() {
       <Navbar />
       <main>
         {/* Hero: text on left, image on right */}
-        <section className="mx-auto max-w-7xl px-4 py-10 lg:px-8 lg:py-14">
-          <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
-            <div className="flex-1">
+        <EditableBox boxId="cfl-sightseeing/hero" label="Hero" as="section" className="mx-auto max-w-7xl px-4 py-10 lg:px-8 lg:py-14">
+          <EditableColumns rowId="cfl-sightseeing/hero/columns" kind="split" className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_560px] lg:items-center">
+            <EditableBox boxId="cfl-sightseeing/hero/text" label="Hero — text">
               <div className="mb-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full">
                 <CflLogoImage />
               </div>
@@ -41,19 +42,19 @@ export default function CflSightseeingPage() {
                 districts combining modernity and history as well as the city of
                 Diekirch.
               </p>
-            </div>
-            <div className="relative h-64 w-full overflow-hidden rounded-2xl shadow-sm lg:h-80 lg:w-[560px]">
+            </EditableBox>
+            <EditableBox boxId="cfl-sightseeing/hero/image" label="Hero — image" className="relative h-64 w-full overflow-hidden rounded-2xl shadow-sm lg:h-80">
               <CflHeroImage />
-            </div>
-          </div>
-        </section>
+            </EditableBox>
+          </EditableColumns>
+        </EditableBox>
 
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <hr className="border-t border-border" />
         </div>
 
         {/* Audio-guide iframe */}
-        <section className="mx-auto max-w-7xl px-4 py-8 lg:px-8 lg:py-12">
+        <EditableBox boxId="cfl-sightseeing/audio-guide" label="Audio guide" as="section" className="mx-auto max-w-7xl px-4 py-8 lg:px-8 lg:py-12">
           <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
             <iframe
               src="https://cflsightseeingaudioguide.palisis.com/"
@@ -66,7 +67,7 @@ export default function CflSightseeingPage() {
               referrerPolicy="strict-origin-when-cross-origin"
             />
           </div>
-        </section>
+        </EditableBox>
       </main>
       <SiteFooter />
     </div>

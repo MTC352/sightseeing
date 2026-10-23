@@ -19,6 +19,7 @@ import React, { useState, useEffect, useCallback } from "react"
 import { Link } from "@/components/i18n/link"
 import { Star, Clock, Zap, ArrowRight } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
+import { EditableBox } from "@/components/editable-layout"
 import type { DealItem } from "@/app/api/last-minute-deals/route"
 import { fetchWithRetry } from "@/lib/fetch-retry"
 
@@ -285,7 +286,7 @@ export function LastMinuteDealsSection() {
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <EditableBox boxId="home/deals" label="Filling up fast" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
         <div className="rounded-2xl bg-primary/5 p-6 lg:p-8">
           <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
             <Zap className="h-5 w-5 text-primary" />
@@ -298,14 +299,14 @@ export function LastMinuteDealsSection() {
             {[0,1,2].map((i) => <SkeletonCard key={i} />)}
           </div>
         </div>
-      </section>
+      </EditableBox>
     )
   }
 
   // ── DYNAMIC MODE — urgent live deals ─────────────────────────────────────
   if (deals.length > 0) {
     return (
-      <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+      <EditableBox boxId="home/deals" label="Filling up fast" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
         <div className="rounded-2xl bg-destructive/5 p-6 lg:p-8">
           <div className="flex items-start justify-between">
             <div>
@@ -327,7 +328,7 @@ export function LastMinuteDealsSection() {
             ))}
           </div>
         </div>
-      </section>
+      </EditableBox>
     )
   }
 
@@ -335,7 +336,7 @@ export function LastMinuteDealsSection() {
   if (previewDeals.length === 0) return null
 
   return (
-    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <EditableBox boxId="home/deals" label="Filling up fast" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="rounded-2xl bg-primary/5 p-6 lg:p-8">
         <div className="flex items-start justify-between">
           <div>
@@ -358,6 +359,6 @@ export function LastMinuteDealsSection() {
           ))}
         </div>
       </div>
-    </section>
+    </EditableBox>
   )
 }

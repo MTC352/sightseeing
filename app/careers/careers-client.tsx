@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { MapPin, Clock, Briefcase, ChevronDown, ChevronUp } from "lucide-react"
 import { DEFAULT_JOB_EMAIL } from "@/lib/job-email"
+import { EditableBox } from "@/components/editable-layout"
 
 export interface JobListing {
   id: string
@@ -79,7 +80,7 @@ export function CareersClient({ jobs }: { jobs: JobListing[] }) {
   const filtered = activeTab === "All" ? jobs : jobs.filter((j) => j.department === activeTab)
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
+    <EditableBox boxId="careers/openings" label="Open positions" className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
       <div data-no-edit className="flex flex-wrap gap-2">
         {departments.map((dept) => (
           <button
@@ -106,7 +107,7 @@ export function CareersClient({ jobs }: { jobs: JobListing[] }) {
         )}
       </div>
 
-      <div className="mt-10 rounded-2xl border border-border bg-card p-6 text-center">
+      <EditableBox boxId="careers/open-application" label="Open application" className="mt-10 rounded-2xl border border-border bg-card p-6 text-center">
         <h2 className="text-base font-bold text-foreground">Don&#39;t see the right role?</h2>
         <p className="mt-1 text-sm text-muted-foreground">We are always open to hearing from talented people. Send us your CV and tell us how you can contribute.</p>
         <a
@@ -115,7 +116,7 @@ export function CareersClient({ jobs }: { jobs: JobListing[] }) {
         >
           Send an open application
         </a>
-      </div>
-    </div>
+      </EditableBox>
+    </EditableBox>
   )
 }

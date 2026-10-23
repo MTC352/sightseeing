@@ -5,6 +5,8 @@ import { SiteFooter } from "@/components/site-footer"
 import { CookieSettingsButton } from "@/components/cookie-banner"
 import { LegalLink } from "@/components/legal-link"
 import { dbGetLegalLinks, LEGAL_LINKS_DEFAULTS } from "@/lib/db/queries"
+import { EditableBox } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -42,14 +44,14 @@ export default async function PrivacyPage() {
           </a>
         )}
 
-        <div className="mt-8 rounded-xl border border-border bg-secondary/30 px-5 py-4 text-sm text-muted-foreground">
+        <EditableBox boxId="privacy/intro" label="Introduction" className="mt-8 rounded-xl border border-border bg-secondary/30 px-5 py-4 text-sm text-muted-foreground">
           This policy explains which personal data sightseeing.lu collects, why, who we share it with, and what rights you have under the EU General Data Protection Regulation (GDPR — Regulation 2016/679) and Luxembourg data protection law as supervised by the <strong>CNPD</strong>.
-        </div>
+        </EditableBox>
 
         <div className="mt-10 space-y-10 text-sm leading-relaxed text-foreground">
 
           {/* 1. Data Controller */}
-          <section>
+          <EditableBox boxId="privacy/data-controller" label="1. Data controller" as="section">
             <h2 className="text-lg font-semibold text-foreground">1. Data controller</h2>
             <div className="mt-3 space-y-1 text-muted-foreground">
               <p>The data controller responsible for this website is:</p>
@@ -58,54 +60,54 @@ export default async function PrivacyPage() {
               <p>E-mail: <a href="mailto:privacy@sightseeing.lu" className="text-primary underline underline-offset-2">privacy@sightseeing.lu</a></p>
               <p>Phone: +352 621 000 000</p>
             </div>
-          </section>
+          </EditableBox>
 
           {/* 2. Data we collect */}
-          <section>
+          <EditableBox boxId="privacy/data-we-collect" label="2. What data we collect" as="section">
             <h2 className="text-lg font-semibold text-foreground">2. What data we collect and why</h2>
             <div className="mt-4 space-y-6">
 
-              <div>
+              <EditableBox boxId="privacy/data-we-collect/server-logs" label="2.1 Browsing and server logs">
                 <h3 className="font-semibold">2.1 Browsing & server logs</h3>
                 <p className="mt-2 text-muted-foreground">When you visit our website, our hosting provider (Vercel) automatically records standard server log data: IP address, browser type, operating system, referring URL, pages visited, and timestamp. This data is retained for up to 30 days for security and performance purposes.</p>
                 <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Legal basis:</span> Article 6(1)(f) GDPR — legitimate interest in operating a secure website.</p>
-              </div>
+              </EditableBox>
 
-              <div>
+              <EditableBox boxId="privacy/data-we-collect/job-applications" label="2.2 Job applications">
                 <h3 className="font-semibold">2.2 Job applications</h3>
                 <p className="mt-2 text-muted-foreground">When you apply for a position via our careers page, we collect your full name, email address, phone number, cover letter, LinkedIn/portfolio URL, and any CV or document you upload. Your application data is stored in our database and, for uploaded files, in Vercel Blob secure cloud storage. We use this data solely to assess your application.</p>
                 <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Legal basis:</span> Article 6(1)(b) GDPR — steps taken at your request prior to entering a contract. Data is retained for 6 months after the position is filled, then deleted.</p>
-              </div>
+              </EditableBox>
 
-              <div>
+              <EditableBox boxId="privacy/data-we-collect/support-tickets" label="2.3 Support tickets">
                 <h3 className="font-semibold">2.3 Support tickets</h3>
                 <p className="mt-2 text-muted-foreground">If you contact us via the support form, we collect your name, email address, and message content. This data is used only to handle your request.</p>
                 <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Legal basis:</span> Article 6(1)(b) GDPR — performance of a contract or pre-contractual steps. Retained for 2 years.</p>
-              </div>
+              </EditableBox>
 
-              <div>
+              <EditableBox boxId="privacy/data-we-collect/ai-planner" label="2.4 AI trip planner">
                 <h3 className="font-semibold">2.4 AI trip planner</h3>
                 <p className="mt-2 text-muted-foreground">The AI trip planner collects your stated travel preferences (group type, interests, travel date, budget, party size) and the full text of your conversation with the AI assistant. These messages are sent to <strong>Anthropic, Inc.</strong> (USA) for processing by Claude AI models. We do not store your planner conversations in our database after your session ends. Your preferences (group type, date, interests) are stored in a browser cookie (<code>sightseeing_prefs</code>) and localStorage on your own device.</p>
                 <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Legal basis:</span> Article 6(1)(a) GDPR — your consent, given by using the planner. See also §5 (cookies) and §7 (Anthropic).</p>
-              </div>
+              </EditableBox>
 
-              <div>
+              <EditableBox boxId="privacy/data-we-collect/cart" label="2.5 Shopping cart and recently viewed">
                 <h3 className="font-semibold">2.5 Shopping cart & recently viewed</h3>
                 <p className="mt-2 text-muted-foreground">Your cart contents and recently viewed trip IDs are stored exclusively in your browser's localStorage. This data never leaves your device and is not sent to our servers unless you proceed to checkout through the Palisis booking system.</p>
                 <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Legal basis:</span> Article 6(1)(f) GDPR — legitimate interest in providing a functional shopping experience.</p>
-              </div>
+              </EditableBox>
 
-              <div>
+              <EditableBox boxId="privacy/data-we-collect/bookings" label="2.6 Bookings and payments">
                 <h3 className="font-semibold">2.6 Bookings and payments</h3>
                 <p className="mt-2 text-muted-foreground">Booking and payment processing is handled entirely by <strong>Palisis AG / TourCMS</strong>. When you proceed to checkout, you are redirected to a Palisis-hosted booking page at <code>sightseeingluxembourg.palisis.com</code>. Your name, contact details, and payment information are collected and processed by Palisis under their own privacy policy. We receive a booking confirmation but do not store your raw payment data.</p>
                 <p className="mt-1 text-muted-foreground"><span className="font-medium text-foreground">Legal basis:</span> Article 6(1)(b) GDPR — performance of a contract.</p>
-              </div>
+              </EditableBox>
 
             </div>
-          </section>
+          </EditableBox>
 
           {/* 3. Cookies */}
-          <section>
+          <EditableBox boxId="privacy/cookies" label="3. Cookies" as="section">
             <h2 className="text-lg font-semibold text-foreground">3. Cookies and similar technologies</h2>
             <p className="mt-3 text-muted-foreground">We use cookies and browser localStorage. You can manage your preferences at any time via the <CookieSettingsButton /> link in the footer.</p>
 
@@ -165,10 +167,10 @@ export default async function PrivacyPage() {
                 </tbody>
               </table>
             </div>
-          </section>
+          </EditableBox>
 
           {/* 4. Third-party processors */}
-          <section>
+          <EditableBox boxId="privacy/processors" label="4. Third-party processors" as="section">
             <h2 className="text-lg font-semibold text-foreground">4. Third-party data processors and transfers</h2>
             <p className="mt-3 text-muted-foreground">We use the following sub-processors. Where data is transferred outside the EU/EEA, we rely on European Commission-approved Standard Contractual Clauses (SCCs) or equivalent adequacy decisions.</p>
 
@@ -235,20 +237,20 @@ export default async function PrivacyPage() {
                   link: "https://userway.org/privacy",
                 },
               ].map((p) => (
-                <div key={p.name} className="rounded-lg border border-border p-4">
+                <EditableBox key={p.name} boxId={`privacy/processors/${layoutSlug(p.name)}`} label={`Processor: ${p.name}`} className="rounded-lg border border-border p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="font-semibold text-foreground">{p.name}</p>
                     <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">{p.location}</span>
                   </div>
                   <p className="mt-1 text-muted-foreground">{p.purpose}</p>
                   <a href={p.link} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs text-primary underline underline-offset-2">Privacy policy →</a>
-                </div>
+                </EditableBox>
               ))}
             </div>
-          </section>
+          </EditableBox>
 
           {/* 5. Retention */}
-          <section>
+          <EditableBox boxId="privacy/retention" label="5. Data retention" as="section">
             <h2 className="text-lg font-semibold text-foreground">5. Data retention</h2>
             <div className="mt-3 text-muted-foreground space-y-2">
               <p>We keep personal data only as long as necessary for the purpose it was collected, or as required by law:</p>
@@ -261,10 +263,10 @@ export default async function PrivacyPage() {
                 <li>Browser localStorage (cart, prefs, recently viewed): until you clear your browser data</li>
               </ul>
             </div>
-          </section>
+          </EditableBox>
 
           {/* 6. Your rights */}
-          <section>
+          <EditableBox boxId="privacy/your-rights" label="6. Your rights" as="section">
             <h2 className="text-lg font-semibold text-foreground">6. Your rights under GDPR</h2>
             <div className="mt-3 text-muted-foreground space-y-2">
               <p>You have the following rights regarding your personal data:</p>
@@ -279,10 +281,10 @@ export default async function PrivacyPage() {
               </ul>
               <p className="mt-3">To exercise any of these rights, contact us at <a href="mailto:privacy@sightseeing.lu" className="text-primary underline underline-offset-2">privacy@sightseeing.lu</a>. We will respond within 30 days.</p>
             </div>
-          </section>
+          </EditableBox>
 
           {/* 7. Supervisory authority */}
-          <section>
+          <EditableBox boxId="privacy/complaint" label="7. Right to lodge a complaint" as="section">
             <h2 className="text-lg font-semibold text-foreground">7. Right to lodge a complaint</h2>
             <div className="mt-3 text-muted-foreground">
               <p>If you believe we have not handled your data correctly, you have the right to lodge a complaint with the Luxembourg data protection supervisory authority:</p>
@@ -292,23 +294,23 @@ export default async function PrivacyPage() {
                 <a href="https://cnpd.public.lu" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">cnpd.public.lu</a>
               </p>
             </div>
-          </section>
+          </EditableBox>
 
           {/* 8. Changes */}
-          <section>
+          <EditableBox boxId="privacy/changes" label="8. Changes to this policy" as="section">
             <h2 className="text-lg font-semibold text-foreground">8. Changes to this policy</h2>
             <div className="mt-3 text-muted-foreground">
               <p>We may update this policy from time to time to reflect changes in our services or legal obligations. The "Last updated" date at the top of the page will always show when the policy was most recently revised. Significant changes will be notified via a banner on the website.</p>
             </div>
-          </section>
+          </EditableBox>
 
         </div>
 
-        <div className="mt-12 border-t border-border pt-6 flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <EditableBox boxId="privacy/links" label="Related links" className="mt-12 border-t border-border pt-6 flex flex-wrap gap-4 text-xs text-muted-foreground">
           <LegalLink href={legal.legalNoticeUrl} className="hover:text-primary underline underline-offset-2">Legal Notice (Impressum)</LegalLink>
           <Link href="/help" className="hover:text-primary underline underline-offset-2">Help & FAQ</Link>
           <Link href="/" className="hover:text-primary underline underline-offset-2">Back to homepage</Link>
-        </div>
+        </EditableBox>
       </main>
       <SiteFooter />
     </>

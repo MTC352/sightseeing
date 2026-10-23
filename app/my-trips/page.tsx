@@ -9,6 +9,7 @@ import { substitutePlaceholders, buildPalisisBookingUrl } from "@/lib/booking-ur
 import { useSiteLang } from "@/components/i18n/translator"
 import { stripHtml } from "@/lib/seo/score"
 import { ShoppingBag, X, Trash2, Clock, Star, MapPin, Loader2 } from "lucide-react"
+import { EditableBox } from "@/components/editable-layout"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,7 +42,7 @@ export default function SavedTripsPage() {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
-        <div className="flex flex-col items-center justify-center px-4 py-24 text-center">
+        <EditableBox boxId="my-trips/empty" label="No saved trips message" className="flex flex-col items-center justify-center px-4 py-24 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
             <ShoppingBag className="h-7 w-7 text-muted-foreground" />
           </div>
@@ -53,7 +54,7 @@ export default function SavedTripsPage() {
             <Link href="/planner" className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground">Plan My Trip</Link>
             <Link href="/explore" className="rounded-lg border border-border bg-transparent px-5 py-2.5 text-sm font-medium text-foreground">Browse Tours</Link>
           </div>
-        </div>
+        </EditableBox>
       </div>
     )
   }
@@ -63,7 +64,7 @@ export default function SavedTripsPage() {
       <Navbar />
       <div className="mx-auto max-w-4xl px-4 py-8 lg:px-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <EditableBox boxId="my-trips/header" label="Header" className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">My Saved Trips</h1>
             <p className="mt-1 text-sm text-muted-foreground">{totalItems} {totalItems === 1 ? "experience" : "experiences"} saved</p>
@@ -95,7 +96,7 @@ export default function SavedTripsPage() {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-        </div>
+        </EditableBox>
 
         {/* Trip list */}
         <div className="mt-6 flex flex-col gap-4">
@@ -155,7 +156,7 @@ export default function SavedTripsPage() {
         </div>
 
         {/* Estimated Total */}
-        <div className="mt-6 rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
+        <EditableBox boxId="my-trips/total" label="Estimated total" className="mt-6 rounded-2xl border border-border bg-card px-6 py-5 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-muted-foreground">
               Estimated Total <span className="text-muted-foreground/70">({persons} {persons === 1 ? "person" : "people"})</span>
@@ -165,7 +166,7 @@ export default function SavedTripsPage() {
           <p className="mt-2 text-[11px] text-muted-foreground">
             Tap a trip to book it securely via Palisis.
           </p>
-        </div>
+        </EditableBox>
       </div>
 
       {/* Individual booking modal */}

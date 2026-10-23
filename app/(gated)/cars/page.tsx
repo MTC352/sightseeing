@@ -12,6 +12,8 @@ import {
   ChevronRight, ArrowRight, Zap, Leaf, Key,
 } from "lucide-react"
 import type { Metadata } from "next"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 export const metadata: Metadata = {
   title: "Car Rental Luxembourg | Best Deals from €39/day | sightseeing.lu",
@@ -120,7 +122,7 @@ export default async function CarsPage() {
       <main className="flex-1">
 
         {/* ── Hero ───────────────────────────────────────────────────────── */}
-        <section className="relative overflow-hidden">
+        <EditableBox boxId="cars/hero" label="Hero" as="section" className="relative overflow-hidden">
           {/* Background image */}
           <div className="absolute inset-0 z-0">
             <EditableHero
@@ -155,7 +157,7 @@ export default async function CarsPage() {
             </div>
 
             {/* Booking widget card */}
-            <div className="mt-10 overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <EditableBox boxId="cars/hero/booking" label="Car rental search" className="mt-10 overflow-hidden rounded-2xl bg-white shadow-2xl">
               <div className="flex items-center gap-2 border-b border-border px-5 py-3">
                 <Car className="h-4 w-4 text-primary" />
                 <p className="text-sm font-semibold text-foreground">Find your rental car</p>
@@ -164,16 +166,16 @@ export default async function CarsPage() {
               <div data-no-edit className="p-2">
                 <CarRentalWidget />
               </div>
-            </div>
+            </EditableBox>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Trust badges ───────────────────────────────────────────────── */}
-        <section className="border-b border-border bg-card">
+        <EditableBox boxId="cars/trust" label="Trust badges" as="section" className="border-b border-border bg-card">
           <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <EditableColumns rowId="cars/trust/grid" kind="cards" cols={4} className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {TRUST_BADGES.map(({ icon: Icon, label, desc }) => (
-                <div key={label} className="flex items-start gap-3">
+                <EditableBox key={label} boxId={`cars/trust/${layoutSlug(label)}`} label={`Badge: ${label}`} className="flex items-start gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                     <Icon className="h-4.5 w-4.5 text-primary" />
                   </div>
@@ -181,14 +183,14 @@ export default async function CarsPage() {
                     <p className="text-xs font-semibold text-foreground">{label}</p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">{desc}</p>
                   </div>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Featured vehicles ──────────────────────────────────────────── */}
-        <section className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
+        <EditableBox boxId="cars/vehicles" label="Featured vehicles" as="section" className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
           <div className="flex items-end justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-primary">Featured Vehicles</p>
@@ -201,8 +203,11 @@ export default async function CarsPage() {
 
           <div className="mt-8 flex flex-col gap-4">
             {CARS.map((car) => (
-              <article
+              <EditableBox
+                as="article"
                 key={car.id}
+                boxId={`cars/vehicles/${car.id}`}
+                label={`Vehicle: ${car.name}`}
                 className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all hover:border-primary/30 hover:shadow-md sm:flex-row"
               >
                 <div className="relative h-52 w-full overflow-hidden sm:h-auto sm:w-56">
@@ -259,13 +264,13 @@ export default async function CarsPage() {
                     </div>
                   </div>
                 </div>
-              </article>
+              </EditableBox>
             ))}
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Why rent with us ───────────────────────────────────────────── */}
-        <section className="border-y border-border bg-card py-14">
+        <EditableBox boxId="cars/why" label="Why book with us" as="section" className="border-y border-border bg-card py-14">
           <div className="mx-auto max-w-7xl px-4 lg:px-8">
             <div className="text-center">
               <p className="text-xs font-semibold uppercase tracking-widest text-primary">Why book with sightseeing.lu</p>
@@ -274,9 +279,9 @@ export default async function CarsPage() {
                 We work with the world{"'"}s leading car rental companies to give you the widest choice, at the best price, with the least hassle.
               </p>
             </div>
-            <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <EditableColumns rowId="cars/why/grid" kind="cards" cols={3} className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {WHY_ITEMS.map(({ icon: Icon, title, desc }) => (
-                <div key={title} className="flex gap-4 rounded-2xl border border-border bg-background p-5">
+                <EditableBox key={title} boxId={`cars/why/${layoutSlug(title)}`} label={`Benefit: ${title}`} className="flex gap-4 rounded-2xl border border-border bg-background p-5">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                     <Icon className="h-5 w-5 text-primary" />
                   </div>
@@ -284,23 +289,23 @@ export default async function CarsPage() {
                     <h3 className="text-sm font-semibold text-foreground">{title}</h3>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{desc}</p>
                   </div>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── Destinations worth driving to ──────────────────────────────── */}
-        <section className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
+        <EditableBox boxId="cars/destinations" label="Day trips by car" as="section" className="mx-auto max-w-7xl px-4 py-14 lg:px-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-primary">Day Trips by Car</p>
           <h2 className="mt-1 text-2xl font-bold text-foreground">Where will you drive to?</h2>
           <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
             Luxembourg is small — the entire Grand Duchy is reachable in under an hour from the capital. A rental car unlocks destinations that public transport {"can't"} easily reach.
           </p>
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <EditableColumns rowId="cars/destinations/grid" kind="cards" cols={3} className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {DESTINATIONS.map((d) => (
-              <div key={d.city} className="flex items-start gap-4 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/30">
+              <EditableBox key={d.city} boxId={`cars/destinations/${layoutSlug(d.city)}`} label={`Destination: ${d.city}`} className="flex items-start gap-4 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/30">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
                   <MapPin className="h-4 w-4 text-primary" />
                 </div>
@@ -309,13 +314,13 @@ export default async function CarsPage() {
                   <p className="mt-0.5 text-[11px] text-muted-foreground">{d.distance} &bull; ~{d.time} drive</p>
                   <p className="mt-1 text-[11px] text-primary/80">{d.highlight}</p>
                 </div>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* ── SEO Editorial content ──────────────────────────────────────── */}
-        <section className="border-t border-border bg-card py-14">
+        <EditableBox boxId="cars/editorial" label="Car rental guide" as="section" className="border-t border-border bg-card py-14">
           <div className="mx-auto max-w-4xl px-4 lg:px-8">
             <h2 className="text-xl font-bold text-foreground">Car Rental in Luxembourg — Everything You Need to Know</h2>
             <div className="mt-6 space-y-6 text-sm leading-relaxed text-muted-foreground">
@@ -333,26 +338,26 @@ export default async function CarsPage() {
               </p>
             </div>
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── FAQ ────────────────────────────────────────────────────────── */}
-        <section className="mx-auto max-w-4xl px-4 py-14 lg:px-8">
+        <EditableBox boxId="cars/faq" label="FAQ" as="section" className="mx-auto max-w-4xl px-4 py-14 lg:px-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-primary">FAQ</p>
           <h2 className="mt-1 text-2xl font-bold text-foreground">Frequently asked questions</h2>
           <p className="mt-1.5 text-sm text-muted-foreground">Everything you need to know before you rent.</p>
 
           <div className="mt-8 divide-y divide-border rounded-2xl border border-border bg-card overflow-hidden">
             {FAQS.map(({ q, a }) => (
-              <div key={q} className="px-6 py-5">
+              <EditableBox key={q} boxId={`cars/faq/${layoutSlug(q)}`} label={`FAQ: ${q}`} className="px-6 py-5">
                 <h3 className="text-sm font-semibold text-foreground">{q}</h3>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{a}</p>
-              </div>
+              </EditableBox>
             ))}
           </div>
-        </section>
+        </EditableBox>
 
         {/* ── CTA ────────────────────────────────────────────────────────── */}
-        <section className="border-t border-border bg-primary/5 py-14">
+        <EditableBox boxId="cars/cta" label="Call to action" as="section" className="border-t border-border bg-primary/5 py-14">
           <div className="mx-auto max-w-7xl px-4 text-center lg:px-8">
             <h2 className="text-2xl font-bold text-foreground">Ready to explore Luxembourg?</h2>
             <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
@@ -367,7 +372,7 @@ export default async function CarsPage() {
               </Link>
             </div>
           </div>
-        </section>
+        </EditableBox>
 
       </main>
       <SiteFooter />

@@ -9,6 +9,8 @@ import { iconForSlug } from "@/lib/tag-icons"
 import { MapPin, Users, Award, Globe, Shield, Heart, ArrowRight } from "lucide-react"
 import { AboutHeroText, AboutStoryText, AboutValuesHeading, AboutOfferHeading, AboutReviewsHeading, AboutHeroImage, AboutTeamImage } from "./about-content"
 import { localizedMetadata } from "@/lib/i18n/metadata"
+import { EditableBox, EditableColumns } from "@/components/editable-layout"
+import { layoutSlug } from "@/lib/page-layout"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -102,7 +104,7 @@ export default async function AboutPage() {
         <Navbar />
 
         {/* Hero */}
-        <section className="relative">
+        <EditableBox boxId="about/hero" label="Hero" as="section" className="relative">
           <div className="relative h-[340px] lg:h-[420px]">
             <AboutHeroImage />
             <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
@@ -112,54 +114,54 @@ export default async function AboutPage() {
               <AboutHeroText />
             </div>
           </div>
-        </section>
+        </EditableBox>
 
         {/* Stats */}
-        <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <EditableBox boxId="about/stats" label="Stats" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+          <EditableColumns rowId="about/stats/grid" kind="cards" cols={4} className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             {stats.map((s) => (
-              <div key={s.label} className="flex flex-col items-center rounded-2xl border border-border bg-card p-6 text-center">
+              <EditableBox key={s.label} boxId={`about/stats/${layoutSlug(s.label)}`} label={`Stat: ${s.label}`} className="flex flex-col items-center rounded-2xl border border-border bg-card p-6 text-center">
                 <span className="text-2xl font-bold text-primary">{s.value}</span>
                 <span className="mt-1 text-xs text-muted-foreground">{s.label}</span>
-              </div>
+              </EditableBox>
             ))}
-          </div>
-        </section>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Our story */}
-        <section className="mx-auto max-w-7xl px-4 pb-12 lg:px-8">
-          <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
-            <div className="flex-1">
+        <EditableBox boxId="about/story" label="Our story" as="section" className="mx-auto max-w-7xl px-4 pb-12 lg:px-8">
+          <EditableColumns rowId="about/story/columns" kind="split" className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-center">
+            <EditableBox boxId="about/story/text" label="Our story — text">
               <AboutStoryText />
-            </div>
-            <div className="relative h-64 w-full overflow-hidden rounded-2xl lg:h-80 lg:w-96">
+            </EditableBox>
+            <EditableBox boxId="about/story/image" label="Our story — image" className="relative h-64 w-full overflow-hidden rounded-2xl lg:h-80">
               <AboutTeamImage />
-            </div>
-          </div>
-        </section>
+            </EditableBox>
+          </EditableColumns>
+        </EditableBox>
 
         {/* Values */}
-        <section className="border-t border-border bg-card py-12">
+        <EditableBox boxId="about/values" label="Our values" as="section" className="border-t border-border bg-card py-12">
           <div className="mx-auto max-w-7xl px-4 lg:px-8">
             <AboutValuesHeading />
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <EditableColumns rowId="about/values/grid" kind="cards" cols={4} className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {values.map((v) => (
-                <div key={v.title} className="rounded-xl border border-border bg-background p-5">
+                <EditableBox key={v.title} boxId={`about/values/${layoutSlug(v.title)}`} label={`Value: ${v.title}`} className="rounded-xl border border-border bg-background p-5">
                   <v.icon className="h-6 w-6 text-primary" />
                   <h3 className="mt-3 text-sm font-semibold text-foreground">{v.title}</h3>
                   <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">{v.description}</p>
-                </div>
+                </EditableBox>
               ))}
-            </div>
+            </EditableColumns>
           </div>
-        </section>
+        </EditableBox>
 
         {/* Categories overview — DYNAMIC: mirrors the Home page "Currently
             trending categories" (admin-managed homepage trip tags). The grid is
             data-no-edit so frontend Edit Mode never tags it as editable; only
             the AboutOfferHeading (static copy) stays editable. */}
         {offerTags.length > 0 && (
-          <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+          <EditableBox boxId="about/categories" label="Categories" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
             <AboutOfferHeading />
             <div data-no-edit className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {offerTags.map((tag) => {
@@ -180,19 +182,19 @@ export default async function AboutPage() {
                 )
               })}
             </div>
-          </section>
+          </EditableBox>
         )}
 
         {/* Reviews */}
-        <section className="border-t border-border bg-card py-12">
+        <EditableBox boxId="about/reviews" label="Reviews" as="section" className="border-t border-border bg-card py-12">
           <div className="mx-auto max-w-7xl px-4 lg:px-8">
             <AboutReviewsHeading />
             <AboutGoogleReviews data={google} profileUrl={GOOGLE_PROFILE_URL} />
           </div>
-        </section>
+        </EditableBox>
 
         {/* CTA */}
-        <section className="mx-auto max-w-7xl px-4 py-12 text-center lg:px-8">
+        <EditableBox boxId="about/cta" label="Call to action" as="section" className="mx-auto max-w-7xl px-4 py-12 text-center lg:px-8">
           <h2 className="text-2xl font-bold text-foreground">Ready to Explore Luxembourg?</h2>
           <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">Browse our full catalog of handpicked experiences and find your perfect adventure.</p>
           <div className="mt-6 flex items-center justify-center gap-3">
@@ -203,7 +205,7 @@ export default async function AboutPage() {
               AI Trip Planner
             </Link>
           </div>
-        </section>
+        </EditableBox>
 
         <SiteFooter />
       </div>

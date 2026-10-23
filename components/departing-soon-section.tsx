@@ -14,6 +14,7 @@ import React, { useState, useEffect, useCallback } from "react"
 import { Link } from "@/components/i18n/link"
 import { Calendar, ChevronLeft, ChevronRight, Clock, MapPin, ArrowRight, RefreshCw } from "lucide-react"
 import { EditableText } from "@/components/editable-text"
+import { EditableBox } from "@/components/editable-layout"
 import type { DepartingSoonItem } from "@/app/api/departing-soon/route"
 import { fetchWithRetry } from "@/lib/fetch-retry"
 
@@ -234,7 +235,7 @@ export function DeparturesSoonSection() {
   if (!loading && departures.length === 0) return null
 
   return (
-    <section className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+    <EditableBox boxId="home/departing-soon" label="Departing soon" as="section" className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-xl font-bold text-foreground">
@@ -383,6 +384,6 @@ export function DeparturesSoonSection() {
         )}
         </div>
       </div>
-    </section>
+    </EditableBox>
   )
 }

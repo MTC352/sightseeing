@@ -6,6 +6,7 @@ import { dbListJobs } from "@/lib/db/queries"
 import type { Metadata } from "next"
 import { localizedMetadata } from "@/lib/i18n/metadata"
 import { jobApplicationEmail } from "@/lib/job-email"
+import { EditableBox } from "@/components/editable-layout"
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sightseeing.lu"
 
@@ -128,7 +129,7 @@ export default async function CareersPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
       <Navbar />
 
-      <section className="border-b border-border bg-card">
+      <EditableBox boxId="careers/hero" label="Hero" as="section" className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-16">
           <p className="text-sm font-medium text-primary">Join our team</p>
           <h1 className="mt-2 text-3xl font-bold text-foreground lg:text-4xl">Work at sightseeing.lu</h1>
@@ -141,7 +142,7 @@ export default async function CareersPage() {
             <div className="flex items-center gap-2 text-muted-foreground"><span className="h-2 w-2 rounded-full bg-primary" /> Free experiences for staff</div>
           </div>
         </div>
-      </section>
+      </EditableBox>
 
       <CareersClient jobs={jobs} />
 
