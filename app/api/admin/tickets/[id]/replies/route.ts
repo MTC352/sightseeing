@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server"
-import { dbGetTicket, dbAddTicketReply } from "@/lib/db/queries"
+import { dbGetTicket, dbAddTicketReply, dbDeleteTicketReply } from "@/lib/db/queries"
 import { requirePermission } from "@/lib/auth-server"
 import { logActivity } from "@/lib/activity-log"
 import { notifyTicketEvent } from "@/lib/ticket-notifications"
 import { ticketRole, TICKET_MESSAGE_MAX } from "@/lib/ticket-fields"
+import { isFullAdmin } from "@/lib/admin-permissions"
+import { validateTicketFiles } from "@/lib/ticket-attachment-rules"
+import { parseTicketRequest, saveTicketAttachments } from "@/lib/ticket-attachments"
 
 type TicketRow = { id: string; subject: string; status: string; authorName: string; authorEmail: string; authorRole?: string }
 
@@ -14,9 +17,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const ticket = (await dbGetTicket(id)) as TicketRow | null
     if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
 
-    const data = await req.json()
+    const { data, files } = await parseTicketRequest(req)
     const message = typeof data.message === "string" ? data.message.trim().slice(0, TICKET_MESSAGE_MAX) : ""
     if (!message) return NextResponse.json({ error: "Message is required" }, { status: 400 })
+    // Attachments are for full admins only (superadmin or "*" employees).
+    if (files.length > 0) {
+      if (!isFullAdmin(session.role, session.permissions)) {
+        return NextResponse.json({ error: "Only full-access admins can attach files" }, { status: 403 })
+      }
+      const check = validateTicketFiles(files)
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
+    }
 
     // The reply author is always the logged-in admin (never taken from the request).
     const actor = { name: session.name || session.email, email: session.email }
@@ -25,7 +36,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       authorName: actor.name,
       authorRole: ticketRole(session.role),
       message,
-    })
+    }) as { id: string }
+    let attachments: Awaited<ReturnType<typeof saveTicketAttachments>> = []
+    try {
+      attachments = await saveTicketAttachments(id, reply.id, files, session.id)
+    } catch (err) {
+      // Don't leave a reply that claims files it doesn't have.
+      await dbDeleteTicketReply(reply.id).catch(() => undefined)
+      throw err
+    }
     void notifyTicketEvent(
       { kind: "reply", message },
       { id: ticket.id, subject: ticket.subject, status: ticket.status, authorName: ticket.authorName, authorEmail: ticket.authorEmail, authorRole: ticket.authorRole },
@@ -37,10 +56,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       action: "ticket_reply.create",
       entityType: "ticket_reply",
       entityId: id,
-      summary: `Added reply to ticket "${(ticket as { subject?: string }).subject ?? id}"`,
+      summary: `Added reply to ticket "${(ticket as { subject?: string }).subject ?? id}"${attachments.length ? ` with ${attachments.length} attachment(s)` : ""}`,
     })
 
-    return NextResponse.json(reply, { status: 201 })
+    return NextResponse.json({ ...reply, attachments }, { status: 201 })
   } catch (err: unknown) {
         if (err instanceof Error && (err as { status?: number }).status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
         if (err instanceof Error && (err as { status?: number }).status === 401) {

@@ -281,7 +281,8 @@ export const adminApi = createApi({
       query: (id) => `/tickets/${id}`,
       providesTags: (_r, _e, id) => [{ type: "Tickets", id }],
     }),
-    createTicket: builder.mutation<Ticket, Partial<Ticket>>({
+    // FormData when files are attached (multipart), otherwise JSON.
+    createTicket: builder.mutation<Ticket, Partial<Ticket> | FormData>({
       query: (body) => ({ url: "/tickets", method: "POST", body }),
       invalidatesTags: ["Tickets", "Dashboard"],
     }),

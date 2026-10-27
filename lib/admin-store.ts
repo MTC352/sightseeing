@@ -11,6 +11,8 @@
 // These TypeScript interfaces remain because several admin edit forms still
 // import them as shape contracts for their local React state.
 
+import type { TicketAttachment } from "@/lib/ticket-attachment-rules"
+
 /** A single structured itinerary step shown on the trip detail page.
  *  Location is OPTIONAL — only set for searchable, mappable places (e.g.
  *  "European Schengen Museum"). Vague stops (lunch break, free time) omit it. */
@@ -163,6 +165,10 @@ export interface SupportTicket {
   authorRole: "user" | "admin" | "superadmin"
   assignedTo?: string
   replies: TicketReply[]
+  /** Full admins only: every attachment on the ticket (replyId null = the description). */
+  attachments?: TicketAttachment[]
+  /** True when the viewer may see and add attachments (full admins). */
+  canAttach?: boolean
   createdAt: string
   updatedAt: string
 }

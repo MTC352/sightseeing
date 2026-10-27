@@ -1502,6 +1502,46 @@ export async function dbAddTicketReply(ticketId: string, data: Record<string, un
   return rows[0]
 }
 
+export async function dbDeleteTicketReply(id: string) {
+  await query(`DELETE FROM ticket_replies WHERE id = $1`, [id])
+}
+
+// Ticket attachments: metadata only — the bytes live on disk (lib/ticket-attachments.ts).
+const TICKET_ATTACHMENT_COLUMNS = `id, ticket_id as "ticketId", reply_id as "replyId", filename,
+  mime_type as "mimeType", size_bytes as "sizeBytes", created_at as "createdAt"`
+
+export async function dbListTicketAttachments(ticketId: string) {
+  return query(
+    `SELECT ${TICKET_ATTACHMENT_COLUMNS} FROM ticket_attachments WHERE ticket_id = $1 ORDER BY created_at, filename`,
+    [ticketId],
+  )
+}
+
+export async function dbGetTicketAttachment(id: string) {
+  return queryOne(
+    `SELECT ${TICKET_ATTACHMENT_COLUMNS}, storage_key as "storageKey" FROM ticket_attachments WHERE id = $1`,
+    [id],
+  )
+}
+
+export async function dbInsertTicketAttachments(rows: {
+  id: string; ticketId: string; replyId: string | null; filename: string
+  mimeType: string; sizeBytes: number; storageKey: string; uploadedBy: string | null
+}[]) {
+  return withTransaction(async (q) => {
+    const out: Record<string, unknown>[] = []
+    for (const r of rows) {
+      const [row] = await q(
+        `INSERT INTO ticket_attachments (id, ticket_id, reply_id, filename, mime_type, size_bytes, storage_key, uploaded_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${TICKET_ATTACHMENT_COLUMNS}`,
+        [r.id, r.ticketId, r.replyId, r.filename, r.mimeType, r.sizeBytes, r.storageKey, r.uploadedBy],
+      )
+      out.push(row)
+    }
+    return out
+  })
+}
+
 // ── Settings ───────────────────────────────────────────────────────────────
 
 export async function dbGetSettings() {

@@ -9,6 +9,8 @@ import {
   useCreateTicketMutation,
 } from "@/store/admin/api"
 import type { Ticket as TicketType } from "@/store/admin/api"
+import { isFullAdmin } from "@/lib/admin-permissions"
+import { TicketAttachmentPicker } from "@/components/admin/ticket-attachments"
 
 const PRIORITY_STYLES = {
   low: "bg-slate-500/15 text-slate-600",
@@ -202,14 +204,18 @@ function NewTicketForm({ onClose }: { onClose: () => void }) {
     authorEmail: "",
   })
   const [error, setError] = useState<string | null>(null)
+  const [files, setFiles] = useState<File[]>([])
+  // Attachments are for full admins only (the server enforces this too).
+  const [canAttach, setCanAttach] = useState(false)
 
   // Default the author to the logged-in admin; change it to the client the
   // ticket is for so they get the status / reply emails.
   useEffect(() => {
     fetch("/api/admin/auth/me")
       .then((r) => (r.ok ? r.json() : null))
-      .then((me: { name?: string; email?: string | null } | null) => {
+      .then((me: { name?: string; email?: string | null; role?: string; permissions?: string[] } | null) => {
         if (!me) return
+        setCanAttach(isFullAdmin(me.role ?? "", me.permissions))
         setForm((f) => ({
           ...f,
           authorName: f.authorName || me.name || "",
@@ -223,7 +229,14 @@ function NewTicketForm({ onClose }: { onClose: () => void }) {
     e.preventDefault()
     setError(null)
     try {
-      await createTicket(form).unwrap()
+      if (files.length > 0) {
+        const fd = new FormData()
+        for (const [k, v] of Object.entries(form)) fd.append(k, v)
+        for (const f of files) fd.append("files", f)
+        await createTicket(fd).unwrap()
+      } else {
+        await createTicket(form).unwrap()
+      }
       onClose()
     } catch (err) {
       const msg = (err as { data?: { error?: string } })?.data?.error
@@ -256,6 +269,7 @@ function NewTicketForm({ onClose }: { onClose: () => void }) {
               placeholder="Detailed description of the issue or request"
               required
             />
+            {canAttach && <TicketAttachmentPicker files={files} onChange={setFiles} disabled={isLoading} />}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

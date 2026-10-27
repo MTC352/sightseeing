@@ -4,6 +4,8 @@ import { useState, useEffect, use } from "react"
 import Link from "next/link"
 import { ArrowLeft, Send, Loader2, AlertCircle, Clock, CheckCircle, XCircle, User, Pencil, Mail } from "lucide-react"
 import type { SupportTicket, TicketReply } from "@/lib/admin-store"
+import type { TicketAttachment } from "@/lib/ticket-attachment-rules"
+import { TicketAttachmentList, TicketAttachmentPicker } from "@/components/admin/ticket-attachments"
 
 const PRIORITY_STYLES = {
   low: "bg-slate-500/15 text-slate-600",
@@ -39,6 +41,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   const [ticket, setTicket] = useState<SupportTicket | null>(null)
   const [loading, setLoading] = useState(true)
   const [replyText, setReplyText] = useState("")
+  const [replyFiles, setReplyFiles] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -143,25 +146,33 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     setActionError(null)
 
     try {
-      // The server takes the author from the logged-in admin.
-      const res = await fetch(`/api/admin/tickets/${id}/replies`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: replyText }),
-      })
+      // The server takes the author from the logged-in admin. Multipart only
+      // when files are attached (full admins).
+      let init: RequestInit
+      if (replyFiles.length > 0) {
+        const fd = new FormData()
+        fd.append("message", replyText)
+        for (const f of replyFiles) fd.append("files", f)
+        init = { method: "POST", body: fd }
+      } else {
+        init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: replyText }) }
+      }
+      const res = await fetch(`/api/admin/tickets/${id}/replies`, init)
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error((body as { error?: string }).error ?? "Failed to add reply")
       }
 
-      const reply = await res.json()
+      const { attachments: added = [], ...reply } = (await res.json()) as TicketReply & { attachments?: TicketAttachment[] }
       setTicket((prev) => prev ? {
         ...prev,
         replies: [...prev.replies, reply],
+        attachments: [...(prev.attachments ?? []), ...added],
         updatedAt: new Date().toISOString(),
       } : null)
       setReplyText("")
+      setReplyFiles([])
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Failed to add reply")
     } finally {
@@ -192,6 +203,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   }
 
   const StatusIcon = STATUS_ICONS[ticket.status]
+  const attachmentsFor = (replyId: string | null) => (ticket.attachments ?? []).filter((a) => a.replyId === replyId)
 
   return (
     <div className="p-6 lg:p-10">
@@ -234,6 +246,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               </div>
             </div>
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{ticket.description}</p>
+            <TicketAttachmentList attachments={attachmentsFor(null)} />
           </div>
 
           {/* Replies */}
@@ -241,7 +254,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             <div className="space-y-4">
               <h2 className="text-sm font-semibold text-muted-foreground">Replies ({ticket.replies.length})</h2>
               {ticket.replies.map((reply) => (
-                <ReplyCard key={reply.id} reply={reply} />
+                <ReplyCard key={reply.id} reply={reply} attachments={attachmentsFor(reply.id)} />
               ))}
             </div>
           )}
@@ -256,6 +269,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                 placeholder="Type your reply..."
                 className="h-32 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
+              {ticket.canAttach && (
+                <TicketAttachmentPicker files={replyFiles} onChange={setReplyFiles} disabled={submitting} />
+              )}
               <div className="mt-3 flex items-center justify-between gap-3">
                 <p className="text-[11px] text-muted-foreground">
                   The ticket author and the ticket notification addresses are emailed (not you).
@@ -424,7 +440,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   )
 }
 
-function ReplyCard({ reply }: { reply: TicketReply }) {
+function ReplyCard({ reply, attachments }: { reply: TicketReply; attachments: TicketAttachment[] }) {
   const isStaff = reply.authorRole !== "user"
   
   return (
@@ -444,6 +460,7 @@ function ReplyCard({ reply }: { reply: TicketReply }) {
         </div>
       </div>
       <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{reply.message}</p>
+      <TicketAttachmentList attachments={attachments} />
     </div>
   )
 }

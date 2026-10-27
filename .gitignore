@@ -53,6 +53,8 @@ next-env.d.ts
 
 # Runtime uploads (media library files — copy separately when migrating servers)
 /public/uploads/
+# Private runtime files (ticket attachments) — outside public/, never served directly
+/storage/
 
 # Database exports (contain API keys & password hashes — never commit)
 /db-export/

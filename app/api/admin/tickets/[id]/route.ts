@@ -5,6 +5,7 @@ import { logActivity } from "@/lib/activity-log"
 import { notifyTicketEvent } from "@/lib/ticket-notifications"
 import { isTicketPriority, isTicketStatus, resolveTicketAuthor } from "@/lib/ticket-fields"
 import { isValidEmail } from "@/lib/job-email"
+import { withTicketAttachments, removeTicketAttachmentFiles } from "@/lib/ticket-attachments"
 
 type TicketRow = { id: string; subject: string; status: string; authorName: string; authorEmail: string; authorRole?: string }
 
@@ -18,11 +19,11 @@ function isForbidden(err: unknown): boolean {
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requirePermission("tickets")
+    const session = await requirePermission("tickets")
     const { id } = await params
-    const ticket = await dbGetTicket(id)
+    const ticket = (await dbGetTicket(id)) as TicketRow | null
     if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 })
-    return NextResponse.json(ticket)
+    return NextResponse.json(await withTicketAttachments(ticket, session))
   } catch (err) {
     if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -72,7 +73,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       entityId: id,
       summary: `Updated ticket "${(updated as { subject?: string }).subject ?? id}"`,
     })
-    return NextResponse.json(updated)
+    return NextResponse.json(await withTicketAttachments(updated, session))
   } catch (err) {
     if (isForbidden(err)) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     if (isUnauthorized(err)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -86,6 +87,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     const session = await requirePermission("tickets")
     const { id } = await params
     await dbDeleteTicket(id)
+    // Rows cascade with the ticket; the files on disk must be removed here.
+    await removeTicketAttachmentFiles(id).catch((err) =>
+      console.error("[admin/tickets/:id] failed to remove attachment files:", err),
+    )
     void logActivity({
       actor: session,
       action: "ticket.delete",
